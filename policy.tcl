@@ -40,8 +40,28 @@ if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
 proc title-metrics {} {
     set ::titleh [expr {[font metrics TitleFont -linespace] + 6}]
     set ::decotop [expr {2 + $::titleh + 2}]
+    btn-images
     puts "WM: titlebar h=$::titleh top=$::decotop\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
+}
+
+# Titlebar buttons, fvwm-style (the owner's frame as the model): a thin
+# white outlined square holding a thin white glyph, drawn flat on the
+# titlebar color. The glyphs are svg — re-rendered crisp at whatever
+# size the font dictates, never scaled bitmaps.
+set SVG_CLOSE {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+<path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" stroke="#ffffff"
+ stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>}
+set SVG_MAX {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+<rect x="3.5" y="3.5" width="9" height="9" stroke="#ffffff"
+ stroke-width="1.6" fill="none"/></svg>}
+proc btn-images {} {
+    # re-creating a photo under the same name updates every user of it
+    set g [expr {max($::titleh - 14, 7)}]
+    image create photo imgClose -format [list svg -scaletoheight $g] \
+        -data $::SVG_CLOSE
+    image create photo imgMax -format [list svg -scaletoheight $g] \
+        -data $::SVG_MAX
 }
 title-metrics
 
@@ -133,10 +153,10 @@ proc policy-attach {w cw ch} {
     lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $::decotop + $B}]] X Y
     toplevel $t -background #3465a4
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
-    # The titlebar is a treectrl (a one-item, one-column one): its text
-    # element with -squeeze x ellipsizes a title that does not fit. The
-    # class bindings are stripped — this is a dumb label with our drag
-    # binds, not a tree.
+    # The titlebar is a treectrl (a one-item one): the title text in an
+    # expanding column whose -squeeze x text element ellipsizes what does
+    # not fit, then two fixed button columns — maximize and close — each
+    # a stateful outlined square (rect element) around an svg glyph.
     treectrl $t.title -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
         -background #3465a4 -itemheight $::titleh
@@ -146,23 +166,34 @@ proc policy-attach {w cw ch} {
     # riding along are harmless — they compute from root coords and see
     # "not a border" here).
     bindtags $t.title [list $t.title $t all]
-    $t.title column create -squeeze yes -tags C0
+    $t.title state define pressed   ;# armed by a press; release-inside fires
+    $t.title column create -squeeze yes -expand yes -tags C0
+    $t.title column create -width $::titleh -tags Cmax
+    $t.title column create -width $::titleh -tags Cclose
     $t.title configure -treecolumn C0
     $t.title element create eTxt text -fill white -lines 1 -font TitleFont
+    $t.title element create eBox rect -outline white -outlinewidth 1 \
+        -fill [list #2e3436 pressed {} {}]
+    $t.title element create eMax image -image imgMax
+    $t.title element create eClose image -image imgClose
     $t.title style create sTitle
     $t.title style elements sTitle eTxt
     $t.title style layout sTitle eTxt -expand ns -padx 4 -squeeze x
+    foreach {st el} {sMax eMax sClose eClose} {
+        $t.title style create $st
+        $t.title style elements $st [list eBox $el]
+        $t.title style layout $st eBox -union $el -ipadx 3 -ipady 3 -expand ns
+        $t.title style layout $st $el -expand ns
+    }
     set item [$t.title item create]   ;# always item 1 in a fresh widget
-    $t.title item style set $item C0 sTitle
+    $t.title item style set $item C0 sTitle Cmax sMax Cclose sClose
     $t.title item element configure $item C0 eTxt \
         -text "клиент 0x[format %x $w]"
     $t.title item lastchild root $item
-    label $t.close -text ✕ -background #3465a4 -foreground white \
-        -font TitleFont
-    bind $t.close <ButtonRelease-1> [list close-client $w]
     frame $t.slot -width $cw -height $ch -background #202020
-    bind $t.title <ButtonPress-1> [list drag-start $t $w %X %Y]
-    bind $t.title <B1-Motion>     [list drag-move  $t $w %X %Y]
+    bind $t.title <ButtonPress-1>   [list title-press   $t $w %x %y %X %Y]
+    bind $t.title <B1-Motion>       [list title-motion  $t $w %x %y %X %Y]
+    bind $t.title <ButtonRelease-1> [list title-release $t $w %x %y]
     # Resize by the border: the border strips are the bare toplevel, and a
     # bind on a toplevel fires for its children too — so positions are
     # computed from ROOT coords (%x/%y would be child-relative there) and
@@ -198,9 +229,11 @@ proc policy-frame-geometry {w} {
 
 proc policy-detach {w} {
     if {![info exists ::frameof($w)]} return
+    unset -nocomplain ::btn($::frameof($w))
     destroy $::frameof($w)
     unset ::frameof($w)
     unset -nocomplain ::leaderof($w)
+    unset -nocomplain ::maxsaved($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
 }
 
@@ -225,8 +258,9 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
     set B $::border
     if {$X eq ""} { regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y }
     $t.title configure -itemheight $::titleh
-    place $t.title -x $B -y 2 -width [expr {$cw - 20}] -height $::titleh
-    place $t.close -x [expr {$B + $cw - 20}] -y 2 -width 20 -height $::titleh
+    $t.title column configure Cmax -width $::titleh
+    $t.title column configure Cclose -width $::titleh
+    place $t.title -x $B -y 2 -width $cw -height $::titleh
     $t.slot configure -width $cw -height $ch
     place $t.slot -x $B -y $::decotop
     wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + $::decotop + $B}]+$X+$Y
@@ -334,7 +368,6 @@ proc policy-paint-focus {w} {
         set bg [expr {$ww == $w ? "#3465a4" : "#888a85"}]
         $tt configure -background $bg
         $tt.title configure -background $bg
-        $tt.close configure -background $bg
     }
 }
 
@@ -401,6 +434,82 @@ proc policy-pick-refocus {w} {
         if {$cand != $w} { return $cand }
     }
     return 0
+}
+
+# ---- titlebar dispatch: buttons vs the drag ----
+# One press lands on the titlebar treectrl; identify says whether it hit
+# a button column. A button press arms that button (pressed state on its
+# column only — forcolumn); the action fires on release-inside, classic
+# button semantics, so a drag-away cancels. Anything else is the title
+# drag.
+proc title-button {T x y} {
+    if {[catch {$T identify -array A $x $y}]} { return "" }
+    if {$A(where) ne "item" || $A(column) eq ""} { return "" }
+    foreach tag {Cmax Cclose} {
+        if {[$T column compare $A(column) == $tag]} { return $tag }
+    }
+    return ""
+}
+proc title-press {t w x y X Y} {
+    set b [title-button $t.title $x $y]
+    if {$b eq ""} { drag-start $t $w $X $Y; return }
+    set ::btn($t) $b
+    $t.title item state forcolumn 1 $b pressed
+}
+proc title-motion {t w x y X Y} {
+    if {![info exists ::btn($t)]} { drag-move $t $w $X $Y; return }
+    set on [expr {[title-button $t.title $x $y] eq $::btn($t)}]
+    $t.title item state forcolumn 1 $::btn($t) \
+        [expr {$on ? "pressed" : "!pressed"}]
+}
+proc title-release {t w x y} {
+    if {![info exists ::btn($t)]} return
+    set b $::btn($t)
+    unset ::btn($t)
+    $t.title item state forcolumn 1 $b !pressed
+    if {[title-button $t.title $x $y] eq $b} {
+        switch -- $b {
+            Cclose { close-client $w }
+            Cmax   { maximize-toggle $w }
+        }
+    }
+}
+
+# ---- maximize, fvwm semantics ----
+# The workarea: where maximize expands to. The full screen today;
+# panels will carve pieces off it later.
+proc workarea {} {
+    lassign [screen-size] sw sh
+    list 0 0 $sw $sh
+}
+
+# Maximize fills the workarea and remembers what the window was; the
+# second toggle restores it. "Maximized" is a saved-geometry flag, not
+# a straitjacket: the window can be resized and moved freely meanwhile
+# (fvwm semantics, not Windows) — the toggle still restores the
+# geometry saved at maximize time.
+proc maximize-toggle {w} {
+    if {![info exists ::frameof($w)]} return
+    set t $::frameof($w)
+    set B $::border
+    if {[info exists ::maxsaved($w)]} {
+        lassign $::maxsaved($w) cw ch X Y
+        unset ::maxsaved($w)
+        wm geometry $t +$X+$Y
+        wm-resize-client $w $cw $ch
+    } else {
+        regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
+        set ::maxsaved($w) \
+            [list [$t.slot cget -width] [$t.slot cget -height] $X $Y]
+        lassign [workarea] wx wy ww wh
+        wm geometry $t +$wx+$wy
+        wm-resize-client $w [expr {$ww - 2*$B}] [expr {$wh - $::decotop - $B}]
+    }
+    # wm-resize-client skips a no-op resize and tells the client nothing
+    # then — but the frame MOVED either way, so state the origin once
+    # more, from settled Tk geometry.
+    update idletasks
+    send-synthetic-configure $w
 }
 
 # Move policy is plain Tk: drag the title bar, the client rides along.
