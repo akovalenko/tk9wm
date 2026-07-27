@@ -12,6 +12,9 @@
 # bookkeeping. The substrate's client geometry (::geomof) is not touched
 # here — sizes always arrive as hook arguments.
 
+package require treectrl   ;# titlebars: its text element cuts a long
+                            ;# title with an ellipsis instead of overflowing
+
 set ncli 0
 set fid 0
 set focus_hist {}
@@ -75,8 +78,25 @@ proc policy-attach {w cw ch} {
     lassign [place-frame $w [expr {$cw + 4}] [expr {$ch + 28}]] X Y
     toplevel $t -background #3465a4
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
-    label $t.title -text " клиент 0x[format %x $w]" \
-        -background #3465a4 -foreground white -anchor w
+    # The titlebar is a treectrl (a one-item, one-column one): its text
+    # element with -squeeze x ellipsizes a title that does not fit. The
+    # class bindings are stripped — this is a dumb label with our drag
+    # binds, not a tree.
+    treectrl $t.title -showheader no -showroot no -showbuttons no \
+        -showlines no -borderwidth 0 -highlightthickness 0 \
+        -background #3465a4 -itemheight 22
+    bindtags $t.title [list $t.title all]
+    $t.title column create -squeeze yes -tags C0
+    $t.title configure -treecolumn C0
+    $t.title element create eTxt text -fill white -lines 1
+    $t.title style create sTitle
+    $t.title style elements sTitle eTxt
+    $t.title style layout sTitle eTxt -expand ns -padx 4 -squeeze x
+    set item [$t.title item create]   ;# always item 1 in a fresh widget
+    $t.title item style set $item C0 sTitle
+    $t.title item element configure $item C0 eTxt \
+        -text "клиент 0x[format %x $w]"
+    $t.title item lastchild root $item
     place $t.title -x 2 -y 2 -width [expr {$cw - 20}] -height 22
     label $t.close -text ✕ -background #3465a4 -foreground white
     place $t.close -x [expr {2 + $cw - 20}] -y 2 -width 20 -height 22
@@ -133,6 +153,16 @@ proc policy-resize {w cw ch} {
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
     wm geometry $t [expr {$cw + 4}]x[expr {$ch + 28}]+$X+$Y
     update idletasks
+}
+
+# The client named (or renamed) itself: put the title on the titlebar.
+# The treectrl item is always 1 — a fresh widget per frame, the single
+# item created right after it.
+proc policy-title {w title} {
+    if {![info exists ::frameof($w)]} return
+    if {$title eq ""} { set title "клиент 0x[format %x $w]" }
+    set t $::frameof($w)
+    $t.title item element configure 1 C0 eTxt -text $title
 }
 
 # Focus highlight: active frame blue, inactive grey. Every honest focus

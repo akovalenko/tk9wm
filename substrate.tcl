@@ -26,6 +26,8 @@
 #                           client back on root)
 #   policy-resize w cw ch   decoration follows w's new client size
 #   policy-paint-focus w    repaint the focus highlight (w is focused)
+#   policy-title w title    put the client's (new) title on the frame;
+#                           empty string = the client named nothing
 #   policy-client-click w   a click landed inside managed client w
 #   policy-managed w        w was just managed (initial-focus decision)
 #   policy-pick-refocus w   choose a window to refocus after w's unmanage;
@@ -92,6 +94,15 @@ set has_protocols [expr {![catch {
 set has_querytree [expr {![catch {
     X11 function XQueryTree int {dpy pointer.unsafe w ulong rootw {ulong out} parentw {ulong out} children {pointer unsafe out} nkids {uint out}}
     X11 function XGetWindowAttributes int {dpy pointer.unsafe w ulong attrs pointer.unsafe}
+}]}]
+set has_fetchname [expr {![catch {
+    X11 function XFetchName int {dpy pointer.unsafe w ulong name {pointer unsafe out}}
+}]}]
+set has_getprop [expr {![catch {
+    X11 function XGetWindowProperty int {dpy pointer.unsafe w ulong prop ulong
+        off long len long delete int reqtype ulong actual_type {ulong out}
+        actual_format {int out} nitems {ulong out} bytes_after {ulong out}
+        data {pointer unsafe out}}
 }]}]
 
 # ---------------- X error handler (cffi callback) ----------------
@@ -163,6 +174,7 @@ puts "WM: redirect armed on root [format 0x%x $root]"
 set WM_PROTOCOLS      [XInternAtom $dpy WM_PROTOCOLS 0]
 set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
 set WM_STATE          [XInternAtom $dpy WM_STATE 0]
+set WM_NAME           39   ;# XA_WM_NAME, predefined
 
 # ---------------- EWMH minimum ----------------
 # Enough for toolkits to see "a WM is present": _NET_SUPPORTING_WM_CHECK on
@@ -287,6 +299,15 @@ proc handle-event {} {
                 if {$::focused != $win} { paint-focus $win }
             }
         }
+        28 { # PropertyNotify (window@32 atom@40 = the generic A B): a
+            # title change repaints the frame's titlebar
+            if {[info exists ::managed($A)]
+                    && ($B == $::WM_NAME
+                        || ([info exists ::NET_WM_NAME]
+                            && $B == $::NET_WM_NAME))} {
+                refresh-title $A
+            }
+        }
         4 { # ButtonPress via our sync grab: let the policy react (focus,
             # raise, whatever), then replay the frozen click to the client.
             # XButtonEvent: window@32 root@40 subwindow@48 time@56.
@@ -322,6 +343,39 @@ proc transient-for {w} {
     return $parent
 }
 
+# The client's window title: _NET_WM_NAME (UTF8, the modern spelling)
+# when present, else WM_NAME via XFetchName. Empty string = the client
+# named nothing. WM_NAME is latin1/COMPOUND_TEXT territory — clients
+# that care about non-ASCII set _NET_WM_NAME, so the lossy fallback is
+# acceptable.
+proc client-title {w} {
+    if {$::has_getprop && [info exists ::NET_WM_NAME]
+            && ![catch {XGetWindowProperty $::dpy $w $::NET_WM_NAME 0 256 0 \
+                    $::UTF8 atype afmt nitems after data} status]
+            && $status == 0} {   ;# Success
+        set title ""
+        if {$afmt == 8 && $nitems > 0 && ![cffi::pointer isnull $data]} {
+            set title [encoding convertfrom utf-8 \
+                [cffi::memory tobinary! $data $nitems]]
+        }
+        catch {XFree $data}
+        if {$title ne ""} { return $title }
+    }
+    if {$::has_fetchname && ![catch {XFetchName $::dpy $w np} ok] && $ok
+            && ![cffi::pointer isnull $np]} {
+        set s [cffi::memory tostring! $np]
+        catch {XFree $np}
+        return $s
+    }
+    return ""
+}
+
+proc refresh-title {w} {
+    set title [client-title $w]
+    puts "WM: title 0x[format %x $w] -> «$title»"
+    policy-title $w $title
+}
+
 # ICCCM 4.1.3.1: a managed window must carry WM_STATE (state + icon
 # window). Toolkits and every wmctrl/xdotool-class tool use its presence
 # to tell "managed by a WM" from "still wild" — we never set it, which
@@ -345,8 +399,8 @@ proc manage {w} {
     set slot [policy-attach $w $cw $ch]
     set ::managed($w) 1
     # StructureNotify (Destroy/Unmap) + FocusChange (honest highlight even
-    # when focus moves behind our back)
-    XSelectInput $dpy $w [expr {(1 << 17) | (1 << 21)}]
+    # when focus moves behind our back) + PropertyChange (live titles)
+    XSelectInput $dpy $w [expr {(1 << 17) | (1 << 21) | (1 << 22)}]
     # After the reparent the client is no longer a child of root, so root's
     # SubstructureRedirect no longer covers it: keep redirecting its
     # ConfigureRequests by holding the mask on the frame slot as well.
@@ -366,6 +420,7 @@ proc manage {w} {
     set-wm-state $w 1          ;# NormalState — ICCCM, see set-wm-state
     XSync $dpy 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
+    refresh-title $w
     policy-managed $w
     tell-where-you-are $w
 }
