@@ -65,8 +65,9 @@ else
     echo "FAIL: client is $GEOM, want 390x228"
 fi
 # after the title drag the frame sits at (FX-10, FY+15); the client area
-# is +6+26 inside it. The root-background drag must not have moved it.
-WANTPOS="$((FX - 4)),$((FY + 41))"
+# is +6+top inside it, where top is font-driven and printed by the WM.
+TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-resize.log" | head -1)
+WANTPOS="$((FX - 4)),$((FY + 15 + TOP))"
 if [ "$POS" = "$WANTPOS" ]; then
     echo "OK: client at +$POS after title drag; root-background drag was a noop"
 else

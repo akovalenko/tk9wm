@@ -23,6 +23,47 @@ set focus_hist {}
 # titlebar stays 2px — the title drag lives there, top resize does not.
 set border 6
 
+# Titlebar typography. TitleFont is OUR named font: it starts as a copy
+# of TkDefaultFont, TK9WM_TITLE_FONT overrides it at startup (any Tk
+# font spec, e.g. "DejaVu Sans 12"), and set-title-font re-points it
+# live. Every vertical measure of the decoration derives from its
+# metrics — a 22px strip that was roomy at 96 dpi was visibly too tight
+# for the same font at Xft.dpi 144 (live report, 2026-07-27).
+font create TitleFont {*}[font actual TkDefaultFont]
+if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
+    if {[catch {font configure TitleFont {*}[font actual $::env(TK9WM_TITLE_FONT)]} err]} {
+        puts "WM: TK9WM_TITLE_FONT «$::env(TK9WM_TITLE_FONT)» rejected: $err"
+    }
+}
+# 3px of air above and below the text line; the strip sits under the 2px
+# top edge, a 2px gap separates it from the client slot.
+proc title-metrics {} {
+    set ::titleh [expr {[font metrics TitleFont -linespace] + 6}]
+    set ::decotop [expr {2 + $::titleh + 2}]
+    puts "WM: titlebar h=$::titleh top=$::decotop\
+ font=[font actual TitleFont -family]/[font actual TitleFont -size]"
+}
+title-metrics
+
+# Re-derive the metrics and re-lay-out every live frame (same client
+# sizes, new strip height); each client then learns its new origin —
+# the slot moved inside the frame. The knob for a live font change:
+proc set-title-font {args} {
+    font configure TitleFont {*}$args
+    retitle-frames
+}
+proc retitle-frames {} {
+    title-metrics
+    foreach {w t} [array get ::frameof] {
+        frame-layout $t [$t.slot cget -width] [$t.slot cget -height]
+    }
+    update idletasks
+    foreach {w t} [array get ::frameof] { send-synthetic-configure $w }
+}
+# a ttk theme switch would change TkDefaultFont-derived looks the same
+# way; today the only real trigger is set-title-font
+bind . <<ThemeChanged>> retitle-frames
+
 # Where to put a new frame (fw x fh, decoration included). Two rules, in
 # order:
 #
@@ -75,7 +116,7 @@ proc clamp-to-screen {X Y fw fh sw sh} {
 proc policy-max-client-size {} {
     lassign [screen-size] sw sh
     set B $::border
-    list [expr {$sw - 2*$B}] [expr {$sh - 26 - $B}]
+    list [expr {$sw - 2*$B}] [expr {$sh - $::decotop - $B}]
 }
 
 # Build a decoration for client w (client area cw x ch): blue titlebar
@@ -89,7 +130,7 @@ proc policy-attach {w cw ch} {
     # dialog's leader at a moment when the dialog may already be a dead
     # window that cannot be asked anything.
     set ::leaderof($w) [transient-for $w]
-    lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + 26 + $B}]] X Y
+    lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $::decotop + $B}]] X Y
     toplevel $t -background #3465a4
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
     # The titlebar is a treectrl (a one-item, one-column one): its text
@@ -98,11 +139,11 @@ proc policy-attach {w cw ch} {
     # binds, not a tree.
     treectrl $t.title -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background #3465a4 -itemheight 22
+        -background #3465a4 -itemheight $::titleh
     bindtags $t.title [list $t.title all]
     $t.title column create -squeeze yes -tags C0
     $t.title configure -treecolumn C0
-    $t.title element create eTxt text -fill white -lines 1
+    $t.title element create eTxt text -fill white -lines 1 -font TitleFont
     $t.title style create sTitle
     $t.title style elements sTitle eTxt
     $t.title style layout sTitle eTxt -expand ns -padx 4 -squeeze x
@@ -111,12 +152,10 @@ proc policy-attach {w cw ch} {
     $t.title item element configure $item C0 eTxt \
         -text "клиент 0x[format %x $w]"
     $t.title item lastchild root $item
-    place $t.title -x $B -y 2 -width [expr {$cw - 20}] -height 22
-    label $t.close -text ✕ -background #3465a4 -foreground white
-    place $t.close -x [expr {$B + $cw - 20}] -y 2 -width 20 -height 22
+    label $t.close -text ✕ -background #3465a4 -foreground white \
+        -font TitleFont
     bind $t.close <ButtonRelease-1> [list close-client $w]
     frame $t.slot -width $cw -height $ch -background #202020
-    place $t.slot -x $B -y 26
     bind $t.title <ButtonPress-1> [list drag-start $t $w %X %Y]
     bind $t.title <B1-Motion>     [list drag-move  $t $w %X %Y]
     # Resize by the border: the border strips are the bare toplevel, and a
@@ -132,7 +171,7 @@ proc policy-attach {w cw ch} {
     bind $t <ButtonPress-1>   [list rz-start $t $w %X %Y]
     bind $t <B1-Motion>       [list rz-move  $t $w %X %Y]
     bind $t <ButtonRelease-1> [list press-end $t]
-    wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + 26 + $B}]+$X+$Y
+    frame-layout $t $cw $ch $X $Y
     update idletasks
     # Cross-connection ordering: a roundtrip on Tk's connection guarantees
     # the slot window exists server-side before the raw connection uses it.
@@ -171,15 +210,26 @@ proc policy-origin {w} {
     list [winfo rootx $t.slot] [winfo rooty $t.slot]
 }
 
+# The one place that knows where every part of a frame sits: title
+# strip, close box, client slot, outer geometry — all derived from the
+# border width and the font-driven ::titleh/::decotop. Called at attach
+# (with an explicit position), on every resize, and when the metrics
+# change under a live frame (set-title-font). Position defaults to
+# "stay where you are".
+proc frame-layout {t cw ch {X ""} {Y ""}} {
+    set B $::border
+    if {$X eq ""} { regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y }
+    $t.title configure -itemheight $::titleh
+    place $t.title -x $B -y 2 -width [expr {$cw - 20}] -height $::titleh
+    place $t.close -x [expr {$B + $cw - 20}] -y 2 -width 20 -height $::titleh
+    $t.slot configure -width $cw -height $ch
+    place $t.slot -x $B -y $::decotop
+    wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + $::decotop + $B}]+$X+$Y
+}
+
 # The decoration follows the client's new size (position stays put).
 proc policy-resize {w cw ch} {
-    set t $::frameof($w)
-    set B $::border
-    place configure $t.title -width [expr {$cw - 20}]
-    place configure $t.close -x [expr {$B + $cw - 20}]
-    $t.slot configure -width $cw -height $ch
-    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
-    wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + 26 + $B}]+$X+$Y
+    frame-layout $::frameof($w) $cw $ch
     update idletasks
 }
 
