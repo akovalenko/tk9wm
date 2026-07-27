@@ -62,6 +62,9 @@ set SVG_CLOSE {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 set SVG_MAX {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 <rect x="3.5" y="3.5" width="9" height="9" stroke="#ffffff"
  stroke-width="1.6" fill="none"/></svg>}
+set SVG_MENU {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+<rect x="3.5" y="6.5" width="9" height="3" stroke="#ffffff"
+ stroke-width="1.6" fill="none"/></svg>}
 proc btn-images {} {
     # re-creating a photo under the same name updates every user of it
     set g [expr {max($::titleh - 14, 7)}]
@@ -69,6 +72,8 @@ proc btn-images {} {
         -data $::SVG_CLOSE
     image create photo imgMax -format [list svg -scaletoheight $g] \
         -data $::SVG_MAX
+    image create photo imgMenu -format [list svg -scaletoheight $g] \
+        -data $::SVG_MENU
 }
 title-metrics
 
@@ -249,6 +254,7 @@ proc policy-attach {w cw ch} {
     # "not a border" here).
     bindtags $t.title [list $t.title $t all]
     $t.title state define pressed   ;# armed by a press; release-inside fires
+    $t.title column create -width $::titleh -tags Cmenu
     $t.title column create -squeeze yes -expand yes -tags C0
     $t.title column create -width $::titleh -tags Cmax
     $t.title column create -width $::titleh -tags Cclose
@@ -256,20 +262,22 @@ proc policy-attach {w cw ch} {
     $t.title element create eTxt text -fill white -lines 1 -font TitleFont
     $t.title element create eBox rect -outline white -outlinewidth 1 \
         -fill [list #2e3436 pressed {} {}]
+    $t.title element create eMenu image -image imgMenu
     $t.title element create eMax image -image imgMax
     $t.title element create eClose image -image imgClose
     $t.title style create sTitle
     $t.title style elements sTitle eTxt
     $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
         -padx 4 -squeeze x
-    foreach {st el} {sMax eMax sClose eClose} {
+    foreach {st el} {sMenu eMenu sMax eMax sClose eClose} {
         $t.title style create $st
         $t.title style elements $st [list eBox $el]
         $t.title style layout $st eBox -union $el -ipadx 3 -ipady 3 -expand ns
         $t.title style layout $st $el -expand ns
     }
     set item [$t.title item create]   ;# always item 1 in a fresh widget
-    $t.title item style set $item C0 sTitle Cmax sMax Cclose sClose
+    $t.title item style set $item \
+        Cmenu sMenu C0 sTitle Cmax sMax Cclose sClose
     $t.title item element configure $item C0 eTxt \
         -text "клиент 0x[format %x $w]"
     $t.title item lastchild root $item
@@ -342,6 +350,7 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
     set B $::border
     if {$X eq ""} { regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y }
     $t.title configure -itemheight $::titleh
+    $t.title column configure Cmenu -width $::titleh
     $t.title column configure Cmax -width $::titleh
     $t.title column configure Cclose -width $::titleh
     place $t.title -x $B -y 2 -width $cw -height $::titleh
@@ -428,7 +437,7 @@ proc rz-start {t w X Y} {
     set e [rz-edge $t [expr {$X - [winfo rootx $t]}] \
                       [expr {$Y - [winfo rooty $t]}]]
     if {$e eq ""} return
-    winmenu-close
+    popups-close
     raise-group $w
     focus-to $w
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
@@ -509,27 +518,61 @@ proc policy-paint-focus {w} {
     }
 }
 
-# Raise the whole transient group of w: the leader first, its transients
-# above it, and the member the user touched on top of its siblings.
-# fvwm ships this glue as RaiseTransient + StackTransientParent, both on
-# by default in its builtin ConfigFvwmDefaults: raising ANY member
-# raises the group, and transients always end up above their leader
-# (stack.c re-inserts the leader below its transients). One level deep,
-# like fvwm's own redirect recursion. Lowering is not glued for a
-# simpler reason: we have no lower gesture at all yet.
+# Raise the whole transient group of w: the touched member on top of
+# its siblings, transients always above their leader (fvwm ships this
+# glue as RaiseTransient + StackTransientParent, both on by default).
+# One level deep, like fvwm's own redirect recursion.
+#
+# One ABSOLUTE raise — the group's top member — then every other
+# member is stacked BELOW its upper neighbor with sibling-relative
+# restacks. The first cut raised the leader to the very top and then
+# raised each transient over it: every click into a dialog flashed
+# the leader above it for a frame (live report: Tk widget demo,
+# File→About — About blinks under the main window on every click).
+# Relative restacks never lift the leader, and when the order is
+# already right each one is a server-side no-op — so "re-raise when
+# all is well" costs nothing visible either.
 proc raise-group {w} {
     set leader $w
     if {[info exists ::leaderof($w)] && $::leaderof($w) != 0
             && [info exists ::frameof($::leaderof($w))]} {
         set leader $::leaderof($w)
     }
-    raise $::frameof($leader)
+    # top-to-bottom: the touched transient (never the leader — its
+    # transients stay above it), the remaining transients, the leader
+    set order {}
+    if {$w != $leader} { lappend order $w }
     foreach {c l} [array get ::leaderof] {
         if {$l == $leader && $c != $w && [info exists ::frameof($c)]} {
-            raise $::frameof($c)
+            lappend order $c
         }
     }
-    if {$w != $leader} { raise $::frameof($w) }
+    lappend order $leader
+    raise $::frameof([lindex $order 0])
+    for {set i 1} {$i < [llength $order]} {incr i} {
+        lower $::frameof([lindex $order $i]) \
+              $::frameof([lindex $order [expr {$i - 1}]])
+    }
+}
+
+# Lower the whole transient group of w — the mirror image, same glue,
+# same relative restacks (the ops menu's "lower" is the first lower
+# gesture this WM has): one absolute lower — the leader, straight to
+# the floor — and every transient re-seated right above it, keeping
+# the group's internal order at the bottom of the stack.
+proc lower-group {w} {
+    if {![info exists ::frameof($w)]} return
+    set leader $w
+    if {[info exists ::leaderof($w)] && $::leaderof($w) != 0
+            && [info exists ::frameof($::leaderof($w))]} {
+        set leader $::leaderof($w)
+    }
+    lower $::frameof($leader)
+    foreach {c l} [array get ::leaderof] {
+        if {$l == $leader && [info exists ::frameof($c)]} {
+            raise $::frameof($c) $::frameof($leader)
+        }
+    }
 }
 
 # Click-to-focus: a click inside a client's body raises and focuses it.
@@ -539,7 +582,7 @@ proc raise-group {w} {
 # going to the previous window). One roundtrip per click is the price of
 # a click path that always heals.
 proc policy-client-click {w} {
-    winmenu-close
+    popups-close
     raise-group $w
     focus-to $w
 }
@@ -584,7 +627,7 @@ proc policy-pick-refocus {w} {
 proc title-button {T x y} {
     if {[catch {$T identify -array A $x $y}]} { return "" }
     if {$A(where) ne "item" || $A(column) eq ""} { return "" }
-    foreach tag {Cmax Cclose} {
+    foreach tag {Cmenu Cmax Cclose} {
         if {[$T column compare $A(column) == $tag]} { return $tag }
     }
     return ""
@@ -592,6 +635,7 @@ proc title-button {T x y} {
 proc title-press {t w x y X Y} {
     set b [title-button $t.title $x $y]
     if {$b eq ""} { drag-start $t $w $X $Y; return }
+    popups-close
     set ::btn($t) $b
     $t.title item state forcolumn 1 $b pressed
 }
@@ -610,6 +654,7 @@ proc title-release {t w x y} {
         switch -- $b {
             Cclose { close-client $w }
             Cmax   { maximize-toggle $w }
+            Cmenu  { winops $w }
         }
     }
 }
@@ -654,23 +699,93 @@ proc maximize-toggle {w} {
     send-synthetic-configure $w
 }
 
-# ---- the window menu: switch windows from the keyboard ----
-# A treectrl list of every managed window, most-recently-focused first
-# (never-focused windows trail behind), centered on the screen. The
-# initial selection sits on the SECOND entry: the first is the window
-# the user is leaving, so a bare Enter toggles to the previous one,
-# alt-tab style. Up/Down wrap around, Enter or a click picks, Esc gives
-# the focus back to where it was.
+# ---- popup menus: the shared shell ----
+# One pattern for both menus: an override-redirect toplevel (our own
+# redirect leaves those alone) holding a treectrl, driven
+# keyboard-modally through the substrate's grab-keys-to router — the
+# Tk focus path cannot serve an override-redirect window (see
+# grab-keys-to) — while the pointer stays free: a click on an item
+# picks it, a click anywhere else does its normal job and closes the
+# popup on the way (the popups-close calls in the click paths).
+proc popup-shell {m ih} {
+    popups-close
+    toplevel $m -background $::OUTLINE
+    wm overrideredirect $m 1
+    treectrl $m.t -showheader no -showroot no -showbuttons no \
+        -showlines no -borderwidth 0 -highlightthickness 0 \
+        -background #555753 -itemheight $ih
+    bindtags $m.t [list $m.t all]
+    $m.t element create eSel rect -fill [list #3465a4 selected {} {}]
+    $m.t element create eTxt text -fill white -lines 1 -font TitleFont
+    return $m.t
+}
+proc popup-show {m W H X Y} {
+    lassign [screen-size] sw sh
+    set X [expr {max(0, min($X, $sw - $W))}]
+    set Y [expr {max(0, min($Y, $sh - $H))}]
+    place $m.t -x 1 -y 1 -width [expr {$W - 2}] -height [expr {$H - 2}]
+    wm geometry $m ${W}x${H}+$X+$Y
+    raise $m
+    update idletasks
+}
+# Close whatever popup is open. Every click path calls this as "close
+# if open"; the router is released only when a popup actually owns it —
+# a bare grab-keys-to {} here would abort an unrelated key sequence.
+proc popups-close {} {
+    foreach m {.winlist .winops} {
+        if {[winfo exists $m]} {
+            grab-keys-to {}
+            destroy $m
+        }
+    }
+}
+# Popup navigation keys (the owner's spec): arrows always; vi (k/j)
+# and emacs (p/n) letters on a BARE press — a bare letter that is some
+# item's hotkey never reaches here, the hotkey matched first; Ctrl+P /
+# Ctrl+N run the menu unconditionally, hotkeys or not. Returns -1/1
+# for up/down, 0 = not a navigation key.
+proc popup-nav {name mods} {
+    if {$mods & 4} {
+        switch -- $name { p { return -1 } n { return 1 } }
+        return 0
+    }
+    if {$mods != 0} { return 0 }
+    switch -- $name {
+        Up - k - p   { return -1 }
+        Down - j - n { return 1 }
+    }
+    return 0
+}
+proc popup-move {T n d} {
+    set cur [lindex [$T selection get] 0]
+    if {$cur eq ""} { set cur 1 }
+    set i [expr {($cur - 1 + $d + $n) % $n + 1}]
+    $T selection clear
+    $T selection add $i
+}
+
+# ---- the window list (alt-tab) ----
+# Every managed window, most-recently-focused first (never-focused
+# ones trail behind), centered on the screen; the initial selection
+# sits on the SECOND entry — the first is the window the user is
+# leaving — so a bare Enter (or a released Alt) toggles to the
+# previous window.
 #
-# The menu is keyboard-MODAL via the substrate's grab-keys-to: its keys
-# arrive through the raw connection's keyboard grab, not through Tk
-# focus — the menu toplevel is override-redirect (so our own redirect
-# does not try to manage it), and Tk refuses to focus override-redirect
-# windows at all. The pointer stays free: a click on the menu picks, a
-# click anywhere else does its normal job and closes the menu on the
-# way (see the winmenu-close calls in the click paths).
-proc winmenu {} {
-    winmenu-close
+# The fvwm alt-tab semantics come as a MODE the list enters when the
+# invoking chord's modifier is still physically held at open (the Alt
+# of Alt+Tab; asked of the server via modifier-held — a release that
+# beat our grab is invisible to us, so the one-roundtrip check can
+# only degrade to the static menu, never hang): further Tab presses
+# run the selection with wraparound (Shift+Tab backwards), releasing
+# the modifier commits. A quick full Alt+Tab press-release is then the
+# classic toggle — commit lands on the previous window. Invoked with
+# nothing held (the Super-sequence ends fully released) the list is a
+# static menu. set-winlist-cycle off disables the mode entirely.
+set winlist_cycle_opt 1
+proc set-winlist-cycle {onoff} {
+    set ::winlist_cycle_opt [expr {$onoff in {on 1 yes true}}]
+}
+proc winlist {} {
     set wins {}
     foreach w $::focus_hist {
         if {[info exists ::frameof($w)]} { lappend wins $w }
@@ -678,111 +793,197 @@ proc winmenu {} {
     foreach w [array names ::frameof] {
         if {$w ni $wins} { lappend wins $w }
     }
-    if {![llength $wins]} { puts "WM: winmenu: no windows"; return }
-    set ::winmenu_wins $wins
-    set ::winmenu_prev $::focused
-    set m .winmenu
-    toplevel $m -background $::OUTLINE
-    wm overrideredirect $m 1
+    if {![llength $wins]} { puts "WM: winlist: no windows"; return }
+    set ::winlist_wins $wins
+    set ::winlist_prev $::focused
+    set ::winlist_cycle 0
+    if {$::winlist_cycle_opt && $::key_invoke_mods != 0
+            && [modifier-held $::key_invoke_mods]} {
+        set ::winlist_cycle $::key_invoke_mods
+    }
     set ih [expr {[font metrics TitleFont -linespace] + 6}]
-    treectrl $m.t -showheader no -showroot no -showbuttons no \
-        -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background #555753 -itemheight $ih
-    bindtags $m.t [list $m.t all]
-    $m.t column create -squeeze yes -expand yes -tags C0
-    $m.t configure -treecolumn C0
-    $m.t element create eSel rect -fill [list #3465a4 selected {} {}]
-    $m.t element create eTxt text -fill white -lines 1 -font TitleFont
-    $m.t style create sWin
-    $m.t style elements sWin {eSel eTxt}
-    $m.t style layout sWin eSel -detach yes -iexpand xy
-    $m.t style layout sWin eTxt -expand ns -padx 8 -squeeze x
+    set T [popup-shell .winlist $ih]
+    $T column create -squeeze yes -expand yes -tags C0
+    $T configure -treecolumn C0
+    $T style create sWin
+    $T style elements sWin {eSel eTxt}
+    $T style layout sWin eSel -detach yes -iexpand xy
+    $T style layout sWin eTxt -expand ns -padx 8 -squeeze x
     set maxw 0
     foreach w $wins {
         set title [title-or-id $w [client-title $w]]
         set maxw [expr {max($maxw, [font measure TitleFont $title])}]
-        set item [$m.t item create]
-        $m.t item style set $item C0 sWin
-        $m.t item element configure $item C0 eTxt -text $title
-        $m.t item lastchild root $item
+        set item [$T item create]
+        $T item style set $item C0 sWin
+        $T item element configure $item C0 eTxt -text $title
+        $T item lastchild root $item
     }
-    $m.t selection add [expr {[llength $wins] > 1 ? 2 : 1}]
-    bind $m.t <ButtonPress-1> {winmenu-click %x %y}
+    $T selection add [expr {[llength $wins] > 1 ? 2 : 1}]
+    bind $T <ButtonPress-1> {winlist-click %x %y}
     lassign [screen-size] sw sh
     set W [expr {min(max($maxw + 32, 200), $sw * 3 / 5)}]
     set H [expr {[llength $wins] * $ih + 2}]
-    place $m.t -x 1 -y 1 -width [expr {$W - 2}] -height [expr {$H - 2}]
-    wm geometry $m ${W}x${H}+[expr {($sw - $W) / 2}]+[expr {($sh - $H) / 3}]
-    raise $m
-    update idletasks
-    if {![grab-keys-to winmenu-key]} {
-        puts "WM: winmenu: keyboard not grabbed — mouse only"
+    popup-show .winlist $W $H [expr {($sw - $W) / 2}] [expr {($sh - $H) / 3}]
+    if {![grab-keys-to winlist-key]} {
+        puts "WM: winlist: keyboard not grabbed — mouse only"
     }
-    puts "WM: winmenu open ([llength $wins] windows)"
+    puts "WM: winlist open ([llength $wins] windows[expr {
+        $::winlist_cycle ? ", cycle" : ""}])"
 }
-proc winmenu-key {name mods} {
+proc winlist-key {kind name mods} {
+    if {$kind eq "release"} {
+        # cycle mode commits when the invoking chord's modifier is no
+        # longer held; re-asking the server covers both-Alts pedantry
+        if {$::winlist_cycle != 0 && ![modifier-held $::winlist_cycle]} {
+            winlist-pick
+        }
+        return
+    }
+    if {$name eq "Tab"} {
+        winlist-move [expr {$mods & 1 ? -1 : 1}]
+        return
+    }
+    set d [popup-nav $name $mods]
+    if {$d != 0} { winlist-move $d; return }
     switch -- $name {
-        Up       { winmenu-move -1 }
-        Down     { winmenu-move 1 }
-        Return -
-        KP_Enter { winmenu-pick }
-        Escape   { winmenu-cancel }
+        Return - KP_Enter { winlist-pick }
+        Escape            { winlist-cancel }
     }
 }
-proc winmenu-close {} {
-    # release the router only when the menu actually owns it: this is
-    # also called from every click path as "close if open", and a bare
-    # grab-keys-to {} there would abort an unrelated key sequence
-    if {[winfo exists .winmenu]} {
-        grab-keys-to {}
-        destroy .winmenu
-    }
+proc winlist-move {d} {
+    popup-move .winlist.t [llength $::winlist_wins] $d
 }
-proc winmenu-move {d} {
-    set T .winmenu.t
-    set n [llength $::winmenu_wins]
-    set cur [lindex [$T selection get] 0]
-    if {$cur eq ""} { set cur 1 }
-    set i [expr {($cur - 1 + $d + $n) % $n + 1}]
-    $T selection clear
-    $T selection add $i
-}
-proc winmenu-pick {} {
-    set cur [lindex [.winmenu.t selection get] 0]
-    set w [lindex $::winmenu_wins [expr {$cur - 1}]]
-    winmenu-close
+proc winlist-pick {} {
+    set cur [lindex [.winlist.t selection get] 0]
+    set w [lindex $::winlist_wins [expr {$cur - 1}]]
+    popups-close
     if {$w ne "" && [info exists ::frameof($w)]} {
-        puts "WM: winmenu pick 0x[format %x $w]"
+        puts "WM: winlist pick 0x[format %x $w]"
         raise-group $w
         focus-to $w
     }
 }
-proc winmenu-click {x y} {
-    set T .winmenu.t
+proc winlist-click {x y} {
+    set T .winlist.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     $T selection clear
     $T selection add $A(item)
-    winmenu-pick
+    winlist-pick
 }
-proc winmenu-cancel {} {
-    set prev $::winmenu_prev
-    winmenu-close
+proc winlist-cancel {} {
+    set prev $::winlist_prev
+    popups-close
     if {$prev != 0 && [info exists ::frameof($prev)]} { focus-to $prev }
 }
 
+# ---- the window ops menu ----
+# Actions on ONE window — the fvwm-style dropdown: from the titlebar's
+# left button, or on the focused window by key. Anchored at the
+# window's top-left corner, right below the titlebar. Every action
+# carries a hotkey letter (shown right-aligned, fvwm menus underline
+# theirs — a column reads better in a treectrl); a bare letter press
+# fires it, and the navigation letters yield to hotkeys while
+# Ctrl+P/Ctrl+N always navigate (popup-nav).
+set winops_actions {
+    maximize x {maximize-toggle $w}
+    close    c {close-client $w}
+    destroy  d {kill-client $w}
+    raise    r {raise-group $w}
+    lower    l {lower-group $w}
+}
+proc winops {{w 0}} {
+    if {$w == 0} { set w $::focused }
+    if {$w == 0 || ![info exists ::frameof($w)]} {
+        popups-close
+        puts "WM: winops: no window"
+        return
+    }
+    set ::winops_win $w
+    set n [expr {[llength $::winops_actions] / 3}]
+    set ih [expr {[font metrics TitleFont -linespace] + 6}]
+    set T [popup-shell .winops $ih]
+    $T column create -squeeze yes -expand yes -tags C0
+    $T column create -width [expr {$ih + 4}] -tags Ckey
+    $T configure -treecolumn C0
+    $T element create eKey text -fill #babdb6 -lines 1 -font TitleFont
+    $T style create sAct
+    $T style elements sAct {eSel eTxt}
+    $T style layout sAct eSel -detach yes -iexpand xy
+    $T style layout sAct eTxt -expand ns -padx 8
+    $T style create sKey
+    $T style elements sKey {eSel eKey}
+    $T style layout sKey eSel -detach yes -iexpand xy
+    $T style layout sKey eKey -expand wns -padx 6
+    set maxw 0
+    foreach {label key script} $::winops_actions {
+        set maxw [expr {max($maxw, [font measure TitleFont $label])}]
+        set item [$T item create]
+        $T item style set $item C0 sAct Ckey sKey
+        $T item element configure $item C0 eTxt -text $label
+        $T item element configure $item Ckey eKey -text $key
+        $T item lastchild root $item
+    }
+    $T selection add 1
+    bind $T <ButtonPress-1> {winops-click %x %y}
+    set t $::frameof($w)
+    popup-show .winops [expr {max($maxw + $ih + 40, 160)}] \
+        [expr {$n * $ih + 2}] \
+        [expr {[winfo rootx $t] + $::border}] \
+        [expr {[winfo rooty $t] + $::decotop}]
+    if {![grab-keys-to winops-key]} {
+        puts "WM: winops: keyboard not grabbed — mouse only"
+    }
+    puts "WM: winops open 0x[format %x $w]"
+}
+proc winops-key {kind name mods} {
+    if {$kind eq "release"} return
+    if {$mods == 0} {
+        set i 0
+        foreach {label key script} $::winops_actions {
+            incr i
+            if {$name eq $key} { winops-fire $i; return }
+        }
+    }
+    set d [popup-nav $name $mods]
+    if {$d != 0} {
+        popup-move .winops.t [expr {[llength $::winops_actions] / 3}] $d
+        return
+    }
+    switch -- $name {
+        Return - KP_Enter { winops-fire [lindex [.winops.t selection get] 0] }
+        Escape            { popups-close }
+    }
+}
+proc winops-fire {i} {
+    if {$i eq "" || $i < 1} { popups-close; return }
+    set w $::winops_win
+    lassign [lrange $::winops_actions [expr {($i - 1) * 3}] [expr {$i * 3 - 1}]] \
+        label key script
+    popups-close
+    if {![info exists ::frameof($w)]} return
+    puts "WM: winops 0x[format %x $w] $label"
+    apply [list w $script] $w
+}
+proc winops-click {x y} {
+    set T .winops.t
+    if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
+    winops-fire $A(item)
+}
+
 # ---- default key bindings ----
-# The defaults live IN CODE, like every other default — the config is
-# an override layer, not a preset carrier. The window menu answers both
-# the one-chord Alt+Space and the stumpwm-style sequence Super+t w m:
-# the same action from a plain grab and from a prefix map, two entries
-# in one keymap.
-wm-bind {<Alt>space} winmenu
-wm-bind {<Super>t w m} winmenu
+# The defaults live IN CODE — the config is an override layer, not a
+# preset carrier. The window OPS menu (actions on the focused window)
+# answers both the one-chord Alt+Space and the stumpwm-style sequence
+# Super+t w m; the window LIST — the alt-tab — sits on Alt+Tab, where
+# a held Alt turns it into the fvwm cycle (see winlist).
+wm-bind {<Alt>space} winops
+wm-bind {<Super>t w m} winops
+wm-bind {<Alt>Tab} winlist
 
 # Move policy is plain Tk: drag the title bar, the client rides along.
 # A title click also raises and focuses.
 proc drag-start {t w X Y} {
-    winmenu-close
+    popups-close
     raise-group $w
     focus-to $w
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> wx wy

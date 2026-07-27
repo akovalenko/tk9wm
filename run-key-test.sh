@@ -1,15 +1,20 @@
 #!/bin/sh
-# Regression for the key machinery and the window menu. Clients A then
+# Regression for the key machinery and both popup menus. Clients A then
 # B are managed (B holds the focus); then:
-#  - Alt+Space opens the winmenu; the initial selection is the SECOND
-#    entry (the window the user is leaving is first), so a bare Enter
-#    toggles to A, alt-tab style; a second Alt+Space + Enter toggles
-#    back to B;
-#  - the stumpwm-style sequence Super+t, w, m opens the same menu
-#    through the prefix machinery (temporary keyboard grab), and Esc
-#    closes it giving the focus back;
-#  - Super+t followed by an unbound key aborts the sequence, and the
-#    machinery still answers afterwards (a final Alt+Space + Esc).
+#  - Alt+Space opens the window OPS menu on the focused window; the
+#    hotkey letter x fires maximize, twice = toggle there and back;
+#  - the navigation keys run the menu: Ctrl+N/Ctrl+P unconditionally,
+#    bare n/p and j/k when no hotkey claims the letter (none of winops'
+#    x c d r l does), Enter fires the selected action (raise);
+#  - Alt+Tab with Alt held is the fvwm cycle: the list opens on the
+#    Tab press, releasing Alt commits to the selection — a quick full
+#    Alt+Tab toggles to the PREVIOUS window; a second Tab while Alt is
+#    still down wraps the selection around (two windows: back to the
+#    current one);
+#  - the stumpwm-style sequence Super+t, w, m opens the ops menu for
+#    the focused window through the prefix machinery, Esc closes;
+#  - Super+t followed by an unbound key aborts the sequence without
+#    wedging anything (a final Alt+Space still answers).
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LINUX="${LINUX:-$HERE/../whalebuild/work/linux}"
 export DISPLAY=:78
@@ -23,25 +28,49 @@ sleep 1
 WM=$!
 sleep 1.5
 
-"$LINUX/whale" "$HERE/client.tcl" "первое-окно" 240x120+30+30 "#8ae234" &
+# the empty args skip resizeto/minsize; 60 s of lifetime outlives the
+# whole key script (the stock 8 s died mid-test and read as a wedge)
+"$LINUX/whale" "$HERE/client.tcl" "первое-окно" 240x120+30+30 "#8ae234" "" "" 60 &
 CA=$!
 sleep 0.5
-"$LINUX/whale" "$HERE/client.tcl" "второе-окно" 240x120+30+30 "#fcaf3e" &
+"$LINUX/whale" "$HERE/client.tcl" "второе-окно" 240x120+30+30 "#fcaf3e" "" "" 60 &
 CB=$!
 sleep 1
 
-key() { xdotool key "$@"; sleep 0.5; }
+key()     { xdotool key "$@"; sleep 0.5; }
+keydown() { xdotool keydown "$@"; sleep 0.4; }
+keyup()   { xdotool keyup "$@"; sleep 0.4; }
 
-key alt+space   # menu opens, selection on the previous window (A)
-key Return      # picks A
+key alt+space   # winops on B
+key x           # maximize B
 key alt+space
-key Return      # toggles back to B
+key x           # ...and restore it
+key alt+space   # navigation soak: nothing may fire
+key ctrl+n      # -> close
+key n           # -> destroy (bare n is free: no hotkey claims it)
+key p           # -> close
+key k           # -> maximize
+key Escape
+key alt+space
+key j           # -> close
+key j           # -> destroy
+key j           # -> raise
+key Return      # fires raise on B
+
+keydown alt     # fvwm alt-tab: quick toggle to the previous window (A)
+key Tab
+keyup alt
+keydown alt     # held cycle: second Tab wraps back around
+key Tab
+key Tab
+keyup alt
+
 key super+t     # prefix...
 key w           # ...deeper...
-key m           # ...winmenu
+key m           # ...winops on the focused window
 import -display :78 -window root "$HERE/key-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/key-test.png"
-key Escape      # cancel, focus back where it was
+key Escape
 key super+t
 key q           # unbound -> abort
 key alt+space   # still alive after the abort
@@ -54,7 +83,7 @@ set -- $(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-key.log")
 AID=$1; BID=$2
 echo "--- actors: A=$AID B=$BID"
 echo "--- key/menu/focus lines:"
-grep -E 'key |winmenu|focus ->' "$HERE/wm-key.log"
+grep -E 'key |winops|winlist|focus ->' "$HERE/wm-key.log"
 
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-key.log"; then
@@ -63,17 +92,29 @@ fi
 if [ -z "$AID" ] || [ -z "$BID" ]; then
     echo "FAIL: missing actor ids (A=$AID B=$BID)"
 fi
-OPENS=$(grep -c 'winmenu open (2 windows)' "$HERE/wm-key.log")
-if [ "$OPENS" = 4 ]; then
-    echo "OK: winmenu opened 4 times (2x Alt+Space, sequence, post-abort)"
+OPENS=$(grep -c 'winops open 0x' "$HERE/wm-key.log")
+if [ "$OPENS" = 6 ]; then
+    echo "OK: winops opened 6 times"
 else
-    echo "FAIL: winmenu opened $OPENS times, want 4"
+    echo "FAIL: winops opened $OPENS times, want 6"
 fi
-PICKS=$(sed -n 's/^WM: winmenu pick \(0x[0-9a-f]*\)$/\1/p' "$HERE/wm-key.log" | tr '\n' ' ')
-if [ "$PICKS" = "$AID $BID " ]; then
-    echo "OK: bare Enter toggled to A, then back to B (picks: $PICKS)"
+ACTS=$(sed -n 's/^WM: winops 0x[0-9a-f]* //p' "$HERE/wm-key.log" | tr '\n' ' ')
+if [ "$ACTS" = "maximize maximize raise " ]; then
+    echo "OK: hotkey x toggled maximize twice, nav+Enter fired raise"
 else
-    echo "FAIL: picks were «$PICKS», want «$AID $BID »"
+    echo "FAIL: winops actions were «$ACTS», want «maximize maximize raise »"
+fi
+CYCLES=$(grep -c 'winlist open (2 windows, cycle)' "$HERE/wm-key.log")
+if [ "$CYCLES" = 2 ]; then
+    echo "OK: a held Alt opened the list in cycle mode, twice"
+else
+    echo "FAIL: $CYCLES cycle opens, want 2"
+fi
+PICKS=$(sed -n 's/^WM: winlist pick \(0x[0-9a-f]*\)$/\1/p' "$HERE/wm-key.log" | tr '\n' ' ')
+if [ "$PICKS" = "$AID $AID " ]; then
+    echo "OK: quick Alt+Tab toggled to A; the second Tab wrapped back (picks: $PICKS)"
+else
+    echo "FAIL: winlist picks were «$PICKS», want «$AID $AID »"
 fi
 if grep -q 'key Super+t -> prefix' "$HERE/wm-key.log" \
         && grep -q 'key w -> prefix' "$HERE/wm-key.log" \
@@ -89,9 +130,9 @@ else
 fi
 # The last Alt+Space must come AFTER the abort — proof the grab state
 # survived it (the log is chronological).
-if awk '/key sequence abort/ {a=1} a && /winmenu open/ {ok=1} END {exit !ok}' \
+if awk '/key sequence abort/ {a=1} a && /winops open/ {ok=1} END {exit !ok}' \
         "$HERE/wm-key.log"; then
     echo "OK: the machinery still answers after the abort"
 else
-    echo "FAIL: no winmenu open after the abort"
+    echo "FAIL: no winops open after the abort"
 fi

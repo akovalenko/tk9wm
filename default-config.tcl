@@ -49,7 +49,18 @@
 # keyboard grab (Esc or an unbound key aborts). A chord is any number
 # of <Mod> prefixes — <Shift> <Ctrl> <Alt> <Super> <Mod1>..<Mod5> —
 # and then a keysym name. Later binds win, so binding over a default
-# replaces it. In-code defaults: winmenu on <Alt>space and <Super>t w m.
+# replaces it. In-code defaults: the window ops menu (winops) on
+# <Alt>space and <Super>t w m, the window list (winlist) on <Alt>Tab.
 #
 #   wm-bind {<Super>Return} {exec xterm &}
 #   wm-bind {<Super>t w x}  {exec xterm &}
+#
+# The window list opened by a chord whose modifier is still held runs
+# the fvwm alt-tab cycle: Tab advances with wraparound (Shift+Tab
+# backwards), releasing the modifier commits; a quick full Alt+Tab
+# toggles to the previous window. Turn the cycle mode off to always
+# get a static menu:
+#   set-winlist-cycle off
+#
+# In every popup menu k/j and p/n move the selection when no item
+# hotkey claims the letter; Ctrl+P/Ctrl+N move it unconditionally.
