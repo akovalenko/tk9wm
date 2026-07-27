@@ -428,6 +428,7 @@ proc rz-start {t w X Y} {
     set e [rz-edge $t [expr {$X - [winfo rootx $t]}] \
                       [expr {$Y - [winfo rooty $t]}]]
     if {$e eq ""} return
+    winmenu-close
     raise-group $w
     focus-to $w
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
@@ -478,14 +479,19 @@ proc press-end {t} {
     catch { rz-hover $t {*}[winfo pointerxy $t] }
 }
 
+# A client that named nothing is shown by its id — on the titlebar and
+# in the window menu alike.
+proc title-or-id {w title} {
+    expr {$title eq "" ? "клиент 0x[format %x $w]" : $title}
+}
+
 # The client named (or renamed) itself: put the title on the titlebar.
 # The treectrl item is always 1 — a fresh widget per frame, the single
 # item created right after it.
 proc policy-title {w title} {
     if {![info exists ::frameof($w)]} return
-    if {$title eq ""} { set title "клиент 0x[format %x $w]" }
     set t $::frameof($w)
-    $t.title item element configure 1 C0 eTxt -text $title
+    $t.title item element configure 1 C0 eTxt -text [title-or-id $w $title]
 }
 
 # Focus highlight: active frame blue, inactive grey. Every honest focus
@@ -533,6 +539,7 @@ proc raise-group {w} {
 # going to the previous window). One roundtrip per click is the price of
 # a click path that always heals.
 proc policy-client-click {w} {
+    winmenu-close
     raise-group $w
     focus-to $w
 }
@@ -647,9 +654,135 @@ proc maximize-toggle {w} {
     send-synthetic-configure $w
 }
 
+# ---- the window menu: switch windows from the keyboard ----
+# A treectrl list of every managed window, most-recently-focused first
+# (never-focused windows trail behind), centered on the screen. The
+# initial selection sits on the SECOND entry: the first is the window
+# the user is leaving, so a bare Enter toggles to the previous one,
+# alt-tab style. Up/Down wrap around, Enter or a click picks, Esc gives
+# the focus back to where it was.
+#
+# The menu is keyboard-MODAL via the substrate's grab-keys-to: its keys
+# arrive through the raw connection's keyboard grab, not through Tk
+# focus — the menu toplevel is override-redirect (so our own redirect
+# does not try to manage it), and Tk refuses to focus override-redirect
+# windows at all. The pointer stays free: a click on the menu picks, a
+# click anywhere else does its normal job and closes the menu on the
+# way (see the winmenu-close calls in the click paths).
+proc winmenu {} {
+    winmenu-close
+    set wins {}
+    foreach w $::focus_hist {
+        if {[info exists ::frameof($w)]} { lappend wins $w }
+    }
+    foreach w [array names ::frameof] {
+        if {$w ni $wins} { lappend wins $w }
+    }
+    if {![llength $wins]} { puts "WM: winmenu: no windows"; return }
+    set ::winmenu_wins $wins
+    set ::winmenu_prev $::focused
+    set m .winmenu
+    toplevel $m -background $::OUTLINE
+    wm overrideredirect $m 1
+    set ih [expr {[font metrics TitleFont -linespace] + 6}]
+    treectrl $m.t -showheader no -showroot no -showbuttons no \
+        -showlines no -borderwidth 0 -highlightthickness 0 \
+        -background #555753 -itemheight $ih
+    bindtags $m.t [list $m.t all]
+    $m.t column create -squeeze yes -expand yes -tags C0
+    $m.t configure -treecolumn C0
+    $m.t element create eSel rect -fill [list #3465a4 selected {} {}]
+    $m.t element create eTxt text -fill white -lines 1 -font TitleFont
+    $m.t style create sWin
+    $m.t style elements sWin {eSel eTxt}
+    $m.t style layout sWin eSel -detach yes -iexpand xy
+    $m.t style layout sWin eTxt -expand ns -padx 8 -squeeze x
+    set maxw 0
+    foreach w $wins {
+        set title [title-or-id $w [client-title $w]]
+        set maxw [expr {max($maxw, [font measure TitleFont $title])}]
+        set item [$m.t item create]
+        $m.t item style set $item C0 sWin
+        $m.t item element configure $item C0 eTxt -text $title
+        $m.t item lastchild root $item
+    }
+    $m.t selection add [expr {[llength $wins] > 1 ? 2 : 1}]
+    bind $m.t <ButtonPress-1> {winmenu-click %x %y}
+    lassign [screen-size] sw sh
+    set W [expr {min(max($maxw + 32, 200), $sw * 3 / 5)}]
+    set H [expr {[llength $wins] * $ih + 2}]
+    place $m.t -x 1 -y 1 -width [expr {$W - 2}] -height [expr {$H - 2}]
+    wm geometry $m ${W}x${H}+[expr {($sw - $W) / 2}]+[expr {($sh - $H) / 3}]
+    raise $m
+    update idletasks
+    if {![grab-keys-to winmenu-key]} {
+        puts "WM: winmenu: keyboard not grabbed — mouse only"
+    }
+    puts "WM: winmenu open ([llength $wins] windows)"
+}
+proc winmenu-key {name mods} {
+    switch -- $name {
+        Up       { winmenu-move -1 }
+        Down     { winmenu-move 1 }
+        Return -
+        KP_Enter { winmenu-pick }
+        Escape   { winmenu-cancel }
+    }
+}
+proc winmenu-close {} {
+    # release the router only when the menu actually owns it: this is
+    # also called from every click path as "close if open", and a bare
+    # grab-keys-to {} there would abort an unrelated key sequence
+    if {[winfo exists .winmenu]} {
+        grab-keys-to {}
+        destroy .winmenu
+    }
+}
+proc winmenu-move {d} {
+    set T .winmenu.t
+    set n [llength $::winmenu_wins]
+    set cur [lindex [$T selection get] 0]
+    if {$cur eq ""} { set cur 1 }
+    set i [expr {($cur - 1 + $d + $n) % $n + 1}]
+    $T selection clear
+    $T selection add $i
+}
+proc winmenu-pick {} {
+    set cur [lindex [.winmenu.t selection get] 0]
+    set w [lindex $::winmenu_wins [expr {$cur - 1}]]
+    winmenu-close
+    if {$w ne "" && [info exists ::frameof($w)]} {
+        puts "WM: winmenu pick 0x[format %x $w]"
+        raise-group $w
+        focus-to $w
+    }
+}
+proc winmenu-click {x y} {
+    set T .winmenu.t
+    if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
+    $T selection clear
+    $T selection add $A(item)
+    winmenu-pick
+}
+proc winmenu-cancel {} {
+    set prev $::winmenu_prev
+    winmenu-close
+    if {$prev != 0 && [info exists ::frameof($prev)]} { focus-to $prev }
+}
+
+# ---- default key bindings ----
+# The defaults live IN CODE, like every other default — the config is
+# an override layer, not a preset carrier. The window menu answers both
+# the one-chord Alt+Space and the stumpwm-style sequence Super+t w m:
+# the same action from a plain grab and from a prefix map, two entries
+# in one keymap.
+wm-bind {<Alt>space} winmenu
+wm-bind {<Super>t w m} winmenu
+
 # Move policy is plain Tk: drag the title bar, the client rides along.
 # A title click also raises and focuses.
 proc drag-start {t w X Y} {
+    winmenu-close
     raise-group $w
     focus-to $w
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> wx wy

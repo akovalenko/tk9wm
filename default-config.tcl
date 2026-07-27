@@ -41,3 +41,15 @@
 #             && [lindex [client-cmdline $w] 0] eq "/usr/bin/xterm"}
 #   }
 #   wm-style my-xterm {increments ignore}
+#
+# ---- key bindings ----
+#
+# wm-bind SPEC SCRIPT binds a chord sequence, stumpwm-style: only the
+# FIRST chord is a global grab; the rest is collected under a temporary
+# keyboard grab (Esc or an unbound key aborts). A chord is any number
+# of <Mod> prefixes — <Shift> <Ctrl> <Alt> <Super> <Mod1>..<Mod5> —
+# and then a keysym name. Later binds win, so binding over a default
+# replaces it. In-code defaults: winmenu on <Alt>space and <Super>t w m.
+#
+#   wm-bind {<Super>Return} {exec xterm &}
+#   wm-bind {<Super>t w x}  {exec xterm &}
