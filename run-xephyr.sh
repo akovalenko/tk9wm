@@ -2,8 +2,6 @@
 # Live playground: tk9wm inside a Xephyr window on a real desktop.
 # Usage: run-xephyr.sh [display] [WxH]    (default :7 1280x800)
 #        WHALE=/path/to/whale   overrides the binary
-#        TK9WM_QUIRKS=1         enables the WM's client workarounds
-#                               (off here on purpose — see below)
 # No demo timers in this mode — the WM runs until Xephyr closes or Ctrl-C.
 #
 # Order matters: server, then resources, then the WM, then clients — an
@@ -38,12 +36,8 @@ if command -v hsetroot >/dev/null; then
     DISPLAY="$DPY" hsetroot -solid '#20303c'
 fi
 
-# The WM runs WITHOUT quirks unless the caller asked for them: the timed
-# repeats of the synthetic ConfigureNotify are a workaround, and leaving
-# them on by default would hide whether the event-driven moments (manage,
-# the client's MapNotify) are enough on their own.
 DISPLAY="$DPY" "$WHALE" "$HERE/wm.tcl" &
-echo "tk9wm live on $DPY ($SIZE), quirks=${TK9WM_QUIRKS:-off} — drag titles, click X"
+echo "tk9wm live on $DPY ($SIZE) — drag titles, click X, resize from inside clients"
 
 # guinea pigs last, so they inherit the resources merged above
 command -v xterm  >/dev/null && DISPLAY="$DPY" xterm  -geometry 80x24+20+20 &

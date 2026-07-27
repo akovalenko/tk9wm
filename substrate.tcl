@@ -42,12 +42,12 @@ package require Thread
 # NB: Tk is required LATER, after our X error handler is installed — see the
 # error handler section for why the order matters.
 
-# Workarounds for clients that misbehave in ways we cannot name a moment
-# for. OFF by default: a workaround that is always on hides whether the
-# principled triggers are enough. Enable per run with TK9WM_QUIRKS=1.
-# What each quirk does is documented where it is used (grep ::quirks).
-set quirks [expr {[info exists ::env(TK9WM_QUIRKS)]
-                  && $::env(TK9WM_QUIRKS) ni {0 "" no off}}]
+# (There is no quirks switch any more. It existed to hold timed repeats of
+# the synthetic ConfigureNotify while we did not know the right moment to
+# send one; running with it OFF proved the moments were missing, reading
+# fvwm named them — answer every ConfigureRequest, and copy the notify to
+# the frame — and with those in place the live case was fixed with no
+# timers at all. A switch with nothing behind it only rots.)
 
 # ---------------- raw Xlib over cffi (second connection) ----------------
 cffi::Wrapper create X11 libX11.so.6
@@ -157,7 +157,6 @@ XSelectInput $dpy $root [expr {(1 << 20) | (1 << 19) | (1 << 21)}]
 XSync $dpy 0
 chan configure stdout -buffering line
 puts "WM: redirect armed on root [format 0x%x $root]"
-puts "WM: quirks [expr {$quirks ? {ON (TK9WM_QUIRKS)} : {off}}]"
 
 set WM_PROTOCOLS      [XInternAtom $dpy WM_PROTOCOLS 0]
 set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
@@ -377,26 +376,13 @@ proc manage {w} {
 # hand from outside repaired it too, which pins the cause: the CONTENT
 # was right, the MOMENT was wrong.
 #
-# Two tiers, deliberately separated:
-#
-#  - EVENT-DRIVEN, always on: at manage time and again on the client's
-#    MapNotify. These are moments we can name — the window exists where
-#    we put it, and the client has acknowledged being mapped.
-#  - TIMED REPEATS, only under quirks: two more shots at 400 ms and
-#    1.5 s. This is a workaround, not knowledge: it papers over clients
-#    whose startup drops the event without telling us when they would be
-#    ready. Kept behind the flag on purpose (Anton, 2026-07-27) so the
-#    default configuration answers the honest question — do the named
-#    moments suffice, or are we only winning by repeating?
+# The moments, all event-driven and all named: here (the window is where
+# we put it), on the client's MapNotify, on every ConfigureRequest we
+# answer (see the dispatcher), and on every frame move. Timed repeats
+# were tried while these were incomplete and are gone — see the note at
+# the top of this file.
 proc tell-where-you-are {w} {
     send-synthetic-configure $w
-    if {$::quirks} {
-        after 400  [list resend-configure $w]
-        after 1500 [list resend-configure $w]
-    }
-}
-proc resend-configure {w} {
-    if {[info exists ::managed($w)]} { send-synthetic-configure $w }
 }
 
 proc unmanage {w {dead 0}} {
