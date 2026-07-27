@@ -31,6 +31,11 @@
 # Keys so far:
 #   increments respect|ignore — WM_NORMAL_HINTS resize increments;
 #     default respect (xterm resizes land on whole cells).
+#   icon IMAGE — a Tk image (create it right here in the config) shown
+#     for the window in the window list; overrides the client's own
+#     _NET_WM_ICON. Windows offering neither get a generated badge:
+#     one-two letters of the class (or title) on a color hashed from
+#     the same name.
 #
 # Ignore increments for everything:
 #   wm-style always {increments ignore}
@@ -41,6 +46,11 @@
 #             && [lindex [client-cmdline $w] 0] eq "/usr/bin/xterm"}
 #   }
 #   wm-style my-xterm {increments ignore}
+#
+# Give those xterms a window-list icon of your choosing (any file
+# format Tk's photo reads — png with alpha included):
+#   image create photo imgTerm -file /home/me/icons/terminal.png
+#   wm-style my-xterm {icon imgTerm}
 #
 # ---- key bindings ----
 #

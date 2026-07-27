@@ -35,6 +35,10 @@ if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
         puts "WM: TK9WM_TITLE_FONT «$::env(TK9WM_TITLE_FONT)» rejected: $err"
     }
 }
+# The pseudo-icon lettering (see winlist-icon): TitleFont's family, but
+# bold and sized in PIXELS to the badge, not the text line — configured
+# at each winlist open, when the badge size is known.
+font create IconFont -weight bold
 # 3px of air above and below the text line; the strip sits under the 2px
 # top edge, a 2px gap separates it from the client slot.
 proc title-metrics {} {
@@ -126,6 +130,8 @@ proc set-title-justify {j} {
 # Keys so far: increments (respect|ignore) — WM_NORMAL_HINTS resize
 # increments; the default respects them (the world's xterms expect
 # integral columns), the owner's config ignores them by taste.
+# icon (a Tk image name, created in the config) — shown for the window
+# in the window list, overriding the client's own _NET_WM_ICON.
 set style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
@@ -788,6 +794,42 @@ set winlist_cycle_opt 1
 proc set-winlist-cycle {onoff} {
     set ::winlist_cycle_opt [expr {$onoff in {on 1 yes true}}]
 }
+
+# Which icon a window-list row shows, in precedence order: the style's
+# `icon` key (the user's word beats the app's), the client's own
+# _NET_WM_ICON, and last the PSEUDO icon — one-two letters on a color
+# badge (the telegram contact-list trick), so every row carries
+# something the eye can anchor on. The letters come from the CLASS
+# (the app identity — every xterm gets the same badge; the title
+# fills in for class-less windows): initials of the first two words,
+# a lone word contributing its first two letters. The color is a
+# stable hash pick from a small palette keyed by the same name.
+# Returns {image NAME} or {pseudo LETTERS COLOR}.
+set icon_palette {#cc4444 #d4772f #75507b #4e9a06 #06989a #b3617e #927238}
+proc winlist-icon {w target} {
+    set st [style-of $w]
+    if {[dict exists $st icon]} {
+        set img [dict get $st icon]
+        if {$img in [image names]} { return [list image $img] }
+        puts "WM: style icon «$img» is not a Tk image — ignored"
+    }
+    set img [client-icon $w $target]
+    if {$img ne ""} { return [list image $img] }
+    set name [lindex [client-class $w] 1]
+    if {$name eq ""} { set name [title-or-id $w [client-title $w]] }
+    set words [regexp -all -inline {[^\s[:punct:]]+} $name]
+    if {[llength $words] >= 2} {
+        set letters [string index [lindex $words 0] 0][string index [lindex $words 1] 0]
+    } else {
+        set letters [string range [lindex $words 0] 0 1]
+    }
+    set letters [string toupper $letters]
+    if {$letters eq ""} { set letters ? }
+    set color [lindex $::icon_palette [expr {
+        [zlib crc32 [encoding convertto utf-8 $name]] % [llength $::icon_palette]}]]
+    list pseudo $letters $color
+}
+
 proc winlist {} {
     set wins {}
     foreach w $::focus_hist {
@@ -820,15 +862,34 @@ proc winlist {} {
     }
     set ih [expr {[font metrics TitleFont -linespace] + 6}]
     set numw [expr {[font measure TitleFont W] + 14}]
+    # the icon cell: a square a hair under the row, the lettering sized
+    # to the badge in pixels (IconFont, see its creation)
+    set sq [expr {$ih - 4}]
+    font configure IconFont -family [font actual TitleFont -family] \
+        -size -[expr {max(7, $sq * 5 / 8)}]
+    set iconw [expr {$ih + 6}]
     set T [popup-shell .winlist $ih]
     $T column create -width $numw -tags Cnum
+    $T column create -width $iconw -tags Cicon
     $T column create -squeeze yes -expand yes -tags C0
     $T configure -treecolumn C0
     $T element create eNum text -fill #babdb6 -lines 1 -font TitleFont
+    $T element create eIcon image
+    $T element create ePRect rect
+    $T element create ePTxt text -fill white -lines 1 -font IconFont
     $T style create sNum
     $T style elements sNum {eSel eNum}
     $T style layout sNum eSel -detach yes -iexpand xy
     $T style layout sNum eNum -expand wns -padx 6
+    $T style create sIcon
+    $T style elements sIcon {eSel eIcon}
+    $T style layout sIcon eSel -detach yes -iexpand xy
+    $T style layout sIcon eIcon -expand wens
+    $T style create sPseudo
+    $T style elements sPseudo {eSel ePRect ePTxt}
+    $T style layout sPseudo eSel -detach yes -iexpand xy
+    $T style layout sPseudo ePRect -union ePTxt -ipadx 3 -ipady 2 -expand wens
+    $T style layout sPseudo ePTxt -expand wens
     $T style create sWin
     $T style elements sWin {eSel eTxt}
     $T style layout sWin eSel -detach yes -iexpand xy
@@ -841,12 +902,23 @@ proc winlist {} {
         $T item style set $item Cnum sNum C0 sWin
         $T item element configure $item Cnum eNum -text $key
         $T item element configure $item C0 eTxt -text $title
+        lassign [winlist-icon $w $sq] kind a b
+        if {$kind eq "image"} {
+            $T item style set $item Cicon sIcon
+            $T item element configure $item Cicon eIcon -image $a
+            puts "WM: winlist icon 0x[format %x $w]: image $a"
+        } else {
+            $T item style set $item Cicon sPseudo
+            $T item element configure $item Cicon ePRect -fill $b
+            $T item element configure $item Cicon ePTxt -text $a
+            puts "WM: winlist icon 0x[format %x $w]: pseudo «$a» $b"
+        }
         $T item lastchild root $item
     }
     $T selection add [expr {[llength $wins] > 1 ? 2 : 1}]
     bind $T <ButtonPress-1> {winlist-click %x %y}
     lassign [screen-size] sw sh
-    set W [expr {min(max($maxw + $numw + 28, 200), $sw * 3 / 5)}]
+    set W [expr {min(max($maxw + $numw + $iconw + 28, 200), $sw * 3 / 5)}]
     set H [expr {[llength $wins] * $ih + 2}]
     popup-show .winlist $W $H [expr {($sw - $W) / 2}] [expr {($sh - $H) / 3}]
     if {![grab-keys-to winlist-key]} {

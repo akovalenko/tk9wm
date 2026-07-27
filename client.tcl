@@ -1,11 +1,19 @@
-# Demo client: argv = title geometry color ?resizeto? ?minsize? ?secs?.
-# Reports viewability and focus; announces WM_DELETE_WINDOW; optionally
-# requests a resize so the driver log shows the frame following; optional
-# minsize (WxH) declares a WM_NORMAL_HINTS minimum; optional secs extends
-# the default 8 s lifetime for longer test scripts.
+# Demo client: argv = title geometry color ?resizeto? ?minsize? ?secs?
+# ?iconcolor?. Reports viewability and focus; announces
+# WM_DELETE_WINDOW; optionally requests a resize so the driver log
+# shows the frame following; optional minsize (WxH) declares a
+# WM_NORMAL_HINTS minimum; optional secs extends the default 8 s
+# lifetime for longer test scripts; optional iconcolor declares a
+# 32x32 two-tone _NET_WM_ICON (wm iconphoto) in that color.
 package require Tk
-lassign $argv title geom color resizeto minsize secs
+lassign $argv title geom color resizeto minsize secs iconcolor
 if {$secs eq ""} { set secs 8 }
+if {$iconcolor ne ""} {
+    image create photo appicon -width 32 -height 32
+    appicon put $iconcolor -to 0 0 32 32
+    appicon put #eeeeec -to 6 6 26 14
+    wm iconphoto . appicon
+}
 if {$minsize ne "" && [regexp {^(\d+)x(\d+)$} $minsize -> mw mh]} {
     wm minsize . $mw $mh
 }
