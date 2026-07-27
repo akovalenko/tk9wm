@@ -94,12 +94,15 @@ proc policy-detach {w} {
     unset ::frameof($w)
 }
 
-# Root coordinates of the CLIENT area: frame position + our border (2)
-# and titlebar (26) offsets.
+# Root coordinates of the CLIENT area — asked of Tk directly, since the
+# slot IS the client's parent. (It used to parse "wm geometry" with a
+# regexp and add the 2/26 offsets by hand: when the pattern failed to
+# match, the caller's catch swallowed the error and the client silently
+# never got its synthetic ConfigureNotify — the very event whose absence
+# leaves an app with a false idea of where it is.)
 proc policy-origin {w} {
     set t $::frameof($w)
-    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
-    list [expr {$fx + 2}] [expr {$fy + 26}]
+    list [winfo rootx $t.slot] [winfo rooty $t.slot]
 }
 
 # The decoration follows the client's new size (position stays put).

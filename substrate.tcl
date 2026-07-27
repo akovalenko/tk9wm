@@ -227,6 +227,13 @@ proc handle-event {} {
         }
         20 { manage $B }
         17 { unmanage $B 1 }
+        19 { # MapNotify (self-report): the client is now really on screen
+            # and past its own map bookkeeping — tell it where it is once
+            # more, see tell-where-you-are.
+            if {$A == $B && [info exists ::managed($B)]} {
+                send-synthetic-configure $B
+            }
+        }
         18 { # UnmapNotify: the client withdrew itself. Trust only the
             # StructureNotify self-report (event==window — the root's
             # SubstructureNotify copy has event=root) and skip the unmap
@@ -339,7 +346,30 @@ proc manage {w} {
     XSync $dpy 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
     policy-managed $w
+    tell-where-you-are $w
+}
+
+# ICCCM 4.1.5 says WHAT to send; it does not say a client will be in a
+# state to believe it. Live case (smsrc, a Tk app under Wine, 2026-07-27):
+# the app kept a false idea of its position right after being framed —
+# clicks missed, menus, tooltips and combo dropdowns landed offset — and
+# the first title-bar drag repaired it. Sending the very same event by
+# hand from outside repaired it too, which pins the cause: the CONTENT
+# was right, the MOMENT was wrong. A client busy with its own startup
+# geometry (waiting for its own configure to come back) drops what
+# arrives mid-flight; anything later lands.
+#
+# So state the fact more than once — at manage time, on the client's
+# MapNotify, and twice more shortly after. A ConfigureNotify is an
+# idempotent statement of where the window is, so repeating it is free
+# and cannot confuse a client that already got the message.
+proc tell-where-you-are {w} {
     send-synthetic-configure $w
+    after 400  [list resend-configure $w]
+    after 1500 [list resend-configure $w]
+}
+proc resend-configure {w} {
+    if {[info exists ::managed($w)]} { send-synthetic-configure $w }
 }
 
 proc unmanage {w {dead 0}} {
