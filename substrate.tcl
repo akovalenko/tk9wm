@@ -42,6 +42,13 @@ package require Thread
 # NB: Tk is required LATER, after our X error handler is installed — see the
 # error handler section for why the order matters.
 
+# Workarounds for clients that misbehave in ways we cannot name a moment
+# for. OFF by default: a workaround that is always on hides whether the
+# principled triggers are enough. Enable per run with TK9WM_QUIRKS=1.
+# What each quirk does is documented where it is used (grep ::quirks).
+set quirks [expr {[info exists ::env(TK9WM_QUIRKS)]
+                  && $::env(TK9WM_QUIRKS) ni {0 "" no off}}]
+
 # ---------------- raw Xlib over cffi (second connection) ----------------
 cffi::Wrapper create X11 libX11.so.6
 X11 function XOpenDisplay pointer.unsafe {name string}
@@ -150,6 +157,7 @@ XSelectInput $dpy $root [expr {(1 << 20) | (1 << 19) | (1 << 21)}]
 XSync $dpy 0
 chan configure stdout -buffering line
 puts "WM: redirect armed on root [format 0x%x $root]"
+puts "WM: quirks [expr {$quirks ? {ON (TK9WM_QUIRKS)} : {off}}]"
 
 set WM_PROTOCOLS      [XInternAtom $dpy WM_PROTOCOLS 0]
 set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
@@ -355,18 +363,25 @@ proc manage {w} {
 # clicks missed, menus, tooltips and combo dropdowns landed offset — and
 # the first title-bar drag repaired it. Sending the very same event by
 # hand from outside repaired it too, which pins the cause: the CONTENT
-# was right, the MOMENT was wrong. A client busy with its own startup
-# geometry (waiting for its own configure to come back) drops what
-# arrives mid-flight; anything later lands.
+# was right, the MOMENT was wrong.
 #
-# So state the fact more than once — at manage time, on the client's
-# MapNotify, and twice more shortly after. A ConfigureNotify is an
-# idempotent statement of where the window is, so repeating it is free
-# and cannot confuse a client that already got the message.
+# Two tiers, deliberately separated:
+#
+#  - EVENT-DRIVEN, always on: at manage time and again on the client's
+#    MapNotify. These are moments we can name — the window exists where
+#    we put it, and the client has acknowledged being mapped.
+#  - TIMED REPEATS, only under quirks: two more shots at 400 ms and
+#    1.5 s. This is a workaround, not knowledge: it papers over clients
+#    whose startup drops the event without telling us when they would be
+#    ready. Kept behind the flag on purpose (Anton, 2026-07-27) so the
+#    default configuration answers the honest question — do the named
+#    moments suffice, or are we only winning by repeating?
 proc tell-where-you-are {w} {
     send-synthetic-configure $w
-    after 400  [list resend-configure $w]
-    after 1500 [list resend-configure $w]
+    if {$::quirks} {
+        after 400  [list resend-configure $w]
+        after 1500 [list resend-configure $w]
+    }
 }
 proc resend-configure {w} {
     if {[info exists ::managed($w)]} { send-synthetic-configure $w }

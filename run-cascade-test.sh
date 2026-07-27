@@ -30,6 +30,11 @@ sleep 6                  # clients self-exit; a bare `wait` would also wait for 
 kill $WM 2>/dev/null
 
 echo "--- placements:"
+# see run-dialog-test.sh: a display still owned by an earlier WM would
+# make every check below pass on frames that are not ours
+if grep -q 'BadAccess request=2' "$HERE/wm-cascade.log"; then
+    echo "FAIL: another WM owns this display — this run measured nothing"
+fi
 grep -cE 'frame \.f[0-9]+ for' "$HERE/wm-cascade.log" | sed 's/^/frames placed: /'
 awk '
 /frame \.f[0-9]+ for/ {

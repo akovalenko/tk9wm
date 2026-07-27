@@ -44,6 +44,13 @@ wait $CP
 wait $CB
 kill $WM 2>/dev/null
 echo "--- verdict"
+# A leftover WM from an earlier run still owning this display would take
+# the redirect, leaving OUR wm with nothing to manage — and the checks
+# below would happily pass on somebody else's frames. BadAccess on
+# request 2 (ChangeWindowAttributes) against the root is that situation.
+if grep -q 'BadAccess request=2' "$HERE/wm-dialog.log"; then
+    echo "FAIL: another WM owns this display — this run measured nothing"
+fi
 awk '
 /frame \.f[0-9]+ for/ {
     if (match($0, /\+(-?[0-9]+)\+(-?[0-9]+)$/)) {
