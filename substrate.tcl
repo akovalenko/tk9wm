@@ -223,6 +223,7 @@ set WM_NAME           39   ;# XA_WM_NAME, predefined
 set WM_CLIENT_MACHINE 36   ;# XA_WM_CLIENT_MACHINE, predefined
 set WM_CLASS          67   ;# XA_WM_CLASS, predefined
 catch { set NET_WM_PID [XInternAtom $dpy _NET_WM_PID 0] }
+catch { set NET_WM_ICON [XInternAtom $dpy _NET_WM_ICON 0] }
 
 # ---------------- EWMH minimum ----------------
 # Enough for toolkits to see "a WM is present": _NET_SUPPORTING_WM_CHECK on
@@ -365,6 +366,8 @@ proc handle-event {} {
                     refresh-title $A
                 } elseif {$B == 40} {
                     read-normal-hints $A
+                } elseif {[info exists ::NET_WM_ICON] && $B == $::NET_WM_ICON} {
+                    icon-invalidate $A   ;# re-read on the next need
                 }
             }
         }
@@ -535,6 +538,98 @@ proc client-cmdline {w} {
     split [string trimright $b \x00] \x00
 }
 
+# ---------------- the client's declared icon (_NET_WM_ICON) ----------------
+# The property is format=32 CARDINAL: any number of images, each
+# "width, height, then width*height ARGB pixels" (rows top-down,
+# straight alpha). client-icon picks the best of them for the asked
+# size — the smallest one still covering it, else the biggest there
+# is — resamples it down (nearest neighbor) to fit, and wraps the
+# pixels into a PNG built right here: Tcl's zlib does the stream, and
+# a PNG is the one photo format that carries the alpha through.
+# Cached per window ("" = asked and the client has none); a
+# PropertyNotify on _NET_WM_ICON or the unmanage drops the cache.
+proc png-chunk {type data} {
+    set crc [zlib crc32 $data [zlib crc32 $type]]
+    return [binary format Iu [string length $data]]$type$data[binary format Iu $crc]
+}
+proc rgba-png {w h raw} {
+    # raw = RGBA scanlines, each prefixed with the None filter byte
+    set ihdr [binary format IuIuccccc $w $h 8 6 0 0 0]
+    return "\x89PNG\r\n\x1a\n[png-chunk IHDR $ihdr][png-chunk\
+ IDAT [zlib compress $raw]][png-chunk IEND {}]"
+}
+proc client-icon {w target} {
+    if {[info exists ::iconof($w)]} { return $::iconof($w) }
+    set ::iconof($w) ""
+    if {!$::has_getprop || ![info exists ::NET_WM_ICON]} { return "" }
+    # 1<<20 32-bit units = 4 MB of icon data, beyond any real client
+    if {[catch {XGetWindowProperty $::dpy $w $::NET_WM_ICON 0 [expr {1<<20}] \
+            0 0 atype afmt nitems after data} status] || $status != 0} {
+        return ""
+    }
+    set bin ""
+    if {$afmt == 32 && $nitems >= 4 && ![cffi::pointer isnull $data]} {
+        # format=32 property data arrives as C longs on LP64
+        set bin [cffi::memory tobinary! $data [expr {$nitems * 8}]]
+    }
+    catch {XFree $data}
+    if {$bin eq ""} { return "" }
+    set entries {}
+    set pos 0
+    while {$pos + 2 <= $nitems} {
+        binary scan $bin "@[expr {$pos * 8}]wuwu" iw ih
+        set iw [expr {$iw & 0xffffffff}]; set ih [expr {$ih & 0xffffffff}]
+        if {$iw < 1 || $ih < 1 || $pos + 2 + $iw*$ih > $nitems} break
+        lappend entries [list $iw $ih [expr {$pos + 2}]]
+        incr pos [expr {2 + $iw*$ih}]
+    }
+    if {![llength $entries]} { return "" }
+    set pick ""
+    foreach e $entries {
+        lassign $e iw ih -
+        set covers [expr {min($iw, $ih) >= $target}]
+        if {$pick eq ""
+                || ($covers && (!$pcov || $iw*$ih < $pw*$ph))
+                || (!$covers && !$pcov && $iw*$ih > $pw*$ph)} {
+            set pick $e; set pcov $covers
+            lassign $e pw ph -
+        }
+    }
+    lassign $pick iw ih off
+    set ow $iw; set oh $ih
+    if {$iw > $target || $ih > $target} {
+        if {$iw >= $ih} {
+            set ow $target; set oh [expr {max(1, $ih * $target / $iw)}]
+        } else {
+            set oh $target; set ow [expr {max(1, $iw * $target / $ih)}]
+        }
+    }
+    set raw ""
+    for {set y 0} {$y < $oh} {incr y} {
+        append raw \x00
+        set sy [expr {$y * $ih / $oh}]
+        for {set x 0} {$x < $ow} {incr x} {
+            set sx [expr {$x * $iw / $ow}]
+            binary scan $bin "@[expr {($off + $sy*$iw + $sx) * 8}]wu" v
+            append raw [binary format cccc \
+                [expr {($v >> 16) & 255}] [expr {($v >> 8) & 255}] \
+                [expr {$v & 255}] [expr {($v >> 24) & 255}]]
+        }
+    }
+    if {[catch {image create photo -data [rgba-png $ow $oh $raw]} img]} {
+        puts "WM: icon 0x[format %x $w]: photo failed: $img"
+        return ""
+    }
+    puts "WM: icon 0x[format %x $w]: _NET_WM_ICON ${iw}x${ih} -> ${ow}x${oh}"
+    set ::iconof($w) $img
+}
+proc icon-invalidate {w} {
+    if {[info exists ::iconof($w)]} {
+        if {$::iconof($w) ne ""} { catch {image delete $::iconof($w)} }
+        unset ::iconof($w)
+    }
+}
+
 # ICCCM WM_NORMAL_HINTS, the parts we honor: the client's declared
 # MINIMUM size (PMinSize; per ICCCM a missing min falls back to
 # PBaseSize) and its resize increments (PResizeInc, with PBaseSize —
@@ -702,6 +797,7 @@ proc unmanage {w {dead 0}} {
     }
     policy-detach $w
     unset ::managed($w)
+    icon-invalidate $w
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
     puts "WM: unmanaged 0x[format %x $w], frame destroyed"
     # Refocus not only when OUR records say the dead window was focused:
