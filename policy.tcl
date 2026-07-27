@@ -234,9 +234,10 @@ proc policy-max-client-size {} {
 proc policy-attach {w cw ch} {
     set t .f[incr ::fid]
     set B $::border
-    # WM_TRANSIENT_FOR is read ONCE, now: the refocus pick needs the
+    # WM_TRANSIENT_FOR is read NOW and kept: the refocus pick needs the
     # dialog's leader at a moment when the dialog may already be a dead
-    # window that cannot be asked anything.
+    # window that cannot be asked anything. A later property change
+    # arrives through policy-transient below.
     set ::leaderof($w) [transient-for $w]
     lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $::decotop + $B}]] X Y
     toplevel $t -background #3465a4
@@ -373,6 +374,7 @@ proc policy-resize {w cw ch} {
     frame-layout $::frameof($w) $cw $ch
     update idletasks
 }
+
 
 # ---- the decoration underlay ----
 # Border background (the canvas -background), a 1px dark outline around
@@ -512,19 +514,51 @@ proc policy-title {w title} {
     $t.title item element configure 1 C0 eTxt -text [title-or-id $w $title]
 }
 
+# The substrate re-read WM_TRANSIENT_FOR after a PropertyNotify: a
+# client may aim its dialog at a leader (or away from one) after
+# mapping. The stored leader feeds raise-group, lower-group and the
+# refocus pick from here on; placement is a manage-time decision and
+# is deliberately not redone.
+proc policy-transient {w leader} {
+    if {![info exists ::frameof($w)]} return
+    if {$leader == $w} { set leader 0 }   ;# self-transient is no leader
+    set ::leaderof($w) $leader
+}
+
 # Focus highlight: active frame blue, inactive grey. Every honest focus
 # change lands here (server-confirmed focus-to, and focus moved behind
 # our back) — which makes it the one place to keep the focus history.
+proc frame-recolor {t bg} {
+    $t configure -background $bg
+    $t.deco configure -background $bg
+    deco-draw $t.deco [winfo width $t.deco] [winfo height $t.deco]
+    $t.title configure -background $bg
+}
+proc frame-focus-color {w} {
+    expr {$w == $::focused ? "#3465a4" : "#888a85"}
+}
 proc policy-paint-focus {w} {
     set ::focus_hist [linsert \
         [lsearch -exact -all -inline -not $::focus_hist $w] 0 $w]
     foreach {ww tt} [array get ::frameof] {
-        set bg [expr {$ww == $w ? "#3465a4" : "#888a85"}]
-        $tt configure -background $bg
-        $tt.deco configure -background $bg
-        deco-draw $tt.deco [winfo width $tt.deco] [winfo height $tt.deco]
-        $tt.title configure -background $bg
+        frame-recolor $tt [frame-focus-color $ww]
     }
+}
+
+# The wink: a client is not answering its WM_DELETE_WINDOW — pulse the
+# frame red a couple of times so the silence is visible. Each pulse
+# step re-derives the resting color: the focus may move mid-wink, and
+# the frame must settle on the color it then deserves.
+proc policy-close-unanswered {w} {
+    if {![info exists ::frameof($w)]} return
+    puts "WM: wink 0x[format %x $w] — client is silent"
+    wink-frame $w 3   ;# odd first = start red: red/rest/red/rest
+}
+proc wink-frame {w n} {
+    if {![info exists ::frameof($w)]} return
+    frame-recolor $::frameof($w) \
+        [expr {$n % 2 ? "#cc4444" : [frame-focus-color $w]}]
+    if {$n > 0} { after 160 [list wink-frame $w [expr {$n - 1}]] }
 }
 
 # Raise the whole transient group of w: the touched member on top of
@@ -1159,7 +1193,8 @@ proc panel-build {} {
     place $T -x 1 -y 1 -width [expr {$sw - 2}] -height [expr {$ph - 2}]
     wm geometry .panel ${sw}x${ph}+0+[expr {$sh - $ph}]
     raise .panel
-    puts "WM: panel up ([llength $::panel_buttons] buttons, $ph px)"
+    puts "WM: panel up ([llength $::panel_buttons] buttons, $ph px,\
+ ${sw}x${ph}+0+[expr {$sh - $ph}])"
 }
 proc panel-fire {i} {
     lassign [lindex $::panel_buttons $i] label settings
@@ -1209,6 +1244,16 @@ proc panel-click {x y} {
 }
 proc panel-on-top {} {
     if {[winfo exists .panel]} { raise .panel }
+}
+
+# The screen changed size under us (RandR: a resized Xephyr window, a
+# mode switch): the panel is glued to the bottom edge, so re-place it.
+# Debounced — an interactive Xephyr resize streams a notify per step,
+# and rebuilding the strip on each would thrash.
+set panel_resize_pending ""
+proc policy-screen-changed {} {
+    after cancel $::panel_resize_pending
+    set ::panel_resize_pending [after 200 panel-build]
 }
 
 # ---- default key bindings ----

@@ -18,7 +18,7 @@ cat > "$HERE/panel-config/tk9wm.tcl" <<'EOF'
 proc is-panel-client {w} { expr {[client-title $w] eq "панель-клиент"} }
 panel-button терм {
     match is-panel-client
-    launch {exec __LINUX__/whale __HERE__/client.tcl панель-клиент 240x120+300+150 #8ae234 {} {} 30 &}
+    launch {exec __LINUX__/whale __HERE__/client.tcl панель-клиент 240x120 #8ae234 {} {} 30 &}
     key {<Super>z}
 }
 EOF
@@ -31,14 +31,14 @@ sleep 1.5
 
 key() { xdotool key "$@"; sleep 0.5; }
 
-PH=$(sed -n 's/^WM: panel up (1 buttons, \([0-9]*\) px)$/\1/p' "$HERE/wm-panel.log")
+PH=$(sed -n 's/^WM: panel up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-panel.log" | head -1)
 TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-panel.log" | head -1)
 echo "--- panel h=$PH, deco top=$TOP"
 
 key super+z            # nothing matches -> launch
 sleep 1.5              # the client comes up and is managed
 
-"$LINUX/whale" "$HERE/client.tcl" "другое-окно" 240x120+60+60 "#fcaf3e" "" "" 30 &
+"$LINUX/whale" "$HERE/client.tcl" "другое-окно" 240x120 "#fcaf3e" "" "" 30 &
 CB=$!
 sleep 1                # the distractor holds the focus now
 

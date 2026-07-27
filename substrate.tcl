@@ -36,6 +36,13 @@
 #                           called BEFORE policy-detach w (the pick may
 #                           need per-frame facts that detach cleans up);
 #                           return 0 for none
+#   policy-transient w leader  WM_TRANSIENT_FOR changed on a managed
+#                           window; leader freshly re-read (0 = cleared)
+#   policy-close-unanswered w  a WM_DELETE_WINDOW went unanswered — the
+#                           window is still managed after the grace
+#                           period; show the user the client is silent
+#   policy-screen-changed   the root changed size under us (RandR);
+#                           anything glued to a screen edge re-places
 #
 # The substrate provides to the policy layer:
 #   focus-to w                  set the input focus honestly + repaint
@@ -209,8 +216,10 @@ if {[cffi::pointer isnull $dpy]} {puts "WM: cannot open display"; exit 1}
 set root [XDefaultRootWindow $dpy]
 # SubstructureRedirect|SubstructureNotify|FocusChange — the last one so we
 # SEE when something external (Xephyr on outer focus crossings!) resets the
-# input focus to PointerRoot, and can re-assert ours.
-XSelectInput $dpy $root [expr {(1 << 20) | (1 << 19) | (1 << 21)}]
+# input focus to PointerRoot, and can re-assert ours — plus
+# StructureNotify for the root's OWN ConfigureNotify: a RandR resize
+# (Xephyr's -resizeable, a mode switch) announces itself there.
+XSelectInput $dpy $root [expr {(1 << 20) | (1 << 19) | (1 << 21) | (1 << 17)}]
 XSync $dpy 0
 chan configure stdout -buffering line
 puts "WM: redirect armed on root [format 0x%x $root]"
@@ -324,6 +333,15 @@ proc handle-event {} {
                 send-synthetic-configure $B
             }
         }
+        22 { # ConfigureNotify: only the root's own is interesting — the
+            # screen changed size (RandR). The SubstructureNotify copies
+            # for reparented children arrive here too (A=root, B=child)
+            # and are noise.
+            if {$A == $::root && $B == $::root} {
+                puts "WM: screen -> ${w}x${h}"
+                policy-screen-changed
+            }
+        }
         18 { # UnmapNotify: the client withdrew itself. Trust only the
             # StructureNotify self-report (event==window — the root's
             # SubstructureNotify copy has event=root) and skip the unmap
@@ -358,7 +376,10 @@ proc handle-event {} {
         }
         28 { # PropertyNotify (window@32 atom@40 = the generic A B): a
             # title change repaints the frame's titlebar; changed
-            # WM_NORMAL_HINTS (XA_ predefined 40) are re-read
+            # WM_NORMAL_HINTS (XA_ predefined 40) are re-read; a changed
+            # WM_TRANSIENT_FOR (XA_ predefined 68) re-aims the dialog —
+            # toolkits are free to point a mapped window at a leader
+            # (or away from one) at any time
             if {[info exists ::managed($A)]} {
                 if {$B == $::WM_NAME
                         || ([info exists ::NET_WM_NAME]
@@ -366,6 +387,12 @@ proc handle-event {} {
                     refresh-title $A
                 } elseif {$B == 40} {
                     read-normal-hints $A
+                } elseif {$B == 68} {
+                    set l [transient-for $A]
+                    set ls none
+                    if {$l != 0} { set ls [format 0x%x $l] }
+                    puts "WM: transient 0x[format %x $A] -> $ls"
+                    policy-transient $A $l
                 } elseif {[info exists ::NET_WM_ICON] && $B == $::NET_WM_ICON} {
                     icon-invalidate $A   ;# re-read on the next need
                 }
@@ -914,11 +941,27 @@ proc close-client {w} {
     if {[client-supports-delete $w]} {
         puts "WM: close 0x[format %x $w]: sending WM_DELETE_WINDOW"
         send-wm-delete $w
+        # The polite path has no acknowledgement: a client that honors
+        # the request unmaps or dies, a hung one does NOTHING — check
+        # back after a grace period and let the policy show the user
+        # the silence. A repeated close re-arms the one check.
+        after cancel [list close-unanswered $w]
+        after 2000 [list close-unanswered $w]
     } else {
         puts "WM: close 0x[format %x $w]: no WM_DELETE_WINDOW, XKillClient"
         XKillClient $::dpy $w
         XSync $::dpy 0
     }
+}
+
+# Still managed this long after WM_DELETE_WINDOW = the client is not
+# answering (hung, or minding a modal question of its own) — the
+# policy decides what the user sees. A window that closed in time
+# fails the guard and the check dissolves silently.
+proc close-unanswered {w} {
+    if {![info exists ::managed($w)]} return
+    puts "WM: close 0x[format %x $w]: unanswered after 2 s"
+    policy-close-unanswered $w
 }
 
 # The unconditional kill — the ops menu's "destroy" for a client that
