@@ -39,6 +39,7 @@
 #   focus-to w                  set the input focus honestly + repaint
 #   close-client w              WM_DELETE_WINDOW when supported, else kill
 #   send-synthetic-configure w  ICCCM 4.1.5 notify after a frame move
+#   wm-resize-client w cw ch    a WM-initiated resize (border/corner drag)
 #   $::focused                  currently focused client (0 = none)
 
 package require cffi
@@ -531,6 +532,19 @@ proc resize-client {win rw rh vmask} {
     puts "WM: resize 0x[format %x $win] -> ${cw}x${ch}, frame follows"
     # the synthetic ConfigureNotify is sent by the ConfigureRequest
     # handler for EVERY request, granted or not — see there
+}
+
+# A WM-initiated resize (border/corner drag): the same dance as a
+# granted ConfigureRequest — decoration follows, client resized, client
+# told where/how big it is — but the size decision is the WM's own.
+proc wm-resize-client {w cw ch} {
+    if {![info exists ::managed($w)]} return
+    set ::geomof($w) [list $cw $ch]
+    policy-resize $w $cw $ch
+    XResizeWindow $::dpy $w $cw $ch
+    XSync $::dpy 0
+    puts "WM: wm-resize 0x[format %x $w] -> ${cw}x${ch}"
+    send-synthetic-configure $w
 }
 
 # ---------------- close machinery ----------------

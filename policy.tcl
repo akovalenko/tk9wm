@@ -18,6 +18,10 @@ package require treectrl   ;# titlebars: its text element cuts a long
 set ncli 0
 set fid 0
 set focus_hist {}
+# Side and bottom border width. 6px is a resize GRIP, not just a line:
+# the old 2px border left nothing to grab. The top strip above the
+# titlebar stays 2px — the title drag lives there, top resize does not.
+set border 6
 
 # Where to put a new frame (fw x fh, decoration included). Two rules, in
 # order:
@@ -71,11 +75,12 @@ proc clamp-to-screen {X Y fw fh sw sh} {
 # slot exists server-side before the raw connection reparents into it.
 proc policy-attach {w cw ch} {
     set t .f[incr ::fid]
+    set B $::border
     # WM_TRANSIENT_FOR is read ONCE, now: the refocus pick needs the
     # dialog's leader at a moment when the dialog may already be a dead
     # window that cannot be asked anything.
     set ::leaderof($w) [transient-for $w]
-    lassign [place-frame $w [expr {$cw + 4}] [expr {$ch + 28}]] X Y
+    lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + 26 + $B}]] X Y
     toplevel $t -background #3465a4
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
     # The titlebar is a treectrl (a one-item, one-column one): its text
@@ -97,15 +102,22 @@ proc policy-attach {w cw ch} {
     $t.title item element configure $item C0 eTxt \
         -text "клиент 0x[format %x $w]"
     $t.title item lastchild root $item
-    place $t.title -x 2 -y 2 -width [expr {$cw - 20}] -height 22
+    place $t.title -x $B -y 2 -width [expr {$cw - 20}] -height 22
     label $t.close -text ✕ -background #3465a4 -foreground white
-    place $t.close -x [expr {2 + $cw - 20}] -y 2 -width 20 -height 22
+    place $t.close -x [expr {$B + $cw - 20}] -y 2 -width 20 -height 22
     bind $t.close <ButtonRelease-1> [list close-client $w]
     frame $t.slot -width $cw -height $ch -background #202020
-    place $t.slot -x 2 -y 26
+    place $t.slot -x $B -y 26
     bind $t.title <ButtonPress-1> [list drag-start $t $w %X %Y]
     bind $t.title <B1-Motion>     [list drag-move  $t $w %X %Y]
-    wm geometry $t [expr {$cw + 4}]x[expr {$ch + 28}]+$X+$Y
+    # Resize by the border: events on the bare toplevel are exactly the
+    # border strips (the children cover everything else). The %W filter
+    # matters — a bind on a toplevel fires for its children too.
+    bind $t <Motion>          [list rz-hover $t %x %y %W]
+    bind $t <ButtonPress-1>   [list rz-start $t $w %X %Y %x %y %W]
+    bind $t <B1-Motion>       [list rz-move  $t $w %X %Y]
+    bind $t <ButtonRelease-1> [list rz-end]
+    wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + 26 + $B}]+$X+$Y
     update idletasks
     # Cross-connection ordering: a roundtrip on Tk's connection guarantees
     # the slot window exists server-side before the raw connection uses it.
@@ -147,13 +159,68 @@ proc policy-origin {w} {
 # The decoration follows the client's new size (position stays put).
 proc policy-resize {w cw ch} {
     set t $::frameof($w)
+    set B $::border
     place configure $t.title -width [expr {$cw - 20}]
-    place configure $t.close -x [expr {2 + $cw - 20}]
+    place configure $t.close -x [expr {$B + $cw - 20}]
     $t.slot configure -width $cw -height $ch
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
-    wm geometry $t [expr {$cw + 4}]x[expr {$ch + 28}]+$X+$Y
+    wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + 26 + $B}]+$X+$Y
     update idletasks
 }
+
+# ---- resize by the border / corner ----
+# Which resize grip is under frame-relative (x, y)? The side strips are
+# $::border wide, the bottom strip $::border tall; the 24px ends of the
+# bottom-left and bottom-right strips act as diagonal corners. The 2px
+# top strip resizes nothing (the title drag lives right under it).
+proc rz-edge {t x y} {
+    set W [winfo width $t]; set H [winfo height $t]
+    set B $::border; set CZ 24
+    if {$x >= $W - $B || $x < $B || $y >= $H - $B} {
+        if {$y >= $H - $CZ && $x >= $W - $CZ} { return se }
+        if {$y >= $H - $CZ && $x < $CZ}       { return sw }
+        if {$y >= $H - $B} { return s }
+        if {$x < $B}       { return w }
+        return e
+    }
+    return ""
+}
+proc rz-hover {t x y W} {
+    if {$W ne $t} return
+    array set cur {e right_side w left_side s bottom_side
+        se bottom_right_corner sw bottom_left_corner}
+    set e [rz-edge $t $x $y]
+    $t configure -cursor [expr {$e eq "" ? "" : $cur($e)}]
+}
+proc rz-start {t w X Y x y W} {
+    if {$W ne $t} return
+    set e [rz-edge $t $x $y]
+    if {$e eq ""} return
+    raise-group $w
+    focus-to $w
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
+    set ::rz [list $e $X $Y [winfo width $t.slot] [winfo height $t.slot] $fx $fy]
+}
+proc rz-move {t w X Y} {
+    if {![info exists ::rz]} return
+    lassign $::rz e x0 y0 cw0 ch0 fx fy
+    set dx [expr {$X - $x0}]; set dy [expr {$Y - $y0}]
+    set cw $cw0; set ch $ch0
+    switch -- $e {
+        e  { incr cw $dx }
+        s  { incr ch $dy }
+        se { incr cw $dx; incr ch $dy }
+        w  { incr cw [expr {-$dx}] }
+        sw { incr cw [expr {-$dx}]; incr ch $dy }
+    }
+    set cw [expr {max($cw, 40)}]; set ch [expr {max($ch, 30)}]
+    if {$e in {w sw}} {
+        # dragging the left edge: the frame moves so the right edge stays
+        wm geometry $t +[expr {$fx + $cw0 - $cw}]+$fy
+    }
+    wm-resize-client $w $cw $ch
+}
+proc rz-end {} { unset -nocomplain ::rz }
 
 # The client named (or renamed) itself: put the title on the titlebar.
 # The treectrl item is always 1 — a fresh widget per frame, the single
