@@ -289,28 +289,30 @@ proc policy-resize {w cw ch} {
 
 # ---- the decoration underlay ----
 # Border background (the canvas -background), a 1px dark outline around
-# the perimeter, and fvwm-style corner grips: L-shaped pieces in a
-# lighter shade at all four corners, cut off by thin dark lines — the
-# visible promise that a corner drags diagonally. Arms follow the strip
-# widths (sides $::border, top 2px, bottom $::border), length = the
-# corner zone rz-edge uses. Redrawn on <Configure>, recolored (via a
-# full cheap redraw) by paint-focus.
+# the perimeter, and fvwm-style corner grips in a lighter shade, cut
+# off by thin dark lines — the visible promise that a corner drags
+# diagonally. The bottom corners are L-shaped (arms $::border wide,
+# length = the corner zone rz-edge uses); the top corners keep only
+# the vertical arm: the top strip is 2px, and a horizontal arm
+# squeezed into it read as a clipped sliver, not a grip (the 2px strip
+# still resizes — the zone just goes unadvertised). Redrawn on
+# <Configure>, recolored (via a full cheap redraw) by paint-focus.
 proc deco-draw {c W H} {
     $c delete all
-    set B $::border; set CZ 24; set T 2
+    set B $::border; set CZ 24
     set bg [$c cget -background]
     set grip [expr {[info exists ::gripof($bg)] ? $::gripof($bg) : $bg}]
     foreach {x0 y0 x1 y1} [list \
-        0 0 $B $CZ                          0 0 $CZ $T \
-        [expr {$W-$B}] 0 $W $CZ             [expr {$W-$CZ}] 0 $W $T \
+        0 0 $B $CZ \
+        [expr {$W-$B}] 0 $W $CZ \
         0 [expr {$H-$CZ}] $B $H             0 [expr {$H-$B}] $CZ $H \
         [expr {$W-$B}] [expr {$H-$CZ}] $W $H \
         [expr {$W-$CZ}] [expr {$H-$B}] $W $H] {
         $c create rectangle $x0 $y0 $x1 $y1 -fill $grip -outline "" -tags grip
     }
     foreach {x0 y0 x1 y1} [list \
-        0 $CZ $B $CZ                        $CZ 0 $CZ $T \
-        [expr {$W-$B}] $CZ $W $CZ           [expr {$W-$CZ}] 0 [expr {$W-$CZ}] $T \
+        0 $CZ $B $CZ \
+        [expr {$W-$B}] $CZ $W $CZ \
         0 [expr {$H-$CZ}] $B [expr {$H-$CZ}]        $CZ [expr {$H-$B}] $CZ $H \
         [expr {$W-$B}] [expr {$H-$CZ}] $W [expr {$H-$CZ}] \
         [expr {$W-$CZ}] [expr {$H-$B}] [expr {$W-$CZ}] $H] {
