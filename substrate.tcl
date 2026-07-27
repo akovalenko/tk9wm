@@ -20,6 +20,8 @@
 #                           cw x ch), decide placement, and return the X
 #                           window id of the slot to reparent w into; must
 #                           return only after the slot exists server-side
+#   policy-max-client-size  {maxw maxh} a frame on this screen can hold —
+#                           an oversized newcomer is shrunk to it at manage
 #   policy-detach w         destroy w's decoration
 #   policy-origin w         root {x y} of w's client area (for synthetic
 #                           ConfigureNotify and for parking a withdrawn
@@ -39,7 +41,9 @@
 #   focus-to w                  set the input focus honestly + repaint
 #   close-client w              WM_DELETE_WINDOW when supported, else kill
 #   send-synthetic-configure w  ICCCM 4.1.5 notify after a frame move
-#   wm-resize-client w cw ch    a WM-initiated resize (border/corner drag)
+#   wm-resize-client w cw ch    a WM-initiated resize (border/corner drag);
+#                               clamps to the client's declared minimum
+#   client-min-size w           declared WM_NORMAL_HINTS minimum, {0 0} = none
 #   $::focused                  currently focused client (0 = none)
 
 package require cffi
@@ -104,6 +108,10 @@ set has_getprop [expr {![catch {
         off long len long delete int reqtype ulong actual_type {ulong out}
         actual_format {int out} nitems {ulong out} bytes_after {ulong out}
         data {pointer unsafe out}}
+}]}]
+set has_normalhints [expr {![catch {
+    X11 function XGetWMNormalHints int {dpy pointer.unsafe w ulong
+        hints pointer.unsafe supplied {long out}}
 }]}]
 
 # ---------------- X error handler (cffi callback) ----------------
@@ -249,7 +257,15 @@ proc handle-event {} {
                 # _handle_cr_on_client).
                 send-synthetic-configure $B
             } else {
-                set ::geomof($B) [list $w $h]
+                # Record only the size bits the mask actually declares:
+                # a move-only request carries junk in w/h, and recording
+                # that junk as "the size it wants" is how a window gets
+                # framed at a size it never asked for.
+                set gw 0; set gh 0
+                if {[info exists ::geomof($B)]} { lassign $::geomof($B) gw gh }
+                if {$vmask & (1 << 2)} { set gw $w }
+                if {$vmask & (1 << 3)} { set gh $h }
+                set ::geomof($B) [list $gw $gh]
                 if {[catch {
                     set chg [cffi::memory frombinary \
                         [binary format iiiiix4wuix4 $x $y $w $h $bw $above $detail] unsafe]
@@ -301,12 +317,16 @@ proc handle-event {} {
             }
         }
         28 { # PropertyNotify (window@32 atom@40 = the generic A B): a
-            # title change repaints the frame's titlebar
-            if {[info exists ::managed($A)]
-                    && ($B == $::WM_NAME
+            # title change repaints the frame's titlebar; changed
+            # WM_NORMAL_HINTS (XA_ predefined 40) are re-read
+            if {[info exists ::managed($A)]} {
+                if {$B == $::WM_NAME
                         || ([info exists ::NET_WM_NAME]
-                            && $B == $::NET_WM_NAME))} {
-                refresh-title $A
+                            && $B == $::NET_WM_NAME)} {
+                    refresh-title $A
+                } elseif {$B == 40} {
+                    read-normal-hints $A
+                }
             }
         }
         4 { # ButtonPress via our sync grab: let the policy react (focus,
@@ -377,6 +397,37 @@ proc refresh-title {w} {
     policy-title $w $title
 }
 
+# ICCCM WM_NORMAL_HINTS, the part we honor today: the client's declared
+# MINIMUM size (PMinSize; per ICCCM a missing min falls back to
+# PBaseSize). Read at manage and re-read on PropertyNotify — a client is
+# free to change its hints while mapped. Resize increments live in the
+# same struct but are NOT honored yet: that waits for a switch to turn
+# them off (they always get turned off around here).
+proc read-normal-hints {w} {
+    set ::minof($w) {0 0}
+    if {!$::has_normalhints} return
+    set buf [cffi::memory allocate 96 unsafe]
+    if {![catch {XGetWMNormalHints $::dpy $w $buf supplied} ok] && $ok} {
+        # XSizeHints (LP64): flags@0; x y width height min_w min_h max_w
+        # max_h width_inc height_inc — ints @8..47; aspect pairs @48..63;
+        # base_width base_height win_gravity @64..75
+        binary scan [cffi::memory tobinary! $buf 80] wuiiiiiiiiiix16iii \
+            flags hx hy hw hh minw minh maxw maxh winc hinc basew baseh grav
+        if {$flags & 16} {                       ;# PMinSize
+            set ::minof($w) [list [expr {max($minw,0)}] [expr {max($minh,0)}]]
+        } elseif {$flags & 256} {                ;# PBaseSize as min (ICCCM)
+            set ::minof($w) [list [expr {max($basew,0)}] [expr {max($baseh,0)}]]
+        }
+    }
+    cffi::memory free $buf
+}
+
+# The declared minimum, {0 0} when the client declares nothing.
+proc client-min-size {w} {
+    if {[info exists ::minof($w)]} { return $::minof($w) }
+    return {0 0}
+}
+
 # ICCCM 4.1.3.1: a managed window must carry WM_STATE (state + icon
 # window). Toolkits and every wmctrl/xdotool-class tool use its presence
 # to tell "managed by a WM" from "still wild" — we never set it, which
@@ -394,8 +445,33 @@ proc set-wm-state {w state} {
 proc manage {w} {
     global dpy
     if {[info exists ::managed($w)]} { XMapWindow $dpy $w; return }
+    # How big does this window want to be? The truth is its CURRENT
+    # geometry: a client that created its window at the right size and
+    # mapped it never sends a ConfigureRequest, and the old code framed
+    # it at the 200x120 default (kitty arrived ultra-miniature). The
+    # recorded ConfigureRequest sizes are only the fallback for a server
+    # without XGetGeometry.
     set cw 200; set ch 120
-    if {[info exists ::geomof($w)]} { lassign $::geomof($w) cw ch }
+    if {[info exists ::geomof($w)]} {
+        lassign $::geomof($w) cw ch
+        if {$cw <= 0} { set cw 200 }
+        if {$ch <= 0} { set ch 120 }
+    }
+    set aw 0; set ah 0
+    if {$::has_geometry
+            && ![catch {XGetGeometry $::dpy $w rr gx gy gw gh gbw gd}]} {
+        set cw $gw; set ch $gh
+        set aw $gw; set ah $gh    ;# actual size, to skip a no-op resize
+    }
+    read-normal-hints $w
+    # A window wider/taller than the screen leaves its far edge (emacs:
+    # the right one) unreachable — shrink it to what fits, but never
+    # below its declared minimum: a window that says "no smaller than
+    # this" keeps its size and placement pins it at the top-left instead.
+    lassign [client-min-size $w] minw minh
+    lassign [policy-max-client-size] maxw maxh
+    set cw [expr {max(min($cw, $maxw), $minw, 1)}]
+    set ch [expr {max(min($ch, $maxh), $minh, 1)}]
     set ::geomof($w) [list $cw $ch]
     set slot [policy-attach $w $cw $ch]
     set ::managed($w) 1
@@ -417,6 +493,7 @@ proc manage {w} {
     ;# GrabModeSync pointer, GrabModeAsync keyboard, no confine, no cursor
     XAddToSaveSet $dpy $w
     XReparentWindow $dpy $w $slot 0 0
+    if {$cw != $aw || $ch != $ah} { XResizeWindow $dpy $w $cw $ch }
     XMapWindow $dpy $w
     set-wm-state $w 1          ;# NormalState — ICCCM, see set-wm-state
     XSync $dpy 0
@@ -465,6 +542,7 @@ proc unmanage {w {dead 0}} {
     }
     policy-detach $w
     unset ::managed($w)
+    unset -nocomplain ::minof($w)
     puts "WM: unmanaged 0x[format %x $w], frame destroyed"
     # Refocus not only when OUR records say the dead window was focused:
     # a client may have grabbed focus behind our back (focus -force) and
@@ -539,6 +617,11 @@ proc resize-client {win rw rh vmask} {
 # told where/how big it is — but the size decision is the WM's own.
 proc wm-resize-client {w cw ch} {
     if {![info exists ::managed($w)]} return
+    # The client's declared minimum binds every WM-initiated resize; the
+    # client's OWN requests (resize-client above) are its business.
+    lassign [client-min-size $w] minw minh
+    set cw [expr {max($cw, $minw)}]; set ch [expr {max($ch, $minh)}]
+    if {$::geomof($w) eq [list $cw $ch]} return
     set ::geomof($w) [list $cw $ch]
     policy-resize $w $cw $ch
     XResizeWindow $::dpy $w $cw $ch

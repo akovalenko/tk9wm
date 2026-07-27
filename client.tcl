@@ -1,8 +1,12 @@
-# Demo client: argv = title geometry color ?resizeto?. Reports viewability
-# and focus; announces WM_DELETE_WINDOW; optionally requests a resize so the
-# driver log shows the frame following.
+# Demo client: argv = title geometry color ?resizeto? ?minsize?. Reports
+# viewability and focus; announces WM_DELETE_WINDOW; optionally requests a
+# resize so the driver log shows the frame following; optional minsize
+# (WxH) declares a WM_NORMAL_HINTS minimum.
 package require Tk
-lassign $argv title geom color resizeto
+lassign $argv title geom color resizeto minsize
+if {$minsize ne "" && [regexp {^(\d+)x(\d+)$} $minsize -> mw mh]} {
+    wm minsize . $mw $mh
+}
 if {$title eq ""} { set title client }
 if {$geom  eq ""} { set geom 240x120+30+30 }
 if {$color eq ""} { set color #fce94f }

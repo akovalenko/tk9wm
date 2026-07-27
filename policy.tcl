@@ -69,6 +69,15 @@ proc clamp-to-screen {X Y fw fh sw sh} {
     list [expr {max($X, 0)}] [expr {max($Y, 0)}]
 }
 
+# The biggest client area a frame on this screen can hold — the
+# substrate shrinks an oversized newcomer to this (never below the
+# client's declared minimum) so no edge starts out unreachable.
+proc policy-max-client-size {} {
+    lassign [screen-size] sw sh
+    set B $::border
+    list [expr {$sw - 2*$B}] [expr {$sh - 26 - $B}]
+}
+
 # Build a decoration for client w (client area cw x ch): blue titlebar
 # with a ✕, dark slot below; placement per place-frame above. Returns the
 # slot's X window id; the Tk roundtrip before the return guarantees the
@@ -222,7 +231,13 @@ proc rz-move {t w X Y} {
         w  { incr cw [expr {-$dx}] }
         sw { incr cw [expr {-$dx}]; incr ch $dy }
     }
-    set cw [expr {max($cw, 40)}]; set ch [expr {max($ch, 30)}]
+    # The client's declared minimum caps the shrink HERE, not only in
+    # wm-resize-client: the left/top anchoring below moves the frame by
+    # the size delta, and a size clamped later than the move would tear
+    # the dragged edge off the pointer. 40x30 is our own floor — a frame
+    # must stay big enough to grab.
+    lassign [client-min-size $w] minw minh
+    set cw [expr {max($cw, $minw, 40)}]; set ch [expr {max($ch, $minh, 30)}]
     if {$e in {w sw}} {
         # dragging the left edge: the frame moves so the right edge stays
         wm geometry $t +[expr {$fx + $cw0 - $cw}]+$fy
