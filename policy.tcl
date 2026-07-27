@@ -90,6 +90,7 @@ proc set-title-font {args} {
 }
 proc retitle-frames {} {
     title-metrics
+    panel-build   ;# the strip height follows the font too
     foreach {w t} [array get ::frameof] {
         frame-layout $t [$t.slot cget -width] [$t.slot cget -height]
     }
@@ -182,7 +183,9 @@ proc apply-size-hints {w cw ch} {
 # 2026-07-27). A window bigger than the screen is pinned at the top-left
 # corner — better to lose the far edge than the near one.
 proc place-frame {w fw fh} {
-    lassign [screen-size] sw sh
+    # frames are placed within the WORKAREA: a new window must not be
+    # born with its bottom edge under the panel
+    lassign [workarea] wax way sw sh
     set parent $::leaderof($w)
     if {$parent != 0 && [info exists ::frameof($parent)]} {
         set pt $::frameof($parent)
@@ -219,7 +222,7 @@ proc clamp-to-screen {X Y fw fh sw sh} {
 # substrate shrinks an oversized newcomer to this (never below the
 # client's declared minimum) so no edge starts out unreachable.
 proc policy-max-client-size {} {
-    lassign [screen-size] sw sh
+    lassign [workarea] wax way sw sh
     set B $::border
     list [expr {$sw - 2*$B}] [expr {$sh - $::decotop - $B}]
 }
@@ -559,6 +562,7 @@ proc raise-group {w} {
         lower $::frameof([lindex $order $i]) \
               $::frameof([lindex $order [expr {$i - 1}]])
     }
+    panel-on-top
 }
 
 # Lower the whole transient group of w — the mirror image, same glue,
@@ -666,11 +670,12 @@ proc title-release {t w x y} {
 }
 
 # ---- maximize, fvwm semantics ----
-# The workarea: where maximize expands to. The full screen today;
-# panels will carve pieces off it later.
+# The workarea: where maximize expands to and where new frames are
+# placed — the screen minus the panel's bottom strip (zero-height
+# when no buttons are declared, see the panel section).
 proc workarea {} {
     lassign [screen-size] sw sh
-    list 0 0 $sw $sh
+    list 0 0 $sw [expr {$sh - [panel-height]}]
 }
 
 # Maximize fills the workarea and remembers what the window was; the
@@ -1078,6 +1083,132 @@ proc winops-click {x y} {
     set T .winops.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     winops-fire $A(item)
+}
+
+# ---- the panel ----
+# Our own bottom-strip panel, wmaker-flavored buttons: a button is
+# IDEMPOTENT — fired (by click or by its chord) it FOCUSES the most
+# recently used window its predicate matches, and LAUNCHES its command
+# when nothing does; the button face flashes the verdict either way
+# (green "found it", orange "launching"). Declared from the config:
+#
+#   panel-button LABEL {match PRED launch SCRIPT icon IMG key CHORD}
+#
+# match is a predicate command prefix (the wm-style vocabulary — the
+# identity accessors), launch any Tcl script, icon a Tk image for the
+# button face, key a wm-bind chord spec; every key is optional. The
+# panel exists only when at least one button is declared — stock
+# behavior is panel-less — and the workarea hands the strip over the
+# moment there are buttons, so maximize never covers it. Every
+# raise-group ends by lifting the panel back on top: fvwm's
+# StaysOnTop for the poor, good enough until layers exist.
+set panel_buttons {}
+proc panel-button {label settings} {
+    lappend ::panel_buttons [list $label $settings]
+    if {[dict exists $settings key]} {
+        wm-bind [dict get $settings key] \
+            [list panel-fire [expr {[llength $::panel_buttons] - 1}]]
+    }
+    # one rebuild per config's worth of declarations
+    if {![info exists ::panel_pending]} {
+        set ::panel_pending 1
+        after idle {unset ::panel_pending; panel-build}
+    }
+}
+proc panel-height {} {
+    expr {[llength $::panel_buttons] ? $::titleh + 12 : 0}
+}
+proc panel-build {} {
+    destroy .panel
+    if {![llength $::panel_buttons]} return
+    lassign [screen-size] sw sh
+    set ph [panel-height]
+    toplevel .panel -background $::OUTLINE
+    wm overrideredirect .panel 1
+    set T [treectrl .panel.t -showheader no -showroot no -showbuttons no \
+        -showlines no -borderwidth 0 -highlightthickness 0 \
+        -background #2e3436 -orient horizontal -itemheight [expr {$ph - 2}]]
+    bindtags $T [list $T all]
+    $T state define found    ;# the flash: predicate found a window
+    $T state define firing   ;# the flash: launching the command
+    $T column create -tags C0
+    $T element create eFace rect \
+        -fill [list #4e9a06 found #ce5c00 firing #555753 {}] \
+        -outline #888a85 -outlinewidth 1
+    $T element create eBIcon image
+    $T element create eBTxt text -fill white -lines 1 -font TitleFont
+    $T style create sBtn
+    $T style elements sBtn {eFace eBIcon eBTxt}
+    $T style layout sBtn eFace -union {eBIcon eBTxt} -ipadx 8 -ipady 3 \
+        -padx 2 -expand ns
+    $T style layout sBtn eBIcon -expand ns -padx {0 4}
+    $T style layout sBtn eBTxt -expand ns
+    foreach b $::panel_buttons {
+        lassign $b label settings
+        set item [$T item create]
+        $T item style set $item C0 sBtn
+        $T item element configure $item C0 eBTxt -text $label
+        if {[dict exists $settings icon]
+                && [dict get $settings icon] in [image names]} {
+            $T item element configure $item C0 eBIcon \
+                -image [dict get $settings icon]
+        }
+        $T item lastchild root $item
+    }
+    bind $T <ButtonPress-1> {panel-click %x %y}
+    place $T -x 1 -y 1 -width [expr {$sw - 2}] -height [expr {$ph - 2}]
+    wm geometry .panel ${sw}x${ph}+0+[expr {$sh - $ph}]
+    raise .panel
+    puts "WM: panel up ([llength $::panel_buttons] buttons, $ph px)"
+}
+proc panel-fire {i} {
+    lassign [lindex $::panel_buttons $i] label settings
+    set hit 0
+    if {[dict exists $settings match]} {
+        set pred [dict get $settings match]
+        # MRU first — like the winlist, never-focused windows trail
+        set cands $::focus_hist
+        foreach w [array names ::frameof] {
+            if {$w ni $cands} { lappend cands $w }
+        }
+        foreach w $cands {
+            if {![info exists ::frameof($w)]} continue
+            if {[catch {uplevel #0 [list {*}$pred $w]} m]} {
+                puts "WM: panel $label: predicate error on 0x[format %x $w]: $m"
+            } elseif {$m} { set hit $w; break }
+        }
+    }
+    if {$hit != 0} {
+        puts "WM: panel $label: found 0x[format %x $hit]"
+        panel-flash $i found
+        raise-group $hit
+        focus-to $hit
+    } elseif {[dict exists $settings launch]} {
+        puts "WM: panel $label: launch"
+        panel-flash $i firing
+        if {[catch {uplevel #0 [dict get $settings launch]} err]} {
+            puts "WM: panel $label: launch FAILED: $err"
+        }
+    } else {
+        puts "WM: panel $label: nothing matched, nothing to launch"
+    }
+}
+proc panel-flash {i state} {
+    # items are created in declaration order: button i = item i+1
+    set item [expr {$i + 1}]
+    if {![winfo exists .panel.t]} return
+    catch {
+        .panel.t item state set $item $state
+        after 600 [list catch [list .panel.t item state set $item !$state]]
+    }
+}
+proc panel-click {x y} {
+    set T .panel.t
+    if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
+    panel-fire [expr {$A(item) - 1}]
+}
+proc panel-on-top {} {
+    if {[winfo exists .panel]} { raise .panel }
 }
 
 # ---- default key bindings ----

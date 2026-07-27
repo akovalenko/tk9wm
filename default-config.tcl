@@ -52,6 +52,24 @@
 #   image create photo imgTerm -file /home/me/icons/terminal.png
 #   wm-style my-xterm {icon imgTerm}
 #
+# ---- the panel ----
+#
+# panel-button LABEL SETTINGS declares a button on the WM's own panel —
+# a bottom strip that exists only when buttons are declared, and that
+# maximize respects (the workarea ends above it). A button is
+# idempotent, wmaker-style: fired — by click or by its chord — it
+# FOCUSES the most recently used window its `match` predicate finds,
+# else LAUNCHES its `launch` script; the face flashes the verdict
+# (green "found it", orange "launching"). Settings keys, all optional:
+#   match  — predicate command prefix (same vocabulary as wm-style)
+#   launch — any Tcl script, typically {exec ... &}
+#   icon   — a Tk image for the button face
+#   key    — a wm-bind chord sequence firing this button
+#
+#   panel-button xterm {
+#       match my-xterm launch {exec xterm &} key {<Super>x}
+#   }
+#
 # ---- key bindings ----
 #
 # wm-bind SPEC SCRIPT binds a chord sequence, stumpwm-style: only the
