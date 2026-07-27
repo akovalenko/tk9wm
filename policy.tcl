@@ -110,13 +110,19 @@ proc policy-attach {w cw ch} {
     place $t.slot -x $B -y 26
     bind $t.title <ButtonPress-1> [list drag-start $t $w %X %Y]
     bind $t.title <B1-Motion>     [list drag-move  $t $w %X %Y]
-    # Resize by the border: events on the bare toplevel are exactly the
-    # border strips (the children cover everything else). The %W filter
-    # matters — a bind on a toplevel fires for its children too.
-    bind $t <Motion>          [list rz-hover $t %x %y %W]
-    bind $t <ButtonPress-1>   [list rz-start $t $w %X %Y %x %y %W]
+    # Resize by the border: the border strips are the bare toplevel, and a
+    # bind on a toplevel fires for its children too — so positions are
+    # computed from ROOT coords (%x/%y would be child-relative there) and
+    # rz-edge itself decides "not a border" for points inside children.
+    # That also un-sticks the resize cursor when the pointer crosses onto
+    # the title; crossing into the CLIENT (an X window Tk never hears
+    # Motion from) is caught by <Leave> — X sends LeaveNotify with detail
+    # Inferior when the pointer dives into a child.
+    bind $t <Motion>          [list rz-hover $t %X %Y]
+    bind $t <Leave>           [list rz-leave $t]
+    bind $t <ButtonPress-1>   [list rz-start $t $w %X %Y]
     bind $t <B1-Motion>       [list rz-move  $t $w %X %Y]
-    bind $t <ButtonRelease-1> [list rz-end]
+    bind $t <ButtonRelease-1> [list press-end $t]
     wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + 26 + $B}]+$X+$Y
     update idletasks
     # Cross-connection ordering: a roundtrip on Tk's connection guarantees
@@ -185,16 +191,19 @@ proc rz-edge {t x y} {
     }
     return ""
 }
-proc rz-hover {t x y W} {
-    if {$W ne $t} return
+proc rz-hover {t X Y} {
     array set cur {e right_side w left_side s bottom_side
         se bottom_right_corner sw bottom_left_corner}
-    set e [rz-edge $t $x $y]
+    set e [rz-edge $t [expr {$X - [winfo rootx $t]}] \
+                      [expr {$Y - [winfo rooty $t]}]]
     $t configure -cursor [expr {$e eq "" ? "" : $cur($e)}]
 }
-proc rz-start {t w X Y x y W} {
-    if {$W ne $t} return
-    set e [rz-edge $t $x $y]
+proc rz-leave {t} {
+    if {![info exists ::rz]} { $t configure -cursor "" }
+}
+proc rz-start {t w X Y} {
+    set e [rz-edge $t [expr {$X - [winfo rootx $t]}] \
+                      [expr {$Y - [winfo rooty $t]}]]
     if {$e eq ""} return
     raise-group $w
     focus-to $w
@@ -221,6 +230,19 @@ proc rz-move {t w X Y} {
     wm-resize-client $w $cw $ch
 }
 proc rz-end {} { unset -nocomplain ::rz }
+
+# Button-1 released anywhere on the frame (the toplevel's bindtag makes
+# this fire for its children too): close BOTH the resize and the title
+# drag. The drag state used to live forever — a later button-down that
+# never visited drag-start (pressed on the root, dragged across a title)
+# picked the window up with stale coordinates and yanked it. Then re-run
+# the hover logic: the pointer may well be resting on the title now, and
+# the resize cursor must not outlive the resize.
+proc press-end {t} {
+    rz-end
+    unset -nocomplain ::drag($t)
+    catch { rz-hover $t {*}[winfo pointerxy $t] }
+}
 
 # The client named (or renamed) itself: put the title on the titlebar.
 # The treectrl item is always 1 — a fresh widget per frame, the single
@@ -320,6 +342,9 @@ proc drag-start {t w X Y} {
     set ::drag($t) [list $X $Y $wx $wy]
 }
 proc drag-move {t w X Y} {
+    # No state — no drag: the press never landed on this title (a drag
+    # that STARTED on the root background is a noop, not a pickup).
+    if {![info exists ::drag($t)]} return
     lassign $::drag($t) x0 y0 wx wy
     wm geometry $t +[expr {$wx + $X - $x0}]+[expr {$wy + $Y - $y0}]
     send-synthetic-configure $w

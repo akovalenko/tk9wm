@@ -38,9 +38,19 @@ drag $((FX + 349)) $((FY + 229)) $((FX + 379)) $((FY + 257))
 # left edge of the now-382x260 frame: 370 -> 390 wide, frame slides left
 drag $((FX + 2))   $((FY + 120)) $((FX - 18)) $((FY + 120))
 
+# title drag: the frame (now at FX-20, FY) moves +10+15
+drag $((FX + 130)) $((FY + 12)) $((FX + 140)) $((FY + 27))
+# a drag STARTED on the root background must be a noop even when it
+# crosses a title: press on empty root, drag onto the title, release.
+# Before the fix the previous drag's stale state made this a pickup.
+xdotool mousemove 650 450 mousedown 1 \
+    mousemove $((FX + 140)) $((FY + 27)) mouseup 1
+sleep 0.4
+
 import -display :74 -window root "$HERE/resize-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/resize-test.png"
 GEOM=$(xwininfo -id "$AID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
+POS=$(xwininfo -id "$AID" | awk '/Absolute upper-left X:/ {x=$4} /Absolute upper-left Y:/ {y=$4} END {print x "," y}')
 kill $WM $CA 2>/dev/null
 
 echo "--- last wm-resize lines:"
@@ -53,4 +63,12 @@ if [ "$GEOM" = "390x228" ]; then
     echo "OK: client is $GEOM after edge, corner and left-edge drags"
 else
     echo "FAIL: client is $GEOM, want 390x228"
+fi
+# after the title drag the frame sits at (FX-10, FY+15); the client area
+# is +6+26 inside it. The root-background drag must not have moved it.
+WANTPOS="$((FX - 4)),$((FY + 41))"
+if [ "$POS" = "$WANTPOS" ]; then
+    echo "OK: client at +$POS after title drag; root-background drag was a noop"
+else
+    echo "FAIL: client at +$POS, want +$WANTPOS (root-background drag moved it?)"
 fi
