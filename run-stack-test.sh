@@ -20,11 +20,11 @@ WM=$!
 sleep 1.5
 
 # leader 300x200 (dialog 220x140 pops after 2 s and stays), then a bystander
-"$LINUX/whale" "$HERE/client-dlg.tcl" 300x200+20+20 220x140+0+0 \
+"$LINUX/whale" "$HERE/client-dlg.tcl" 300x200 220x140 \
     > "$HERE/stack-leader.log" &
 CA=$!
 sleep 0.5
-"$LINUX/whale" "$HERE/client.tcl" "сосед" 240x120+30+30 "#8ae234" \
+"$LINUX/whale" "$HERE/client.tcl" "сосед" 240x120 "#8ae234" \
     > "$HERE/stack-b.log" &
 CB=$!
 sleep 2.5

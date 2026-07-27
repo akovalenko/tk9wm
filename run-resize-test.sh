@@ -16,7 +16,7 @@ sleep 1
 WM=$!
 sleep 1.5
 
-"$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200+30+30 "#fce94f" \
+"$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" \
     > "$HERE/resize-client.log" &
 CA=$!
 sleep 1.5

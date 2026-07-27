@@ -11,9 +11,9 @@ XVFB=$!
 trap 'kill $XVFB 2>/dev/null' EXIT
 sleep 1
 
-xterm -geometry 60x16+30+30 -e sh -c "cat > '$HERE/typed.txt'" &
+xterm -geometry 60x16 -e sh -c "cat > '$HERE/typed.txt'" &
 XT=$!
-xclock -geometry 150x150+60+60 &
+xclock -geometry 150x150 &
 XC=$!
 sleep 2                                   # both map wild, no WM yet
 
@@ -44,7 +44,7 @@ sleep 1
 "$LINUX/whale-cli" "$HERE/probe-focus.tcl"
 
 echo "--- scenario B: new clock, focused, then WITHDRAWS (unmap)"
-xclock -geometry 150x150+60+60 &
+xclock -geometry 150x150 &
 XC=$!
 sleep 1.5
 "$LINUX/whale-cli" "$HERE/probe-focus.tcl"

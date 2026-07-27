@@ -34,9 +34,10 @@ if {$mode eq "selfsize"} {
     after 120 { wm geometry . 700x500 }
     after 260 { wm geometry . 900x620 }
     # asking for a POSITION too — what an app does when it restores its
-    # saved window placement. A reparenting WM denies the position, and
-    # ICCCM 4.1.5 obliges it to say so; a WM that stays silent leaves the
-    # app believing it sits where it asked to sit.
+    # saved window placement. Tk stamps USPosition on this, so the WM
+    # honors the move (and answers with the synthetic ConfigureNotify
+    # either way, ICCCM 4.1.5 — a silent WM leaves the app believing
+    # it sits where it asked to sit).
     after 420 { wm geometry . 860x580+300+250 }
 }
 

@@ -3,7 +3,7 @@
 package require Tk
 chan configure stdout -buffering line
 wm title . withdraw-client
-wm geometry . 200x100+30+30
+wm geometry . 200x100
 label .l -text "withdraw me" -background #e9b96e
 pack .l -expand 1 -fill both
 after 2500 { puts "CLIENTW: withdrawing"; wm withdraw . }

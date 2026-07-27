@@ -33,13 +33,13 @@ XDG_CONFIG_HOME="$HERE/icon-config" \
 WM=$!
 sleep 1.5
 
-"$LINUX/whale" "$HERE/client.tcl" "первое-окно" 240x120+30+30 "#8ae234" "" "" 30 "#4e9a06" &
+"$LINUX/whale" "$HERE/client.tcl" "первое-окно" 240x120 "#8ae234" "" "" 30 "#4e9a06" &
 CA=$!
 sleep 0.5
-"$LINUX/whale" "$HERE/client.tcl" "второе-окно" 240x120+60+60 "#fcaf3e" "" "" 30 &
+"$LINUX/whale" "$HERE/client.tcl" "второе-окно" 240x120 "#fcaf3e" "" "" 30 &
 CB=$!
 sleep 0.5
-"$LINUX/whale" "$HERE/client.tcl" "третье-окно" 240x120+90+90 "#ad7fa8" "" "" 30 &
+"$LINUX/whale" "$HERE/client.tcl" "третье-окно" 240x120 "#ad7fa8" "" "" 30 &
 CC=$!
 sleep 1
 

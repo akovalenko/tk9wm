@@ -22,11 +22,11 @@ sleep 1.5
 "$LINUX/whale" "$HERE/client-refocus.tcl" > "$HERE/refocus-leader.log" &
 CA=$!
 sleep 0.5
-"$LINUX/whale" "$HERE/client.tcl" "ранний" 240x120+30+30 "#8ae234" \
+"$LINUX/whale" "$HERE/client.tcl" "ранний" 240x120 "#8ae234" \
     > "$HERE/refocus-early.log" &
 CC=$!
 sleep 0.5
-"$LINUX/whale" "$HERE/client.tcl" "поздний" 240x120+30+30 "#fcaf3e" \
+"$LINUX/whale" "$HERE/client.tcl" "поздний" 240x120 "#fcaf3e" \
     > "$HERE/refocus-late.log" &
 CB=$!
 

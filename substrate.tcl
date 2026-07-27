@@ -38,6 +38,11 @@
 #                           return 0 for none
 #   policy-transient w leader  WM_TRANSIENT_FOR changed on a managed
 #                           window; leader freshly re-read (0 = cleared)
+#   policy-move-request w x y vmask grav  a managed client with a
+#                           declared position claim asked to move; x/y
+#                           valid per vmask bits (CWX=1, CWY=2), grav
+#                           says what the point aims at (see
+#                           client-position-hint)
 #   policy-close-unanswered w  a WM_DELETE_WINDOW went unanswered — the
 #                           window is still managed after the grace
 #                           period; show the user the client is silent
@@ -67,6 +72,13 @@
 #   client-min-size w           declared WM_NORMAL_HINTS minimum, {0 0} = none
 #   client-size-hints w         {minw minh incw inch basew baseh}; zero
 #                               increments = none declared
+#   client-position-hint w      {none|user|program gravity}: does the
+#                               client claim its own position
+#                               (USPosition/PPosition), and which
+#                               win_gravity interprets the point
+#   client-initial-position w   root {x y} of the client window at
+#                               manage time — the position half of
+#                               "-geometry WxH+X+Y"; {} when unknown
 #   client-class w              WM_CLASS as {instance class}, {"" ""} = none
 #   client-machine w            WM_CLIENT_MACHINE, "" = none
 #   client-pid w                _NET_WM_PID, 0 = none
@@ -292,11 +304,13 @@ proc handle-event {} {
         23 { # ConfigureRequest: managed → the frame follows the client;
             # unmanaged → honor verbatim and remember the size
             if {[info exists ::managed($B)]} {
+                if {$vmask & 3} { move-client-request $B $x $y $vmask }
                 resize-client $B $w $h $vmask
                 # ICCCM 4.1.5: "If a client's ConfigureWindow request is
                 # denied in whole or in part, the window manager must send
-                # the client a synthetic ConfigureNotify". We deny every
-                # position request (placement is ours) and used to answer
+                # the client a synthetic ConfigureNotify". A position
+                # request is denied unless the client claims positioning
+                # (move-client-request above); the denied ones used to get
                 # NOTHING — so a client that asked to move went on
                 # believing it had moved, and put its menus, tooltips and
                 # hit-testing at the position it had asked for. That is
@@ -669,6 +683,8 @@ proc read-normal-hints {w} {
     set ::minof($w) {0 0}
     set ::incof($w) {0 0}
     set ::baseof($w) {0 0}
+    set ::poshintof($w) none
+    set ::gravof($w) 1                           ;# NorthWest, the default
     if {!$::has_normalhints} return
     set buf [cffi::memory allocate 96 unsafe]
     if {![catch {XGetWMNormalHints $::dpy $w $buf supplied} ok] && $ok} {
@@ -690,8 +706,35 @@ proc read-normal-hints {w} {
         } else {                                 ;# ICCCM: base defaults to min
             set ::baseof($w) $::minof($w)
         }
+        # The position claim: USPosition = the user typed it (xterm
+        # -geometry, Tk wm geometry), PPosition = the program picked it.
+        # The x/y INSIDE the hints are obsolete — the honest position is
+        # the window's own geometry; only the flags matter here.
+        if {$flags & 1} {                        ;# USPosition
+            set ::poshintof($w) user
+        } elseif {$flags & 4} {                  ;# PPosition
+            set ::poshintof($w) program
+        }
+        if {$flags & 512 && $grav >= 1 && $grav <= 10} {   ;# PWinGravity
+            set ::gravof($w) $grav
+        }
     }
     cffi::memory free $buf
+}
+
+# The position claim and its gravity, for placement and move requests.
+proc client-position-hint {w} {
+    set kind none; set grav 1
+    if {[info exists ::poshintof($w)]} { set kind $::poshintof($w) }
+    if {[info exists ::gravof($w)]}    { set grav $::gravof($w) }
+    list $kind $grav
+}
+
+# Where the client window sat at manage time (root coords, from the
+# same XGetGeometry that read its honest size).
+proc client-initial-position {w} {
+    if {[info exists ::mapxyof($w)]} { return $::mapxyof($w) }
+    return {}
 }
 
 # The declared minimum, {0 0} when the client declares nothing.
@@ -744,6 +787,9 @@ proc manage {w} {
             && ![catch {XGetGeometry $::dpy $w rr gx gy gw gh gbw gd}]} {
         set cw $gw; set ch $gh
         set aw $gw; set ah $gh    ;# actual size, to skip a no-op resize
+        # ... and the position half: where the window put itself before
+        # mapping. Placement consults it when the hints claim a position.
+        set ::mapxyof($w) [list $gx $gy]
     }
     read-normal-hints $w
     # A window wider/taller than the screen leaves its far edge (emacs:
@@ -826,6 +872,7 @@ proc unmanage {w {dead 0}} {
     unset ::managed($w)
     icon-invalidate $w
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
+    unset -nocomplain ::poshintof($w) ::gravof($w) ::mapxyof($w)
     puts "WM: unmanaged 0x[format %x $w], frame destroyed"
     # Refocus not only when OUR records say the dead window was focused:
     # a client may have grabbed focus behind our back (focus -force) and
@@ -893,6 +940,19 @@ proc resize-client {win rw rh vmask} {
     puts "WM: resize 0x[format %x $win] -> ${cw}x${ch}, frame follows"
     # the synthetic ConfigureNotify is sent by the ConfigureRequest
     # handler for EVERY request, granted or not — see there
+}
+
+# A managed client's move request (CWX/CWY bits in a ConfigureRequest):
+# honored only for a client that DECLARES its positioning — USPosition
+# or PPosition in WM_NORMAL_HINTS, re-read live, so "wm geometry +x+y"
+# works exactly when the toolkit stamps the claim. Everyone else keeps
+# being placed by the WM, requests and all (the pre-existing rule).
+# The actual frame move is the policy's: it owns the decoration
+# geometry and the gravity arithmetic.
+proc move-client-request {w x y vmask} {
+    lassign [client-position-hint $w] kind grav
+    if {$kind eq "none"} return
+    policy-move-request $w $x $y [expr {$vmask & 3}] $grav
 }
 
 # A WM-initiated resize (border/corner drag): the same dance as a

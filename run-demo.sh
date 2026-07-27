@@ -13,10 +13,10 @@ sleep 1
 "$LINUX/whale" "$HERE/wm.tcl" demo &
 WM=$!
 sleep 1.5
-"$LINUX/whale" "$HERE/client.tcl" "клиент-A" 240x120+30+30 "#fce94f" 300x150 &
+"$LINUX/whale" "$HERE/client.tcl" "клиент-A" 240x120 "#fce94f" 300x150 &
 C1=$!
 sleep 0.7
-"$LINUX/whale" "$HERE/client.tcl" "клиент-B" 200x90+40+40 "#8ae234" &
+"$LINUX/whale" "$HERE/client.tcl" "клиент-B" 200x90 "#8ae234" &
 C2=$!
 sleep 3
 import -display :78 -window root "$HERE/first-frame.png" 2>/dev/null \

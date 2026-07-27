@@ -7,7 +7,7 @@ package require Tk
 chan configure stdout -buffering line
 
 wm title . "лидер"
-wm geometry . 260x160+0+0
+wm geometry . 260x160
 label .l -text "лидер" -background #729fcf -font {Sans 13}
 pack .l -expand 1 -fill both
 
@@ -17,7 +17,7 @@ after 2500 {
     toplevel .d
     wm title .d "диалог"
     wm transient .d .          ;# sets WM_TRANSIENT_FOR on the dialog
-    wm geometry .d 200x120+0+0
+    wm geometry .d 200x120
     label .d.l -text "диалог" -background #fcaf3e
     pack .d.l -expand 1 -fill both
     update idletasks

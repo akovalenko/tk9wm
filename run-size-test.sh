@@ -25,7 +25,7 @@ CA=$!
 sleep 2
 
 # --- B: declared minimum vs a shrinking drag ---
-"$LINUX/whale" "$HERE/client.tcl" "минимум" 300x200+30+30 "#fce94f" "" 200x150 \
+"$LINUX/whale" "$HERE/client.tcl" "минимум" 300x200 "#fce94f" "" 200x150 \
     > "$HERE/size-min.log" &
 CB=$!
 sleep 1.5
@@ -44,7 +44,7 @@ xdotool mousemove $((FX + 309)) $((FY + 229)) mousedown 1 \
 sleep 0.5
 
 # --- C: the emacs case ---
-"$LINUX/whale" "$HERE/client.tcl" "широкое" 900x300+0+0 "#ad7fa8" \
+"$LINUX/whale" "$HERE/client.tcl" "широкое" 900x300 "#ad7fa8" \
     > "$HERE/size-wide.log" &
 CC=$!
 sleep 2

@@ -3,8 +3,8 @@
 # argv: main-geometry dialog-geometry
 package require Tk
 lassign $argv mgeom dgeom
-if {$mgeom eq ""} { set mgeom 300x200+20+20 }
-if {$dgeom eq ""} { set dgeom 260x180+0+0 }
+if {$mgeom eq ""} { set mgeom 300x200 }
+if {$dgeom eq ""} { set dgeom 260x180 }
 chan configure stdout -buffering line
 
 wm title . "главное"

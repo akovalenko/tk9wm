@@ -30,10 +30,10 @@ sleep 1.5
 
 # the empty args skip resizeto/minsize; 60 s of lifetime outlives the
 # whole key script (the stock 8 s died mid-test and read as a wedge)
-"$LINUX/whale" "$HERE/client.tcl" "первое-окно" 240x120+30+30 "#8ae234" "" "" 60 &
+"$LINUX/whale" "$HERE/client.tcl" "первое-окно" 240x120 "#8ae234" "" "" 60 &
 CA=$!
 sleep 0.5
-"$LINUX/whale" "$HERE/client.tcl" "второе-окно" 240x120+30+30 "#fcaf3e" "" "" 60 &
+"$LINUX/whale" "$HERE/client.tcl" "второе-окно" 240x120 "#fcaf3e" "" "" 60 &
 CB=$!
 sleep 1
 

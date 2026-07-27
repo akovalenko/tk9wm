@@ -20,12 +20,12 @@ WM=$!
 sleep 1.5
 
 # main window plus, 2 s later, a transient dialog
-"$LINUX/whale" "$HERE/client-dlg.tcl" 300x200+20+20 260x180+0+0 &
+"$LINUX/whale" "$HERE/client-dlg.tcl" 300x200 260x180 &
 CP=$!
 sleep 0.7
 # a big client too: its cascade slot (+250+200 with a 404x428 frame) would
 # hang far below a 480-tall screen — the clamp has to pull it back
-"$LINUX/whale" "$HERE/client.tcl" "большой" 400x400+0+0 "#ad7fa8" &
+"$LINUX/whale" "$HERE/client.tcl" "большой" 400x400 "#ad7fa8" &
 CB=$!
 sleep 4
 

@@ -15,7 +15,7 @@ sleep 1
 WM=$!
 sleep 1.5
 
-"$LINUX/whale" "$HERE/client.tcl" "переживи рестарт" 320x240+30+30 "#8ae234" \
+"$LINUX/whale" "$HERE/client.tcl" "переживи рестарт" 320x240 "#8ae234" \
     > "$HERE/restart-client.log" &
 CA=$!
 sleep 1.5

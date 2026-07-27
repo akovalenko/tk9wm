@@ -19,7 +19,7 @@ sleep 1.5
 
 i=1
 while [ $i -le 12 ]; do
-    "$LINUX/whale" "$HERE/client.tcl" "окно-$i" 200x120+0+0 "#8ae234" &
+    "$LINUX/whale" "$HERE/client.tcl" "окно-$i" 200x120 "#8ae234" &
     i=$((i + 1))
     sleep 0.35
 done

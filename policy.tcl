@@ -170,9 +170,27 @@ proc apply-size-hints {w cw ch} {
     list [expr {max($cw, $minw)}] [expr {max($ch, $minh)}]
 }
 
-# Where to put a new frame (fw x fh, decoration included). Two rules, in
-# order:
+# The client's claimed point, translated to FRAME coordinates per
+# win_gravity (ICCCM 4.1.2.3). NorthWest — the default, and every
+# gravity this WM does not model yet — aims the point at the frame's
+# own top-left; Static (10) aims it at the client area, so the frame
+# backs off by its decorations.
+proc gravity-frame-xy {x y grav} {
+    if {$grav == 10} {
+        return [list [expr {$x - $::border}] [expr {$y - $::decotop}]]
+    }
+    list $x $y
+}
+
+# Where to put a new frame (fw x fh, decoration included). Three rules,
+# in order:
 #
+#  - a client that CLAIMS its position (USPosition/PPosition in
+#    WM_NORMAL_HINTS, the geometry it mapped with) gets it: the user's
+#    word (xterm -geometry, Tk wm geometry) is law and lands verbatim;
+#    a program's word is clamped to the screen, and the notorious
+#    program-said-(0,0) — toolkits stamping PPosition on a position
+#    nobody chose — is ignored;
 #  - a DIALOG (WM_TRANSIENT_FOR set, and we manage its parent) is centered
 #    over its parent's frame — that is where the user is looking;
 #  - everything else cascades.
@@ -186,6 +204,18 @@ proc place-frame {w fw fh} {
     # frames are placed within the WORKAREA: a new window must not be
     # born with its bottom edge under the panel
     lassign [workarea] wax way sw sh
+    lassign [client-position-hint $w] kind grav
+    set ipos [client-initial-position $w]
+    if {$kind ne "none" && [llength $ipos] == 2} {
+        lassign $ipos X Y
+        if {$kind eq "user"} {
+            return [gravity-frame-xy $X $Y $grav]
+        }
+        if {$X != 0 || $Y != 0} {
+            lassign [gravity-frame-xy $X $Y $grav] X Y
+            return [clamp-to-screen $X $Y $fw $fh $sw $sh]
+        }
+    }
     set parent $::leaderof($w)
     if {$parent != 0 && [info exists ::frameof($parent)]} {
         set pt $::frameof($parent)
@@ -375,6 +405,24 @@ proc policy-resize {w cw ch} {
     update idletasks
 }
 
+# An honored move request: the client named a root position for its
+# window and the substrate checked its claim (USPosition/PPosition);
+# win_gravity says what the point aims at. A partial request (a lone
+# CWX or CWY) keeps the frame's other coordinate. The synthetic
+# ConfigureNotify follows from the ConfigureRequest handler — geometry
+# must be settled before it fires, hence the update idletasks.
+proc policy-move-request {w x y vmask grav} {
+    if {![info exists ::frameof($w)]} return
+    set t $::frameof($w)
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
+    lassign [gravity-frame-xy $x $y $grav] x y
+    if {!($vmask & 1)} { set x $fx }
+    if {!($vmask & 2)} { set y $fy }
+    if {$x == $fx && $y == $fy} return
+    wm geometry $t +$x+$y
+    update idletasks
+    puts "WM: move 0x[format %x $w] -> +$x+$y (client request)"
+}
 
 # ---- the decoration underlay ----
 # Border background (the canvas -background), a 1px dark outline around

@@ -18,7 +18,7 @@ if {$minsize ne "" && [regexp {^(\d+)x(\d+)$} $minsize -> mw mh]} {
     wm minsize . $mw $mh
 }
 if {$title eq ""} { set title client }
-if {$geom  eq ""} { set geom 240x120+30+30 }
+if {$geom  eq ""} { set geom 240x120 }
 if {$color eq ""} { set color #fce94f }
 chan configure stdout -buffering line
 wm title . $title

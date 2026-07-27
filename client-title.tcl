@@ -5,7 +5,7 @@ package require Tk
 chan configure stdout -buffering line
 
 wm title . "первое имя"
-wm geometry . 300x120+10+10
+wm geometry . 300x120
 label .l -text "переименовыватель" -background #fce94f -font {Sans 12}
 pack .l -expand 1 -fill both
 

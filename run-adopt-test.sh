@@ -10,7 +10,7 @@ XVFB=$!
 trap 'kill $XVFB 2>/dev/null' EXIT
 sleep 1
 
-"$LINUX/whale" "$HERE/client.tcl" "дикий" 220x100+50+50 "#ad7fa8" &
+"$LINUX/whale" "$HERE/client.tcl" "дикий" 220x100 "#ad7fa8" &
 C1=$!
 sleep 2                                  # client is up and wild, no WM yet
 "$LINUX/whale" "$HERE/wm.tcl" &          # live mode: no timers, must adopt
