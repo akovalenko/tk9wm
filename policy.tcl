@@ -13,12 +13,59 @@
 set ncli 0
 set fid 0
 
+# Where to put a new frame (fw x fh, decoration included). Two rules, in
+# order:
+#
+#  - a DIALOG (WM_TRANSIENT_FOR set, and we manage its parent) is centered
+#    over its parent's frame — that is where the user is looking;
+#  - everything else cascades.
+#
+# Then the result is CLAMPED to the screen, which the cascade alone never
+# was: GIMP's "Quit" dialog landed at +1020+860 on a 1038-tall screen and
+# its buttons ended up below the bottom edge, unclickable (live report,
+# 2026-07-27). A window bigger than the screen is pinned at the top-left
+# corner — better to lose the far edge than the near one.
+proc place-frame {w fw fh} {
+    lassign [screen-size] sw sh
+    set parent [transient-for $w]
+    if {$parent != 0 && [info exists ::frameof($parent)]} {
+        set pt $::frameof($parent)
+        if {[regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $pt] -> pw ph px py]} {
+            set X [expr {$px + ($pw - $fw) / 2}]
+            set Y [expr {$py + ($ph - $fh) / 2}]
+            return [clamp-to-screen $X $Y $fw $fh $sw $sh]
+        }
+    }
+    return [cascade-slot $fw $fh $sw $sh]
+}
+
+# The cascade used to march forever (110 + 70*n, 80 + 60*n), so on a long
+# session every new window walked further down-right until they landed
+# fully off-screen (live report, 2026-07-27 — and it applies to ordinary
+# windows, not just dialogs). Now the round RESTARTS with the very window
+# that would not fit, so the offender itself lands at the top-left slot.
+proc cascade-slot {fw fh sw sh} {
+    set X [expr {110 + 70*$::ncli}]; set Y [expr {80 + 60*$::ncli}]
+    if {$X + $fw > $sw || $Y + $fh > $sh} {
+        set ::ncli 0
+        set X 110; set Y 80
+    }
+    incr ::ncli
+    return [clamp-to-screen $X $Y $fw $fh $sw $sh]
+}
+proc clamp-to-screen {X Y fw fh sw sh} {
+    if {$X + $fw > $sw} { set X [expr {$sw - $fw}] }
+    if {$Y + $fh > $sh} { set Y [expr {$sh - $fh}] }
+    list [expr {max($X, 0)}] [expr {max($Y, 0)}]
+}
+
 # Build a decoration for client w (client area cw x ch): blue titlebar
-# with a ✕, dark slot below, cascade placement. Returns the slot's X
-# window id; the Tk roundtrip before the return guarantees the slot
-# exists server-side before the raw connection reparents into it.
+# with a ✕, dark slot below; placement per place-frame above. Returns the
+# slot's X window id; the Tk roundtrip before the return guarantees the
+# slot exists server-side before the raw connection reparents into it.
 proc policy-attach {w cw ch} {
     set t .f[incr ::fid]
+    lassign [place-frame $w [expr {$cw + 4}] [expr {$ch + 28}]] X Y
     toplevel $t -background #3465a4
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
     label $t.title -text " клиент 0x[format %x $w]" \
@@ -31,7 +78,6 @@ proc policy-attach {w cw ch} {
     place $t.slot -x 2 -y 26
     bind $t.title <ButtonPress-1> [list drag-start $t $w %X %Y]
     bind $t.title <B1-Motion>     [list drag-move  $t $w %X %Y]
-    set X [expr {110 + 70*$::ncli}]; set Y [expr {80 + 60*$::ncli}]; incr ::ncli
     wm geometry $t [expr {$cw + 4}]x[expr {$ch + 28}]+$X+$Y
     update idletasks
     # Cross-connection ordering: a roundtrip on Tk's connection guarantees
@@ -78,9 +124,14 @@ proc policy-paint-focus {w} {
 }
 
 # Click-to-focus: a click inside a client's body raises and focuses it.
+# focus-to is called UNCONDITIONALLY — the old "skip if ::focused is
+# already w" guard turned a single refused XSetInputFocus into a
+# permanent wedge (clicks stopped repairing the focus, the keyboard kept
+# going to the previous window). One roundtrip per click is the price of
+# a click path that always heals.
 proc policy-client-click {w} {
     raise $::frameof($w)
-    if {$::focused != $w} { focus-to $w }
+    focus-to $w
 }
 
 # A newly managed window gets the focus.

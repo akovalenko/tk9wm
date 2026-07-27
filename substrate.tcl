@@ -65,6 +65,14 @@ X11 function XAllowEvents int {dpy pointer.unsafe mode int time ulong}
 X11 function XFlush int {dpy pointer.unsafe}
 X11 function XChangeProperty int {dpy pointer.unsafe w ulong prop ulong type ulong fmt int mode int data pointer.unsafe n int}
 X11 function XCreateSimpleWindow ulong {dpy pointer.unsafe parent ulong x int y int w uint h uint bw uint border ulong bg ulong}
+set has_transient [expr {![catch {
+    X11 function XGetTransientForHint int {dpy pointer.unsafe w ulong prop {ulong out}}
+}]}]
+set has_geometry [expr {![catch {
+    X11 function XGetGeometry int {dpy pointer.unsafe d ulong root {ulong out}
+        x {int out} y {int out} width {uint out} height {uint out}
+        bw {uint out} depth {uint out}}
+}]}]
 set has_getfocus [expr {![catch {
     X11 function XGetInputFocus int {dpy pointer.unsafe focus {ulong out} revert_to {int out}}
 }]}]
@@ -145,6 +153,7 @@ puts "WM: redirect armed on root [format 0x%x $root]"
 
 set WM_PROTOCOLS      [XInternAtom $dpy WM_PROTOCOLS 0]
 set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
+set WM_STATE          [XInternAtom $dpy WM_STATE 0]
 
 # ---------------- EWMH minimum ----------------
 # Enough for toolkits to see "a WM is present": _NET_SUPPORTING_WM_CHECK on
@@ -265,6 +274,39 @@ proc handle-event {} {
     }
 }
 
+# ---------------- facts the policy layer asks about ----------------
+# Screen size, read fresh from the server at the moment of the decision:
+# the root can be resized under us (RandR — Xephyr's -resizeable does
+# exactly that), and a placement policy that cached the startup size
+# would put windows off-screen for the rest of the session.
+proc screen-size {} {
+    if {$::has_geometry && ![catch {XGetGeometry $::dpy $::root rr rx ry rw rh rbw rd}]} {
+        return [list $rw $rh]
+    }
+    return [list [winfo screenwidth .] [winfo screenheight .]]
+}
+
+# ICCCM WM_TRANSIENT_FOR: "this window is a dialog FOR that one". Returns
+# 0 when unset. Placement and, later, focus-return policy need it.
+proc transient-for {w} {
+    if {!$::has_transient} { return 0 }
+    if {[catch {XGetTransientForHint $::dpy $w parent} ok] || !$ok} { return 0 }
+    return $parent
+}
+
+# ICCCM 4.1.3.1: a managed window must carry WM_STATE (state + icon
+# window). Toolkits and every wmctrl/xdotool-class tool use its presence
+# to tell "managed by a WM" from "still wild" — we never set it, which
+# left GTK guessing about our clients.
+proc set-wm-state {w state} {
+    if {[catch {
+        set b [binary format wuwu $state 0]      ;# NormalState=1, WithdrawnState=0
+        set p [cffi::memory frombinary $b unsafe]
+        XChangeProperty $::dpy $w $::WM_STATE $::WM_STATE 32 0 $p 2
+        cffi::memory free $p
+    } err]} { puts "WM: WM_STATE update failed: $err" }
+}
+
 # ---------------- manage / unmanage ----------------
 proc manage {w} {
     global dpy
@@ -293,6 +335,7 @@ proc manage {w} {
     XAddToSaveSet $dpy $w
     XReparentWindow $dpy $w $slot 0 0
     XMapWindow $dpy $w
+    set-wm-state $w 1          ;# NormalState — ICCCM, see set-wm-state
     XSync $dpy 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
     policy-managed $w
@@ -310,6 +353,7 @@ proc unmanage {w {dead 0}} {
         set x 0; set y 0
         catch { lassign [policy-origin $w] x y }
         catch {
+            set-wm-state $w 0      ;# WithdrawnState before letting it go
             XReparentWindow $::dpy $w $::root $x $y
             XSync $::dpy 0
         }
@@ -344,22 +388,30 @@ proc paint-focus {w} {
     policy-paint-focus $w
 }
 proc focus-to {w} {
-    if {![info exists ::managed($w)]} return
+    if {![info exists ::managed($w)]} { return 0 }
     # RevertToParent (2), NOT PointerRoot: if the focus window dies before
     # we refocus, a parent revert leaves the keyboard silent for a moment,
     # while a PointerRoot revert switches the whole session to
     # focus-follows-pointer behind our back.
     XSetInputFocus $::dpy $w 2 0
     XSync $::dpy 0
-    paint-focus $w
-    set report ""
-    if {$::has_getfocus && ![catch {XGetInputFocus $::dpy f r}]} {
-        set report " (server: focus=[format 0x%x $f] revert=$r)"
-        if {$f != $w} {
-            append report " — MISMATCH: XSetInputFocus did not take (swallowed BadMatch?)"
-        }
+    # Record the focus ONLY if the server agrees. A refused XSetInputFocus
+    # (swallowed BadMatch when the window stopped being viewable, a client
+    # grabbing focus behind our back) used to be logged as MISMATCH and
+    # then recorded as focused anyway — after which every path that trusts
+    # ::focused was permanently wrong: clicks on that window were treated
+    # as "already focused" and never retried, so the keyboard kept going
+    # to the previous window while the frame highlight claimed otherwise
+    # (live report, GIMP's Quit dialog). Believing the server costs one
+    # roundtrip and cannot wedge.
+    if {$::has_getfocus && ![catch {XGetInputFocus $::dpy f r}] && $f != $w} {
+        puts "WM: focus -> 0x[format %x $w] REFUSED by server\
+ (focus=[format 0x%x $f] revert=$r) — not recorded, will retry"
+        return 0
     }
-    puts "WM: focus -> 0x[format %x $w]$report"
+    paint-focus $w
+    puts "WM: focus -> 0x[format %x $w]"
+    return 1
 }
 
 # A managed client's ConfigureRequest: the decoration follows (size bits

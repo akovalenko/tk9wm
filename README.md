@@ -35,9 +35,22 @@ cffi. Идейный наследник tkwm (Eric Schenk, Neil McKay, 1994–95
   `run-demo.sh` (полный цикл + скриншоты), `run-adopt-test.sh` (подбор
   окон, живших до WM), `run-focus-test.sh` (ховер-тайпинг, смерть/withdraw
   фокусного окна, внешний PointerRoot-сброс), `run-withdraw-test.sh`
-  (withdraw/deiconify без смерти клиента), `run-gtk-test.sh`
-  (GTK3-канарейка zenity).
-- `probe-focus.tcl` / `probe-watch.tcl` — read-only диагностика фокуса на
-  любом дисплее; `spike/` — исторический спайк root-redirect.
+  (withdraw/deiconify без смерти клиента), `run-dialog-test.sh` (диалог с
+  `WM_TRANSIENT_FOR` на тесном экране: центровка по родителю, прижим к
+  экрану, `WM_STATE`), `run-gtk-test.sh` (GTK3-канарейка zenity).
+- Диагностика живого дисплея (read-only, любой дисплей): `probe-focus.tcl`
+  — снимок фокуса; `probe-watch.tcl` — вахта смен фокуса; `probe-trace.tcl`
+  — что под указателем и куда ушёл фокус, построчно на каждое изменение;
+  `probe-at.tcl` — цепочка окон под пикселем (пиксели врут, дерево — нет);
+  `probe-grab.tcl` — держит ли кто пассивный grab на окне;
+  `probe-pointer.tcl` — не заморожен ли указатель чужим sync-grab-ом;
+  `set-focus.tcl` / `set-pointerroot.tcl` — внешние воздействия на фокус.
+  `spike/` — исторический спайк root-redirect.
+
+**Грабля живого Xephyr:** после интерактивного ресайза окна Xephyr экран
+растёт (RandR), но **XTEST остаётся зажат в стартовом прямоугольнике** —
+синтетический указатель (`xdotool`) упирается в старую границу, живая мышь
+ходит везде. Значит headless-драйв такой сессии врёт: задавай финальный
+размер сразу (`-screen WxH`), не ресайзи окно.
 
 История шагов и находки — `ideas/tk9-window-manager.md` в репе thoughts.
