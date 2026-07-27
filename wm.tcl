@@ -18,6 +18,25 @@ set here [file dirname [file normalize [info script]]]
 source [file join $here substrate.tcl]
 source [file join $here policy.tcl]
 
+# The customization layer: ONE Tcl file, sourced after both layers are
+# in and before the first window is managed — the user's
+# ~/.config/tk9wm.tcl (XDG_CONFIG_HOME honored) when it exists, else
+# the project's default-config.tcl. The project file is a commented
+# example, deliberately NOT load-bearing: every default lives in code,
+# so a two-line user config ("bold titles, that's all") starts from
+# exactly the stock behavior — it overrides, it does not re-build. A
+# broken config is logged and skipped: a WM that dies on a typo in its
+# config locks the user out of the session that would let them fix it.
+set xdg [expr {[info exists env(XDG_CONFIG_HOME)] && $env(XDG_CONFIG_HOME) ne ""
+    ? $env(XDG_CONFIG_HOME) : [file join $env(HOME) .config]}]
+set conf [file join $xdg tk9wm.tcl]
+if {![file exists $conf]} { set conf [file join $here default-config.tcl] }
+if {[catch {source $conf} err]} {
+    puts "WM: config $conf FAILED: $err — running on defaults"
+} else {
+    puts "WM: config $conf"
+}
+
 substrate-start
 
 # Demo mode (argv "demo"): timed self-test used by run-demo.sh. Without it
