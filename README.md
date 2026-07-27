@@ -14,12 +14,17 @@ cffi. Идейный наследник tkwm (Eric Schenk, Neil McKay, 1994–95
   fd-помпа (worker-тред + блокирующий poll, ping-pong), manage/unmanage,
   adoption существующих окон, фокус-ядро с починкой внешнего
   PointerRoot-сброса, close-механика (WM_DELETE_WINDOW / XKillClient),
-  синтетический ConfigureNotify (ICCCM 4.1.5), EWMH-минимум. Зовёт
-  policy-* хуки.
+  синтетический ConfigureNotify (ICCCM 4.1.5), живое чтение титула
+  (`_NET_WM_NAME`/`WM_NAME` по PropertyNotify), WM-инициированный ресайз
+  (`wm-resize-client`), EWMH-минимум. Зовёт policy-* хуки.
 - `policy.tcl` — наши локальные решения: декорации Tk-виджетами
-  (титлбар/✕/слот, цвета подсветки), каскад-размещение, drag за
-  заголовок, click-to-focus. Реализует policy-* хуки (контракт — в
-  шапке substrate.tcl).
+  (титлбар-treectrl с многоточием на длинном титуле, ✕, слот, цвета
+  подсветки), каскад-размещение с центровкой диалогов, drag за
+  заголовок, ресайз за рамку и углы (6px-грип, курсоры по зонам),
+  click-to-focus, склейка окна с его транзиентами в один слой
+  (raise группой, транзиенты над лидером), refocus после закрытия
+  (лидер диалога → история фокуса). Реализует policy-* хуки
+  (контракт — в шапке substrate.tcl).
 - `wm.tcl` — тонкая сборка: source обоих слоёв + `substrate-start`;
   режим demo для самотеста.
 
@@ -46,11 +51,18 @@ ConfigureNotify там (так делает Tk; см. `send_for_frame_too` у fv
   фокусного окна, внешний PointerRoot-сброс), `run-withdraw-test.sh`
   (withdraw/deiconify без смерти клиента), `run-dialog-test.sh` (диалог с
   `WM_TRANSIENT_FOR` на тесном экране: центровка по родителю, прижим к
-  экрану, `WM_STATE`), `run-gtk-test.sh` (GTK3-канарейка zenity).
+  экрану, `WM_STATE`), `run-gtk-test.sh` (GTK3-канарейка zenity),
+  `run-refocus-test.sh` (закрытие диалога возвращает фокус лидеру,
+  смерть окна — самому свежему по истории), `run-stack-test.sh`
+  (склейка транзиентов: клик в лидера не хоронит его диалог),
+  `run-title-test.sh` (титлбар следует за переименованиями клиента),
+  `run-resize-test.sh` (драги за кромки и угол, точные размеры).
 - Диагностика живого дисплея (read-only, любой дисплей): `probe-focus.tcl`
   — снимок фокуса; `probe-watch.tcl` — вахта смен фокуса; `probe-trace.tcl`
   — что под указателем и куда ушёл фокус, построчно на каждое изменение;
   `probe-at.tcl` — цепочка окон под пикселем (пиксели врут, дерево — нет);
+  `probe-stack.tcl` — root-дети снизу вверх, каждый аннотирован
+  содержимым поддерева (кто над кем, рамка → клиент);
   `probe-grab.tcl` — держит ли кто пассивный grab на окне;
   `probe-pointer.tcl` — не заморожен ли указатель чужим sync-grab-ом;
   `set-focus.tcl` / `set-pointerroot.tcl` — внешние воздействия на фокус.
