@@ -140,7 +140,12 @@ proc policy-attach {w cw ch} {
     treectrl $t.title -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
         -background #3465a4 -itemheight $::titleh
-    bindtags $t.title [list $t.title all]
+    # class binds stripped (a dumb label, not a tree) — but the FRAME's
+    # tag stays: press-end must hear a ButtonRelease that happens over
+    # the title, or the drag state outlives the drag (the rz-* handlers
+    # riding along are harmless — they compute from root coords and see
+    # "not a border" here).
+    bindtags $t.title [list $t.title $t all]
     $t.title column create -squeeze yes -tags C0
     $t.title configure -treecolumn C0
     $t.title element create eTxt text -fill white -lines 1 -font TitleFont

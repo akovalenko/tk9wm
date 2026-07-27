@@ -43,8 +43,11 @@ drag $((FX + 130)) $((FY + 12)) $((FX + 140)) $((FY + 27))
 # a drag STARTED on the root background must be a noop even when it
 # crosses a title: press on empty root, drag onto the title, release.
 # Before the fix the previous drag's stale state made this a pickup.
+# NB the landing point must NOT be where the previous drag released —
+# stale coordinates would "move" the frame exactly onto itself and hide
+# the bug (which is how the first version of this scenario lied).
 xdotool mousemove 650 450 mousedown 1 \
-    mousemove $((FX + 140)) $((FY + 27)) mouseup 1
+    mousemove $((FX + 190)) $((FY + 27)) mouseup 1
 sleep 0.4
 
 import -display :74 -window root "$HERE/resize-test.png" 2>/dev/null \
