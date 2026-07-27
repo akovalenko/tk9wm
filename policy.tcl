@@ -1087,6 +1087,8 @@ set winops_actions {
     destroy  d {kill-client $w}
     raise    r {raise-group $w}
     lower    l {lower-group $w}
+    move     m {move-keyboard $w}
+    resize   s {resize-keyboard $w}
 }
 proc winops {{w 0}} {
     if {$w == 0} { set w $::focused }
@@ -1165,6 +1167,98 @@ proc winops-click {x y} {
     set T .winops.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     winops-fire $A(item)
+}
+
+# ---- keyboard move / resize ----
+# The winops entries "move" and "resize": a keyboard-modal mode on the
+# same grab-keys-to router the menus use (the menu action closes the
+# popup, releasing the router; the mode re-grabs it). Arrows — and
+# vi's h/j/k/l — step the frame or the client size; Enter and space
+# commit, Escape cancels back to the geometry saved at mode entry.
+#
+# Move steps 10 px, 1 px with Shift, 50 px with Ctrl. Resize steps by
+# the client's declared increment when its style respects increments
+# and the increment is a REAL grid: an increment of 1 — every Tk
+# app's degenerate default — makes any size on-grid, so the plain
+# 10 px step serves better (Shift/Ctrl fine/coarse apply then too).
+# Sizes funnel through apply-size-hints and wm-resize-client as
+# everywhere, so the declared minimum binds and the grid holds.
+set kbmr {}   ;# {move|resize w saved-geometry}, {} = mode off
+proc move-keyboard {{w 0}} {
+    if {$w == 0} { set w $::focused }
+    if {$w == 0 || ![info exists ::frameof($w)]} return
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $::frameof($w)] -> fx fy
+    kbmr-enter move $w [list $fx $fy]
+}
+proc resize-keyboard {{w 0}} {
+    if {$w == 0} { set w $::focused }
+    if {$w == 0 || ![info exists ::frameof($w)]} return
+    set t $::frameof($w)
+    kbmr-enter resize $w [list [$t.slot cget -width] [$t.slot cget -height]]
+}
+proc kbmr-enter {mode w orig} {
+    set ::kbmr [list $mode $w $orig]
+    if {![grab-keys-to kbmr-key]} {
+        set ::kbmr {}
+        puts "WM: keyboard $mode: keyboard not grabbed"
+        return
+    }
+    puts "WM: keyboard $mode 0x[format %x $w]"
+}
+proc kbmr-end {commit} {
+    lassign $::kbmr mode w orig
+    set ::kbmr {}
+    grab-keys-to {}
+    if {$mode eq ""} return
+    if {!$commit && [info exists ::frameof($w)]} {
+        if {$mode eq "move"} {
+            wm geometry $::frameof($w) +[lindex $orig 0]+[lindex $orig 1]
+            update idletasks
+            send-synthetic-configure $w
+        } else {
+            wm-resize-client $w {*}$orig
+        }
+    }
+    set said [expr {$commit ? "done" : "cancelled"}]
+    puts "WM: keyboard $mode 0x[format %x $w] $said"
+}
+proc kbmr-key {kind name mods} {
+    if {$kind eq "release"} return
+    lassign $::kbmr mode w orig
+    if {$mode eq "" || ![info exists ::frameof($w)]} { kbmr-end 1; return }
+    set dx 0; set dy 0
+    switch -- $name {
+        Left - h  { set dx -1 }
+        Right - l { set dx 1 }
+        Up - k    { set dy -1 }
+        Down - j  { set dy 1 }
+        Return - KP_Enter - space { kbmr-end 1; return }
+        Escape                    { kbmr-end 0; return }
+        default return
+    }
+    set t $::frameof($w)
+    if {$mode eq "move"} {
+        set step 10
+        if {$mods & 1} { set step 1 }
+        if {$mods & 4} { set step 50 }
+        regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
+        wm geometry $t +[expr {$fx + $dx*$step}]+[expr {$fy + $dy*$step}]
+        update idletasks
+        send-synthetic-configure $w
+    } else {
+        lassign [client-size-hints $w] minw minh incw inch basew baseh
+        set xstep 10; set ystep 10
+        if {$mods & 1} { set xstep 1; set ystep 1 }
+        if {$mods & 4} { set xstep 50; set ystep 50 }
+        if {[dict get [style-of $w] increments] eq "respect"} {
+            if {$incw > 1} { set xstep $incw }
+            if {$inch > 1} { set ystep $inch }
+        }
+        set cw [expr {[$t.slot cget -width]  + $dx*$xstep}]
+        set ch [expr {[$t.slot cget -height] + $dy*$ystep}]
+        lassign [apply-size-hints $w $cw $ch] cw ch
+        wm-resize-client $w [expr {max($cw, 40)}] [expr {max($ch, 30)}]
+    }
 }
 
 # ---- the panel ----
