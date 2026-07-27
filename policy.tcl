@@ -149,6 +149,29 @@ proc policy-paint-focus {w} {
     }
 }
 
+# Raise the whole transient group of w: the leader first, its transients
+# above it, and the member the user touched on top of its siblings.
+# fvwm ships this glue as RaiseTransient + StackTransientParent, both on
+# by default in its builtin ConfigFvwmDefaults: raising ANY member
+# raises the group, and transients always end up above their leader
+# (stack.c re-inserts the leader below its transients). One level deep,
+# like fvwm's own redirect recursion. Lowering is not glued for a
+# simpler reason: we have no lower gesture at all yet.
+proc raise-group {w} {
+    set leader $w
+    if {[info exists ::leaderof($w)] && $::leaderof($w) != 0
+            && [info exists ::frameof($::leaderof($w))]} {
+        set leader $::leaderof($w)
+    }
+    raise $::frameof($leader)
+    foreach {c l} [array get ::leaderof] {
+        if {$l == $leader && $c != $w && [info exists ::frameof($c)]} {
+            raise $::frameof($c)
+        }
+    }
+    if {$w != $leader} { raise $::frameof($w) }
+}
+
 # Click-to-focus: a click inside a client's body raises and focuses it.
 # focus-to is called UNCONDITIONALLY — the old "skip if ::focused is
 # already w" guard turned a single refused XSetInputFocus into a
@@ -156,12 +179,16 @@ proc policy-paint-focus {w} {
 # going to the previous window). One roundtrip per click is the price of
 # a click path that always heals.
 proc policy-client-click {w} {
-    raise $::frameof($w)
+    raise-group $w
     focus-to $w
 }
 
-# A newly managed window gets the focus.
-proc policy-managed {w} { focus-to $w }
+# A newly managed window is raised with its group — a fresh dialog pulls
+# its leader up right under itself, fvwm-style — and gets the focus.
+proc policy-managed {w} {
+    raise-group $w
+    focus-to $w
+}
 
 # Refocus pick after w's unmanage (the smsrc observation: an unpatched
 # app never refocuses its main window when its dialog closes — that is
@@ -190,7 +217,7 @@ proc policy-pick-refocus {w} {
 # Move policy is plain Tk: drag the title bar, the client rides along.
 # A title click also raises and focuses.
 proc drag-start {t w X Y} {
-    raise $t
+    raise-group $w
     focus-to $w
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> wx wy
     set ::drag($t) [list $X $Y $wx $wy]
