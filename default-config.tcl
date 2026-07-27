@@ -62,10 +62,17 @@
 #   }
 #   wm-style my-xterm {increments ignore}
 #
-# Give those xterms a window-list icon of your choosing (any file
-# format Tk's photo reads — png with alpha included):
-#   image create photo imgTerm -file /home/me/icons/terminal.png
-#   wm-style my-xterm {icon imgTerm}
+# Give those xterms a window-list icon. The `icon` value is anything
+# resolve-icon takes: an existing Tk image name (used as-is), a file
+# path (any format Tk's photo reads — png with alpha included; naming
+# an .svg by hand is your own choice), or a bare NAME searched as
+# NAME.png through the icon-path directories — set-icon-path DIRS,
+# default ~/.local/share/icons/hicolor/48x48/apps,
+# /usr/share/icons/hicolor/48x48/apps, /usr/share/pixmaps. An
+# oversized image is shrunk to fit, alpha intact; a miss logs one
+# line and shows the usual no-icon look:
+#   wm-style my-xterm {icon terminal}
+#   wm-style my-xterm {icon ~/icons/terminal.png}
 #
 # ---- the panel ----
 #
@@ -78,7 +85,8 @@
 # (green "found it", orange "launching"). Settings keys, all optional:
 #   match  — predicate command prefix (same vocabulary as wm-style)
 #   launch — any Tcl script, typically {exec ... &}
-#   icon   — a Tk image for the button face
+#   icon   — the button face: anything resolve-icon takes (see the
+#            style section above)
 #   key    — a wm-bind chord sequence firing this button
 #
 #   panel-button xterm {

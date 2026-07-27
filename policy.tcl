@@ -131,8 +131,9 @@ proc set-title-justify {j} {
 # Keys so far: increments (respect|ignore) — WM_NORMAL_HINTS resize
 # increments; the default respects them (the world's xterms expect
 # integral columns), the owner's config ignores them by taste.
-# icon (a Tk image name, created in the config) — shown for the window
-# in the window list, overriding the client's own _NET_WM_ICON.
+# icon (anything resolve-icon takes: a Tk image name, a file path, a
+# bare NAME searched as NAME.png through icon-path) — shown for the
+# window in the window list, overriding the client's own _NET_WM_ICON.
 set style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
@@ -952,6 +953,75 @@ proc set-winlist-cycle {onoff} {
     set ::winlist_cycle_opt [expr {$onoff in {on 1 yes true}}]
 }
 
+# ---- config-facing icon resolution ----
+# The `icon` value (a panel-button key, a wm-style icon key) is
+# polymorphic: an existing Tk image name is taken as-is, whatever its
+# size; something path-like (a /, a leading ~, a .png tail) is loaded
+# lazily — any format Tk's photo reads, so pointing at an .svg by
+# hand is the user's own choice; a bare name (firefox) is searched as
+# NAME.png through the icon-path directories — png ONLY, deliberately:
+# nanosvg renders poorly and the resolver never picks svg FOR the
+# user. A loaded image bigger than SIZE is resampled down (nearest
+# neighbor, alpha preserved — client-icon's trick with the same
+# rgba-png), a smaller one stays smaller. A miss logs once and
+# returns "" — the caller shows its no-icon look. Every resolution is
+# cached per {spec size}: panel rebuilds reuse, nothing leaks.
+set icon_path [list ~/.local/share/icons/hicolor/48x48/apps \
+    /usr/share/icons/hicolor/48x48/apps /usr/share/pixmaps]
+proc set-icon-path {dirs} { set ::icon_path $dirs }
+proc resolve-icon {spec size} {
+    if {$spec in [image names]} { return $spec }
+    set key [list $spec $size]
+    if {[info exists ::resolvedicon($key)]} { return $::resolvedicon($key) }
+    # Tcl 9 dropped implicit ~ expansion — expand at use time, so a
+    # config-supplied ~ path works too
+    set path ""
+    if {[string match */* $spec] || [string match ~* $spec]
+            || [string match -nocase *.png $spec]} {
+        set path [file tildeexpand $spec]
+    } else {
+        foreach dir $::icon_path {
+            set p [file join [file tildeexpand $dir] $spec.png]
+            if {[file exists $p]} { set path $p; break }
+        }
+    }
+    set img ""
+    if {$path eq ""} {
+        puts "WM: icon «$spec»: no Tk image, no $spec.png in icon-path"
+    } elseif {[catch {image create photo -file [file normalize $path]} img]} {
+        puts "WM: icon «$spec»: $img"
+        set img ""
+    } else {
+        set img [shrink-photo $img $size]
+        puts "WM: icon «$spec»: [file tail $path]\
+ [image width $img]x[image height $img]"
+    }
+    set ::resolvedicon($key) $img
+}
+# Downsample a photo to fit target (nearest neighbor, keeps alpha);
+# a fitting image passes through untouched.
+proc shrink-photo {img target} {
+    set iw [image width $img]; set ih [image height $img]
+    if {$iw <= $target && $ih <= $target} { return $img }
+    if {$iw >= $ih} {
+        set ow $target; set oh [expr {max(1, $ih * $target / $iw)}]
+    } else {
+        set oh $target; set ow [expr {max(1, $iw * $target / $ih)}]
+    }
+    set raw ""
+    for {set y 0} {$y < $oh} {incr y} {
+        append raw \x00
+        set sy [expr {$y * $ih / $oh}]
+        for {set x 0} {$x < $ow} {incr x} {
+            set sx [expr {$x * $iw / $ow}]
+            append raw [binary format cccc {*}[$img get $sx $sy -withalpha]]
+        }
+    }
+    set out [image create photo -data [rgba-png $ow $oh $raw]]
+    image delete $img
+    return $out
+}
+
 # Which icon a window-list row shows, in precedence order: the style's
 # `icon` key (the user's word beats the app's), the client's own
 # _NET_WM_ICON, and last the PSEUDO icon — one-two letters on a color
@@ -966,9 +1036,8 @@ set icon_palette {#cc4444 #d4772f #75507b #4e9a06 #06989a #b3617e #927238}
 proc winlist-icon {w target} {
     set st [style-of $w]
     if {[dict exists $st icon]} {
-        set img [dict get $st icon]
-        if {$img in [image names]} { return [list image $img] }
-        puts "WM: style icon «$img» is not a Tk image — ignored"
+        set img [resolve-icon [dict get $st icon] $target]
+        if {$img ne ""} { return [list image $img] }
     }
     set img [client-icon $w $target]
     if {$img ne ""} { return [list image $img] }
@@ -1349,6 +1418,7 @@ proc kbmr-key {kind name mods} {
 # raise-group ends by lifting the panel back on top: fvwm's
 # StaysOnTop for the poor, good enough until layers exist.
 set panel_buttons {}
+set panel_icon_size 48   ;# resolve-icon target for button faces
 proc panel-button {label settings} {
     lappend ::panel_buttons [list $label $settings]
     if {[dict exists $settings key]} {
@@ -1394,10 +1464,11 @@ proc panel-build {} {
         set item [$T item create]
         $T item style set $item C0 sBtn
         $T item element configure $item C0 eBTxt -text $label
-        if {[dict exists $settings icon]
-                && [dict get $settings icon] in [image names]} {
-            $T item element configure $item C0 eBIcon \
-                -image [dict get $settings icon]
+        if {[dict exists $settings icon]} {
+            set img [resolve-icon [dict get $settings icon] $::panel_icon_size]
+            if {$img ne ""} {
+                $T item element configure $item C0 eBIcon -image $img
+            }
         }
         $T item lastchild root $item
     }
