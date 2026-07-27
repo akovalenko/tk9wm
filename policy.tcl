@@ -91,6 +91,73 @@ proc retitle-frames {} {
 # way; today the only real trigger is set-title-font
 bind . <<ThemeChanged>> retitle-frames
 
+# Title alignment knob. The flags feed the text element's -expand in
+# the titlebar style: where the layout may ADD space decides where the
+# text ends up (ns = left, extra space east+west = centered).
+set titlejust left
+array set justflags {left ns center wens right wns}
+proc set-title-justify {j} {
+    if {![info exists ::justflags($j)]} {
+        error "set-title-justify: left, center or right"
+    }
+    set ::titlejust $j
+    foreach {w t} [array get ::frameof] {
+        $t.title style layout sTitle eTxt -expand $::justflags($j)
+    }
+}
+
+# ---- per-client style: predicates pick the settings ----
+# A rule is {predicate settings}: the predicate is any command prefix
+# called with the client window id, truth applies the settings dict.
+# ALL matching rules apply, later rules win per-key — order in the
+# config is the precedence (the fvwm Style-line convention). Evaluated
+# once per client on first need and cached; the substrate's identity
+# accessors (client-class, client-machine, client-cmdline, ...) are the
+# predicate's vocabulary, so "WM_CLIENT_MACHINE is X and it runs
+# /usr/bin/xterm, whatever the title" is a couple of calls — richer
+# than a name-pattern string. A predicate that errors is skipped, not
+# fatal: one bad config rule must not take styling down with it.
+#
+# Keys so far: increments (respect|ignore) — WM_NORMAL_HINTS resize
+# increments; the default respects them (the world's xterms expect
+# integral columns), the owner's config ignores them by taste.
+set style_rules {}
+proc always {w} { return 1 }
+proc wm-style {pred settings} {
+    lappend ::style_rules [list $pred $settings]
+}
+proc style-of {w} {
+    if {[info exists ::styleof($w)]} { return $::styleof($w) }
+    set st [dict create increments respect]
+    foreach rule $::style_rules {
+        lassign $rule pred settings
+        if {[catch {uplevel #0 [list {*}$pred $w]} match]} {
+            puts "WM: style predicate error on 0x[format %x $w]: $match"
+        } elseif {$match} {
+            set st [dict merge $st $settings]
+        }
+    }
+    set ::styleof($w) $st
+}
+
+# Size hints applied the style's way: clamp to the declared minimum
+# always; snap to the increment grid (from the PBaseSize origin) only
+# when this client's style says respect. Every WM-initiated size
+# decision (border/corner drag, maximize) funnels through here; the
+# client's OWN ConfigureRequests are its business and stay untouched.
+proc apply-size-hints {w cw ch} {
+    lassign [client-size-hints $w] minw minh incw inch basew baseh
+    if {[dict get [style-of $w] increments] eq "respect"} {
+        if {$incw > 0 && $cw > $basew} {
+            set cw [expr {$basew + ($cw - $basew) / $incw * $incw}]
+        }
+        if {$inch > 0 && $ch > $baseh} {
+            set ch [expr {$baseh + ($ch - $baseh) / $inch * $inch}]
+        }
+    }
+    list [expr {max($cw, $minw)}] [expr {max($ch, $minh)}]
+}
+
 # Where to put a new frame (fw x fh, decoration included). Two rules, in
 # order:
 #
@@ -193,7 +260,8 @@ proc policy-attach {w cw ch} {
     $t.title element create eClose image -image imgClose
     $t.title style create sTitle
     $t.title style elements sTitle eTxt
-    $t.title style layout sTitle eTxt -expand ns -padx 4 -squeeze x
+    $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
+        -padx 4 -squeeze x
     foreach {st el} {sMax eMax sClose eClose} {
         $t.title style create $st
         $t.title style elements $st [list eBox $el]
@@ -249,6 +317,7 @@ proc policy-detach {w} {
     unset ::frameof($w)
     unset -nocomplain ::leaderof($w)
     unset -nocomplain ::maxsaved($w)
+    unset -nocomplain ::styleof($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
 }
 
@@ -379,13 +448,13 @@ proc rz-move {t w X Y} {
         ne { incr cw $dx; incr ch [expr {-$dy}] }
         nw { incr cw [expr {-$dx}]; incr ch [expr {-$dy}] }
     }
-    # The client's declared minimum caps the shrink HERE, not only in
-    # wm-resize-client: the left/top anchoring below moves the frame by
-    # the size delta, and a size clamped later than the move would tear
-    # the dragged edge off the pointer. 40x30 is our own floor — a frame
-    # must stay big enough to grab.
-    lassign [client-min-size $w] minw minh
-    set cw [expr {max($cw, $minw, 40)}]; set ch [expr {max($ch, $minh, 30)}]
+    # The client's size hints bind HERE, not only in wm-resize-client:
+    # the left/top anchoring below moves the frame by the size delta,
+    # and a size clamped (or snapped to increments) later than the move
+    # would tear the dragged edge off the pointer. 40x30 is our own
+    # floor — a frame must stay big enough to grab.
+    lassign [apply-size-hints $w $cw $ch] cw ch
+    set cw [expr {max($cw, 40)}]; set ch [expr {max($ch, 30)}]
     # dragging the left/top edge: the frame moves so the opposite edge
     # stays put
     set nx $fx; set ny $fy
@@ -566,7 +635,10 @@ proc maximize-toggle {w} {
             [list [$t.slot cget -width] [$t.slot cget -height] $X $Y]
         lassign [workarea] wx wy ww wh
         wm geometry $t +$wx+$wy
-        wm-resize-client $w [expr {$ww - 2*$B}] [expr {$wh - $::decotop - $B}]
+        # increments bind maximize too (an xterm fills to whole cells,
+        # slack stays at the workarea edge) — unless styled away
+        wm-resize-client $w {*}[apply-size-hints $w \
+            [expr {$ww - 2*$B}] [expr {$wh - $::decotop - $B}]]
     }
     # wm-resize-client skips a no-op resize and tells the client nothing
     # then — but the frame MOVED either way, so state the origin once
