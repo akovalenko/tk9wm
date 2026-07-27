@@ -50,6 +50,13 @@ xdotool mousemove 650 450 mousedown 1 \
     mousemove $((FX + 190)) $((FY + 27)) mouseup 1
 sleep 0.4
 
+# top-left corner of the frame (now at FX-10, FY+15): grow by 10x20,
+# the frame slides so the bottom-right corner stays — 390x228 -> 400x248
+drag $((FX - 7)) $((FY + 27)) $((FX - 17)) $((FY + 7))
+# north edge (the 2px strip) of the frame now at (FX-20, FY-5): push
+# DOWN by 8 — the top edge follows, the bottom edge stays: ch 248 -> 240
+drag $((FX + 180)) $((FY - 4)) $((FX + 180)) $((FY + 4))
+
 import -display :74 -window root "$HERE/resize-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/resize-test.png"
 GEOM=$(xwininfo -id "$AID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
@@ -62,17 +69,19 @@ echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-resize.log"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
 fi
-if [ "$GEOM" = "390x228" ]; then
-    echo "OK: client is $GEOM after edge, corner and left-edge drags"
+if [ "$GEOM" = "400x240" ]; then
+    echo "OK: client is $GEOM after e, se, w, nw and n drags"
 else
-    echo "FAIL: client is $GEOM, want 390x228"
+    echo "FAIL: client is $GEOM, want 400x240"
 fi
-# after the title drag the frame sits at (FX-10, FY+15); the client area
-# is +6+top inside it, where top is font-driven and printed by the WM.
+# frame walk: title drag put it at (FX-10, FY+15), the root-background
+# drag must not move it, the nw drag slid it to (FX-20, FY-5), the n
+# push moved the top edge down to FY+3. The client area is +6+top
+# inside, where top is font-driven and printed by the WM.
 TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-resize.log" | head -1)
-WANTPOS="$((FX - 4)),$((FY + 15 + TOP))"
+WANTPOS="$((FX - 14)),$((FY + 3 + TOP))"
 if [ "$POS" = "$WANTPOS" ]; then
-    echo "OK: client at +$POS after title drag; root-background drag was a noop"
+    echo "OK: client at +$POS — anchoring held and the root-background drag was a noop"
 else
-    echo "FAIL: client at +$POS, want +$WANTPOS (root-background drag moved it?)"
+    echo "FAIL: client at +$POS, want +$WANTPOS"
 fi

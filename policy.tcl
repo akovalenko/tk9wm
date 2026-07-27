@@ -49,6 +49,13 @@ proc title-metrics {} {
 # white outlined square holding a thin white glyph, drawn flat on the
 # titlebar color. The glyphs are svg — re-rendered crisp at whatever
 # size the font dictates, never scaled bitmaps.
+# Frame colors: the focus highlight pair, the matching lighter shade
+# for the corner grips, and the constant dark outline that keeps two
+# touching frames readable as two windows (before it, several inactive
+# titlebars fused into one gray field).
+set OUTLINE #2e3436
+array set gripof {#3465a4 #6b93c0 #888a85 #a5a7a1}
+
 set SVG_CLOSE {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 <path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" stroke="#ffffff"
  stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>}
@@ -153,6 +160,14 @@ proc policy-attach {w cw ch} {
     lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $::decotop + $B}]] X Y
     toplevel $t -background #3465a4
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
+    # The decoration underlay: a canvas filling the whole frame, drawn
+    # below every other child (created first — sibling stacking is
+    # creation order). It paints the border background, the 1px outline
+    # and the corner grips; being a child of $t it inherits the frame's
+    # cursor and its events reach the rz-* handlers via the $t bindtag.
+    canvas $t.deco -highlightthickness 0 -borderwidth 0 -background #3465a4
+    place $t.deco -x 0 -y 0 -relwidth 1 -relheight 1
+    bind $t.deco <Configure> {deco-draw %W %w %h}
     # The titlebar is a treectrl (a one-item one): the title text in an
     # expanding column whose -squeeze x text element ellipsizes what does
     # not fit, then two fixed button columns — maximize and close — each
@@ -272,14 +287,52 @@ proc policy-resize {w cw ch} {
     update idletasks
 }
 
+# ---- the decoration underlay ----
+# Border background (the canvas -background), a 1px dark outline around
+# the perimeter, and fvwm-style corner grips: L-shaped pieces in a
+# lighter shade at all four corners, cut off by thin dark lines — the
+# visible promise that a corner drags diagonally. Arms follow the strip
+# widths (sides $::border, top 2px, bottom $::border), length = the
+# corner zone rz-edge uses. Redrawn on <Configure>, recolored (via a
+# full cheap redraw) by paint-focus.
+proc deco-draw {c W H} {
+    $c delete all
+    set B $::border; set CZ 24; set T 2
+    set bg [$c cget -background]
+    set grip [expr {[info exists ::gripof($bg)] ? $::gripof($bg) : $bg}]
+    foreach {x0 y0 x1 y1} [list \
+        0 0 $B $CZ                          0 0 $CZ $T \
+        [expr {$W-$B}] 0 $W $CZ             [expr {$W-$CZ}] 0 $W $T \
+        0 [expr {$H-$CZ}] $B $H             0 [expr {$H-$B}] $CZ $H \
+        [expr {$W-$B}] [expr {$H-$CZ}] $W $H \
+        [expr {$W-$CZ}] [expr {$H-$B}] $W $H] {
+        $c create rectangle $x0 $y0 $x1 $y1 -fill $grip -outline "" -tags grip
+    }
+    foreach {x0 y0 x1 y1} [list \
+        0 $CZ $B $CZ                        $CZ 0 $CZ $T \
+        [expr {$W-$B}] $CZ $W $CZ           [expr {$W-$CZ}] 0 [expr {$W-$CZ}] $T \
+        0 [expr {$H-$CZ}] $B [expr {$H-$CZ}]        $CZ [expr {$H-$B}] $CZ $H \
+        [expr {$W-$B}] [expr {$H-$CZ}] $W [expr {$H-$CZ}] \
+        [expr {$W-$CZ}] [expr {$H-$B}] [expr {$W-$CZ}] $H] {
+        $c create line $x0 $y0 $x1 $y1 -fill $::OUTLINE
+    }
+    $c create rectangle 0 0 [expr {$W-1}] [expr {$H-1}] \
+        -outline $::OUTLINE -fill ""
+}
+
 # ---- resize by the border / corner ----
 # Which resize grip is under frame-relative (x, y)? The side strips are
-# $::border wide, the bottom strip $::border tall; the 24px ends of the
-# bottom-left and bottom-right strips act as diagonal corners. The 2px
-# top strip resizes nothing (the title drag lives right under it).
+# $::border wide, the bottom strip $::border tall; the 24px corner-zone
+# ends of the strips act as diagonal corners — all four now: the top
+# corners reach along both the side border and the 2px top strip, and
+# the strip between them resizes the top edge (thin, but that is where
+# the title drag's roof is).
 proc rz-edge {t x y} {
     set W [winfo width $t]; set H [winfo height $t]
-    set B $::border; set CZ 24
+    set B $::border; set CZ 24; set T 2
+    if {($y < $T && $x < $CZ) || ($x < $B && $y < $CZ)} { return nw }
+    if {($y < $T && $x >= $W - $CZ) || ($x >= $W - $B && $y < $CZ)} { return ne }
+    if {$y < $T} { return n }
     if {$x >= $W - $B || $x < $B || $y >= $H - $B} {
         if {$y >= $H - $CZ && $x >= $W - $CZ} { return se }
         if {$y >= $H - $CZ && $x < $CZ}       { return sw }
@@ -290,8 +343,9 @@ proc rz-edge {t x y} {
     return ""
 }
 proc rz-hover {t X Y} {
-    array set cur {e right_side w left_side s bottom_side
-        se bottom_right_corner sw bottom_left_corner}
+    array set cur {e right_side w left_side s bottom_side n top_side
+        se bottom_right_corner sw bottom_left_corner
+        ne top_right_corner nw top_left_corner}
     set e [rz-edge $t [expr {$X - [winfo rootx $t]}] \
                       [expr {$Y - [winfo rooty $t]}]]
     $t configure -cursor [expr {$e eq "" ? "" : $cur($e)}]
@@ -319,6 +373,9 @@ proc rz-move {t w X Y} {
         se { incr cw $dx; incr ch $dy }
         w  { incr cw [expr {-$dx}] }
         sw { incr cw [expr {-$dx}]; incr ch $dy }
+        n  { incr ch [expr {-$dy}] }
+        ne { incr cw $dx; incr ch [expr {-$dy}] }
+        nw { incr cw [expr {-$dx}]; incr ch [expr {-$dy}] }
     }
     # The client's declared minimum caps the shrink HERE, not only in
     # wm-resize-client: the left/top anchoring below moves the frame by
@@ -327,10 +384,12 @@ proc rz-move {t w X Y} {
     # must stay big enough to grab.
     lassign [client-min-size $w] minw minh
     set cw [expr {max($cw, $minw, 40)}]; set ch [expr {max($ch, $minh, 30)}]
-    if {$e in {w sw}} {
-        # dragging the left edge: the frame moves so the right edge stays
-        wm geometry $t +[expr {$fx + $cw0 - $cw}]+$fy
-    }
+    # dragging the left/top edge: the frame moves so the opposite edge
+    # stays put
+    set nx $fx; set ny $fy
+    if {$e in {w sw nw}} { set nx [expr {$fx + $cw0 - $cw}] }
+    if {$e in {n ne nw}} { set ny [expr {$fy + $ch0 - $ch}] }
+    if {$nx != $fx || $ny != $fy} { wm geometry $t +$nx+$ny }
     wm-resize-client $w $cw $ch
 }
 proc rz-end {} { unset -nocomplain ::rz }
@@ -367,6 +426,8 @@ proc policy-paint-focus {w} {
     foreach {ww tt} [array get ::frameof] {
         set bg [expr {$ww == $w ? "#3465a4" : "#888a85"}]
         $tt configure -background $bg
+        $tt.deco configure -background $bg
+        deco-draw $tt.deco [winfo width $tt.deco] [winfo height $tt.deco]
         $tt.title configure -background $bg
     }
 }
