@@ -81,6 +81,7 @@
 #                               "-geometry WxH+X+Y"; {} when unknown
 #   client-class w              WM_CLASS as {instance class}, {"" ""} = none
 #   client-machine w            WM_CLIENT_MACHINE, "" = none
+#   client-command w            WM_COMMAND argv as a Tcl list, {} = none
 #   client-pid w                _NET_WM_PID, 0 = none
 #   client-cmdline w            argv of a LOCAL client as a Tcl list
 #                               (via /proc), {} for remote/undeclared
@@ -241,6 +242,7 @@ set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
 set WM_STATE          [XInternAtom $dpy WM_STATE 0]
 set TK9WM_RESTART     [XInternAtom $dpy TK9WM_RESTART 0]
 set WM_NAME           39   ;# XA_WM_NAME, predefined
+set WM_COMMAND        34   ;# XA_WM_COMMAND, predefined
 set WM_CLIENT_MACHINE 36   ;# XA_WM_CLIENT_MACHINE, predefined
 set WM_CLASS          67   ;# XA_WM_CLASS, predefined
 catch { set NET_WM_PID [XInternAtom $dpy _NET_WM_PID 0] }
@@ -553,22 +555,45 @@ proc client-machine {w} {
     string trimright [read-prop-bytes $w $::WM_CLIENT_MACHINE] \x00
 }
 
+# WM_COMMAND argv as a Tcl list, {} when unset — the session-management
+# relic few modern clients still write (xterm does); filter's -command
+# falls back to client-cmdline when this comes back empty.
+proc client-command {w} {
+    set b [read-prop-bytes $w $::WM_COMMAND]
+    if {$b eq ""} { return {} }
+    split [string trimright $b \x00] \x00
+}
+
 # _NET_WM_PID, 0 when unset.
 proc client-pid {w} {
     if {![info exists ::NET_WM_PID]} { return 0 }
     read-prop-long $w $::NET_WM_PID
 }
 
+# The names this machine goes by, first labels only: clients write
+# gethostname() into WM_CLIENT_MACHINE, but Tcl's [info hostname] may
+# canonicalize that through /etc/hosts to a DIFFERENT name (nodename
+# "tp" -> canonical "somebody-ThinkPad-..."), so the raw kernel name
+# is read too and either may vouch.
+proc local-names {} {
+    set names [list [info hostname]]
+    catch {
+        set f [open /proc/sys/kernel/hostname r]
+        lappend names [string trim [read $f]]
+        close $f
+    }
+    lmap n $names { lindex [split $n .] 0 }
+}
+
 # The client's command line as a Tcl list, honest only for LOCAL
 # clients: _NET_WM_PID is meaningful on the machine named by
 # WM_CLIENT_MACHINE, so a remote client (or one declaring nothing)
 # yields {} and the predicate decides what that means. Hostnames are
-# compared by first label, case-insensitively — one side often carries
+# compared by first label, case-insensitively — any side may carry
 # the FQDN.
 proc client-cmdline {w} {
     set m [lindex [split [client-machine $w] .] 0]
-    set h [lindex [split [info hostname] .] 0]
-    if {$m eq "" || ![string equal -nocase $m $h]} { return {} }
+    if {$m eq "" || [lsearch -exact -nocase [local-names] $m] < 0} { return {} }
     set pid [client-pid $w]
     if {$pid <= 0} { return {} }
     if {[catch {

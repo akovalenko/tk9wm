@@ -23,10 +23,21 @@
 # wm-style PREDICATE SETTINGS appends a rule. The predicate is any
 # command prefix called with the client's X window id; truth applies
 # the settings dict. All matching rules apply, later rules win per-key.
-# `always` is the match-everything builtin. Identity accessors for
-# hand-rolled predicates: client-class (→ {instance class}),
-# client-machine, client-pid, client-cmdline (argv list, local clients
-# only), client-title.
+# `always` is the match-everything builtin, `filter` the workhorse:
+#
+#   filter ?-regexp? ?-title PAT? ?-class PAT|{PAT PAT}? \
+#       ?-command PAT? ?-machine PAT?
+#
+# The options AND together; patterns are globs matching the whole
+# string, always case-insensitively (-regexp swaps the comparator;
+# (?c) inside a pattern turns sensitivity back on). A single -class
+# pattern matches either of {instance class}; two patterns are
+# positional, exactly as xprop prints them. -command matches
+# WM_COMMAND joined with spaces and falls back to the local client's
+# /proc argv. An absent property never matches. Identity accessors
+# for hand-rolled predicates: client-class (→ {instance class}),
+# client-machine, client-command (WM_COMMAND argv list), client-pid,
+# client-cmdline (argv list, local clients only), client-title.
 #
 # Keys so far:
 #   increments respect|ignore — WM_NORMAL_HINTS resize increments;
@@ -40,7 +51,11 @@
 # Ignore increments for everything:
 #   wm-style always {increments ignore}
 #
-# Ignore them only for local xterms started as /usr/bin/xterm:
+# Ignore them only for xterms, however capitalized:
+#   wm-style {filter -class {* xterm}} {increments ignore}
+#
+# The proc predicate stays the escape hatch for anything richer —
+# only local xterms started as /usr/bin/xterm:
 #   proc my-xterm {w} {
 #       expr {[lindex [client-class $w] 1] eq "XTerm"
 #             && [lindex [client-cmdline $w] 0] eq "/usr/bin/xterm"}
@@ -67,7 +82,7 @@
 #   key    — a wm-bind chord sequence firing this button
 #
 #   panel-button xterm {
-#       match my-xterm launch {exec xterm &} key {<Super>x}
+#       match {filter -class xterm} launch {exec xterm &} key {<Super>x}
 #   }
 #
 # ---- key bindings ----

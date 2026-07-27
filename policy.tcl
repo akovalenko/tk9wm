@@ -152,6 +152,76 @@ proc style-of {w} {
     set ::styleof($w) $st
 }
 
+# ---- filter — the declarative match predicate ----
+# The workhorse for every match place (wm-style rules, panel-button
+# match): a command prefix, the call site appends the window id.
+#
+#   filter ?-regexp? ?-title PAT? ?-class PAT|{PAT PAT}? \
+#       ?-command PAT? ?-machine PAT?
+#
+# The options AND together; an absent property fails its option — no
+# errors, no match. Patterns are globs (string match), whole-string,
+# always case-insensitive: the world's WM_CLASS capitalization drifts
+# (Firefox vs firefox). -regexp swaps the comparator for regexp —
+# unanchored, still nocase, and (?c) inside the pattern turns
+# sensitivity back on; alternation covers the OR nobody builds
+# combinators for. -class with a single pattern matches EITHER of
+# {instance class} — for when you remember the distinctive token but
+# not its slot; two patterns are positional, exactly as xprop prints
+# the property. -command matches WM_COMMAND joined with spaces and
+# falls back to the local client's /proc argv (client-cmdline) when
+# the property is absent. A proc predicate stays the escape hatch for
+# anything richer.
+proc filter {args} {
+    set w [lindex $args end]
+    set opts [lrange $args 0 end-1]
+    set pairs {}
+    set cmp {string match -nocase}
+    while {[llength $opts]} {
+        set opt [lindex $opts 0]
+        if {$opt eq "-regexp"} {
+            set cmp {regexp -nocase --}
+            set opts [lrange $opts 1 end]
+            continue
+        }
+        if {[llength $opts] < 2} { error "filter: $opt wants a pattern" }
+        lappend pairs $opt [lindex $opts 1]
+        set opts [lrange $opts 2 end]
+    }
+    foreach {opt pat} $pairs {
+        switch -- $opt {
+            -class {
+                lassign [client-class $w] inst cls
+                if {$inst eq "" && $cls eq ""} { return 0 }
+                switch -- [llength $pat] {
+                    1 { if {![{*}$cmp $pat $inst] && ![{*}$cmp $pat $cls]} {
+                            return 0
+                    } }
+                    2 { lassign $pat pi pc
+                        if {![{*}$cmp $pi $inst] || ![{*}$cmp $pc $cls]} {
+                            return 0
+                    } }
+                    default { error "filter -class: one or two patterns" }
+                }
+            }
+            -title - -machine - -command {
+                switch -- $opt {
+                    -title   { set val [client-title $w] }
+                    -machine { set val [client-machine $w] }
+                    -command {
+                        set c [client-command $w]
+                        if {![llength $c]} { set c [client-cmdline $w] }
+                        set val [join $c " "]
+                    }
+                }
+                if {$val eq "" || ![{*}$cmp $pat $val]} { return 0 }
+            }
+            default { error "filter: unknown option $opt" }
+        }
+    }
+    return 1
+}
+
 # Size hints applied the style's way: clamp to the declared minimum
 # always; snap to the increment grid (from the PBaseSize origin) only
 # when this client's style says respect. Every WM-initiated size
