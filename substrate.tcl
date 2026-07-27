@@ -39,6 +39,13 @@
 #
 # The substrate provides to the policy layer:
 #   focus-to w                  set the input focus honestly + repaint
+#   wm-bind spec script         bind a key chord sequence ("<Alt>space",
+#                               "<Super>t w m") to a script — see the key
+#                               bindings section
+#   grab-keys-to cmd            keyboard-modal UI: hold the keyboard and
+#                               route every keypress to cmd (appended:
+#                               keysym name, modifier mask); empty cmd
+#                               releases and restores the keymap
 #   close-client w              WM_DELETE_WINDOW when supported, else kill
 #   send-synthetic-configure w  ICCCM 4.1.5 notify after a frame move
 #   wm-resize-client w cw ch    a WM-initiated resize (border/corner drag);
@@ -119,6 +126,19 @@ set has_getprop [expr {![catch {
 set has_normalhints [expr {![catch {
     X11 function XGetWMNormalHints int {dpy pointer.unsafe w ulong
         hints pointer.unsafe supplied {long out}}
+}]}]
+set has_keys [expr {![catch {
+    X11 function XGrabKey int {dpy pointer.unsafe keycode int modifiers uint
+        w ulong owner_events int pointer_mode int keyboard_mode int}
+    X11 function XUngrabKey int {dpy pointer.unsafe keycode int modifiers uint w ulong}
+    X11 function XGrabKeyboard int {dpy pointer.unsafe w ulong owner_events int
+        pointer_mode int keyboard_mode int time ulong}
+    X11 function XUngrabKeyboard int {dpy pointer.unsafe time ulong}
+    X11 function XStringToKeysym ulong {name string}
+    X11 function XKeysymToString pointer.unsafe {keysym ulong}
+    X11 function XKeysymToKeycode uchar {dpy pointer.unsafe keysym ulong}
+    X11 function XkbKeycodeToKeysym ulong {dpy pointer.unsafe kc uchar group int level int}
+    X11 function XRefreshKeyboardMapping int {ev pointer.unsafe}
 }]}]
 
 # ---------------- X error handler (cffi callback) ----------------
@@ -346,6 +366,20 @@ proc handle-event {} {
             if {[info exists ::wmcheck] && $A == $::wmcheck
                     && $B == $::TK9WM_RESTART} {
                 restart-wm
+            }
+        }
+        2 { # KeyPress from our grabs (a top-chord XGrabKey, or the
+            # sequence's temporary XGrabKeyboard). XKeyEvent (LP64):
+            # time@56 state@80 keycode@84.
+            binary scan [evbytes 96] iux4wuiux4wuwuwuwuwux16iuiu \
+                _t _s _se _d win rootw subw time state kc
+            if {$::has_keys} { handle-key $state $kc $time }
+        }
+        34 { # MappingNotify: request@40 — 2 (pointer) is not ours
+            binary scan [evbytes 48] iux4wuiux4wuwuiu _t _s _se _d _w req
+            if {$::has_keys && $req != 2} {
+                catch {XRefreshKeyboardMapping $::evbuf}
+                keys-remap
             }
         }
         4 { # ButtonPress via our sync grab: let the policy react (focus,
@@ -769,6 +803,219 @@ proc close-client {w} {
         puts "WM: close 0x[format %x $w]: no WM_DELETE_WINDOW, XKillClient"
         XKillClient $::dpy $w
         XSync $::dpy 0
+    }
+}
+
+# ---------------- key bindings: grabs + a stumpwm-style sequence machine ----------------
+# wm-bind SPEC SCRIPT binds a chord SEQUENCE to a script. A chord is
+# any number of <Mod> prefixes and then a keysym name:
+#   wm-bind {<Alt>space}   winmenu
+#   wm-bind {<Super>t w m} winmenu
+# Only the FIRST chord of a sequence is grabbed globally (XGrabKey on
+# root); the tail is collected stumpwm-style under a TEMPORARY
+# XGrabKeyboard, so the global-hotkey namespace spends one combination
+# per prefix and everything behind it stays available to applications.
+# Esc or an unbound chord aborts the sequence. Later binds win — the
+# config overrides the in-code defaults by simply binding over them.
+# No prefix-in-progress indication in v1. The KeyPress events of both
+# grab kinds arrive on this raw connection, in the same handle-event
+# dispatcher as everything else.
+
+set keymap {}       ;# nested dict: "mods,keysym" -> {action script} | {map submap}
+set grabbed_top {}  ;# top chords held by XGrabKey — the MappingNotify re-grab list
+set keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
+set kbd_grabbed 0
+set keyrouter ""    ;# non-empty: a keyboard-modal UI owns every keypress
+
+# Modifier names a chord may use. A static table: Alt is Mod1 and Super
+# is Mod4 on any stock map; a layout where that lies wants a dynamic
+# XGetModifierMapping walk, which can come when such a layout shows up.
+array set modmaskof {
+    Shift 1 Control 4 Ctrl 4 Alt 8 Meta 8 Mod1 8
+    Mod2 16 Mod3 32 Super 64 Mod4 64 Mod5 128
+}
+# Keysyms of the modifier keys themselves: pressing one during a
+# sequence is not a chord — wait for the real key.
+if {$has_keys} {
+    foreach name {Shift_L Shift_R Control_L Control_R Alt_L Alt_R
+            Meta_L Meta_R Super_L Super_R Hyper_L Hyper_R
+            Caps_Lock Shift_Lock Num_Lock Scroll_Lock
+            Mode_switch ISO_Level3_Shift ISO_Level5_Shift} {
+        if {[set ks [XStringToKeysym $name]] != 0} { set ismodks($ks) 1 }
+    }
+    set KS_ESC [XStringToKeysym Escape]
+} else { puts "WM: key machinery not available in this libX11" }
+
+proc parse-chord {tok} {
+    set mods 0
+    while {[regexp {^<([^>]+)>(.*)$} $tok -> m rest]} {
+        if {![info exists ::modmaskof($m)]} { error "unknown modifier <$m>" }
+        set mods [expr {$mods | $::modmaskof($m)}]
+        set tok $rest
+    }
+    if {$tok eq ""} { error "chord without a key" }
+    set ks [XStringToKeysym $tok]
+    if {$ks == 0} { error "unknown keysym «$tok»" }
+    list $mods $ks
+}
+
+proc keysym-name {ks} {
+    if {![catch {XKeysymToString $ks} p] && ![cffi::pointer isnull $p]} {
+        return [cffi::memory tostring! $p]
+    }
+    format 0x%x $ks
+}
+proc chord-name {mods ks} {
+    set parts {}
+    foreach {name bit} {Ctrl 4 Alt 8 Super 64 Mod3 32 Mod5 128 Shift 1} {
+        if {$mods & $bit} { lappend parts $name }
+    }
+    lappend parts [keysym-name $ks]
+    join $parts +
+}
+
+# Set a key path in a nested keymap dict. A later bind REPLACES what
+# was there: an action shadowing a former prefix map drops the whole
+# map, and a longer sequence turns a former action into a prefix.
+proc keymap-set {node keys script} {
+    set k [lindex $keys 0]
+    if {[llength $keys] == 1} {
+        dict set node $k [list action $script]
+    } else {
+        set sub {}
+        if {[dict exists $node $k]
+                && [lindex [dict get $node $k] 0] eq "map"} {
+            set sub [lindex [dict get $node $k] 1]
+        }
+        dict set node $k [list map [keymap-set $sub [lrange $keys 1 end] $script]]
+    }
+    return $node
+}
+
+proc wm-bind {spec script} {
+    if {!$::has_keys} { puts "WM: wm-bind: no key machinery"; return }
+    set chords [lmap tok $spec {parse-chord $tok}]
+    if {![llength $chords]} { error "wm-bind: empty chord sequence" }
+    set ::keymap [keymap-set $::keymap [lmap c $chords {join $c ,}] $script]
+    set top [lindex $chords 0]
+    if {$top ni $::grabbed_top} {
+        lappend ::grabbed_top $top
+        grab-chord $top
+        puts "WM: key top chord [chord-name {*}$top] grabbed"
+    }
+}
+
+# The quadruple: an X grab matches the modifier state EXACTLY, so every
+# chord is grabbed four times over — plain, +Lock (Caps), +Mod2 (Num),
+# +both — and the same lock bits are stripped from the state before a
+# chord lookup. GrabModeAsync both ways: nothing to freeze, unlike the
+# click-to-focus button grab.
+proc grab-chord {chord} {
+    lassign $chord mods ks
+    set kc [XKeysymToKeycode $::dpy $ks]
+    if {$kc == 0} {
+        puts "WM: no keycode for [keysym-name $ks] — chord not grabbed"
+        return
+    }
+    foreach locks {0 2 16 18} {
+        XGrabKey $::dpy $kc [expr {$mods | $locks}] $::root 0 1 1
+    }
+    XSync $::dpy 0
+}
+
+# Keycodes moved under us (setxkbmap and friends): refresh Xlib's
+# keysym cache and re-grab every top chord at its new keycode.
+proc keys-remap {} {
+    XUngrabKey $::dpy 0 32768 $::root      ;# AnyKey, AnyModifier
+    foreach chord $::grabbed_top { grab-chord $chord }
+    puts "WM: keyboard remapped — [llength $::grabbed_top] top chords re-grabbed"
+}
+
+proc keyseq-end {} {
+    if {$::kbd_grabbed} {
+        XUngrabKeyboard $::dpy 0
+        XSync $::dpy 0
+        set ::kbd_grabbed 0
+    }
+    set ::keyseq ""
+}
+proc keyseq-abort {why} {
+    puts "WM: key sequence abort ($why)"
+    keyseq-end
+}
+
+# Keyboard-modal UI (the window menu): hold the keyboard on the raw
+# connection and route every keypress to cmd, called with the keysym
+# name and the (lock-stripped) modifier mask. The Tk focus path is no
+# use here: such UI lives in override-redirect toplevels, and Tk
+# refuses to XSetInputFocus those (tkUnixFocus.c, an old olvwm-menus
+# hack) — Tk's own menus run on grabs for the same reason. An empty
+# cmd releases the keyboard and hands keypresses back to the keymap.
+proc grab-keys-to {cmd} {
+    if {$cmd eq ""} {
+        set ::keyrouter ""
+        keyseq-end
+        return 1
+    }
+    if {!$::has_keys} { return 0 }
+    if {!$::kbd_grabbed} {
+        set st [XGrabKeyboard $::dpy $::root 0 1 1 0]
+        if {$st != 0} {
+            puts "WM: grab-keys-to: XGrabKeyboard refused ($st)"
+            return 0
+        }
+        set ::kbd_grabbed 1
+    }
+    set ::keyseq ""      ;# the router replaces any sequence in progress
+    set ::keyrouter $cmd
+    return 1
+}
+
+# One KeyPress from our grabs walks the keymap: idle state consults the
+# top map (the press came through a top-chord XGrabKey), a sequence in
+# progress consults its current submap (the press came through the
+# temporary XGrabKeyboard). An unbound press aborts a sequence but is
+# ignored in idle state — a stale grab echo is not an error.
+proc handle-key {state kc time} {
+    set ks [XkbKeycodeToKeysym $::dpy $kc 0 0]
+    if {[info exists ::ismodks($ks)]} return
+    set mods [expr {$state & ~(2 | 16)}]   ;# Caps/Num make no chord distinct
+    if {$::keyrouter ne ""} {
+        if {[catch {uplevel #0 [list {*}$::keyrouter [keysym-name $ks] $mods]} err]} {
+            puts "WM: key router error: $err"
+        }
+        return
+    }
+    if {$::keyseq ne ""} {
+        if {$ks == $::KS_ESC} { keyseq-abort Esc; return }
+        set node $::keyseq
+    } else {
+        set node $::keymap
+    }
+    set k "$mods,$ks"
+    if {![dict exists $node $k]} {
+        if {$::keyseq ne ""} { keyseq-abort "[chord-name $mods $ks] unbound" }
+        return
+    }
+    lassign [dict get $node $k] kind payload
+    if {$kind eq "action"} {
+        # release the keyboard BEFORE the action: it may want focus
+        keyseq-end
+        puts "WM: key [chord-name $mods $ks] -> action"
+        if {[catch {uplevel #0 $payload} err]} {
+            puts "WM: key action error: $err"
+        }
+    } else {
+        if {$::keyseq eq ""} {
+            set st [XGrabKeyboard $::dpy $::root 0 1 1 $time]
+            if {$st != 0} {
+                puts "WM: key [chord-name $mods $ks]: XGrabKeyboard refused ($st) — sequence dropped"
+                return
+            }
+            set ::kbd_grabbed 1
+        }
+        puts "WM: key [chord-name $mods $ks] -> prefix"
+        set ::keyseq $payload
     }
 }
 
