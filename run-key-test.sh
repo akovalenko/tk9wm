@@ -65,6 +65,17 @@ key Tab
 key Tab
 keyup alt
 
+key super+t     # the STATIC window list on the Super+t w w sequence...
+key w
+key w
+import -display :78 -window root "$HERE/key-list.png" 2>/dev/null \
+    && echo "DRIVER: screenshot -> $HERE/key-list.png"
+key 2           # ...where a bare numbered hotkey picks entry 2 (B)
+keydown alt     # cycle mode: the hotkey works WITH the modifier held
+key Tab
+key 2           # Alt+2 picks entry 2 (A) without waiting for release
+keyup alt
+
 key super+t     # prefix...
 key w           # ...deeper...
 key m           # ...winops on the focused window
@@ -105,16 +116,21 @@ else
     echo "FAIL: winops actions were «$ACTS», want «maximize maximize raise »"
 fi
 CYCLES=$(grep -c 'winlist open (2 windows, cycle)' "$HERE/wm-key.log")
-if [ "$CYCLES" = 2 ]; then
-    echo "OK: a held Alt opened the list in cycle mode, twice"
+if [ "$CYCLES" = 3 ]; then
+    echo "OK: a held Alt opened the list in cycle mode, three times"
 else
-    echo "FAIL: $CYCLES cycle opens, want 2"
+    echo "FAIL: $CYCLES cycle opens, want 3"
+fi
+if grep -q 'winlist open (2 windows)$' "$HERE/wm-key.log"; then
+    echo "OK: the Super+t w w sequence opened the STATIC list"
+else
+    echo "FAIL: no static winlist open in the log"
 fi
 PICKS=$(sed -n 's/^WM: winlist pick \(0x[0-9a-f]*\)$/\1/p' "$HERE/wm-key.log" | tr '\n' ' ')
-if [ "$PICKS" = "$AID $AID " ]; then
-    echo "OK: quick Alt+Tab toggled to A; the second Tab wrapped back (picks: $PICKS)"
+if [ "$PICKS" = "$AID $AID $BID $AID " ]; then
+    echo "OK: alt-tab toggle, wraparound, bare hotkey 2, Alt+2 in cycle (picks: $PICKS)"
 else
-    echo "FAIL: winlist picks were «$PICKS», want «$AID $AID »"
+    echo "FAIL: winlist picks were «$PICKS», want «$AID $AID $BID $AID »"
 fi
 if grep -q 'key Super+t -> prefix' "$HERE/wm-key.log" \
         && grep -q 'key w -> prefix' "$HERE/wm-key.log" \

@@ -50,7 +50,8 @@
 # of <Mod> prefixes — <Shift> <Ctrl> <Alt> <Super> <Mod1>..<Mod5> —
 # and then a keysym name. Later binds win, so binding over a default
 # replaces it. In-code defaults: the window ops menu (winops) on
-# <Alt>space and <Super>t w m, the window list (winlist) on <Alt>Tab.
+# <Alt>space and <Super>t w m; the window list (winlist) on <Alt>Tab
+# and <Super>t w w.
 #
 #   wm-bind {<Super>Return} {exec xterm &}
 #   wm-bind {<Super>t w x}  {exec xterm &}
@@ -62,5 +63,7 @@
 # get a static menu:
 #   set-winlist-cycle off
 #
-# In every popup menu k/j and p/n move the selection when no item
-# hotkey claims the letter; Ctrl+P/Ctrl+N move it unconditionally.
+# Window list entries are numbered 1-9/A-Z and the number is a hotkey:
+# bare in the static menu, together with the held modifier (Alt+3) in
+# cycle mode. In every popup menu k/j and p/n move the selection when
+# no item hotkey claims the letter; Ctrl+P/Ctrl+N move unconditionally.

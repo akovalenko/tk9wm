@@ -769,7 +769,10 @@ proc popup-move {T n d} {
 # ones trail behind), centered on the screen; the initial selection
 # sits on the SECOND entry — the first is the window the user is
 # leaving — so a bare Enter (or a released Alt) toggles to the
-# previous window.
+# previous window. Entries are numbered 1-9/A-Z and the number is the
+# entry's hotkey — in cycle mode pressed WITH the held modifier
+# (releasing it would commit), in the static menu bare, like any menu
+# hotkey; either way it picks immediately.
 #
 # The fvwm alt-tab semantics come as a MODE the list enters when the
 # invoking chord's modifier is still physically held at open (the Alt
@@ -801,27 +804,49 @@ proc winlist {} {
             && [modifier-held $::key_invoke_mods]} {
         set ::winlist_cycle $::key_invoke_mods
     }
+    # Every entry is numbered, and the number IS its hotkey: 1-9, then
+    # A-Z; a 36th window simply gets no hotkey. The digit column sits
+    # on the left — a numbered list reads that way.
+    set ::winlist_keys {}
+    foreach w $wins {
+        set i [llength $::winlist_keys]
+        if {$i < 9} {
+            lappend ::winlist_keys [expr {$i + 1}]
+        } elseif {$i < 35} {
+            lappend ::winlist_keys [format %c [expr {65 + $i - 9}]]
+        } else {
+            lappend ::winlist_keys ""
+        }
+    }
     set ih [expr {[font metrics TitleFont -linespace] + 6}]
+    set numw [expr {[font measure TitleFont W] + 14}]
     set T [popup-shell .winlist $ih]
+    $T column create -width $numw -tags Cnum
     $T column create -squeeze yes -expand yes -tags C0
     $T configure -treecolumn C0
+    $T element create eNum text -fill #babdb6 -lines 1 -font TitleFont
+    $T style create sNum
+    $T style elements sNum {eSel eNum}
+    $T style layout sNum eSel -detach yes -iexpand xy
+    $T style layout sNum eNum -expand wns -padx 6
     $T style create sWin
     $T style elements sWin {eSel eTxt}
     $T style layout sWin eSel -detach yes -iexpand xy
-    $T style layout sWin eTxt -expand ns -padx 8 -squeeze x
+    $T style layout sWin eTxt -expand ns -padx 4 -squeeze x
     set maxw 0
-    foreach w $wins {
+    foreach w $wins key $::winlist_keys {
         set title [title-or-id $w [client-title $w]]
         set maxw [expr {max($maxw, [font measure TitleFont $title])}]
         set item [$T item create]
-        $T item style set $item C0 sWin
+        $T item style set $item Cnum sNum C0 sWin
+        $T item element configure $item Cnum eNum -text $key
         $T item element configure $item C0 eTxt -text $title
         $T item lastchild root $item
     }
     $T selection add [expr {[llength $wins] > 1 ? 2 : 1}]
     bind $T <ButtonPress-1> {winlist-click %x %y}
     lassign [screen-size] sw sh
-    set W [expr {min(max($maxw + 32, 200), $sw * 3 / 5)}]
+    set W [expr {min(max($maxw + $numw + 28, 200), $sw * 3 / 5)}]
     set H [expr {[llength $wins] * $ih + 2}]
     popup-show .winlist $W $H [expr {($sw - $W) / 2}] [expr {($sh - $H) / 3}]
     if {![grab-keys-to winlist-key]} {
@@ -839,9 +864,22 @@ proc winlist-key {kind name mods} {
         }
         return
     }
+    # In cycle mode the held chord modifier is TRANSPARENT: it cannot
+    # be released without committing, so Alt+3, Alt+j, Alt+Up must
+    # work as 3, j, Up — strip it and dispatch as in the static menu.
+    if {$::winlist_cycle != 0} { set mods [expr {$mods & ~$::winlist_cycle}] }
     if {$name eq "Tab"} {
         winlist-move [expr {$mods & 1 ? -1 : 1}]
         return
+    }
+    if {$mods == 0 && [string length $name] == 1} {
+        set i [lsearch -exact $::winlist_keys [string toupper $name]]
+        if {$i >= 0} {
+            .winlist.t selection clear
+            .winlist.t selection add [expr {$i + 1}]
+            winlist-pick
+            return
+        }
     }
     set d [popup-nav $name $mods]
     if {$d != 0} { winlist-move $d; return }
@@ -974,11 +1012,13 @@ proc winops-click {x y} {
 # The defaults live IN CODE — the config is an override layer, not a
 # preset carrier. The window OPS menu (actions on the focused window)
 # answers both the one-chord Alt+Space and the stumpwm-style sequence
-# Super+t w m; the window LIST — the alt-tab — sits on Alt+Tab, where
-# a held Alt turns it into the fvwm cycle (see winlist).
+# Super+t w m; the window LIST sits on Alt+Tab — where the held Alt
+# turns it into the fvwm cycle — and on Super+t w w as a plain static
+# menu (the sequence ends with everything released).
 wm-bind {<Alt>space} winops
 wm-bind {<Super>t w m} winops
 wm-bind {<Alt>Tab} winlist
+wm-bind {<Super>t w w} winlist
 
 # Move policy is plain Tk: drag the title bar, the client rides along.
 # A title click also raises and focuses.
