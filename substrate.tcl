@@ -43,9 +43,16 @@
 #                               "<Super>t w m") to a script — see the key
 #                               bindings section
 #   grab-keys-to cmd            keyboard-modal UI: hold the keyboard and
-#                               route every keypress to cmd (appended:
-#                               keysym name, modifier mask); empty cmd
-#                               releases and restores the keymap
+#                               route every key event to cmd (appended:
+#                               press|release, keysym name, modifier
+#                               mask); empty cmd releases and restores
+#                               the keymap
+#   modifier-held mask          is any key of these modifiers physically
+#                               down right now (XQueryKeymap)?
+#   $::key_invoke_mods          modifier mask of the chord that invoked
+#                               the currently running key action
+#   kill-client w               unconditional XKillClient (close-client
+#                               asks politely first)
 #   close-client w              WM_DELETE_WINDOW when supported, else kill
 #   send-synthetic-configure w  ICCCM 4.1.5 notify after a frame move
 #   wm-resize-client w cw ch    a WM-initiated resize (border/corner drag);
@@ -139,6 +146,7 @@ set has_keys [expr {![catch {
     X11 function XKeysymToKeycode uchar {dpy pointer.unsafe keysym ulong}
     X11 function XkbKeycodeToKeysym ulong {dpy pointer.unsafe kc uchar group int level int}
     X11 function XRefreshKeyboardMapping int {ev pointer.unsafe}
+    X11 function XQueryKeymap int {dpy pointer.unsafe keys pointer.unsafe}
 }]}]
 
 # ---------------- X error handler (cffi callback) ----------------
@@ -374,6 +382,17 @@ proc handle-event {} {
             binary scan [evbytes 96] iux4wuiux4wuwuwuwuwux16iuiu \
                 _t _s _se _d win rootw subw time state kc
             if {$::has_keys} { handle-key $state $kc $time }
+        }
+        3 { # KeyRelease: only a keyboard-modal router cares (the
+            # alt-tab commit-on-release); the keymap machine ignores
+            # releases.
+            if {$::has_keys && $::keyrouter ne ""} {
+                binary scan [evbytes 96] iux4wuiux4wuwuwuwuwux16iuiu \
+                    _t _s _se _d win rootw subw time state kc
+                route-key release \
+                    [keysym-name [XkbKeycodeToKeysym $::dpy $kc 0 0]] \
+                    [expr {$state & ~(2 | 16)}]
+            }
         }
         34 { # MappingNotify: request@40 — 2 (pointer) is not ours
             binary scan [evbytes 48] iux4wuiux4wuwuiu _t _s _se _d _w req
@@ -806,6 +825,14 @@ proc close-client {w} {
     }
 }
 
+# The unconditional kill — the ops menu's "destroy" for a client that
+# ignores the polite path above.
+proc kill-client {w} {
+    puts "WM: destroy 0x[format %x $w]: XKillClient"
+    XKillClient $::dpy $w
+    XSync $::dpy 0
+}
+
 # ---------------- key bindings: grabs + a stumpwm-style sequence machine ----------------
 # wm-bind SPEC SCRIPT binds a chord SEQUENCE to a script. A chord is
 # any number of <Mod> prefixes and then a keysym name:
@@ -825,7 +852,8 @@ set keymap {}       ;# nested dict: "mods,keysym" -> {action script} | {map subm
 set grabbed_top {}  ;# top chords held by XGrabKey — the MappingNotify re-grab list
 set keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
 set kbd_grabbed 0
-set keyrouter ""    ;# non-empty: a keyboard-modal UI owns every keypress
+set keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
+set key_invoke_mods 0  ;# modifiers of the chord that fired the running action
 
 # Modifier names a chord may use. A static table: Alt is Mod1 and Super
 # is Mod4 on any stock map; a layout where that lies wants a dynamic
@@ -833,6 +861,13 @@ set keyrouter ""    ;# non-empty: a keyboard-modal UI owns every keypress
 array set modmaskof {
     Shift 1 Control 4 Ctrl 4 Alt 8 Meta 8 Mod1 8
     Mod2 16 Mod3 32 Super 64 Mod4 64 Mod5 128
+}
+# Which keysyms sit on which modifier bit — for modifier-held below.
+# Static like modmaskof; a dynamic XGetModifierMapping walk can come
+# when a layout that lies about these shows up.
+array set modkeysyms {
+    1 {Shift_L Shift_R} 4 {Control_L Control_R}
+    8 {Alt_L Alt_R Meta_L Meta_R} 64 {Super_L Super_R Hyper_L Hyper_R}
 }
 # Keysyms of the modifier keys themselves: pressing one during a
 # sequence is not a chord — wait for the real key.
@@ -944,13 +979,15 @@ proc keyseq-abort {why} {
     keyseq-end
 }
 
-# Keyboard-modal UI (the window menu): hold the keyboard on the raw
-# connection and route every keypress to cmd, called with the keysym
-# name and the (lock-stripped) modifier mask. The Tk focus path is no
-# use here: such UI lives in override-redirect toplevels, and Tk
-# refuses to XSetInputFocus those (tkUnixFocus.c, an old olvwm-menus
-# hack) — Tk's own menus run on grabs for the same reason. An empty
-# cmd releases the keyboard and hands keypresses back to the keymap.
+# Keyboard-modal UI (the menus): hold the keyboard on the raw
+# connection and route every key event to cmd, called with press or
+# release, the keysym name and the (lock-stripped) modifier mask —
+# releases included, and modifier keys unfiltered: the alt-tab commit
+# rides on the release of a bare modifier. The Tk focus path is no use
+# here: such UI lives in override-redirect toplevels, and Tk refuses
+# to XSetInputFocus those (tkUnixFocus.c, an old olvwm-menus hack) —
+# Tk's own menus run on grabs for the same reason. An empty cmd
+# releases the keyboard and hands keypresses back to the keymap.
 proc grab-keys-to {cmd} {
     if {$cmd eq ""} {
         set ::keyrouter ""
@@ -970,6 +1007,40 @@ proc grab-keys-to {cmd} {
     set ::keyrouter $cmd
     return 1
 }
+proc route-key {kind name mods} {
+    if {[catch {uplevel #0 [list {*}$::keyrouter $kind $name $mods]} err]} {
+        puts "WM: key router error: $err"
+    }
+}
+
+# Is any key of the given modifier mask physically down right now? The
+# fvwm alt-tab semantics hinge on "was Alt still held when the list
+# opened" and "is it still held after this release" — and a KeyRelease
+# that happened before our grab began is something we never saw, so
+# the server's live keymap is the only honest answer.
+proc modifier-held {mask} {
+    if {!$::has_keys} { return 0 }
+    set names {}
+    foreach {bit syms} [array get ::modkeysyms] {
+        if {$mask & $bit} { lappend names {*}$syms }
+    }
+    if {![llength $names]} { return 0 }
+    set buf [cffi::memory allocate 32 unsafe]
+    set held 0
+    if {![catch {XQueryKeymap $::dpy $buf}]} {
+        set v [cffi::memory tobinary! $buf 32]
+        foreach n $names {
+            set ks [XStringToKeysym $n]
+            if {$ks == 0} continue
+            set kc [XKeysymToKeycode $::dpy $ks]
+            if {$kc == 0} continue
+            binary scan $v "x[expr {$kc / 8}]cu" byte
+            if {$byte & (1 << ($kc % 8))} { set held 1; break }
+        }
+    }
+    cffi::memory free $buf
+    return $held
+}
 
 # One KeyPress from our grabs walks the keymap: idle state consults the
 # top map (the press came through a top-chord XGrabKey), a sequence in
@@ -978,14 +1049,12 @@ proc grab-keys-to {cmd} {
 # ignored in idle state — a stale grab echo is not an error.
 proc handle-key {state kc time} {
     set ks [XkbKeycodeToKeysym $::dpy $kc 0 0]
-    if {[info exists ::ismodks($ks)]} return
     set mods [expr {$state & ~(2 | 16)}]   ;# Caps/Num make no chord distinct
     if {$::keyrouter ne ""} {
-        if {[catch {uplevel #0 [list {*}$::keyrouter [keysym-name $ks] $mods]} err]} {
-            puts "WM: key router error: $err"
-        }
+        route-key press [keysym-name $ks] $mods
         return
     }
+    if {[info exists ::ismodks($ks)]} return
     if {$::keyseq ne ""} {
         if {$ks == $::KS_ESC} { keyseq-abort Esc; return }
         set node $::keyseq
@@ -999,9 +1068,12 @@ proc handle-key {state kc time} {
     }
     lassign [dict get $node $k] kind payload
     if {$kind eq "action"} {
-        # release the keyboard BEFORE the action: it may want focus
+        # release the keyboard BEFORE the action: it may want focus.
+        # The chord's own modifiers are published for the action: the
+        # window list reads them to decide "am I an alt-tab cycle".
         keyseq-end
         puts "WM: key [chord-name $mods $ks] -> action"
+        set ::key_invoke_mods $mods
         if {[catch {uplevel #0 $payload} err]} {
             puts "WM: key action error: $err"
         }
