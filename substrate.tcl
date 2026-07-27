@@ -183,6 +183,7 @@ puts "WM: redirect armed on root [format 0x%x $root]"
 set WM_PROTOCOLS      [XInternAtom $dpy WM_PROTOCOLS 0]
 set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
 set WM_STATE          [XInternAtom $dpy WM_STATE 0]
+set TK9WM_RESTART     [XInternAtom $dpy TK9WM_RESTART 0]
 set WM_NAME           39   ;# XA_WM_NAME, predefined
 
 # ---------------- EWMH minimum ----------------
@@ -327,6 +328,14 @@ proc handle-event {} {
                 } elseif {$B == 40} {
                     read-normal-hints $A
                 }
+            }
+        }
+        33 { # ClientMessage. The restart knob arrives here: send-restart
+            # addresses the wmcheck window, and a zero-mask XSendEvent is
+            # delivered to the window's CREATOR — this connection.
+            if {[info exists ::wmcheck] && $A == $::wmcheck
+                    && $B == $::TK9WM_RESTART} {
+                restart-wm
             }
         }
         4 { # ButtonPress via our sync grab: let the policy react (focus,
@@ -762,6 +771,37 @@ rename ::exit ::tk9wm-real-exit
 proc ::exit {{code 0}} {
     catch { foreach w [array names ::managed] { unmanage $w } }
     ::tk9wm-real-exit $code
+}
+
+# Restart in place — the way to pick up freshly pulled sources: release
+# every client back to root (orderly, as in exit), then REPLACE this
+# process with a fresh copy of itself via execv. Same pid, same stdout,
+# fresh code from disk; the X sockets are close-on-exec, so the server
+# reaps the old frames itself, and the new WM adopts the released
+# clients at startup — adoption is exactly "windows that lived before
+# the WM". Tcl has no exec-replacement of its own, so libc's execv is
+# one more cffi call.
+proc restart-wm {} {
+    puts "WM: restart requested — releasing clients, exec'ing myself"
+    catch { foreach w [array names ::managed] { unmanage $w } }
+    catch { XSync $::dpy 0 }
+    set exe [info nameofexecutable]
+    if {[catch {
+        cffi::Wrapper create LCX libc.so.6
+        LCX function execv int {path string argv pointer.unsafe}
+        # char *argv[] on LP64: NUL-terminated copies of the strings,
+        # their addresses packed as an array with a NULL sentinel
+        set addrs ""
+        foreach a [list $exe $::argv0 {*}$::argv] {
+            set p [cffi::memory frombinary \
+                "[encoding convertto utf-8 $a]\x00" unsafe]
+            append addrs [binary format wu [cffi::pointer address $p]]
+        }
+        append addrs [binary format wu 0]
+        set argvp [cffi::memory frombinary $addrs unsafe]
+        execv $exe $argvp
+        error "execv returned: [expr {[info exists ::errorCode] ? $::errorCode : "?"}]"
+    } err]} { puts "WM: restart FAILED: $err" }
 }
 
 # To be called by the assembly once the policy layer is in: start draining
