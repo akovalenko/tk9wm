@@ -44,6 +44,13 @@
 #   wm-resize-client w cw ch    a WM-initiated resize (border/corner drag);
 #                               clamps to the client's declared minimum
 #   client-min-size w           declared WM_NORMAL_HINTS minimum, {0 0} = none
+#   client-size-hints w         {minw minh incw inch basew baseh}; zero
+#                               increments = none declared
+#   client-class w              WM_CLASS as {instance class}, {"" ""} = none
+#   client-machine w            WM_CLIENT_MACHINE, "" = none
+#   client-pid w                _NET_WM_PID, 0 = none
+#   client-cmdline w            argv of a LOCAL client as a Tcl list
+#                               (via /proc), {} for remote/undeclared
 #   $::focused                  currently focused client (0 = none)
 
 package require cffi
@@ -185,6 +192,9 @@ set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
 set WM_STATE          [XInternAtom $dpy WM_STATE 0]
 set TK9WM_RESTART     [XInternAtom $dpy TK9WM_RESTART 0]
 set WM_NAME           39   ;# XA_WM_NAME, predefined
+set WM_CLIENT_MACHINE 36   ;# XA_WM_CLIENT_MACHINE, predefined
+set WM_CLASS          67   ;# XA_WM_CLASS, predefined
+catch { set NET_WM_PID [XInternAtom $dpy _NET_WM_PID 0] }
 
 # ---------------- EWMH minimum ----------------
 # Enough for toolkits to see "a WM is present": _NET_SUPPORTING_WM_CHECK on
@@ -406,14 +416,84 @@ proc refresh-title {w} {
     policy-title $w $title
 }
 
-# ICCCM WM_NORMAL_HINTS, the part we honor today: the client's declared
+# ---------------- client identity, for the policy's predicates ----------------
+# Raw bytes of a format-8 property ("" when absent) and the first item
+# of a format-32 one (0 when absent). AnyPropertyType: identity facts
+# are STRING vs UTF8_STRING territory depending on the toolkit, and a
+# predicate wants the value, not the type fight.
+proc read-prop-bytes {w prop} {
+    if {!$::has_getprop} { return "" }
+    if {[catch {XGetWindowProperty $::dpy $w $prop 0 1024 0 0 \
+            atype afmt nitems after data} status] || $status != 0} { return "" }
+    set b ""
+    if {$afmt == 8 && $nitems > 0 && ![cffi::pointer isnull $data]} {
+        set b [cffi::memory tobinary! $data $nitems]
+    }
+    catch {XFree $data}
+    return $b
+}
+proc read-prop-long {w prop} {
+    if {!$::has_getprop} { return 0 }
+    if {[catch {XGetWindowProperty $::dpy $w $prop 0 1 0 0 \
+            atype afmt nitems after data} status] || $status != 0} { return 0 }
+    set v 0
+    if {$afmt == 32 && $nitems > 0 && ![cffi::pointer isnull $data]} {
+        # format=32 property data arrives as C longs on LP64
+        binary scan [cffi::memory tobinary! $data 8] wu v
+    }
+    catch {XFree $data}
+    return $v
+}
+
+# WM_CLASS: {instance class}, {"" ""} when the client set none.
+proc client-class {w} {
+    set parts [split [string trimright [read-prop-bytes $w $::WM_CLASS] \x00] \x00]
+    list [lindex $parts 0] [lindex $parts 1]
+}
+
+# WM_CLIENT_MACHINE, "" when unset.
+proc client-machine {w} {
+    string trimright [read-prop-bytes $w $::WM_CLIENT_MACHINE] \x00
+}
+
+# _NET_WM_PID, 0 when unset.
+proc client-pid {w} {
+    if {![info exists ::NET_WM_PID]} { return 0 }
+    read-prop-long $w $::NET_WM_PID
+}
+
+# The client's command line as a Tcl list, honest only for LOCAL
+# clients: _NET_WM_PID is meaningful on the machine named by
+# WM_CLIENT_MACHINE, so a remote client (or one declaring nothing)
+# yields {} and the predicate decides what that means. Hostnames are
+# compared by first label, case-insensitively — one side often carries
+# the FQDN.
+proc client-cmdline {w} {
+    set m [lindex [split [client-machine $w] .] 0]
+    set h [lindex [split [info hostname] .] 0]
+    if {$m eq "" || ![string equal -nocase $m $h]} { return {} }
+    set pid [client-pid $w]
+    if {$pid <= 0} { return {} }
+    if {[catch {
+        set f [open /proc/$pid/cmdline rb]
+        set b [read $f]
+        close $f
+    }]} { return {} }
+    split [string trimright $b \x00] \x00
+}
+
+# ICCCM WM_NORMAL_HINTS, the parts we honor: the client's declared
 # MINIMUM size (PMinSize; per ICCCM a missing min falls back to
-# PBaseSize). Read at manage and re-read on PropertyNotify — a client is
-# free to change its hints while mapped. Resize increments live in the
-# same struct but are NOT honored yet: that waits for a switch to turn
-# them off (they always get turned off around here).
+# PBaseSize) and its resize increments (PResizeInc, with PBaseSize —
+# falling back to the minimum — as the increment origin). Read at
+# manage and re-read on PropertyNotify — a client is free to change its
+# hints while mapped. Whether the increments are respected or ignored
+# is a per-client policy decision (the style machinery); the substrate
+# only keeps the facts.
 proc read-normal-hints {w} {
     set ::minof($w) {0 0}
+    set ::incof($w) {0 0}
+    set ::baseof($w) {0 0}
     if {!$::has_normalhints} return
     set buf [cffi::memory allocate 96 unsafe]
     if {![catch {XGetWMNormalHints $::dpy $w $buf supplied} ok] && $ok} {
@@ -427,6 +507,14 @@ proc read-normal-hints {w} {
         } elseif {$flags & 256} {                ;# PBaseSize as min (ICCCM)
             set ::minof($w) [list [expr {max($basew,0)}] [expr {max($baseh,0)}]]
         }
+        if {$flags & 64} {                       ;# PResizeInc
+            set ::incof($w) [list [expr {max($winc,0)}] [expr {max($hinc,0)}]]
+        }
+        if {$flags & 256} {                      ;# PBaseSize as inc origin
+            set ::baseof($w) [list [expr {max($basew,0)}] [expr {max($baseh,0)}]]
+        } else {                                 ;# ICCCM: base defaults to min
+            set ::baseof($w) $::minof($w)
+        }
     }
     cffi::memory free $buf
 }
@@ -435,6 +523,16 @@ proc read-normal-hints {w} {
 proc client-min-size {w} {
     if {[info exists ::minof($w)]} { return $::minof($w) }
     return {0 0}
+}
+
+# Everything a size decision needs: {minw minh incw inch basew baseh}.
+# Zero increments = the client declared none.
+proc client-size-hints {w} {
+    set min {0 0}; set inc {0 0}; set base {0 0}
+    if {[info exists ::minof($w)]}  { set min $::minof($w) }
+    if {[info exists ::incof($w)]}  { set inc $::incof($w) }
+    if {[info exists ::baseof($w)]} { set base $::baseof($w) }
+    concat $min $inc $base
 }
 
 # ICCCM 4.1.3.1: a managed window must carry WM_STATE (state + icon
@@ -551,7 +649,7 @@ proc unmanage {w {dead 0}} {
     }
     policy-detach $w
     unset ::managed($w)
-    unset -nocomplain ::minof($w)
+    unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
     puts "WM: unmanaged 0x[format %x $w], frame destroyed"
     # Refocus not only when OUR records say the dead window was focused:
     # a client may have grabbed focus behind our back (focus -force) and
