@@ -28,8 +28,10 @@
 #   policy-paint-focus w    repaint the focus highlight (w is focused)
 #   policy-client-click w   a click landed inside managed client w
 #   policy-managed w        w was just managed (initial-focus decision)
-#   policy-pick-refocus     choose a window to refocus after an unmanage
-#                           (return 0 for none)
+#   policy-pick-refocus w   choose a window to refocus after w's unmanage;
+#                           called BEFORE policy-detach w (the pick may
+#                           need per-frame facts that detach cleans up);
+#                           return 0 for none
 #
 # The substrate provides to the policy layer:
 #   focus-to w                  set the input focus honestly + repaint
@@ -387,6 +389,10 @@ proc tell-where-you-are {w} {
 
 proc unmanage {w {dead 0}} {
     if {![info exists ::managed($w)]} return
+    # Decide the refocus candidate BEFORE the teardown: the policy's pick
+    # rests on facts it keeps per-frame (the dialog's leader, the focus
+    # history) and policy-detach cleans those up.
+    set refocus [policy-pick-refocus $w]
     # Give the client window back to root BEFORE destroying the frame:
     # the client lives INSIDE the frame's slot, and destroying a Tk
     # toplevel destroys its whole X subtree — this used to kill an
@@ -416,8 +422,7 @@ proc unmanage {w {dead 0}} {
     }
     if {$stale} {
         set ::focused 0
-        set nw [policy-pick-refocus]
-        if {$nw != 0} { focus-to $nw }
+        if {$refocus != 0} { focus-to $refocus }
     }
 }
 

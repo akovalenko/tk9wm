@@ -6,12 +6,15 @@
 # hooks defined here (contract — see substrate.tcl header and the idea
 # file, step 9).
 #
-# Private state: ::frameof(client) = frame widget, plus the cascade and
-# drag bookkeeping. The substrate's client geometry (::geomof) is not
-# touched here — sizes always arrive as hook arguments.
+# Private state: ::frameof(client) = frame widget, ::leaderof(client) =
+# WM_TRANSIENT_FOR leader read at manage time (0 = none), ::focus_hist =
+# clients most-recently-focused first, plus the cascade and drag
+# bookkeeping. The substrate's client geometry (::geomof) is not touched
+# here — sizes always arrive as hook arguments.
 
 set ncli 0
 set fid 0
+set focus_hist {}
 
 # Where to put a new frame (fw x fh, decoration included). Two rules, in
 # order:
@@ -27,7 +30,7 @@ set fid 0
 # corner — better to lose the far edge than the near one.
 proc place-frame {w fw fh} {
     lassign [screen-size] sw sh
-    set parent [transient-for $w]
+    set parent $::leaderof($w)
     if {$parent != 0 && [info exists ::frameof($parent)]} {
         set pt $::frameof($parent)
         if {[regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $pt] -> pw ph px py]} {
@@ -65,6 +68,10 @@ proc clamp-to-screen {X Y fw fh sw sh} {
 # slot exists server-side before the raw connection reparents into it.
 proc policy-attach {w cw ch} {
     set t .f[incr ::fid]
+    # WM_TRANSIENT_FOR is read ONCE, now: the refocus pick needs the
+    # dialog's leader at a moment when the dialog may already be a dead
+    # window that cannot be asked anything.
+    set ::leaderof($w) [transient-for $w]
     lassign [place-frame $w [expr {$cw + 4}] [expr {$ch + 28}]] X Y
     toplevel $t -background #3465a4
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
@@ -102,6 +109,8 @@ proc policy-detach {w} {
     if {![info exists ::frameof($w)]} return
     destroy $::frameof($w)
     unset ::frameof($w)
+    unset -nocomplain ::leaderof($w)
+    set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
 }
 
 # Root coordinates of the CLIENT area — asked of Tk directly, since the
@@ -126,8 +135,12 @@ proc policy-resize {w cw ch} {
     update idletasks
 }
 
-# Focus highlight: active frame blue, inactive grey.
+# Focus highlight: active frame blue, inactive grey. Every honest focus
+# change lands here (server-confirmed focus-to, and focus moved behind
+# our back) — which makes it the one place to keep the focus history.
 proc policy-paint-focus {w} {
+    set ::focus_hist [linsert \
+        [lsearch -exact -all -inline -not $::focus_hist $w] 0 $w]
     foreach {ww tt} [array get ::frameof] {
         set bg [expr {$ww == $w ? "#3465a4" : "#888a85"}]
         $tt configure -background $bg
@@ -150,11 +163,27 @@ proc policy-client-click {w} {
 # A newly managed window gets the focus.
 proc policy-managed {w} { focus-to $w }
 
-# Refocus pick after an unmanage: an arbitrary managed window for now.
-# QUEUED: honor WM_TRANSIENT_FOR and keep a focus history instead (the
-# smsrc dialog-close observation — see the idea file).
-proc policy-pick-refocus {} {
-    foreach w [array names ::frameof] { return $w }
+# Refocus pick after w's unmanage (the smsrc observation: an unpatched
+# app never refocuses its main window when its dialog closes — that is
+# the WM's job). In order:
+#  - the closing window's WM_TRANSIENT_FOR leader: a dialog gives focus
+#    back to the window it was a dialog FOR, no matter what the user
+#    glanced at in between;
+#  - the most recently focused window still alive (focus history);
+#  - any managed window at all.
+proc policy-pick-refocus {w} {
+    if {[info exists ::leaderof($w)]} {
+        set leader $::leaderof($w)
+        if {$leader != 0 && $leader != $w && [info exists ::frameof($leader)]} {
+            return $leader
+        }
+    }
+    foreach cand $::focus_hist {
+        if {$cand != $w && [info exists ::frameof($cand)]} { return $cand }
+    }
+    foreach cand [array names ::frameof] {
+        if {$cand != $w} { return $cand }
+    }
     return 0
 }
 
