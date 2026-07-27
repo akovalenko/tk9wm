@@ -88,6 +88,16 @@ proc policy-attach {w cw ch} {
     return [winfo id $t.slot]
 }
 
+# The decoration window itself: {X-window-id x y width height}, or an
+# empty list when there is none. The substrate addresses a copy of the
+# synthetic ConfigureNotify here — see send-synthetic-configure.
+proc policy-frame-geometry {w} {
+    if {![info exists ::frameof($w)]} { return {} }
+    set t $::frameof($w)
+    list [winfo id $t] [winfo rootx $t] [winfo rooty $t] \
+        [winfo width $t] [winfo height $t]
+}
+
 proc policy-detach {w} {
     if {![info exists ::frameof($w)]} return
     destroy $::frameof($w)

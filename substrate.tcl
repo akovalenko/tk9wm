@@ -222,6 +222,18 @@ proc handle-event {} {
             # unmanaged → honor verbatim and remember the size
             if {[info exists ::managed($B)]} {
                 resize-client $B $w $h $vmask
+                # ICCCM 4.1.5: "If a client's ConfigureWindow request is
+                # denied in whole or in part, the window manager must send
+                # the client a synthetic ConfigureNotify". We deny every
+                # position request (placement is ours) and used to answer
+                # NOTHING — so a client that asked to move went on
+                # believing it had moved, and put its menus, tooltips and
+                # hit-testing at the position it had asked for. That is
+                # the live "the app does not know where it is" report; it
+                # is a moment we can name, unlike a timer. fvwm answers
+                # every ConfigureRequest the same way (events.c,
+                # _handle_cr_on_client).
+                send-synthetic-configure $B
             } else {
                 set ::geomof($B) [list $w $h]
                 if {[catch {
@@ -470,8 +482,9 @@ proc resize-client {win rw rh vmask} {
     policy-resize $win $cw $ch
     XResizeWindow $::dpy $win $cw $ch
     XSync $::dpy 0
-    send-synthetic-configure $win
     puts "WM: resize 0x[format %x $win] -> ${cw}x${ch}, frame follows"
+    # the synthetic ConfigureNotify is sent by the ConfigureRequest
+    # handler for EVERY request, granted or not — see there
 }
 
 # ---------------- close machinery ----------------
@@ -553,8 +566,24 @@ proc send-synthetic-configure {w} {
         22 0 1 0 $w $w $x $y $cw $ch 0 0 0]
     set ev [cffi::memory frombinary [binary format a192 $b] unsafe]
     XSendEvent $::dpy $w 0 131072 $ev   ;# StructureNotifyMask
-    XFlush $::dpy   ;# no cffi roundtrip follows during a Tk-side drag
     cffi::memory free $ev
+    # And a copy addressed to the DECORATION window. fvwm carries the same
+    # workaround (events.c, send_for_frame_too): "for buggy tk, which waits
+    # for the real ConfigureNotify on frame instead of the synthetic one on
+    # w". A client is free to watch its frame for StructureNotify, and a
+    # frame that never moves never produces one — which is why dragging a
+    # window has been repairing such clients. Unlike fvwm we put the
+    # FRAME's own true geometry in it: our frames are Tk widgets and our
+    # own Tk hears this event too, so it must not be lied to.
+    if {[llength [set fg [policy-frame-geometry $w]]] == 5} {
+        lassign $fg fwin fx fy fw fh
+        set fb [binary format iux4wuiux4wuwuwuiiiiix4wuiu \
+            22 0 1 0 $fwin $fwin $fx $fy $fw $fh 0 0 0]
+        set fev [cffi::memory frombinary [binary format a192 $fb] unsafe]
+        XSendEvent $::dpy $fwin 0 131072 $fev
+        cffi::memory free $fev
+    }
+    XFlush $::dpy   ;# no cffi roundtrip follows during a Tk-side drag
 }
 
 # ---------------- fd pump: worker thread + blocking poll() ----------------
