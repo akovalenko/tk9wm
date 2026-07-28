@@ -506,27 +506,32 @@ proc policy-move-request {w x y vmask grav} {
 # Border background (the canvas -background), a 1px dark outline around
 # the perimeter, and fvwm-style corner grips in a lighter shade, cut
 # off by thin dark lines — the visible promise that a corner drags
-# diagonally. All four corners are L-shaped (arms $::border wide,
-# length = the corner zone rz-edge uses) — the top strip is a full
-# border since the owner asked for uniform grips, so the horizontal
-# arms fit up there too. Redrawn on <Configure>, recolored (via a
-# full cheap redraw) by paint-focus.
+# diagonally. All four corners are L-shaped, arms $::border thick;
+# the bottom arms are 24 long (the corner zone rz-edge always used),
+# the top arms HUG the titlebar buttons (the owner's spec): the menu
+# button on the left and the close button on the right sit right at
+# the frame's corners, $::titleh square each, so the top arms run
+# $::border + $::titleh — flush around the button both along the top
+# strip and down the side. rz-edge's top corner zones follow the
+# same measure. Redrawn on <Configure>, recolored (via a full cheap
+# redraw) by paint-focus.
 proc deco-draw {c W H} {
     $c delete all
     set B $::border; set CZ 24
+    set CT [expr {$B + $::titleh}]
     set bg [$c cget -background]
     set grip [expr {[info exists ::gripof($bg)] ? $::gripof($bg) : $bg}]
     foreach {x0 y0 x1 y1} [list \
-        0 0 $B $CZ                          0 0 $CZ $B \
-        [expr {$W-$B}] 0 $W $CZ             [expr {$W-$CZ}] 0 $W $B \
+        0 0 $B $CT                          0 0 $CT $B \
+        [expr {$W-$B}] 0 $W $CT             [expr {$W-$CT}] 0 $W $B \
         0 [expr {$H-$CZ}] $B $H             0 [expr {$H-$B}] $CZ $H \
         [expr {$W-$B}] [expr {$H-$CZ}] $W $H \
         [expr {$W-$CZ}] [expr {$H-$B}] $W $H] {
         $c create rectangle $x0 $y0 $x1 $y1 -fill $grip -outline "" -tags grip
     }
     foreach {x0 y0 x1 y1} [list \
-        0 $CZ $B $CZ                        $CZ 0 $CZ $B \
-        [expr {$W-$B}] $CZ $W $CZ           [expr {$W-$CZ}] 0 [expr {$W-$CZ}] $B \
+        0 $CT $B $CT                        $CT 0 $CT $B \
+        [expr {$W-$B}] $CT $W $CT           [expr {$W-$CT}] 0 [expr {$W-$CT}] $B \
         0 [expr {$H-$CZ}] $B [expr {$H-$CZ}]        $CZ [expr {$H-$B}] $CZ $H \
         [expr {$W-$B}] [expr {$H-$CZ}] $W [expr {$H-$CZ}] \
         [expr {$W-$CZ}] [expr {$H-$B}] [expr {$W-$CZ}] $H] {
@@ -539,13 +544,15 @@ proc deco-draw {c W H} {
 # ---- resize by the border / corner ----
 # Which resize grip is under frame-relative (x, y)? All four strips
 # are $::border thick (the top used to be a 2px sliver — unhittable;
-# uniform since 2026-07-28), and the 24px corner-zone ends of the
-# strips act as diagonal corners.
+# uniform since 2026-07-28). The corner-zone ends of the strips act
+# as diagonal corners: 24px at the bottom, and the titlebar-button
+# hug at the top — the same measure deco-draw advertises.
 proc rz-edge {t x y} {
     set W [winfo width $t]; set H [winfo height $t]
     set B $::border; set CZ 24
-    if {($y < $B && $x < $CZ) || ($x < $B && $y < $CZ)} { return nw }
-    if {($y < $B && $x >= $W - $CZ) || ($x >= $W - $B && $y < $CZ)} { return ne }
+    set CT [expr {$B + $::titleh}]
+    if {($y < $B && $x < $CT) || ($x < $B && $y < $CT)} { return nw }
+    if {($y < $B && $x >= $W - $CT) || ($x >= $W - $B && $y < $CT)} { return ne }
     if {$y < $B} { return n }
     if {$x >= $W - $B || $x < $B || $y >= $H - $B} {
         if {$y >= $H - $CZ && $x >= $W - $CZ} { return se }
