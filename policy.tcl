@@ -24,6 +24,13 @@ set focus_hist {}
 # unhittable); the owner asked for grips uniform with the bottom
 # (2026-07-28), so the strip is a full border now.
 set border 6
+# Corner grip arm length — ALL four corners, deco-draw and rz-edge
+# alike. The top arms briefly ran border+titleh ("hug the buttons",
+# same day) — a misunderstanding: the owner wanted the SAME short
+# arms as the bottom, with the buttons grown out to meet them; the
+# button square is gripz - border, so its far edge lands exactly on
+# the grip's cut line (see title-metrics).
+set gripz 24
 
 # Titlebar typography. TitleFont is OUR named font: it starts as a copy
 # of TkDefaultFont, TK9WM_TITLE_FONT overrides it at startup (any Tk
@@ -50,8 +57,14 @@ font create PanelIconFont -weight bold
 proc title-metrics {} {
     set ::titleh [expr {[font metrics TitleFont -linespace] + 6}]
     set ::decotop [expr {$::border + $::titleh + 2}]
+    # The titlebar buttons are btnw-square, flush in the strip's top
+    # corners: border + btnw = gripz, so the corner grip arms cup a
+    # button exactly the way the bottom arms cup the client corner.
+    # A font small enough to make the strip shorter than that caps
+    # the button at the strip height (flushness loses, fitting wins).
+    set ::btnw [expr {min($::gripz - $::border, $::titleh)}]
     btn-images
-    puts "WM: titlebar h=$::titleh top=$::decotop\
+    puts "WM: titlebar h=$::titleh top=$::decotop btn=$::btnw\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
 }
 
@@ -76,8 +89,10 @@ set SVG_MENU {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 <rect x="3.5" y="6.5" width="9" height="3" stroke="#ffffff"
  stroke-width="1.6" fill="none"/></svg>}
 proc btn-images {} {
-    # re-creating a photo under the same name updates every user of it
-    set g [expr {max($::titleh - 14, 7)}]
+    # re-creating a photo under the same name updates every user of it;
+    # the union box is glyph + 2*3px ipad (the 1px outline draws inside),
+    # so this glyph height makes the box exactly btnw square
+    set g [expr {max($::btnw - 6, 7)}]
     image create photo imgClose -format [list svg -scaletoheight $g] \
         -data $::SVG_CLOSE
     image create photo imgMax -format [list svg -scaletoheight $g] \
@@ -371,10 +386,10 @@ proc policy-attach {w cw ch} {
     # "not a border" here).
     bindtags $t.title [list $t.title $t all]
     $t.title state define pressed   ;# armed by a press; release-inside fires
-    $t.title column create -width $::titleh -tags Cmenu
+    $t.title column create -width $::btnw -tags Cmenu
     $t.title column create -squeeze yes -expand yes -tags C0
-    $t.title column create -width $::titleh -tags Cmax
-    $t.title column create -width $::titleh -tags Cclose
+    $t.title column create -width $::btnw -tags Cmax
+    $t.title column create -width $::btnw -tags Cclose
     $t.title configure -treecolumn C0
     $t.title element create eTxt text -fill white -lines 1 -font TitleFont
     $t.title element create eBox rect -outline white -outlinewidth 1 \
@@ -386,11 +401,14 @@ proc policy-attach {w cw ch} {
     $t.title style elements sTitle eTxt
     $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
         -padx 4 -squeeze x
+    # -expand s: the slack goes south, the box sits at the cell's top —
+    # flush against the top border, its bottom edge on the grip's cut
+    # line; the btnw-wide column leaves no slack sideways
     foreach {st el} {sMenu eMenu sMax eMax sClose eClose} {
         $t.title style create $st
         $t.title style elements $st [list eBox $el]
-        $t.title style layout $st eBox -union $el -ipadx 3 -ipady 3 -expand ns
-        $t.title style layout $st $el -expand ns
+        $t.title style layout $st eBox -union $el -ipadx 3 -ipady 3 -expand s
+        $t.title style layout $st $el -expand s
     }
     set item [$t.title item create]   ;# always item 1 in a fresh widget
     $t.title item style set $item \
@@ -468,9 +486,9 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
     set B $::border
     if {$X eq ""} { regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y }
     $t.title configure -itemheight $::titleh
-    $t.title column configure Cmenu -width $::titleh
-    $t.title column configure Cmax -width $::titleh
-    $t.title column configure Cclose -width $::titleh
+    $t.title column configure Cmenu -width $::btnw
+    $t.title column configure Cmax -width $::btnw
+    $t.title column configure Cclose -width $::btnw
     place $t.title -x $B -y $B -width $cw -height $::titleh
     $t.slot configure -width $cw -height $ch
     place $t.slot -x $B -y $::decotop
@@ -506,32 +524,29 @@ proc policy-move-request {w x y vmask grav} {
 # Border background (the canvas -background), a 1px dark outline around
 # the perimeter, and fvwm-style corner grips in a lighter shade, cut
 # off by thin dark lines — the visible promise that a corner drags
-# diagonally. All four corners are L-shaped, arms $::border thick;
-# the bottom arms are 24 long (the corner zone rz-edge always used),
-# the top arms HUG the titlebar buttons (the owner's spec): the menu
-# button on the left and the close button on the right sit right at
-# the frame's corners, $::titleh square each, so the top arms run
-# $::border + $::titleh — flush around the button both along the top
-# strip and down the side. rz-edge's top corner zones follow the
-# same measure. Redrawn on <Configure>, recolored (via a full cheap
-# redraw) by paint-focus.
+# diagonally. All four corners are L-shaped, arms $::border thick and
+# $::gripz long, one measure top and bottom. At the bottom the arms
+# cup the client area's corner; at the top they cup a titlebar button
+# (btnw square, flush in the strip's corner — see title-metrics): the
+# cut line falls exactly on the button's edge. rz-edge's corner zones
+# are the same measure. Redrawn on <Configure>, recolored (via a full
+# cheap redraw) by paint-focus.
 proc deco-draw {c W H} {
     $c delete all
-    set B $::border; set CZ 24
-    set CT [expr {$B + $::titleh}]
+    set B $::border; set CZ $::gripz
     set bg [$c cget -background]
     set grip [expr {[info exists ::gripof($bg)] ? $::gripof($bg) : $bg}]
     foreach {x0 y0 x1 y1} [list \
-        0 0 $B $CT                          0 0 $CT $B \
-        [expr {$W-$B}] 0 $W $CT             [expr {$W-$CT}] 0 $W $B \
+        0 0 $B $CZ                          0 0 $CZ $B \
+        [expr {$W-$B}] 0 $W $CZ             [expr {$W-$CZ}] 0 $W $B \
         0 [expr {$H-$CZ}] $B $H             0 [expr {$H-$B}] $CZ $H \
         [expr {$W-$B}] [expr {$H-$CZ}] $W $H \
         [expr {$W-$CZ}] [expr {$H-$B}] $W $H] {
         $c create rectangle $x0 $y0 $x1 $y1 -fill $grip -outline "" -tags grip
     }
     foreach {x0 y0 x1 y1} [list \
-        0 $CT $B $CT                        $CT 0 $CT $B \
-        [expr {$W-$B}] $CT $W $CT           [expr {$W-$CT}] 0 [expr {$W-$CT}] $B \
+        0 $CZ $B $CZ                        $CZ 0 $CZ $B \
+        [expr {$W-$B}] $CZ $W $CZ           [expr {$W-$CZ}] 0 [expr {$W-$CZ}] $B \
         0 [expr {$H-$CZ}] $B [expr {$H-$CZ}]        $CZ [expr {$H-$B}] $CZ $H \
         [expr {$W-$B}] [expr {$H-$CZ}] $W [expr {$H-$CZ}] \
         [expr {$W-$CZ}] [expr {$H-$B}] [expr {$W-$CZ}] $H] {
@@ -545,14 +560,13 @@ proc deco-draw {c W H} {
 # Which resize grip is under frame-relative (x, y)? All four strips
 # are $::border thick (the top used to be a 2px sliver — unhittable;
 # uniform since 2026-07-28). The corner-zone ends of the strips act
-# as diagonal corners: 24px at the bottom, and the titlebar-button
-# hug at the top — the same measure deco-draw advertises.
+# as diagonal corners, $::gripz at every corner — the same measure
+# deco-draw advertises.
 proc rz-edge {t x y} {
     set W [winfo width $t]; set H [winfo height $t]
-    set B $::border; set CZ 24
-    set CT [expr {$B + $::titleh}]
-    if {($y < $B && $x < $CT) || ($x < $B && $y < $CT)} { return nw }
-    if {($y < $B && $x >= $W - $CT) || ($x >= $W - $B && $y < $CT)} { return ne }
+    set B $::border; set CZ $::gripz
+    if {($y < $B && $x < $CZ) || ($x < $B && $y < $CZ)} { return nw }
+    if {($y < $B && $x >= $W - $CZ) || ($x >= $W - $B && $y < $CZ)} { return ne }
     if {$y < $B} { return n }
     if {$x >= $W - $B || $x < $B || $y >= $H - $B} {
         if {$y >= $H - $CZ && $x >= $W - $CZ} { return se }

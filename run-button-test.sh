@@ -2,7 +2,8 @@
 # Regression for the titlebar buttons: maximize toggles to the workarea
 # and back (fvwm semantics — restore returns the saved geometry), close
 # delivers a polite WM_DELETE_WINDOW. Button geometry is derived from
-# the font-driven metrics the WM prints, nothing is hardcoded.
+# the metrics the WM prints (h/top font-driven, btn grip-driven),
+# nothing is hardcoded.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LINUX="${LINUX:-$HERE/../whalebuild/work/linux}"
 export DISPLAY=:87
@@ -24,28 +25,29 @@ sleep 1.5
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-button.log")
 TH=$(sed -n 's/^WM: titlebar h=\([0-9]*\) .*/\1/p' "$HERE/wm-button.log" | head -1)
 TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-button.log" | head -1)
+BW=$(sed -n 's/^WM: titlebar h=[0-9]* top=[0-9]* btn=\([0-9]*\).*/\1/p' "$HERE/wm-button.log" | head -1)
 eval "$(awk '/frame \.f[0-9]+ for/ {
     if (match($0, /\+(-?[0-9]+)\+(-?[0-9]+)$/)) {
         split(substr($0, RSTART + 1), a, "+")
         print "FX=" a[1] "; FY=" a[2]
     }
 }' "$HERE/wm-button.log")"
-BY=$((FY + 2 + TH / 2))
-echo "--- actor: $AID frame at +$FX+$FY, titlebar h=$TH top=$TOP"
+BY=$((FY + 6 + BW / 2))
+echo "--- actor: $AID frame at +$FX+$FY, titlebar h=$TH top=$TOP btn=$BW"
 
-# maximize: the Cmax column is the second-from-right TH-wide slice
-xdotool mousemove $((FX + 6 + 300 - TH - TH / 2)) $BY click 1
+# maximize: the Cmax column is the second-from-right BW-wide slice
+xdotool mousemove $((FX + 6 + 300 - BW - BW / 2)) $BY click 1
 sleep 0.6
 MAXGEOM=$(xwininfo -id "$AID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
 
 # restore: the frame now sits at the workarea origin, 788 wide
-xdotool mousemove $((6 + 788 - TH - TH / 2)) $((2 + TH / 2)) click 1
+xdotool mousemove $((6 + 788 - BW - BW / 2)) $((6 + BW / 2)) click 1
 sleep 0.6
 RESTGEOM=$(xwininfo -id "$AID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
 RESTPOS=$(xwininfo -id "$AID" | awk '/Absolute upper-left X:/ {x=$4} /Absolute upper-left Y:/ {y=$4} END {print x "," y}')
 
 # close: rightmost button on the restored frame
-xdotool mousemove $((FX + 6 + 300 - TH / 2)) $BY click 1
+xdotool mousemove $((FX + 6 + 300 - BW / 2)) $BY click 1
 sleep 0.8
 kill $WM 2>/dev/null
 
