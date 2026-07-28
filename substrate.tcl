@@ -1165,7 +1165,21 @@ proc iconify-client {w} {
     set refocus [expr {$::focused == $w ? [policy-pick-refocus $w] : 0}]
     set ::iconic($w) 1
     set ::skip_unmap($w) 1     ;# our own unmap is not the client withdrawing
+    # ORDER, and it is load-bearing across our two connections: the
+    # client's own unmap must reach the server FIRST, before the frame
+    # is taken down on Tk's connection. Withdrawing the frame makes the
+    # client unviewable, which reverts the focus — and the client then
+    # sees a plain FocusOut with no idea why. Wine acts on that one:
+    # its Win32 side deactivates and clears its internal focus, and the
+    # activation it gets on the way back does not restore it, so the
+    # window comes back keyboard-dead (owner's report; measured with
+    # WINEDEBUG=+focus,+event, and fvwm3 differs in exactly this
+    # order). Seeing the UnmapNotify first, wine flags the window as
+    # "reparenting" and IGNORES the focus loss — nothing to restore.
+    # XSync, not XFlush: the round trip is what guarantees the server
+    # processed it before Tk's connection speaks.
     XUnmapWindow $::dpy $w
+    XSync $::dpy 0
     set-wm-state $w 3          ;# IconicState
     set-net-wm-state $w [list $::NET_WM_STATE_HIDDEN]
     policy-iconified $w        ;# the decoration goes with it

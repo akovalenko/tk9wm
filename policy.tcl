@@ -163,6 +163,8 @@ proc set-title-justify {j} {
 # icon (anything resolve-icon takes: a Tk image name, a file path, a
 # bare NAME searched as NAME.png through icon-path) — shown for the
 # window in the window list, overriding the client's own _NET_WM_ICON.
+# minimize (iconify|refuse) — this client's answer to an iconify
+# request, overriding the desk-wide set-minimize.
 set style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
@@ -750,13 +752,32 @@ proc policy-paint-focus {w} {
 #   refuse — this desk has no minimize. The refusal is stated to the
 #     client (see refuse-iconify) rather than swallowed, so an app that
 #     already minimized itself internally is told to come back.
+# The desk-wide default; a `minimize` style key overrides it per client
+# (wm-style, same predicates as everything else). That per-client escape
+# hatch earns its keep on wine: a wine window that goes through a real
+# iconify round trip comes back with its Win32 side activated but its
+# INNER focus lost, so keystrokes reach the top-level window instead of
+# the control that had them — the app answers menu mnemonics and eats
+# text (owner's report on whale.exe/smsrc, 2026-07-28; reproduced here
+# with notepad, and it reproduces under fvwm3 just as well, so the
+# defect is wine's, not the WM's). Until wine grows out of it, the
+# honest answer for those windows is to refuse minimize rather than
+# hand back a half-dead window:
+#   wm-style {filter -class {*.exe *.exe}} {minimize refuse}
 set minimize iconify
 proc set-minimize {mode} {
     if {$mode ni {iconify refuse}} { error "set-minimize: iconify|refuse" }
     set ::minimize $mode
 }
+proc minimize-mode {w} {
+    set st [style-of $w]
+    if {[dict exists $st minimize]} { return [dict get $st minimize] }
+    return $::minimize
+}
 proc policy-minimize-request {w} {
-    if {$::minimize eq "refuse"} { refuse-iconify $w } else { iconify-client $w }
+    if {[minimize-mode $w] eq "refuse"} { refuse-iconify $w } else {
+        iconify-client $w
+    }
 }
 proc policy-iconified {w} {
     if {![info exists ::frameof($w)]} return

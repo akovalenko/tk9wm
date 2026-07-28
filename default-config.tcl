@@ -31,6 +31,15 @@
 #     told to come back, instead of leaving a window on screen whose
 #     owner thinks it is hidden and stops painting it.
 #   set-minimize refuse
+# Per client, the `minimize` style key wins over that default — see the
+# style section below. The one case it exists for so far is wine: a
+# wine window that goes through a real iconify round trip comes back
+# activated but with its INNER focus lost, so keystrokes land on the
+# top-level window (they work menu mnemonics and never reach the text
+# field). Measured to reproduce under fvwm3 as well, so it is wine's
+# defect, not the WM's — until it is fixed, refusing minimize for wine
+# windows beats handing back a half-dead one:
+#   wm-style {filter -class {*.exe *.exe}} {minimize refuse}
 #
 # ---- per-client style rules ----
 #
@@ -60,6 +69,8 @@
 # Keys so far:
 #   increments respect|ignore — WM_NORMAL_HINTS resize increments;
 #     default respect (xterm resizes land on whole cells).
+#   minimize iconify|refuse — this client's answer to an iconify
+#     request, overriding the desk-wide set-minimize (above).
 #   icon IMAGE — a Tk image (create it right here in the config) shown
 #     for the window in the window list; overrides the client's own
 #     _NET_WM_ICON. Windows offering neither get a generated badge:

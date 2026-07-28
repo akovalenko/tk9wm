@@ -76,6 +76,23 @@ import -window root "$HERE/iconify-refused.png" 2>/dev/null \
     && echo "DRIVER: screenshot (refused) -> $HERE/iconify-refused.png"
 kill $WM2 $CL2 2>/dev/null
 
+# ---- phase 3: refused for ONE client, by a style rule ----
+rm -rf "$HERE/refuse-config"
+mkdir -p "$HERE/refuse-config"
+echo 'wm-style {filter -class {client-iconify.tcl *}} {minimize refuse}' \
+    > "$HERE/refuse-config/tk9wm.tcl"
+XDG_CONFIG_HOME="$HERE/refuse-config" \
+    "$LINUX/whale" "$HERE/wm.tcl" > "$HERE/wm-iconstyle.log" 2>&1 &
+WM3=$!
+sleep 1.5
+"$LINUX/whale" "$HERE/client-iconify.tcl" стилевой 9 3 \
+    > "$HERE/iconstyle-client.log" 2>&1 &
+CL3=$!
+sleep 6
+WID3=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-iconstyle.log" | head -1)
+S4=$(state "$WID3"); M4=$(mapstate "$WID3")
+kill $WM3 $CL3 2>/dev/null
+
 echo "--- WM saw (phase 1):"
 grep -E 'iconif|winlist pick|focus ->|parking' "$HERE/wm-iconify.log"
 echo "--- client said (phase 1):"
@@ -122,6 +139,14 @@ if grep -q 'iconify refused' "$HERE/wm-iconrefuse.log" \
     echo "OK: set-minimize refuse said no out loud and kept the window up"
 else
     echo "FAIL: refuse phase left the window $S3/$M3"; BAD=1
+fi
+echo "--- WM saw (phase 3, style rule):"
+grep -E 'iconif|refus' "$HERE/wm-iconstyle.log"
+if grep -q 'iconify refused' "$HERE/wm-iconstyle.log" \
+        && [ "$S4" = "Normal" ] && [ "$M4" = "IsViewable" ]; then
+    echo "OK: a per-client style rule refuses while the desk still honors"
+else
+    echo "FAIL: the style rule left the window $S4/$M4"; BAD=1
 fi
 if grep -q 'handler error' "$HERE/wm-iconify.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-iconify.log"; BAD=1
