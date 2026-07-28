@@ -18,9 +18,11 @@ package require treectrl   ;# titlebars: its text element cuts a long
 set ncli 0
 set fid 0
 set focus_hist {}
-# Side and bottom border width. 6px is a resize GRIP, not just a line:
-# the old 2px border left nothing to grab. The top strip above the
-# titlebar stays 2px — the title drag lives there, top resize does not.
+# Border width, all four sides. 6px is a resize GRIP, not just a
+# line: the old 2px border left nothing to grab. The top strip above
+# the titlebar was 2px for a while (top resize worked but was
+# unhittable); the owner asked for grips uniform with the bottom
+# (2026-07-28), so the strip is a full border now.
 set border 6
 
 # Titlebar typography. TitleFont is OUR named font: it starts as a copy
@@ -42,11 +44,12 @@ if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
 # the winlist row, and the two would fight over one font.
 font create IconFont -weight bold
 font create PanelIconFont -weight bold
-# 3px of air above and below the text line; the strip sits under the 2px
-# top edge, a 2px gap separates it from the client slot.
+# 3px of air above and below the text line; the strip sits under the
+# full top border (a real grip, uniform with the bottom), a 2px gap
+# separates it from the client slot.
 proc title-metrics {} {
     set ::titleh [expr {[font metrics TitleFont -linespace] + 6}]
-    set ::decotop [expr {2 + $::titleh + 2}]
+    set ::decotop [expr {$::border + $::titleh + 2}]
     btn-images
     puts "WM: titlebar h=$::titleh top=$::decotop\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
@@ -468,7 +471,7 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
     $t.title column configure Cmenu -width $::titleh
     $t.title column configure Cmax -width $::titleh
     $t.title column configure Cclose -width $::titleh
-    place $t.title -x $B -y 2 -width $cw -height $::titleh
+    place $t.title -x $B -y $B -width $cw -height $::titleh
     $t.slot configure -width $cw -height $ch
     place $t.slot -x $B -y $::decotop
     wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + $::decotop + $B}]+$X+$Y
@@ -503,28 +506,27 @@ proc policy-move-request {w x y vmask grav} {
 # Border background (the canvas -background), a 1px dark outline around
 # the perimeter, and fvwm-style corner grips in a lighter shade, cut
 # off by thin dark lines — the visible promise that a corner drags
-# diagonally. The bottom corners are L-shaped (arms $::border wide,
-# length = the corner zone rz-edge uses); the top corners keep only
-# the vertical arm: the top strip is 2px, and a horizontal arm
-# squeezed into it read as a clipped sliver, not a grip (the 2px strip
-# still resizes — the zone just goes unadvertised). Redrawn on
-# <Configure>, recolored (via a full cheap redraw) by paint-focus.
+# diagonally. All four corners are L-shaped (arms $::border wide,
+# length = the corner zone rz-edge uses) — the top strip is a full
+# border since the owner asked for uniform grips, so the horizontal
+# arms fit up there too. Redrawn on <Configure>, recolored (via a
+# full cheap redraw) by paint-focus.
 proc deco-draw {c W H} {
     $c delete all
     set B $::border; set CZ 24
     set bg [$c cget -background]
     set grip [expr {[info exists ::gripof($bg)] ? $::gripof($bg) : $bg}]
     foreach {x0 y0 x1 y1} [list \
-        0 0 $B $CZ \
-        [expr {$W-$B}] 0 $W $CZ \
+        0 0 $B $CZ                          0 0 $CZ $B \
+        [expr {$W-$B}] 0 $W $CZ             [expr {$W-$CZ}] 0 $W $B \
         0 [expr {$H-$CZ}] $B $H             0 [expr {$H-$B}] $CZ $H \
         [expr {$W-$B}] [expr {$H-$CZ}] $W $H \
         [expr {$W-$CZ}] [expr {$H-$B}] $W $H] {
         $c create rectangle $x0 $y0 $x1 $y1 -fill $grip -outline "" -tags grip
     }
     foreach {x0 y0 x1 y1} [list \
-        0 $CZ $B $CZ \
-        [expr {$W-$B}] $CZ $W $CZ \
+        0 $CZ $B $CZ                        $CZ 0 $CZ $B \
+        [expr {$W-$B}] $CZ $W $CZ           [expr {$W-$CZ}] 0 [expr {$W-$CZ}] $B \
         0 [expr {$H-$CZ}] $B [expr {$H-$CZ}]        $CZ [expr {$H-$B}] $CZ $H \
         [expr {$W-$B}] [expr {$H-$CZ}] $W [expr {$H-$CZ}] \
         [expr {$W-$CZ}] [expr {$H-$B}] [expr {$W-$CZ}] $H] {
@@ -535,18 +537,16 @@ proc deco-draw {c W H} {
 }
 
 # ---- resize by the border / corner ----
-# Which resize grip is under frame-relative (x, y)? The side strips are
-# $::border wide, the bottom strip $::border tall; the 24px corner-zone
-# ends of the strips act as diagonal corners — all four now: the top
-# corners reach along both the side border and the 2px top strip, and
-# the strip between them resizes the top edge (thin, but that is where
-# the title drag's roof is).
+# Which resize grip is under frame-relative (x, y)? All four strips
+# are $::border thick (the top used to be a 2px sliver — unhittable;
+# uniform since 2026-07-28), and the 24px corner-zone ends of the
+# strips act as diagonal corners.
 proc rz-edge {t x y} {
     set W [winfo width $t]; set H [winfo height $t]
-    set B $::border; set CZ 24; set T 2
-    if {($y < $T && $x < $CZ) || ($x < $B && $y < $CZ)} { return nw }
-    if {($y < $T && $x >= $W - $CZ) || ($x >= $W - $B && $y < $CZ)} { return ne }
-    if {$y < $T} { return n }
+    set B $::border; set CZ 24
+    if {($y < $B && $x < $CZ) || ($x < $B && $y < $CZ)} { return nw }
+    if {($y < $B && $x >= $W - $CZ) || ($x >= $W - $B && $y < $CZ)} { return ne }
+    if {$y < $B} { return n }
     if {$x >= $W - $B || $x < $B || $y >= $H - $B} {
         if {$y >= $H - $CZ && $x >= $W - $CZ} { return se }
         if {$y >= $H - $CZ && $x < $CZ}       { return sw }
