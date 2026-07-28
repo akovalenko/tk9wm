@@ -63,6 +63,12 @@
 #   policy-deiconified w    w is coming back: put the decoration up
 #   policy-screen-changed   the root changed size under us (RandR);
 #                           anything glued to a screen edge re-places
+#   policy-tray-attach w    build a slot for tray icon w and return
+#                           {slot-window-id size} — the icon is held at
+#                           size x size; {0 0} refuses it
+#   policy-tray-detach w    the icon left: drop its slot
+#   policy-tray-origin w    root {x y} of w's slot (for the synthetic
+#                           ConfigureNotify an icon's resize request gets)
 #
 # The substrate provides to the policy layer:
 #   focus-to w                  aim the input focus at w. For an ordinary
@@ -248,8 +254,18 @@ proc x-keycode {keysym}         { tkwmx::keyboard keycode $keysym }
 proc x-keysym-at {kc {group 0} {level 0}} { tkwmx::keyboard at $kc $group $level }
 # which keys are physically down, as a 32-byte bit vector
 proc x-keymap {}                { tkwmx::keyboard state }
-# a ClientMessage with a verbatim payload — every protocol built on one
-proc x-send-client {w type data} { tkwmx::event client $w $type $data }
+# a ClientMessage with a verbatim payload — every protocol built on one.
+# The send mask is empty by default, which means "to the window's own
+# client" (WM_PROTOCOLS, _XEMBED); an announcement to the root instead
+# names the mask its audience selected (the MANAGER message).
+proc x-send-client {w type data {format 32} {masks {}}} {
+    tkwmx::event client $w $type $data $format $masks
+}
+# The manager selections of ICCCM 2.8 — WM_S0, _NET_SYSTEM_TRAY_S0.
+# own: 1 = the server agrees we hold it now; get: the owning window, 0
+# for nobody.
+proc x-selection-own {sel w time} { tkwmx::selection own $sel $w $time }
+proc x-selection-get {sel}        { tkwmx::selection get $sel }
 # the synthetic ConfigureNotify of ICCCM 4.1.5
 proc x-send-configure {w target x y width height} {
     tkwmx::event configure-notify $w $target $x $y $width $height
@@ -473,7 +489,10 @@ proc dispatch-event {ev} {
             set vmask [dict get $ev value-mask]
             set x [dict get $ev x]; set y [dict get $ev y]
             set w [dict get $ev width]; set h [dict get $ev height]
-            if {[info exists ::managed($B)]} {
+            if {[info exists ::trayicon($B)]} {
+                # An icon asking for its own size — answered, not obeyed
+                tray-hold-size $B
+            } elseif {[info exists ::managed($B)]} {
                 if {$vmask & 3} { move-client-request $B $x $y $vmask }
                 resize-client $B $w $h $vmask
                 # ICCCM 4.1.5: "If a client's ConfigureWindow request is
@@ -518,8 +537,42 @@ proc dispatch-event {ev} {
                 puts "WM: ConfigureRequest 0x[format %x $B] ${w}x${h} honored"
             }
         }
-        map-request { manage [dict get $ev window] }
-        destroy-notify { unmanage [dict get $ev window] 1 }
+        map-request { # a tray icon's visibility is _XEMBED_INFO's to
+            # decide, not its client's: answer the request by re-reading
+            # the property rather than by mapping on demand
+            set B [dict get $ev window]
+            if {[info exists ::trayicon($B)]} {
+                tray-refresh-map $B
+            } else {
+                manage $B
+            }
+        }
+        destroy-notify {
+            set B [dict get $ev window]
+            if {[info exists ::trayicon($B)]} {
+                tray-undock $B 1
+            } else {
+                unmanage $B 1
+            }
+        }
+        reparent-notify { # an icon pulled out of our slot by somebody
+            # else (a newer tray manager, or its own client): it is no
+            # longer ours to size or to map, and reparenting it back
+            # would be a fight. Our OWN reparent reports the same event
+            # with the slot as parent — that one is just the echo.
+            set B [dict get $ev window]
+            if {[info exists ::trayicon($B)]
+                    && [dict get $ev parent] != $::trayicon($B)} {
+                tray-undock $B 1
+            }
+        }
+        selection-clear { # somebody asked for a manager selection we
+            # hold — ICCCM 2.8, how a replacement announces itself
+            if {$::tray_owner != 0
+                    && [dict get $ev selection] == $::TRAY_SELECTION} {
+                tray-stop "another system tray took the selection"
+            }
+        }
         map-notify { # MapNotify (self-report): the client is now really
             # on screen and past its own map bookkeeping — tell it where
             # it is once more, see tell-where-you-are.
@@ -625,7 +678,11 @@ proc dispatch-event {ev} {
             # back to being about properties only.)
             set A [dict get $ev window]
             set B [dict get $ev atom]
-            if {[info exists ::managed($A)]} {
+            if {[info exists ::trayicon($A)]} {
+                # the one property of an icon we watch: it is how a
+                # docked client says "hide me" and "show me again"
+                if {$B == $::XEMBED_INFO} { tray-refresh-map $A }
+            } elseif {[info exists ::managed($A)]} {
                 if {$B == $::WM_NAME
                         || ([info exists ::NET_WM_NAME]
                             && $B == $::NET_WM_NAME)} {
@@ -669,6 +726,19 @@ proc dispatch-event {ev} {
                 set rt [lindex $data 1]
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
                 soft "activation request" { policy-client-click $A }
+            } elseif {$::tray_owner != 0 && $A == $::tray_owner
+                    && $B == $::TRAY_OPCODE} {
+                # The tray protocol's one request: data.l[1] is the
+                # opcode, and SYSTEM_TRAY_REQUEST_DOCK (0) names the
+                # icon window in data.l[2]. Opcodes 1..3 are the balloon
+                # message protocol — heard and logged, not answered:
+                # there is nowhere to show one yet.
+                if {[lindex $data 1] == 0} {
+                    tray-dock [lindex $data 2]
+                } else {
+                    puts "WM: tray: opcode [lindex $data 1] ignored\
+ (balloon messages are not implemented)"
+                }
             } elseif {$B == $::WM_CHANGE_STATE && [info exists ::managed($A)]} {
                 # ICCCM 4.1.4: the iconify request. data.l[0] carries
                 # the wanted state — IconicState (3) is the only one
@@ -1594,6 +1664,216 @@ proc kill-client {w} {
     x-sync 0
 }
 
+# ---------------- the system tray (XEmbed) ----------------
+# The OTHER half of the tray protocol: not an application putting an
+# icon somewhere, but the manager that takes icons in — freedesktop's
+# System Tray Protocol carried on XEMBED.
+#
+# Not one line of C was needed for it, and that is the shim's three
+# escape hatches paying for themselves: the claim is `selection own`
+# with a fetched timestamp, the announcement and every _XEMBED message
+# are ClientMessages with a verbatim payload, the dock request arrives
+# as one (with no mask to select — on ONE connection a ClientMessage
+# addressed to a window of ours lands in the generic handler by
+# itself), and _XEMBED_INFO is an ordinary property read.
+#
+# The protocol in the order it happens:
+#   1. own _NET_SYSTEM_TRAY_S<screen> with a server timestamp, then
+#      announce the takeover to the root with a MANAGER ClientMessage —
+#      clients already running dock when they hear it;
+#   2. a client sends _NET_SYSTEM_TRAY_OPCODE / SYSTEM_TRAY_REQUEST_DOCK
+#      naming its icon window;
+#   3. we select on it, put it in the save-set, reparent it into a slot
+#      the policy layer builds and send XEMBED_EMBEDDED_NOTIFY;
+#   4. _XEMBED_INFO's XEMBED_MAPPED bit — not the client's own map
+#      request — decides whether the icon shows; re-read on every
+#      PropertyNotify;
+#   5. an icon leaves by dying, by being reparented out of our slot, or
+#      by another manager taking the selection from us.
+#
+# ARGB is deliberately NOT offered (_NET_SYSTEM_TRAY_VISUAL stays
+# unset). Advertised, it makes a toolkit paint its icon premultiplied
+# into a 32-bit window — and a CHILD window's alpha is blended by
+# nobody: the server copies its pixels into the parent's storage as
+# they are, and a compositor redirects TOP-LEVEL windows only. That is
+# the black square around a round icon every tray shows sooner or
+# later. Unadvertised, the icon is drawn in the screen's own visual
+# over our slot's background, which is the panel's color. (Honest ARGB
+# would mean the whole tray strip being a 32-bit top-level and a
+# compositor running — a separate experiment, not a primitive we lack.)
+#
+# The policy layer decides where icons live:
+#   policy-tray-attach w   build a slot for icon w; return {slotid size}
+#                          — the icon is sized to size x size — or {0 0}
+#                          to refuse the icon
+#   policy-tray-detach w   the icon is gone: drop its slot
+#   policy-tray-origin w   root {x y} of w's slot, for the synthetic
+#                          ConfigureNotify
+set tray_owner 0        ;# the selection owner window, 0 = no tray here
+array set trayicon {}   ;# icon window -> the slot it sits in
+array set traysize {}   ;# icon window -> the size we hold it at
+
+# Which screen the selection names. Tk knows ours by name (":0.0"); a
+# display spelled without a screen means screen 0.
+proc tray-screen {} {
+    if {[regexp {\.(\d+)$} [winfo screen .] -> n]} { return $n }
+    return 0
+}
+
+# Claim the tray for this display. 0 = there already is one (we do not
+# fight for it: two managers on one selection is how icons end up
+# nowhere) or the server refused us.
+proc tray-start {{orient horizontal}} {
+    if {$::tray_owner != 0} { return 1 }
+    if {[catch {
+        set ::TRAY_SELECTION [x-intern _NET_SYSTEM_TRAY_S[tray-screen]]
+        set ::TRAY_OPCODE    [x-intern _NET_SYSTEM_TRAY_OPCODE]
+        set ::TRAY_ORIENT    [x-intern _NET_SYSTEM_TRAY_ORIENTATION]
+        set ::XEMBED         [x-intern _XEMBED]
+        set ::XEMBED_INFO    [x-intern _XEMBED_INFO]
+        set ::MANAGER        [x-intern MANAGER]
+    } err]} {
+        puts "WM: tray: cannot intern the atoms: $err"
+        return 0
+    }
+    set held [soft "read the tray selection" { x-selection-get $::TRAY_SELECTION } 0]
+    if {$held != 0} {
+        puts "WM: tray: 0x[format %x $held] already owns\
+ _NET_SYSTEM_TRAY_S[tray-screen] — leaving it alone"
+        return 0
+    }
+    set owner [x-create-window $::root -200 -200 1 1 -override]
+    # Selecting here is what makes the dock requests ARRIVE, and the
+    # reason is a subtlety of XSendEvent worth writing down. A docking
+    # client first selects StructureNotify on this very window (to hear
+    # it die), and then sends its request with propagate=True and mask
+    # StructureNotify|SubstructureNotify — Tk's own systray does exactly
+    # this (tkUnixSysTray.c), and so do GTK and Qt. The server delivers
+    # such an event to every client selecting one of those types ON THE
+    # DESTINATION, and only propagates to the ancestors when there is no
+    # such client at all. The requesting client is itself one — so with
+    # nothing selected on our side the message went to the ASKER and
+    # never to us, the root's SubstructureNotify notwithstanding
+    # (measured: the icon was created, the request sent, and the tray
+    # heard nothing).
+    x-select-input $owner {structure-notify substructure-notify}
+    # The orientation is published BEFORE the claim: a client that docks
+    # the instant it hears the announcement must not find the window
+    # bare. (XA_CARDINAL; 0 = horizontal, 1 = vertical.)
+    set-prop-longs $owner $::TRAY_ORIENT 6 \
+        [list [expr {$orient eq "vertical" ? 1 : 0}]]
+    set t [server-time]
+    if {![x-selection-own $::TRAY_SELECTION $owner $t]} {
+        puts "WM: tray: the server refused the selection"
+        return 0
+    }
+    set ::tray_owner $owner
+    # ICCCM 2.8: a new manager announces itself to the root, and every
+    # client waiting for a tray docks on hearing it. This one has an
+    # audience, so it carries a real send mask.
+    x-send-client $::root $::MANAGER \
+        [list $t $::TRAY_SELECTION $owner 0 0] 32 {structure-notify}
+    x-sync 0
+    puts "WM: tray up (owner 0x[format %x $owner],\
+ _NET_SYSTEM_TRAY_S[tray-screen], $orient)"
+    return 1
+}
+
+# _XEMBED_INFO = {version, flags}; bit 0 of flags is XEMBED_MAPPED. An
+# absent property means the client does not speak XEMBED at all (it
+# happens) — read as "show me", which is what every tray does with one.
+proc tray-xembed-mapped {w} {
+    lassign [soft "read _XEMBED_INFO" { x-prop-get $w $::XEMBED_INFO }] type fmt val
+    if {$fmt ne "32" || [llength $val] < 2} { return 1 }
+    expr {[lindex $val 1] & 1}
+}
+proc tray-refresh-map {w} {
+    if {![info exists ::trayicon($w)]} return
+    if {[tray-xembed-mapped $w]} { x-map $w } else { x-unmap $w }
+}
+
+proc tray-dock {w} {
+    if {$::tray_owner == 0 || [info exists ::trayicon($w)]} return
+    if {[info exists ::managed($w)]} {
+        # A window we already frame is not an icon. Nothing sane sends
+        # both, and if something does, being a window wins.
+        puts "WM: tray: 0x[format %x $w] is a managed client — dock ignored"
+        return
+    }
+    if {![dict size [x-attrs $w]]} {
+        puts "WM: tray: 0x[format %x $w] is already gone"
+        return
+    }
+    lassign [policy-tray-attach $w] slot size
+    if {$slot eq "" || $slot == 0} {
+        puts "WM: tray: no slot for 0x[format %x $w] — refused"
+        return
+    }
+    set ::trayicon($w) $slot
+    set ::traysize($w) $size
+    # StructureNotify for the icon's death and for a reparent away from
+    # us; PropertyChange for _XEMBED_INFO, which owns its visibility.
+    x-select-input $w {structure-notify property-change}
+    # Redirect on the slot, so the icon's own map and configure requests
+    # come to US: an icon is sized by the tray, not by itself. The slot
+    # is a window of OURS, where the shim ADDS the mask to Tk's instead
+    # of replacing it (the single-connection trap — see x-select-input).
+    x-select-input $slot {substructure-redirect}
+    x-save-set-add $w       ;# our death must not take the icon with it
+    x-reparent $w $slot 0 0
+    x-resize $w $size $size
+    # XEMBED_EMBEDDED_NOTIFY (opcode 0): data.l = {time, opcode,
+    # embedder window, protocol version}. No send mask — an XEMBED
+    # message goes to the window's own client, not to onlookers.
+    x-send-client $w $::XEMBED [list [server-time] 0 $slot 0 0]
+    tray-refresh-map $w
+    x-sync 0
+    puts "WM: tray: docked 0x[format %x $w] in slot\
+ 0x[format %x $slot] (${size}px)"
+}
+
+# The icon's own ConfigureRequest. A tray decides the size; the client
+# is told what it really got, in ICCCM's own terms, so it stops waiting
+# for an answer (4.1.5 — the same discipline as a framed window's).
+proc tray-hold-size {w} {
+    if {![info exists ::trayicon($w)]} return
+    set size $::traysize($w)
+    x-resize $w $size $size
+    set x 0; set y 0
+    soft "origin of a tray icon" { lassign [policy-tray-origin $w] x y }
+    x-send-configure $w $w $x $y $size $size
+    x-flush
+}
+
+# gone = the window is already destroyed or has left our slot: touching
+# it would be either an error or a fight with whoever took it.
+proc tray-undock {w {gone 0}} {
+    if {![info exists ::trayicon($w)]} return
+    unset ::trayicon($w)
+    unset -nocomplain ::traysize($w)
+    if {!$gone} {
+        # Hand it back to the root, unmapped. The icon outlives us (it
+        # is in the save-set); what to do next is its client's call.
+        soft "release a tray icon" {
+            x-unmap $w
+            x-reparent $w $::root -200 -200
+            x-sync 0
+        }
+    }
+    soft "policy-tray-detach" { policy-tray-detach $w }
+    puts "WM: tray: undocked 0x[format %x $w]"
+}
+
+# Another manager took the selection (ICCCM's polite replacement), the
+# config turned the tray off, or we are going down: give every icon
+# back and stop answering. Clients re-dock with whoever announces next.
+proc tray-stop {why} {
+    if {$::tray_owner == 0} return
+    puts "WM: tray: stopping ($why)"
+    foreach w [array names ::trayicon] { tray-undock $w }
+    set ::tray_owner 0
+}
+
 # ---------------- key bindings: grabs + a stumpwm-style sequence machine ----------------
 # wm-bind SPEC SCRIPT binds a chord SEQUENCE to a script. A chord is
 # any number of <Mod> prefixes and then a keysym name:
@@ -1914,6 +2194,7 @@ tkwmx::event on handle-event
 # kill still loses them — see notes.
 rename ::exit ::tk9wm-real-exit
 proc ::exit {{code 0}} {
+    soft "release the tray on exit" { tray-stop "the window manager is exiting" }
     soft "release clients on exit" \
         { foreach w [array names ::managed] { unmanage $w } }
     ::tk9wm-real-exit $code
@@ -1929,6 +2210,9 @@ proc ::exit {{code 0}} {
 # (x-exec-self), and returning from it at all means it failed.
 proc restart-wm {} {
     puts "WM: restart requested — releasing clients, exec'ing myself"
+    # The tray goes back to the root the same way the clients do; the
+    # fresh instance announces itself and every icon docks again.
+    soft "release the tray on restart" { tray-stop "the window manager is restarting" }
     soft "release clients on restart" \
         { foreach w [array names ::managed] { unmanage $w } }
     soft "sync before exec" { x-sync 0 }

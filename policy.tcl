@@ -965,14 +965,18 @@ proc title-release {t w x y} {
 
 # ---- maximize, fvwm semantics ----
 # The workarea: where maximize expands to and where new frames are
-# placed — the screen minus the panel's strip along its panel-side
-# edge (zero when no buttons are declared, see the panel section).
+# placed — the screen minus the strip along the panel-side edge. Two
+# things can claim that edge, the button panel and the tray, and either
+# may be absent (both are opt-in), so the carve is the THICKER of them:
+# they share one edge and one thickness, which is what makes the pair
+# read as a single bar.
 proc workarea {} {
     lassign [screen-size] sw sh
+    set strip [expr {max([panel-thickness], [tray-thickness])}]
     if {$::panel_side eq "right"} {
-        list 0 0 [expr {$sw - [panel-thickness]}] $sh
+        list 0 0 [expr {$sw - $strip}] $sh
     } else {
-        list 0 0 $sw [expr {$sh - [panel-thickness]}]
+        list 0 0 $sw [expr {$sh - $strip}]
     }
 }
 
@@ -1958,16 +1962,23 @@ proc panel-build {} {
         $T item lastchild root $item
     }
     bind $T <ButtonPress-1> {panel-click %x %y}
+    # The tray strip sits at the FAR end of this same edge, in its own
+    # top-level above ours: the button row stops short of it so a
+    # button can never end up hidden under an icon.
+    set tray [tray-extent]
     if {$vert} {
         set geo ${thick}x${sh}+[expr {$sw - $thick}]+0
-        place $T -x 1 -y 1 -width [expr {$thick - 2}] -height [expr {$sh - 2}]
+        place $T -x 1 -y 1 -width [expr {$thick - 2}] \
+            -height [expr {$sh - 2 - $tray}]
     } else {
         set geo ${sw}x${thick}+0+[expr {$sh - $thick}]
-        place $T -x 1 -y 1 -width [expr {$sw - 2}] -height [expr {$thick - 2}]
+        place $T -x 1 -y 1 -width [expr {$sw - 2 - $tray}] \
+            -height [expr {$thick - 2}]
     }
     wm geometry .panel $geo
     raise .panel
     panel-reeval   ;# a rebuild starts stateless — judge the matches now
+    tray-layout    ;# our thickness is the tray's too — it follows
     puts "WM: panel up ([llength $::panel_buttons] buttons, $thick px,\
  $::panel_side/$::panel_preset, $geo)"
 }
@@ -2030,6 +2041,160 @@ proc panel-click {x y} {
 }
 proc panel-on-top {} {
     if {[winfo exists .panel]} { raise .panel }
+    if {[winfo exists .tray]} { raise .tray }
+}
+
+# ---- the system tray strip ----
+# Where docked icons live: a strip of square cells at the FAR end of
+# the panel's own edge (the right end of a bottom panel, the bottom end
+# of a right one), in its own override-redirect top-level so a panel
+# rebuild — which destroys .panel outright — cannot take somebody's
+# icon down with it.
+#
+# Off by default, like the panel: `set-tray on` in the config claims
+# _NET_SYSTEM_TRAY_S<screen> (the substrate does the protocol; a
+# display that already has a tray keeps it and we stay off). The
+# cells are plain frames — an icon is a foreign X window reparented
+# into one, and the cell's BACKGROUND is what shows through the
+# transparent parts of it. That is the whole "why is my icon on a
+# black square" story: we hand it the strip's own color, not black.
+#
+# The strip carves the workarea exactly as the panel does (the two
+# share an edge, so the carve is the thicker of them), and the panel
+# shortens its button row by the strip's length so the two never
+# overlap.
+set tray_on 0
+set tray_icon_size 24    ;# the freedesktop-conventional cell
+set tray_gap 4           ;# between cells
+set tray_pad 3           ;# around the row
+set tray_bg #2e3436      ;# what shows through a transparent icon
+set tray_sid 0
+set tray_order {}        ;# icon windows, in dock order
+set tray_seen_extent 0   ;# the length the panel last reserved for us
+set tray_geo ""          ;# the strip geometry we last asked for
+proc set-tray {on} {
+    set want [expr {$on ? 1 : 0}]
+    if {$want == $::tray_on} return
+    if {$want} {
+        # a vertical panel gets a vertical tray — the orientation is
+        # published for the icons, which size themselves by it
+        set ::tray_on [tray-start [expr {$::panel_side eq "right"
+            ? "vertical" : "horizontal"}]]
+    } else {
+        tray-stop "turned off by the config"
+        set ::tray_on 0
+    }
+    tray-layout
+}
+proc set-tray-icon-size {px} {
+    set ::tray_icon_size $px
+    tray-layout
+}
+proc set-tray-background {color} {
+    set ::tray_bg $color
+    if {[winfo exists .tray]} {
+        .tray configure -background $color
+        foreach w $::tray_order { $::tray_slot($w) configure -background $color }
+    }
+}
+proc tray-ensure {} {
+    if {[winfo exists .tray]} return
+    toplevel .tray -background $::tray_bg
+    wm overrideredirect .tray 1   ;# our own furniture, not a client
+    wm withdraw .tray             ;# shown by tray-layout once it holds a cell
+}
+# The substrate's hooks. The Tk round trip before the return is the
+# same guarantee policy-attach gives for a frame slot: the window
+# exists server-side before anything is reparented into it.
+proc policy-tray-attach {w} {
+    if {!$::tray_on} { return {0 0} }
+    tray-ensure
+    set f .tray.i[incr ::tray_sid]
+    frame $f -width $::tray_icon_size -height $::tray_icon_size \
+        -background $::tray_bg
+    set ::tray_slot($w) $f
+    lappend ::tray_order $w
+    tray-layout
+    update idletasks
+    winfo pointerxy $f
+    puts "WM: tray cell $f for 0x[format %x $w]"
+    return [list [winfo id $f] $::tray_icon_size]
+}
+proc policy-tray-detach {w} {
+    if {![info exists ::tray_slot($w)]} return
+    destroy $::tray_slot($w)
+    unset ::tray_slot($w)
+    set ::tray_order [lsearch -exact -all -inline -not $::tray_order $w]
+    tray-layout
+}
+proc policy-tray-origin {w} {
+    if {![info exists ::tray_slot($w)]} { return {0 0} }
+    set f $::tray_slot($w)
+    list [winfo rootx $f] [winfo rooty $f]
+}
+# The strip's measures: extent along the panel's edge, thickness across
+# it — zero when the tray is off or empty, so neither the workarea nor
+# the panel reserves anything for a strip that is not there. The
+# thickness matches the panel's when there is one, so the two read as
+# a single bar.
+proc tray-extent {} {
+    set n [llength $::tray_order]
+    if {!$::tray_on || $n == 0} { return 0 }
+    expr {2*$::tray_pad + $n*$::tray_icon_size + ($n - 1)*$::tray_gap}
+}
+proc tray-thickness {} {
+    if {[tray-extent] == 0} { return 0 }
+    expr {max(2*$::tray_pad + $::tray_icon_size, [panel-thickness])}
+}
+proc tray-layout {} {
+    if {![winfo exists .tray]} return
+    set len [tray-extent]
+    if {$len == 0} {
+        wm withdraw .tray
+        tray-tell-panel
+        return
+    }
+    set thick [tray-thickness]
+    set sz $::tray_icon_size
+    set cross [expr {($thick - $sz) / 2}]   ;# centered across the strip
+    set vert [expr {$::panel_side eq "right"}]
+    set i 0
+    foreach w $::tray_order {
+        set off [expr {$::tray_pad + $i*($sz + $::tray_gap)}]
+        if {$vert} {
+            place $::tray_slot($w) -x $cross -y $off -width $sz -height $sz
+        } else {
+            place $::tray_slot($w) -x $off -y $cross -width $sz -height $sz
+        }
+        incr i
+    }
+    lassign [screen-size] sw sh
+    if {$vert} {
+        set geo ${thick}x${len}+[expr {$sw - $thick}]+[expr {$sh - $len}]
+    } else {
+        set geo ${len}x${thick}+[expr {$sw - $len}]+[expr {$sh - $thick}]
+    }
+    wm geometry .tray $geo
+    wm deiconify .tray
+    raise .tray
+    # The COMPUTED string, not [wm geometry .tray]: that answers with
+    # the geometry Tk has processed so far, which right after the
+    # request is still the previous one — and a re-layout runs twice per
+    # change (the attach, then the panel rebuild it kicks), so the log
+    # would show every size one step late. Logged only when it moves.
+    if {$geo ne $::tray_geo} {
+        set ::tray_geo $geo
+        puts "WM: tray strip $geo ([llength $::tray_order] icons)"
+    }
+    tray-tell-panel
+}
+# The panel shortens its row by our length — but only a CHANGED length
+# is worth a rebuild: panel-build calls tray-layout at its end, so an
+# unconditional kick would be an idle loop between the two.
+proc tray-tell-panel {} {
+    if {$::tray_seen_extent == [tray-extent]} return
+    set ::tray_seen_extent [tray-extent]
+    panel-rebuild-soon
 }
 
 # The screen changed size under us (RandR: a resized Xephyr window, a
@@ -2039,7 +2204,9 @@ proc panel-on-top {} {
 set panel_resize_pending ""
 proc policy-screen-changed {} {
     after cancel $::panel_resize_pending
-    set ::panel_resize_pending [after 200 panel-build]
+    # the tray is glued to a corner of the same edge; panel-build ends
+    # by re-laying it out, and tray-layout covers the panel-less case
+    set ::panel_resize_pending [after 200 {panel-build; tray-layout}]
 }
 
 # ---- default key bindings ----

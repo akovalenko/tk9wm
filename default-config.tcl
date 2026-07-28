@@ -150,6 +150,25 @@
 # fire on the most recent match. The judgement follows windows
 # coming, going and renaming themselves.
 #
+# ---- the system tray ----
+#
+# set-tray on makes this WM the display's tray manager (freedesktop's
+# System Tray Protocol on XEMBED): docked icons appear as square cells
+# at the FAR end of the panel's edge — the right end of a bottom
+# panel, the bottom end of a right one — and the strip carves the
+# workarea the way the panel does, with or without buttons. A display
+# that already has a tray keeps it: we claim the selection only when
+# nobody holds it, and hand the icons back if somebody takes it later.
+#   set-tray on
+#
+# The cell's BACKGROUND is what shows through the transparent parts of
+# an icon (we do not advertise an ARGB visual — see the README for
+# why a child window's alpha is nobody's to blend), so this is the
+# knob that decides whether a round icon sits on the strip's color or
+# on something else. The size is the cell's side in pixels.
+#   set-tray-background #2e3436
+#   set-tray-icon-size 24
+#
 # ---- key bindings ----
 #
 # wm-bind SPEC SCRIPT binds a chord sequence, stumpwm-style: only the
