@@ -1159,10 +1159,18 @@ proc set-net-wm-state {w atoms} {
 # back is the window list, which shows it with its state.
 proc iconify-client {w} {
     if {![info exists ::managed($w)] || [info exists ::iconic($w)]} return
-    # The pick has to happen while the window is still ordinary: the
-    # policy's refocus choice reads per-frame facts, and an iconic
-    # window must not be picked as a focus target.
-    set refocus [expr {$::focused == $w ? [policy-pick-refocus $w] : 0}]
+    # BOTH facts are taken NOW, before a single X request goes out.
+    # The pick needs the window still ordinary (the policy's choice
+    # reads per-frame facts, and an iconic window is no focus target) —
+    # and "was it focused" must be remembered rather than re-read,
+    # because everything below can run a nested event drain (Tk flushes
+    # its connection, the pump drains X) inside which the focus
+    # watchdog fires, parks the focus and clears ::focused. Re-reading
+    # it afterwards is exactly how the MOUSE gesture ended up handing
+    # the focus to nobody while the KEYBOARD gesture handed it on —
+    # same operation, two outcomes (owner's report, 2026-07-28).
+    set was_focused [expr {$::focused == $w}]
+    set refocus [expr {$was_focused ? [policy-pick-refocus $w] : 0}]
     set ::iconic($w) 1
     set ::skip_unmap($w) 1     ;# our own unmap is not the client withdrawing
     # ORDER, and it is load-bearing across our two connections: the
@@ -1185,7 +1193,7 @@ proc iconify-client {w} {
     policy-iconified $w        ;# the decoration goes with it
     XSync $::dpy 0
     puts "WM: iconified 0x[format %x $w]"
-    if {$::focused == $w} {
+    if {$was_focused} {
         set ::focused 0
         focus-park "the focused window was iconified"
         if {$refocus != 0} { focus-to $refocus }
@@ -1551,13 +1559,22 @@ proc focus-park {why} {
 # deterministic — its freshly fetched stamp is newer than the park,
 # so the client's answer cannot be dropped as stale. No timers, no
 # blind resends: one repair per event that reports the dead end.
+# An honest focus target: managed, and not iconic. The second half
+# matters while a window is being taken off the screen — the watchdog
+# can fire mid-iconify, and aiming at the window that is going away
+# earns a refusal from the server ("not viewable") and leaves the desk
+# with nobody focused at all.
+proc focus-target-ok {w} {
+    expr {$w != 0 && [info exists ::managed($w)] && ![info exists ::iconic($w)]}
+}
 proc focus-repair {why {prefer 0}} {
-    set want $prefer
-    if {$want == 0 || ![info exists ::managed($want)]} { set want $::invited }
-    if {$want == 0 || ![info exists ::managed($want)]} { set want $::focused }
-    if {$want == 0 || ![info exists ::managed($want)]} { set want [policy-pick-refocus 0] }
+    set want 0
+    foreach cand [list $prefer $::invited $::focused] {
+        if {[focus-target-ok $cand]} { set want $cand; break }
+    }
+    if {$want == 0} { set want [policy-pick-refocus 0] }
     focus-park $why
-    if {$want != 0 && [info exists ::managed($want)]} {
+    if {[focus-target-ok $want]} {
         focus-to $want
     }
 }
