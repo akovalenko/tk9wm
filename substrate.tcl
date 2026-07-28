@@ -1216,11 +1216,24 @@ proc manage {w} {
         set ::ourwin($fwin) $w
         lappend ::decoof($w) $fwin
     }
-    # Click-to-focus inside the client: passive SYNC grab on any button
-    # (AnyButton, AnyModifier). The press freezes the pointer and wakes
-    # us (button-press above); after the policy reacts we allow
+    # Click-to-focus inside the client: passive SYNC grab, one per
+    # button, AnyModifier. The press freezes the pointer and wakes us
+    # (button-press above); after the policy reacts we allow
     # replay-pointer so the client still gets the click un-eaten.
-    x-grab-button 0 0x8000 $w {button-press}
+    #
+    # Buttons 1-3 and NOT AnyButton, which is what this was — because
+    # what we cannot SEE we must never freeze. Tk rewrites a press of
+    # buttons 4-7 (the wheel) into its own MouseWheelEvent BEFORE the
+    # generic handlers run, and drops the matching release entirely
+    # (tkEvent.c) — so a wheel press through an AnyButton grab woke
+    # nobody, was never answered with replay-pointer, and left the
+    # pointer frozen for the whole desk, permanently. One scroll over
+    # any client was enough (owner's report on the widget demo,
+    # 2026-07-28; the desk kept its keyboard and lost its mouse, and
+    # the client's own grabs then failed with "another application has
+    # grab" — ours, stuck). The wheel is no business of click-to-focus
+    # anyway: it now reaches the client untouched.
+    foreach b {1 2 3} { x-grab-button $b 0x8000 $w {button-press} }
     x-save-set-add $w
     x-reparent $w $slot 0 0
     if {$cw != $aw || $ch != $ah} { x-resize $w $cw $ch }
