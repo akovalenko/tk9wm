@@ -37,8 +37,11 @@ if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
 }
 # The pseudo-icon lettering (see winlist-icon): TitleFont's family, but
 # bold and sized in PIXELS to the badge, not the text line — configured
-# at each winlist open, when the badge size is known.
+# at each winlist open, when the badge size is known. The panel keeps
+# its own instance: its badge size (panel-icon-size) is independent of
+# the winlist row, and the two would fight over one font.
 font create IconFont -weight bold
+font create PanelIconFont -weight bold
 # 3px of air above and below the text line; the strip sits under the 2px
 # top edge, a 2px gap separates it from the client slot.
 proc title-metrics {} {
@@ -824,11 +827,15 @@ proc title-release {t w x y} {
 
 # ---- maximize, fvwm semantics ----
 # The workarea: where maximize expands to and where new frames are
-# placed — the screen minus the panel's bottom strip (zero-height
-# when no buttons are declared, see the panel section).
+# placed — the screen minus the panel's strip along its panel-side
+# edge (zero when no buttons are declared, see the panel section).
 proc workarea {} {
     lassign [screen-size] sw sh
-    list 0 0 $sw [expr {$sh - [panel-height]}]
+    if {$::panel_side eq "right"} {
+        list 0 0 [expr {$sw - [panel-thickness]}] $sh
+    } else {
+        list 0 0 $sw [expr {$sh - [panel-thickness]}]
+    }
 }
 
 # Maximize fills the workarea and remembers what the window was; the
@@ -1033,16 +1040,7 @@ proc shrink-photo {img target} {
 # stable hash pick from a small palette keyed by the same name.
 # Returns {image NAME} or {pseudo LETTERS COLOR}.
 set icon_palette {#cc4444 #d4772f #75507b #4e9a06 #06989a #b3617e #927238}
-proc winlist-icon {w target} {
-    set st [style-of $w]
-    if {[dict exists $st icon]} {
-        set img [resolve-icon [dict get $st icon] $target]
-        if {$img ne ""} { return [list image $img] }
-    }
-    set img [client-icon $w $target]
-    if {$img ne ""} { return [list image $img] }
-    set name [lindex [client-class $w] 1]
-    if {$name eq ""} { set name [title-or-id $w [client-title $w]] }
+proc pseudo-badge {name} {
     set words [regexp -all -inline {[^\s[:punct:]]+} $name]
     if {[llength $words] >= 2} {
         set letters [string index [lindex $words 0] 0][string index [lindex $words 1] 0]
@@ -1053,7 +1051,19 @@ proc winlist-icon {w target} {
     if {$letters eq ""} { set letters ? }
     set color [lindex $::icon_palette [expr {
         [zlib crc32 [encoding convertto utf-8 $name]] % [llength $::icon_palette]}]]
-    list pseudo $letters $color
+    list $letters $color
+}
+proc winlist-icon {w target} {
+    set st [style-of $w]
+    if {[dict exists $st icon]} {
+        set img [resolve-icon [dict get $st icon] $target]
+        if {$img ne ""} { return [list image $img] }
+    }
+    set img [client-icon $w $target]
+    if {$img ne ""} { return [list image $img] }
+    set name [lindex [client-class $w] 1]
+    if {$name eq ""} { set name [title-or-id $w [client-title $w]] }
+    list pseudo {*}[pseudo-badge $name]
 }
 
 proc winlist {} {
@@ -1401,83 +1411,233 @@ proc kbmr-key {kind name mods} {
 }
 
 # ---- the panel ----
-# Our own bottom-strip panel, wmaker-flavored buttons: a button is
+# Our own strip panel, wmaker-flavored buttons: a button is
 # IDEMPOTENT — fired (by click or by its chord) it FOCUSES the most
 # recently used window its predicate matches, and LAUNCHES its command
 # when nothing does; the button face flashes the verdict either way
 # (green "found it", orange "launching"). Declared from the config:
 #
-#   panel-button LABEL {match PRED launch SCRIPT icon IMG key CHORD}
+#   panel-button LABEL {match PRED launch SCRIPT icon SPEC key CHORD}
 #
-# match is a predicate command prefix (the wm-style vocabulary — the
-# identity accessors), launch any Tcl script, icon a Tk image for the
-# button face, key a wm-bind chord spec; every key is optional. The
-# panel exists only when at least one button is declared — stock
+# match is a predicate command prefix (filter, or any proc — the
+# wm-style vocabulary), launch any Tcl script, icon anything
+# resolve-icon takes, key a wm-bind chord spec; every key is optional.
+# The panel exists only when at least one button is declared — stock
 # behavior is panel-less — and the workarea hands the strip over the
 # moment there are buttons, so maximize never covers it. Every
 # raise-group ends by lifting the panel back on top: fvwm's
 # StaysOnTop for the poor, good enough until layers exist.
+#
+# Where and how, two knobs. set-panel-side bottom|right picks the
+# screen edge (a vertical treectrl on the right — only the flow
+# orientation, the workarea carve and the geometry corner change, the
+# button logic never sees the side). set-panel-preset row|stack picks
+# the button layout when any face is iconic: row is <image> Text,
+# stack puts the label under the icon — the tall-strip look for a
+# thick bottom bar or a narrow right one.
+#
+# Geometry is precomputed per (re)build — fonts, RandR and the config
+# all funnel into panel-build. With no iconic face anywhere the strip
+# keeps today's text-chip height (back-compat); once ANY face
+# resolves, every iconless button wears the winlist's auto-badge as a
+# placeholder (letters of the label on a crc32 color), so the mixed
+# case holds one unified height. panel-icon-size (default 48, the
+# hicolor stock) is the resolve-icon target; a foreign size is
+# resampled by resolve-icon itself.
 set panel_buttons {}
+set panel_side bottom    ;# which screen edge holds the strip
+set panel_preset row     ;# iconic button layout: row | stack
 set panel_icon_size 48   ;# resolve-icon target for button faces
+proc set-panel-side {side} {
+    if {$side ni {bottom right}} { error "set-panel-side: bottom or right" }
+    set ::panel_side $side
+    panel-rebuild-soon
+}
+proc set-panel-preset {preset} {
+    if {$preset ni {row stack}} { error "set-panel-preset: row or stack" }
+    set ::panel_preset $preset
+    panel-rebuild-soon
+}
+proc set-panel-icon-size {px} {
+    set ::panel_icon_size $px
+    panel-rebuild-soon
+}
 proc panel-button {label settings} {
     lappend ::panel_buttons [list $label $settings]
     if {[dict exists $settings key]} {
         wm-bind [dict get $settings key] \
             [list panel-fire [expr {[llength $::panel_buttons] - 1}]]
     }
-    # one rebuild per config's worth of declarations
+    panel-rebuild-soon
+}
+# one rebuild per config's worth of declarations (or knob twiddles)
+proc panel-rebuild-soon {} {
     if {![info exists ::panel_pending]} {
         set ::panel_pending 1
         after idle {unset ::panel_pending; panel-build}
     }
 }
-proc panel-height {} {
-    expr {[llength $::panel_buttons] ? $::titleh + 12 : 0}
+# Everything the strip's shape depends on, decided in one place: the
+# resolved face of every button ("" = no icon or a miss — one case,
+# the badge), whether anything is iconic at all, the item height for
+# the preset, and the strip thickness (bottom: the item height;
+# right: the widest button). The builder and the workarea's thickness
+# question both come here; resolution is cached, so asking is cheap.
+proc panel-geometry {} {
+    set faces {}
+    set iconic 0
+    foreach b $::panel_buttons {
+        lassign $b label settings
+        set img ""
+        if {[dict exists $settings icon]} {
+            set img [resolve-icon [dict get $settings icon] $::panel_icon_size]
+        }
+        if {$img ne ""} { set iconic 1 }
+        lappend faces $img
+    }
+    set isz $::panel_icon_size
+    set line [font metrics TitleFont -linespace]
+    # badge lettering follows the badge size (the winlist formula);
+    # the pad pins the badge height to the icon square
+    font configure PanelIconFont -family [font actual TitleFont -family] \
+        -size -[expr {max(7, $isz * 5 / 8)}]
+    set bpad [expr {max(3, ($isz - [font metrics PanelIconFont -linespace]) / 2)}]
+    if {!$iconic} {
+        set content $line
+    } elseif {$::panel_preset eq "stack"} {
+        set content [expr {$isz + 2 + $line}]
+    } else {
+        set content [expr {max($isz, $line)}]
+    }
+    set itemh [expr {$content + 16}]
+    if {![llength $::panel_buttons]} {
+        set thick 0
+    } elseif {$::panel_side eq "right"} {
+        set maxw 0
+        foreach b $::panel_buttons f $faces {
+            lassign $b label settings
+            set tw [font measure TitleFont $label]
+            if {!$iconic} {
+                set cw $tw
+            } else {
+                set iw $isz
+                if {$f eq ""} {
+                    set iw [expr {[font measure PanelIconFont \
+                        [lindex [pseudo-badge $label] 0]] + 2 * $bpad}]
+                }
+                if {$::panel_preset eq "stack"} {
+                    set cw [expr {max($iw, $tw)}]
+                } else {
+                    set cw [expr {$iw + 4 + $tw}]
+                }
+            }
+            set maxw [expr {max($maxw, $cw + 20)}]
+        }
+        set thick [expr {$maxw + 2}]
+    } else {
+        set thick [expr {$itemh + 2}]
+    }
+    dict create faces $faces iconic $iconic itemh $itemh thick $thick bpad $bpad
 }
+proc panel-thickness {} { dict get [panel-geometry] thick }
 proc panel-build {} {
     destroy .panel
     if {![llength $::panel_buttons]} return
     lassign [screen-size] sw sh
-    set ph [panel-height]
+    set g [panel-geometry]
+    set faces [dict get $g faces]
+    set iconic [dict get $g iconic]
+    set itemh [dict get $g itemh]
+    set thick [dict get $g thick]
+    set bpad [dict get $g bpad]
+    set vert [expr {$::panel_side eq "right"}]
     toplevel .panel -background $::OUTLINE
     wm overrideredirect .panel 1
     set T [treectrl .panel.t -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background #2e3436 -orient horizontal -itemheight [expr {$ph - 2}]]
+        -background #2e3436 -itemheight $itemh \
+        -orient [expr {$vert ? "vertical" : "horizontal"}]]
     bindtags $T [list $T all]
     $T state define found    ;# the flash: predicate found a window
     $T state define firing   ;# the flash: launching the command
     $T column create -tags C0
+    if {$vert} { $T column configure C0 -width [expr {$thick - 2}] }
     $T element create eFace rect \
         -fill [list #4e9a06 found #ce5c00 firing #555753 {}] \
         -outline #888a85 -outlinewidth 1
     $T element create eBIcon image
+    $T element create ePRect rect
+    $T element create ePTxt text -fill white -lines 1 -font PanelIconFont
     $T element create eBTxt text -fill white -lines 1 -font TitleFont
+    # Three button styles, assigned per item by what its face resolved
+    # to: plain (today's text chip — every button when nothing is
+    # iconic), icon, and badge; row and stack presets differ in the
+    # style's orient and pads only.
     $T style create sBtn
-    $T style elements sBtn {eFace eBIcon eBTxt}
-    $T style layout sBtn eFace -union {eBIcon eBTxt} -ipadx 8 -ipady 3 \
-        -padx 2 -expand ns
-    $T style layout sBtn eBIcon -expand ns -padx {0 4}
+    $T style elements sBtn {eFace eBTxt}
+    $T style layout sBtn eFace -union eBTxt -ipadx 8 -ipady 3 -padx 2 \
+        -expand ns
     $T style layout sBtn eBTxt -expand ns
-    foreach b $::panel_buttons {
+    if {$iconic && $::panel_preset eq "stack"} {
+        $T style create sBtnI -orient vertical
+        $T style elements sBtnI {eFace eBIcon eBTxt}
+        $T style layout sBtnI eFace -union {eBIcon eBTxt} -ipadx 8 -ipady 3 \
+            -padx 2 -expand wens
+        $T style layout sBtnI eBIcon -expand we -pady {0 2}
+        $T style layout sBtnI eBTxt -expand we
+        $T style create sBtnB -orient vertical
+        $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
+        $T style layout sBtnB eFace -union {ePRect eBTxt} -ipadx 8 -ipady 3 \
+            -padx 2 -expand wens
+        $T style layout sBtnB ePRect -union ePTxt -ipadx $bpad -ipady $bpad \
+            -expand we -pady {0 2}
+        $T style layout sBtnB ePTxt -expand wens
+        $T style layout sBtnB eBTxt -expand we
+    } elseif {$iconic} {
+        $T style create sBtnI
+        $T style elements sBtnI {eFace eBIcon eBTxt}
+        $T style layout sBtnI eFace -union {eBIcon eBTxt} -ipadx 8 -ipady 3 \
+            -padx 2 -expand wens
+        $T style layout sBtnI eBIcon -expand ns -padx {0 4}
+        $T style layout sBtnI eBTxt -expand ns
+        $T style create sBtnB
+        $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
+        $T style layout sBtnB eFace -union {ePRect eBTxt} -ipadx 8 -ipady 3 \
+            -padx 2 -expand wens
+        $T style layout sBtnB ePRect -union ePTxt -ipadx $bpad -ipady $bpad \
+            -expand ns -padx {0 4}
+        $T style layout sBtnB ePTxt -expand wens
+        $T style layout sBtnB eBTxt -expand ns
+    }
+    foreach b $::panel_buttons f $faces {
         lassign $b label settings
         set item [$T item create]
-        $T item style set $item C0 sBtn
-        $T item element configure $item C0 eBTxt -text $label
-        if {[dict exists $settings icon]} {
-            set img [resolve-icon [dict get $settings icon] $::panel_icon_size]
-            if {$img ne ""} {
-                $T item element configure $item C0 eBIcon -image $img
-            }
+        if {!$iconic} {
+            $T item style set $item C0 sBtn
+        } elseif {$f ne ""} {
+            $T item style set $item C0 sBtnI
+            $T item element configure $item C0 eBIcon -image $f
+        } else {
+            $T item style set $item C0 sBtnB
+            lassign [pseudo-badge $label] letters color
+            $T item element configure $item C0 ePRect -fill $color
+            $T item element configure $item C0 ePTxt -text $letters
         }
+        $T item element configure $item C0 eBTxt -text $label
         $T item lastchild root $item
     }
     bind $T <ButtonPress-1> {panel-click %x %y}
-    place $T -x 1 -y 1 -width [expr {$sw - 2}] -height [expr {$ph - 2}]
-    wm geometry .panel ${sw}x${ph}+0+[expr {$sh - $ph}]
+    if {$vert} {
+        set geo ${thick}x${sh}+[expr {$sw - $thick}]+0
+        place $T -x 1 -y 1 -width [expr {$thick - 2}] -height [expr {$sh - 2}]
+    } else {
+        set geo ${sw}x${thick}+0+[expr {$sh - $thick}]
+        place $T -x 1 -y 1 -width [expr {$sw - 2}] -height [expr {$thick - 2}]
+    }
+    wm geometry .panel $geo
     raise .panel
-    puts "WM: panel up ([llength $::panel_buttons] buttons, $ph px,\
- ${sw}x${ph}+0+[expr {$sh - $ph}])"
+    puts "WM: panel up ([llength $::panel_buttons] buttons, $thick px,\
+ $::panel_side/$::panel_preset, $geo)"
 }
 proc panel-fire {i} {
     lassign [lindex $::panel_buttons $i] label settings

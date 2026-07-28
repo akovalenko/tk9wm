@@ -58,12 +58,12 @@ if grep -q 'screen -> 700x500' "$HERE/wm-randr.log"; then
 else
     echo "FAIL: no «screen -> 700x500» line"
 fi
-if grep -q "panel up (1 buttons, $PH px, 800x${PH}+0+$((600 - PH)))" "$HERE/wm-randr.log"; then
+if grep -q "panel up (1 buttons, $PH px, bottom/row, 800x${PH}+0+$((600 - PH)))" "$HERE/wm-randr.log"; then
     echo "OK: the panel started glued to the 600-tall bottom"
 else
     echo "FAIL: no initial panel geometry line"
 fi
-if grep -q "panel up (1 buttons, $PH px, 700x${PH}+0+$((500 - PH)))" "$HERE/wm-randr.log"; then
+if grep -q "panel up (1 buttons, $PH px, bottom/row, 700x${PH}+0+$((500 - PH)))" "$HERE/wm-randr.log"; then
     echo "OK: the panel followed the screen to the 500-tall bottom"
 else
     echo "FAIL: the panel did not re-place after the resize"

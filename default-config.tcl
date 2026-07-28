@@ -77,8 +77,8 @@
 # ---- the panel ----
 #
 # panel-button LABEL SETTINGS declares a button on the WM's own panel —
-# a bottom strip that exists only when buttons are declared, and that
-# maximize respects (the workarea ends above it). A button is
+# a strip that exists only when buttons are declared, and that
+# maximize respects (the workarea ends at it). A button is
 # idempotent, wmaker-style: fired — by click or by its chord — it
 # FOCUSES the most recently used window its `match` predicate finds,
 # else LAUNCHES its `launch` script; the face flashes the verdict
@@ -92,6 +92,20 @@
 #   panel-button xterm {
 #       match {filter -class xterm} launch {exec xterm &} key {<Super>x}
 #   }
+#
+# The strip's shape. set-panel-side bottom|right picks the screen
+# edge (default bottom; right makes it a vertical strip). While no
+# button face resolves to an icon the strip is a thin text-chip row;
+# the moment any does, every iconless button wears an auto-badge
+# (letters of its label on a hashed color) and the strip grows to
+# set-panel-icon-size (default 48 — the hicolor stock; a foreign
+# image is resampled). set-panel-preset row|stack picks the iconic
+# button layout: row is <image> Text (default), stack puts the label
+# under the icon — the look for a thick bottom bar or a narrow right
+# strip.
+#   set-panel-side right
+#   set-panel-preset stack
+#   set-panel-icon-size 32
 #
 # ---- key bindings ----
 #
