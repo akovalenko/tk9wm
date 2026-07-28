@@ -3,6 +3,14 @@
 # client's WM_NAME/_NET_WM_NAME (PropertyNotify), starting with the
 # title the client had at manage time. The long rename also exercises
 # the treectrl ellipsis path (eyeball title-test.png for the cut).
+#
+# Second phase: the ENCODINGS a WM_NAME can arrive in. The same
+# Cyrillic title, from three xterms in three locales, is three
+# different byte streams — ESC-designated ISO 8859-5 compound text,
+# JIS X 0208 compound text, and raw UTF-8 under a STRING type — and
+# all three must land on the titlebar as the same string. (Before
+# 2026-07-28 the compound-text pair came back empty and the frames
+# showed their «клиент 0x…» fallback.)
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LINUX="${LINUX:-$HERE/../whalebuild/work/linux}"
 export DISPLAY=:75
@@ -22,6 +30,23 @@ sleep 4
 import -display :75 -window root "$HERE/title-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/title-test.png"
 wait $CT
+
+# the encoding phase: one xterm per locale, all titled the same
+LC_ALL=en_US.UTF-8 xterm -T 'привет мир' -e sleep 30 &
+X1=$!
+LC_ALL=ru_RU.utf8 xterm -T 'привет мир' -e sleep 30 &
+X2=$!
+LC_ALL=C xterm -T 'привет мир' -e sleep 30 &
+X3=$!
+sleep 4
+echo "--- WM_NAME types the three xterms declared:"
+for id in $(xdotool search --class -- xterm); do
+    xprop -id "$id" WM_NAME | sed 's/^/    /'
+done
+import -display :75 -window root "$HERE/title-ct.png" 2>/dev/null \
+    && echo "DRIVER: screenshot -> $HERE/title-ct.png"
+kill $X1 $X2 $X3 2>/dev/null
+sleep 1
 kill $WM 2>/dev/null
 
 echo "--- title lines the WM logged:"
@@ -37,6 +62,13 @@ for want in "первое имя" "второе имя" "длинное трет
         echo "FAIL: no title update for «$want»"; BAD=1
     fi
 done
+# one decoded Cyrillic title per xterm — three encodings, one string
+CT=$(grep -c 'WM: title 0x[0-9a-f]* -> «привет мир»' "$HERE/wm-title.log")
+if [ "$CT" -lt 3 ]; then
+    echo "FAIL: $CT/3 xterm titles decoded (compound text unread?)"; BAD=1
+else
+    echo "OK: all three WM_NAME encodings decoded to «привет мир»"
+fi
 # a policy-title that blows up surfaces as a handler error — that would
 # mean the titlebar never followed even though the WM saw the property
 if grep -q 'handler error' "$HERE/wm-title.log"; then

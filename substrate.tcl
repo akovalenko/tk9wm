@@ -99,6 +99,15 @@ package require Thread
 # NB: Tk is required LATER, after our X error handler is installed — see the
 # error handler section for why the order matters.
 
+# Our log is UTF-8, whatever locale the session hands us. Client titles
+# go into it verbatim, and a title is any script on earth: with stdout
+# left on a C-locale (ascii) encoding, the first Cyrillic one makes
+# `puts` THROW — inside an event handler, before the title ever reaches
+# the frame. The log is ours to define, so define it.
+foreach ch {stdout stderr} {
+    catch {chan configure $ch -encoding utf-8 -profile replace}
+}
+
 # (There is no quirks switch any more. It existed to hold timed repeats of
 # the synthetic ConfigureNotify while we did not know the right moment to
 # send one; running with it OFF proved the moments were missing, reading
@@ -160,6 +169,17 @@ set has_querytree [expr {![catch {
 }]}]
 set has_fetchname [expr {![catch {
     X11 function XFetchName int {dpy pointer.unsafe w ulong name {pointer unsafe out}}
+}]}]
+# The ICCCM text-property pair: fetch a property AS a text property
+# (value + its encoding atom), and let Xlib's own converter turn
+# whatever encoding that is — COMPOUND_TEXT above all — into UTF-8.
+# See client-title for why this beats reading the bytes ourselves.
+set has_textprop [expr {![catch {
+    X11 function XGetTextProperty int {dpy pointer.unsafe w ulong
+        prop pointer.unsafe atom ulong}
+    X11 function Xutf8TextPropertyToTextList int {dpy pointer.unsafe
+        prop pointer.unsafe list {pointer unsafe out} count {int out}}
+    X11 function XFreeStringList void {list {pointer unsafe}}
 }]}]
 set has_getprop [expr {![catch {
     X11 function XGetWindowProperty int {dpy pointer.unsafe w ulong prop ulong
@@ -261,6 +281,7 @@ set WM_STATE          [XInternAtom $dpy WM_STATE 0]
 set TK9WM_RESTART     [XInternAtom $dpy TK9WM_RESTART 0]
 set TK9WM_TIME        [XInternAtom $dpy TK9WM_TIME 0]  ;# server-time poke
 set WM_NAME           39   ;# XA_WM_NAME, predefined
+set XA_STRING         31   ;# XA_STRING, predefined — a text property's type
 set WM_COMMAND        34   ;# XA_WM_COMMAND, predefined
 set WM_CLIENT_MACHINE 36   ;# XA_WM_CLIENT_MACHINE, predefined
 set WM_CLASS          67   ;# XA_WM_CLASS, predefined
@@ -641,11 +662,60 @@ proc transient-for {w} {
     return $parent
 }
 
+# Text-property bytes of a type we read ourselves, decoded; "" means
+# "not one of those" and the caller hands the property to Xlib.
+# STRING is latin1 by the letter of ICCCM, but a client started in the
+# C locale writes raw UTF-8 into it (xterm does exactly that) — so the
+# bytes are offered to UTF-8 first, strictly, and only genuinely
+# invalid ones fall back to latin1. Pure ASCII passes either way.
+proc decode-text-property {enc raw} {
+    if {[info exists ::UTF8] && $enc == $::UTF8} {
+        return [encoding convertfrom utf-8 $raw]
+    }
+    if {$enc == $::XA_STRING} {
+        if {![catch {encoding convertfrom -profile strict utf-8 $raw} s]} {
+            return $s
+        }
+        return [encoding convertfrom iso8859-1 $raw]
+    }
+    return ""
+}
+
+# Everything else — COMPOUND_TEXT above all — through Xlib's own
+# converter: an XTextProperty in, UTF-8 out. A property may legally
+# hold several strings; a title is one, but joining is cheaper than
+# pretending otherwise.
+proc xlib-text-property {tp} {
+    if {[catch {Xutf8TextPropertyToTextList $::dpy $tp lst n} rc] || $rc < 0} {
+        return ""
+    }
+    if {$n <= 0 || [cffi::pointer isnull $lst]} { return "" }
+    set parts {}
+    binary scan [cffi::memory tobinary! $lst [expr {8 * $n}]] wu$n ptrs
+    foreach p $ptrs {
+        if {$p == 0} continue
+        lappend parts [cffi::memory tostring! [cffi::pointer make $p] utf-8]
+    }
+    catch {XFreeStringList $lst}
+    join $parts " "
+}
+
 # The client's window title: _NET_WM_NAME (UTF8, the modern spelling)
-# when present, else WM_NAME via XFetchName. Empty string = the client
-# named nothing. WM_NAME is latin1/COMPOUND_TEXT territory — clients
-# that care about non-ASCII set _NET_WM_NAME, so the lossy fallback is
-# acceptable.
+# when present, else WM_NAME. Empty string = the client named nothing.
+#
+# WM_NAME is pre-Unicode territory and its TYPE decides the reading —
+# which is why it comes in as a TEXT PROPERTY (value plus encoding
+# atom), not as bytes. STRING and UTF8_STRING we decode ourselves
+# (above); anything else is COMPOUND_TEXT, i.e. ISO 2022 with charset
+# designations — a standard in its own right. A Cyrillic xterm title
+# arrives as ESC-designated ISO 8859-5 from an en_US.UTF-8 client and
+# as JIS X 0208 rows from a ru_RU.UTF-8 one (Xlib picks the charset by
+# the CLIENT's locale), and reading either as bytes left the titlebar
+# on its "клиент 0x…" fallback — XFetchName refuses a non-STRING
+# property outright (owner's report, 2026-07-28). Xlib carries the
+# whole conversion table already, so compound text goes to Xlib and
+# comes back UTF-8; verified against both flavours with this process
+# in the C locale, so no setlocale dance is needed.
 proc client-title {w} {
     if {$::has_getprop && [info exists ::NET_WM_NAME]
             && ![catch {XGetWindowProperty $::dpy $w $::NET_WM_NAME 0 256 0 \
@@ -657,6 +727,22 @@ proc client-title {w} {
                 [cffi::memory tobinary! $data $nitems]]
         }
         catch {XFree $data}
+        if {$title ne ""} { return $title }
+    }
+    if {$::has_textprop} {
+        set tp [cffi::memory allocate 32 unsafe]
+        set title ""
+        if {![catch {XGetTextProperty $::dpy $w $tp $::WM_NAME} ok] && $ok} {
+            # XTextProperty (LP64): value@0 encoding@8 format@16 nitems@24
+            binary scan [cffi::memory tobinary! $tp 32] wuwuiux4wu val enc fmt n
+            if {$fmt == 8 && $n > 0 && $val != 0} {
+                set title [decode-text-property $enc \
+                    [cffi::memory tobinary! [cffi::pointer make $val] $n]]
+                if {$title eq ""} { set title [xlib-text-property $tp] }
+            }
+            if {$val != 0} { catch {XFree [cffi::pointer make $val]} }
+        }
+        cffi::memory free $tp
         if {$title ne ""} { return $title }
     }
     if {$::has_fetchname && ![catch {XFetchName $::dpy $w np} ok] && $ok
