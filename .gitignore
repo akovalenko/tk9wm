@@ -3,6 +3,4 @@
 *.log
 *.err
 typed.txt
-icon-config/
-panel-config/
-randr-config/
+*-config/
