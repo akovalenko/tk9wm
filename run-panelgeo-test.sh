@@ -62,8 +62,7 @@ proc geo-battery {} {
         [.panel.t item element cget 2 C0 ePTxt -text]
     set bb [.panel.t item bbox 2 C0 ePRect]
     set bh [expr {[lindex $bb 3] - [lindex $bb 1]}]
-    gchk {badge height pinned to the icon square} 1 \
-        [expr {abs($bh - $isz) <= 4}]
+    gchk {badge height pinned to the icon square} $isz $bh
     # --- right side
     set-panel-side right
     update; update idletasks

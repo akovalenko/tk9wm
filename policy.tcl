@@ -1585,11 +1585,9 @@ proc panel-geometry {} {
     }
     set isz $::panel_icon_size
     set line [font metrics TitleFont -linespace]
-    # badge lettering follows the badge size (the winlist formula);
-    # the pad pins the badge height to the icon square
+    # badge lettering follows the badge size (the winlist formula)
     font configure PanelIconFont -family [font actual TitleFont -family] \
         -size -[expr {max(7, $isz * 5 / 8)}]
-    set bpad [expr {max(3, ($isz - [font metrics PanelIconFont -linespace]) / 2)}]
     if {!$iconic} {
         set content $line
     } elseif {$::panel_preset eq "stack"} {
@@ -1610,8 +1608,9 @@ proc panel-geometry {} {
             } else {
                 set iw $isz
                 if {$f eq ""} {
-                    set iw [expr {[font measure PanelIconFont \
-                        [lindex [pseudo-badge $label] 0]] + 2 * $bpad}]
+                    # the badge: at least the square, wide letters grow it
+                    set iw [expr {max($isz, [font measure PanelIconFont \
+                        [lindex [pseudo-badge $label] 0]])}]
                 }
                 if {$::panel_preset eq "stack"} {
                     set cw [expr {max($iw, $tw)}]
@@ -1625,7 +1624,7 @@ proc panel-geometry {} {
     } else {
         set thick [expr {$itemh + 2}]
     }
-    dict create faces $faces iconic $iconic itemh $itemh thick $thick bpad $bpad
+    dict create faces $faces iconic $iconic itemh $itemh thick $thick
 }
 proc panel-thickness {} { dict get [panel-geometry] thick }
 proc panel-build {} {
@@ -1637,7 +1636,7 @@ proc panel-build {} {
     set iconic [dict get $g iconic]
     set itemh [dict get $g itemh]
     set thick [dict get $g thick]
-    set bpad [dict get $g bpad]
+    set isz $::panel_icon_size
     set vert [expr {$::panel_side eq "right"}]
     toplevel .panel -background $::OUTLINE
     wm overrideredirect .panel 1
@@ -1666,7 +1665,10 @@ proc panel-build {} {
     # Three button styles, assigned per item by what its face resolved
     # to: plain (today's text chip — every button when nothing is
     # iconic), icon, and badge; row and stack presets differ in the
-    # style's orient and pads only.
+    # style's orient and pads only. The badge square is pinned by
+    # min-sizing the union MEMBER (the lettering's layout cell, which
+    # the union rect then surrounds) — -width/-minwidth/-iexpand on
+    # the union element itself are ignored by treectrl.
     $T style create sBtn
     $T style elements sBtn {eFace eBTxt}
     $T style layout sBtn eFace -union eBTxt -ipadx 8 -ipady 3 -padx 2 \
@@ -1683,9 +1685,9 @@ proc panel-build {} {
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
         $T style layout sBtnB eFace -union {ePRect eBTxt} -ipadx 8 -ipady 3 \
             -padx 2 -expand wens
-        $T style layout sBtnB ePRect -union ePTxt -ipadx $bpad -ipady $bpad \
-            -expand we -pady {0 2}
-        $T style layout sBtnB ePTxt -expand wens
+        $T style layout sBtnB ePRect -union ePTxt -expand we -pady {0 2}
+        $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
+            -expand wens
         $T style layout sBtnB eBTxt -expand we
     } elseif {$iconic} {
         $T style create sBtnI
@@ -1698,9 +1700,9 @@ proc panel-build {} {
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
         $T style layout sBtnB eFace -union {ePRect eBTxt} -ipadx 8 -ipady 3 \
             -padx 2 -expand wens
-        $T style layout sBtnB ePRect -union ePTxt -ipadx $bpad -ipady $bpad \
-            -expand ns -padx {0 4}
-        $T style layout sBtnB ePTxt -expand wens
+        $T style layout sBtnB ePRect -union ePTxt -expand ns -padx {0 4}
+        $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
+            -expand wens
         $T style layout sBtnB eBTxt -expand ns
     }
     # the live furniture rides every style: the indicator bar along
