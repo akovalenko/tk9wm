@@ -377,12 +377,17 @@ proc handle-event {} {
             if {$win == $::root && ($detail == 6 || $detail == 7)} {
                 # PointerRoot(6)/None(7): something external reset the
                 # focus (Xephyr does this on outer focus crossings) —
-                # re-assert our focused window
+                # re-assert our focused window. An empty desk has none
+                # to re-assert: a None focus must still be repaired to
+                # PointerRoot, or the root key grabs go dead (see
+                # focus-to-pointerroot); a PointerRoot focus is fine.
                 if {$::focused != 0 && [info exists ::managed($::focused)]} {
                     puts "WM: external focus reset (detail=$detail) —\
  re-asserting 0x[format %x $::focused]"
                     XSetInputFocus $::dpy $::focused 2 0
                     XSync $::dpy 0
+                } elseif {$detail == 7 && $::focused == 0} {
+                    focus-to-pointerroot
                 }
             } elseif {[info exists ::managed($win)] && $mode == 0 && $detail < 5} {
                 # focus moved behind our back (e.g. focus -force):
@@ -911,7 +916,11 @@ proc unmanage {w {dead 0}} {
     }
     if {$stale} {
         set ::focused 0
-        if {$refocus != 0} { focus-to $refocus }
+        if {$refocus != 0} {
+            focus-to $refocus
+        } else {
+            focus-to-pointerroot
+        }
     }
 }
 
@@ -949,6 +958,19 @@ proc focus-to {w} {
     paint-focus $w
     puts "WM: focus -> 0x[format %x $w]"
     return 1
+}
+
+# No window deserves the focus — the desk is empty: park the focus on
+# PointerRoot, never leave it None. With focus None the server
+# activates NO passive key grab (GrabKey fires only when the grab
+# window is an ancestor of the focus window, or the focus is
+# PointerRoot) — so every root-grabbed chord, the panel launchers
+# included, goes dead on an empty desk (live report, 2026-07-28).
+# PointerRoot is also the state a fresh server starts in.
+proc focus-to-pointerroot {} {
+    puts "WM: no window to focus — parking focus on PointerRoot"
+    XSetInputFocus $::dpy 1 1 0   ;# PointerRoot, RevertToPointerRoot
+    XSync $::dpy 0
 }
 
 # A managed client's ConfigureRequest: the decoration follows (size bits
