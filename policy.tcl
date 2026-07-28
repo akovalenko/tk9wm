@@ -55,11 +55,13 @@ if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
 font create IconFont -weight bold
 font create PanelIconFont -weight bold
 # 3px of air above and below the text line; the strip sits under the
-# full top border (a real grip, uniform with the bottom), a 2px gap
-# separates it from the client slot.
+# full top border (a real grip, uniform with the bottom), and a
+# border-wide gap separates it from the client slot: the full-height
+# buttons must NOT touch the client area — the owner asked for a hole
+# about one grip wide between them (2026-07-28; it was 2px).
 proc title-metrics {} {
     set ::titleh [expr {[font metrics TitleFont -linespace] + 6}]
-    set ::decotop [expr {$::border + $::titleh + 2}]
+    set ::decotop [expr {$::border + $::titleh + $::border}]
     # The titlebar buttons are squares of the FULL strip height, drawn
     # flush into its corners — the border strips touch the buttons the
     # way the bottom border touches the client area (the owner's spec,
