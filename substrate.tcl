@@ -144,7 +144,15 @@ set has_getfocus [expr {![catch {
 }]}]
 set has_protocols [expr {![catch {
     X11 function XGetWMProtocols int {dpy pointer.unsafe w ulong protocols {pointer unsafe out} count {int out}}
-    X11 function XFree int {ptr pointer.unsafe}
+    # The parameter is the ANNOTATION form {pointer unsafe}, not the
+    # dotted pointer.unsafe: the dot form declares a pointer TAGGED
+    # "unsafe" and cffi then demands a REGISTERED pointer of that tag —
+    # which the {pointer unsafe out} results below never are. Declared
+    # the dotted way (as it was until 2026-07-28), every call here threw
+    # "not registered" straight into its catch, so not one XFree in this
+    # file ever freed anything. The annotation form takes any pointer,
+    # tagged or not, and actually calls XFree.
+    X11 function XFree int {ptr {pointer unsafe}}
 }]}]
 set has_querytree [expr {![catch {
     X11 function XQueryTree int {dpy pointer.unsafe w ulong rootw {ulong out} parentw {ulong out} children {pointer unsafe out} nkids {uint out}}
