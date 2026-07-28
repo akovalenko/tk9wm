@@ -25,11 +25,14 @@ set focus_hist {}
 # (2026-07-28), so the strip is a full border now.
 set border 6
 # Corner grip arm length — ALL four corners, deco-draw and rz-edge
-# alike. The top arms briefly ran border+titleh ("hug the buttons",
-# same day) — a misunderstanding: the owner wanted the SAME short
-# arms as the bottom, with the buttons grown out to meet them; the
-# button square is gripz - border, so its far edge lands exactly on
-# the grip's cut line (see title-metrics).
+# alike. The top arms briefly ran border+titleh ("hug the buttons"),
+# then the buttons briefly shrank to gripz - border to meet 24px
+# arms — both misreadings of the same wish (2026-07-28): SHORT arms
+# like the bottom, with FULL-height buttons drawn flush into the
+# strip's corners, so the border (and the grip riding on it) presses
+# right against the button the way the bottom border presses against
+# the client area. The grip's cut is just a mark on the border — it
+# does not chase the button's edge.
 set gripz 24
 
 # Titlebar typography. TitleFont is OUR named font: it starts as a copy
@@ -57,12 +60,12 @@ font create PanelIconFont -weight bold
 proc title-metrics {} {
     set ::titleh [expr {[font metrics TitleFont -linespace] + 6}]
     set ::decotop [expr {$::border + $::titleh + 2}]
-    # The titlebar buttons are btnw-square, flush in the strip's top
-    # corners: border + btnw = gripz, so the corner grip arms cup a
-    # button exactly the way the bottom arms cup the client corner.
-    # A font small enough to make the strip shorter than that caps
-    # the button at the strip height (flushness loses, fitting wins).
-    set ::btnw [expr {min($::gripz - $::border, $::titleh)}]
+    # The titlebar buttons are squares of the FULL strip height, drawn
+    # flush into its corners — the border strips touch the buttons the
+    # way the bottom border touches the client area (the owner's spec,
+    # third reading). btnw stays a separate name: it is the button
+    # column width and the click-target size the WM advertises.
+    set ::btnw $::titleh
     btn-images
     puts "WM: titlebar h=$::titleh top=$::decotop btn=$::btnw\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
@@ -91,7 +94,8 @@ set SVG_MENU {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 proc btn-images {} {
     # re-creating a photo under the same name updates every user of it;
     # the union box is glyph + 2*3px ipad (the 1px outline draws inside),
-    # so this glyph height makes the box exactly btnw square
+    # so this glyph height makes the box exactly btnw square — the full
+    # button cell, no inset
     set g [expr {max($::btnw - 6, 7)}]
     image create photo imgClose -format [list svg -scaletoheight $g] \
         -data $::SVG_CLOSE
@@ -401,9 +405,9 @@ proc policy-attach {w cw ch} {
     $t.title style elements sTitle eTxt
     $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
         -padx 4 -squeeze x
-    # -expand s: the slack goes south, the box sits at the cell's top —
-    # flush against the top border, its bottom edge on the grip's cut
-    # line; the btnw-wide column leaves no slack sideways
+    # the box fills its btnw-square cell exactly (glyph + ipad == btnw
+    # == itemheight), flush against the border strips at the corners;
+    # -expand s would only matter if slack ever reappeared
     foreach {st el} {sMenu eMenu sMax eMax sClose eClose} {
         $t.title style create $st
         $t.title style elements $st [list eBox $el]
@@ -525,12 +529,12 @@ proc policy-move-request {w x y vmask grav} {
 # the perimeter, and fvwm-style corner grips in a lighter shade, cut
 # off by thin dark lines — the visible promise that a corner drags
 # diagonally. All four corners are L-shaped, arms $::border thick and
-# $::gripz long, one measure top and bottom. At the bottom the arms
-# cup the client area's corner; at the top they cup a titlebar button
-# (btnw square, flush in the strip's corner — see title-metrics): the
-# cut line falls exactly on the button's edge. rz-edge's corner zones
-# are the same measure. Redrawn on <Configure>, recolored (via a full
-# cheap redraw) by paint-focus.
+# $::gripz long, one measure top and bottom. The arms press against
+# what lives just inside the border: the client area at the bottom,
+# a full-height titlebar button at the top (flush in the strip's
+# corner — see title-metrics). rz-edge's corner zones are the same
+# measure. Redrawn on <Configure>, recolored (via a full cheap
+# redraw) by paint-focus.
 proc deco-draw {c W H} {
     $c delete all
     set B $::border; set CZ $::gripz
