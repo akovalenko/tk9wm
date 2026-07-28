@@ -28,8 +28,16 @@ cffi. Идейный наследник tkwm (Eric Schenk, Neil McKay, 1994–95
   окон, фокус-ядро с починкой
   внешнего PointerRoot-сброса, парковкой фокуса на PointerRoot при
   опустевшем столе (фокус None глушит все пассивные key-grab-ы) и
-  ICCCM `WM_TAKE_FOCUS` объявившим его клиентам (голый FocusIn не
-  активирует wine — клавиатура была мертва до клика), close-механика
+  **тремя фокус-моделями ICCCM**: passive (голый XSetInputFocus),
+  locally active (input=True + WM_TAKE_FOCUS — фокус плюс
+  ClientMessage вслед, Java/старый wine) и **globally active**
+  (input=False + WM_TAKE_FOCUS — wine 10+): только приглашение с
+  таймстампом юзерского события, свой фокус НЕ ставим — клиент
+  отвечает сам тем же таймстампом, и любой наш конкурирующий
+  XSetInputFocus протухляет его ответ (война, выигранная в fvwm3 —
+  fvwm-коммит 6ec006d9c); рутовый `_NET_ACTIVE_WINDOW` ведётся
+  честно на каждой смене фокуса — wine выводит из него свой
+  foreground, close-механика
   (WM_DELETE_WINDOW /
   XKillClient; вежливый путь с проверкой: окно всё ещё managed через
   2 с после delete — policy-хук «клиент молчит»), root-ConfigureNotify
@@ -258,7 +266,14 @@ ConfigureNotify там (так делает Tk; см. `send_for_frame_too` у fv
   `run-takefocus-test.sh` (ICCCM WM_TAKE_FOCUS: клиент, объявивший
   протокол, получает ClientMessage и при manage-фокусе, и при
   возврате по alt-tab — wine без него оставался с мёртвой
-  клавиатурой до клика; не объявивший — не получает никогда).
+  клавиатурой до клика; не объявивший — не получает никогда),
+  `run-gafocus-test.sh` (globally active, модель wine 10+:
+  контрольный клиент `ga-client.tcl` с input=False отвечает на
+  каждое приглашение XSetInputFocus-ом с таймстампом приглашения и
+  после каждого честного ответа бампает время фокуса — все ответы
+  honored, ни один не протух от конкурирующего фокус-опа WM,
+  клавиши текут после второго возврата, WM ни разу не ставил фокус
+  сам, `_NET_ACTIVE_WINDOW` кончает на ga-окне).
 - Диагностика живого дисплея (read-only, любой дисплей): `probe-focus.tcl`
   — снимок фокуса; `probe-watch.tcl` — вахта смен фокуса; `probe-trace.tcl`
   — что под указателем и куда ушёл фокус, построчно на каждое изменение;

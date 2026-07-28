@@ -272,13 +272,19 @@ if {[catch {
     set NET_CHECK     [XInternAtom $dpy _NET_SUPPORTING_WM_CHECK 0]
     set NET_SUPPORTED [XInternAtom $dpy _NET_SUPPORTED 0]
     set NET_WM_NAME   [XInternAtom $dpy _NET_WM_NAME 0]
+    set NET_ACTIVE    [XInternAtom $dpy _NET_ACTIVE_WINDOW 0]
     set UTF8          [XInternAtom $dpy UTF8_STRING 0]
     set wmcheck [XCreateSimpleWindow $dpy $root -100 -100 1 1 0 0 0]
     set-prop-longs $root    $NET_CHECK 33 [list $wmcheck]   ;# XA_WINDOW
     set-prop-longs $wmcheck $NET_CHECK 33 [list $wmcheck]
     set-prop-utf8  $wmcheck $NET_WM_NAME tk9wm
+    # _NET_ACTIVE_WINDOW is load-bearing for Wine 10+: it derives its
+    # foreground from this root property, and its focus-stealing guard
+    # judges our WM_TAKE_FOCUS invitations against that foreground —
+    # kept honest by paint-focus below
+    set-prop-longs $root $NET_ACTIVE 33 [list 0]
     set-prop-longs $root $NET_SUPPORTED 4 \
-        [list $NET_CHECK $NET_WM_NAME]                      ;# XA_ATOM
+        [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE]          ;# XA_ATOM
     XSync $dpy 0
     puts "WM: EWMH minimum up (_NET_SUPPORTING_WM_CHECK=[format 0x%x $wmcheck])"
 } err]} { puts "WM: EWMH setup failed: $err" }
@@ -385,8 +391,9 @@ proc handle-event {} {
                 if {$::focused != 0 && [info exists ::managed($::focused)]} {
                     puts "WM: external focus reset (detail=$detail) —\
  re-asserting 0x[format %x $::focused]"
-                    XSetInputFocus $::dpy $::focused 2 0
-                    XSync $::dpy 0
+                    # via focus-to: a globally active window must be
+                    # re-invited, not XSetInputFocus-ed at
+                    focus-to $::focused
                 } elseif {$detail == 7 && $::focused == 0} {
                     focus-to-pointerroot
                 }
@@ -936,10 +943,51 @@ set focused 0
 set evtime 0   ;# timestamp of the last user input event we parsed
 proc paint-focus {w} {
     set ::focused $w
+    # every honest focus change publishes _NET_ACTIVE_WINDOW — Wine
+    # reads its foreground from here (see the EWMH block)
+    if {[info exists ::NET_ACTIVE]} {
+        catch { set-prop-longs $::root $::NET_ACTIVE 33 [list $w] }
+    }
     policy-paint-focus $w
+}
+# ICCCM input model: the WM_HINTS input member, meaningful when the
+# InputHint flag is set; an absent property or flag means input=True —
+# the passive default the world's toolkits assume. WM_HINTS is the
+# predefined atom 35 (property and type alike): flags in the first
+# long (InputHint = bit 0), input in the second.
+proc client-input-hint {w} {
+    if {!$::has_getprop} { return 1 }
+    set input 1
+    if {![catch {XGetWindowProperty $::dpy $w 35 0 9 0 35 \
+            atype afmt nitems after data} status] && $status == 0} {
+        if {$afmt == 32 && $nitems >= 2 && ![cffi::pointer isnull $data]} {
+            binary scan [cffi::memory tobinary! $data 16] wuwu flags inp
+            if {$flags & 1} { set input [expr {$inp != 0}] }
+        }
+        catch {XFree $data}
+    }
+    return $input
 }
 proc focus-to {w} {
     if {![info exists ::managed($w)]} { return 0 }
+    # The ICCCM "globally active" client — input=False plus
+    # WM_TAKE_FOCUS (Wine 10+ lives here) — handles the focus ITSELF.
+    # The WM only sends the invitation, stamped with the user event's
+    # time, and must then LEAVE THE X FOCUS ALONE: the client answers
+    # with its own XSetInputFocus carrying that same timestamp, and
+    # the server silently drops a request older than the last focus
+    # change — so any focus op of ours in between (step 28 set the
+    # focus right before inviting) makes the answer stale and the
+    # window keyboard-dead. The same war was fought and won in fvwm3
+    # (its commit 6ec006d9c; notes/fvwm3-wine-focus.md in thoughts):
+    # invite, hands off, let the FocusIn confirm.
+    if {[client-advertises $w $::WM_TAKE_FOCUS 0] && ![client-input-hint $w]} {
+        puts "WM: focus -> 0x[format %x $w]: WM_TAKE_FOCUS invitation\
+ (globally active), t=$::evtime"
+        send-protocol $w $::WM_TAKE_FOCUS $::evtime
+        paint-focus $w
+        return 1
+    }
     # RevertToParent (2), NOT PointerRoot: if the focus window dies before
     # we refocus, a parent revert leaves the keyboard silent for a moment,
     # while a PointerRoot revert switches the whole session to
@@ -960,13 +1008,10 @@ proc focus-to {w} {
  (focus=[format 0x%x $f] revert=$r) — not recorded, will retry"
         return 0
     }
-    # ICCCM WM_TAKE_FOCUS, for the client that advertises it: the X
-    # focus alone does not activate everyone. Live case (smsrc under
-    # Wine, 2026-07-28): alt-tab back into the Wine window left its
-    # keyboard dead until a click — Wine turns a bare FocusIn into no
-    # Windows-level activation, but honors the WM_TAKE_FOCUS message
+    # The "locally active" client (input=True plus WM_TAKE_FOCUS —
+    # Java, old Wine): the X focus works, and the message rides along
+    # per ICCCM so the client can move focus among its own windows
     # (dwm ships exactly this XSetInputFocus + ClientMessage pair).
-    # Sent with the timestamp of the user event that led here.
     if {[client-advertises $w $::WM_TAKE_FOCUS 0]} {
         puts "WM: focus -> 0x[format %x $w]: sending WM_TAKE_FOCUS"
         send-protocol $w $::WM_TAKE_FOCUS $::evtime
@@ -987,6 +1032,9 @@ proc focus-to-pointerroot {} {
     puts "WM: no window to focus — parking focus on PointerRoot"
     XSetInputFocus $::dpy 1 1 0   ;# PointerRoot, RevertToPointerRoot
     XSync $::dpy 0
+    if {[info exists ::NET_ACTIVE]} {
+        catch { set-prop-longs $::root $::NET_ACTIVE 33 [list 0] }
+    }
 }
 
 # A managed client's ConfigureRequest: the decoration follows (size bits
