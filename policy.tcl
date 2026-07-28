@@ -1892,6 +1892,14 @@ proc panel-build {} {
     # panel-geometry's, backwards — the strip is content + 20 + zone
     # wide, so the content cell is the strip less its own paddings.
     set memw [expr {max(1, $thick - 2 - 4 - 8 - $er)}]
+    # The face is PINNED by its own vertical padding instead of being
+    # left to float in the item's slack: the two presets distributed
+    # that slack differently (a row centres its content, a stack lets
+    # it sit at the top), so the face's lower edge — where the live
+    # indicator has to land — was in a different place in each. With
+    # the pad, the item is exactly face + 2*fgap and the edge is one
+    # number in both.
+    set fgap [dict get $g fgap]
     toplevel .panel -background $::OUTLINE
     wm overrideredirect .panel 1
     set T [treectrl .panel.t -showheader no -showroot no -showbuttons no \
@@ -1928,37 +1936,52 @@ proc panel-build {} {
     $T style create sBtn
     $T style elements sBtn {eFace eBTxt}
     $T style layout sBtn eFace -union eBTxt -ipadx [list 8 $er] -ipady 3 \
-        -padx 2 -expand ns
+        -padx 2 -pady $fgap -expand ns
     $T style layout sBtn eBTxt -expand ns
     if {$iconic && $::panel_preset eq "stack"} {
         $T style create sBtnI -orient vertical
         $T style elements sBtnI {eFace eBIcon eBTxt}
         $T style layout sBtnI eFace -union {eBIcon eBTxt} \
-            -ipadx [list 8 $er] -ipady 3 -padx 2 -expand wens
+            -ipadx [list 8 $er] -ipady 3 -padx 2 -pady $fgap -expand wens
         $T style layout sBtnI eBIcon -expand we -pady {0 2}
         $T style layout sBtnI eBTxt -expand we
         $T style create sBtnB -orient vertical
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
         $T style layout sBtnB eFace -union {ePRect eBTxt} \
-            -ipadx [list 8 $er] -ipady 3 -padx 2 -expand wens
-        $T style layout sBtnB ePRect -union ePTxt -expand we -pady {0 2}
+            -ipadx [list 8 $er] -ipady 3 -padx 2 -pady $fgap -expand wens
+        # The pad goes on the LETTERING, not on the rect around it: a
+        # union element is not in the flow, and padding it grows the
+        # union instead of spacing the flow (measured — the badge
+        # button's content came out 4px taller than an icon button's,
+        # so its whole stack sat lower and the label came down onto its
+        # own indicator; owner's report, 2026-07-29).
+        $T style layout sBtnB ePRect -union ePTxt -expand we
+        # -expand we and not wens, exactly as the icon above it: with a
+        # vertical slack to grab, the lettering grabs it, and the badge
+        # button's whole stack slides down onto its own indicator.
         $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
-            -expand wens
+            -expand we -pady {0 2}
         $T style layout sBtnB eBTxt -expand we
     } elseif {$iconic} {
         $T style create sBtnI
         $T style elements sBtnI {eFace eBIcon eBTxt}
         $T style layout sBtnI eFace -union {eBIcon eBTxt} \
-            -ipadx [list 8 $er] -ipady 3 -padx 2 -expand wens
+            -ipadx [list 8 $er] -ipady 3 -padx 2 -pady $fgap -expand wens
         $T style layout sBtnI eBIcon -expand ns -padx {0 4}
         $T style layout sBtnI eBTxt -expand ns
         $T style create sBtnB
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
         $T style layout sBtnB eFace -union {ePRect eBTxt} \
-            -ipadx [list 8 $er] -ipady 3 -padx 2 -expand wens
-        $T style layout sBtnB ePRect -union ePTxt -expand ns -padx {0 4}
+            -ipadx [list 8 $er] -ipady 3 -padx 2 -pady $fgap -expand wens
+        # ...and the same in the row preset, where the mis-placed pad
+        # made the badge button WIDER than the rest and pushed its
+        # right border out of line.
+        $T style layout sBtnB ePRect -union ePTxt -expand ns
+        # -expand ns, as the icon: the horizontal slack is not the
+        # badge's to take — taking it is what pushed this button's
+        # right border out of the column.
         $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
-            -expand wens
+            -expand ns -padx {0 4}
         $T style layout sBtnB eBTxt -expand ns
     }
     # One column, one width: every label cell is min-sized to the
@@ -1994,12 +2017,15 @@ proc panel-build {} {
             # In a column the item's bottom edge is the NEXT button's
             # doorstep, and a full-width bar drawn there reads as that
             # button's top border — the indicator pointed at the wrong
-            # face (owner's report, 2026-07-29). Pulled up by the item's
-            # own air (fgap) it lands on ITS face's lower edge, and
-            # -padx 2 (the face's own) gives it exactly the face's
-            # width: inside the button it belongs to, and nowhere else.
+            # face (owner's report, 2026-07-29). It belongs ON the face:
+            # the content is top-aligned in the item, so the face's own
+            # lower edge is 2*fgap up from the item's bottom, and -padx
+            # 2 (the face's own) gives the bar exactly the face's width.
+            # Drawn last, it takes over the bottom stretch of the face's
+            # outline — an indicator that is part of the button rather
+            # than a stripe near it.
             $T style layout $s eLive -detach yes -iexpand x -expand n \
-                -padx 2 -pady [list 0 [dict get $g fgap]]
+                -padx 2 -pady [list 0 $fgap]
         } else {
             $T style layout $s eLive -detach yes -iexpand x -expand n
         }

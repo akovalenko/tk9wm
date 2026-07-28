@@ -92,6 +92,44 @@ proc geo-battery {} {
     gchk {stack: label sits under the icon} 1 \
         [expr {[lindex [.panel.t item bbox 1 C0 eBTxt] 1] >= \
                [lindex [.panel.t item bbox 1 C0 eBIcon] 3]}]
+    # --- a COLUMN is not a row: what the right-edge strip owes the eye
+    # (owner's report, 2026-07-29 — an icon button and a badge button
+    # laid out differently, and the live indicator floating in the gap
+    # between two buttons instead of belonging to one).
+    set-tray off
+    update; update idletasks
+    lassign [.panel.t item bbox 1 C0 eFace] ix1 iy1 ix2 iy2
+    lassign [.panel.t item bbox 2 C0 eFace] bx1 by1 bx2 by2
+    gchk {stack: every face spans the same width} \
+        [list $ix1 $ix2] [list $bx1 $bx2]
+    gchk {stack: every face is the same height} \
+        [expr {$iy2 - $iy1}] [expr {$by2 - $by1}]
+    gchk {stack: the badge sits where the icon sits} \
+        [expr {[lindex [.panel.t item bbox 1 C0 eBIcon] 1] - $iy1}] \
+        [expr {[lindex [.panel.t item bbox 2 C0 ePRect] 1] - $by1}]
+    foreach item {1 2} {
+        lassign [.panel.t item bbox $item C0 eFace] - - fx2 fy2
+        lassign [.panel.t item bbox $item C0 eLive] - - lx2 ly2
+        gchk "stack: item $item — the indicator ends where its face does" \
+            [list $fx2 $fy2] [list $lx2 $ly2]
+    }
+    set-panel-preset row
+    update; update idletasks
+    foreach item {1 2} {
+        lassign [.panel.t item bbox $item C0 eFace] - - fx2 fy2
+        lassign [.panel.t item bbox $item C0 eLive] - - lx2 ly2
+        gchk "row: item $item — the indicator ends where its face does" \
+            [list $fx2 $fy2] [list $lx2 $ly2]
+    }
+    gchk {row: the badge button is as wide as the icon one} \
+        [lrange [.panel.t item bbox 1 C0 eFace] 0 0] \
+        [lrange [.panel.t item bbox 2 C0 eFace] 0 0]
+    gchk {row: ...and ends in the same place} \
+        [lrange [.panel.t item bbox 1 C0 eFace] 2 2] \
+        [lrange [.panel.t item bbox 2 C0 eFace] 2 2]
+    set-panel-preset stack
+    update; update idletasks
+
     # --- icon size knob
     set-panel-icon-size 32
     update; update idletasks
@@ -137,12 +175,12 @@ else
     echo "OK: no battery failures"
 fi
 PASS=$(grep -c 'GEO PASS' "$HERE/wm-panelgeo.log")
-if [ "$PASS" = 14 ]; then
-    echo "OK: all 14 checks passed"
+if [ "$PASS" = 23 ]; then
+    echo "OK: all 23 checks passed"
 else
-    echo "FAIL: $PASS PASS lines, want 14"
+    echo "FAIL: $PASS PASS lines, want 23"
 fi
-if grep -q 'GEO BATTERY: 14 checks' "$HERE/wm-panelgeo.log"; then
+if grep -q 'GEO BATTERY: 23 checks' "$HERE/wm-panelgeo.log"; then
     echo "OK: the battery ran to completion"
 else
     echo "FAIL: the battery is missing or truncated"
