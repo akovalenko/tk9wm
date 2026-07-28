@@ -1,18 +1,21 @@
 # tk9wm — thin assembly of the two layers:
 #
-#  substrate.tcl — the mechanism a WM cannot exist without: cffi Xlib +
-#    X error handler (installed BEFORE Tk — the order is the whole trick),
-#    the fd pump (worker thread + poll ping-pong), redirect / reparent /
-#    save-set surgery, adoption, focus core with PointerRoot repair, close
-#    machinery, synthetic ConfigureNotify, EWMH minimum. Drives policy-*.
+#  substrate.tcl — the mechanism a WM cannot exist without: the tkwmx
+#    shim on TK'S OWN connection (redirect, X error sink, events
+#    dispatched by Tk itself), reparent / save-set surgery, adoption,
+#    focus core with PointerRoot repair, close machinery, synthetic
+#    ConfigureNotify, EWMH minimum. Drives policy-*.
 #  policy.tcl — our local decisions: Tk-widget decorations (titlebar/✕/
 #    slot), cascade placement, title drag, click-to-focus. Implements the
 #    policy-* hooks (contract — substrate.tcl header; discussion — the
 #    idea file, step 9).
 #
-# Sourcing order matters: the substrate must install its X error handler
-# before Tk loads, so it comes first; the policy needs Tk, which the
-# substrate has already required.
+# Sourcing order still matters, though for a plainer reason than it used
+# to (the error handler no longer has to beat Tk to the display): the
+# substrate takes the redirect and defines the transport the policy is
+# written against, so it comes first — and it is what requires Tk.
+# Nothing is dispatched until substrate-start below; events that arrive
+# while the policy is loading wait in a queue.
 
 set here [file dirname [file normalize [info script]]]
 source [file join $here substrate.tcl]
@@ -52,11 +55,9 @@ if {[lindex $argv 0] eq "demo"} {
     # survival demo: provoke a BadWindow on purpose; without the error
     # handler Xlib's default would have exited the whole process here
     after 6000 {
-        if {$has_errhandler} {
-            puts "WM: injecting BadWindow on purpose (XMapWindow of a bogus id)"
-            XMapWindow $dpy 0x666666
-            XSync $dpy 0
-        }
+        puts "WM: injecting BadWindow on purpose (mapping a bogus id)"
+        x-map 0x666666
+        x-sync 0
     }
     after 12000 {xerror-flush; puts "WM: bye"; exit 0}
 }

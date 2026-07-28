@@ -1,19 +1,26 @@
 # tk9wm substrate — the mechanism layer: everything a WM cannot exist
 # without, with zero look-and-feel decisions in it.
 #
-# One whale process, two X connections:
-#  - Tk's own connection draws decorations (the policy layer's job);
-#  - a raw Xlib connection (cffi) holds the redirect and does WM surgery
-#    (save-set, reparent, map).
-# The raw connection's fd is watched by a worker thread blocked in poll();
-# it pings the main thread, which drains XPending inside the Tcl event
-# loop and then re-arms the worker (ping-pong: exactly one token, so no
-# busy loop and no double drains).
+# One whale process, ONE X connection: Tk's own. The tkwmx shim built
+# into the kit (thoughts: plans/tk9wm-shim.md) does on that connection
+# the three things no script can reach — hold SubstructureRedirect,
+# speak the WM half of X, and hand the redirect events to Tk's own
+# event loop as dicts. Requests and events therefore share one stream,
+# which is what makes the ordering questions ("has the server seen it
+# yet?") answerable at all.
 #
-# Sourcing this file installs the X error handler, loads Tk (order is
-# critical — see the error handler section), arms the redirect and the
-# pump machinery.  Call substrate-start AFTER the policy layer is loaded:
-# it starts draining events and adopts pre-existing windows.
+# It was two connections until the swap: a raw Xlib one over cffi, its
+# fd watched by a worker thread blocked in poll(), pinging the main
+# thread to drain XPending. That cost a class of ordering bugs, 38
+# places decoding structs by LP64 offset — and it could not be done by
+# halves, because in X every kind of OWNERSHIP is per-connection: a
+# grab belongs to whoever grabbed, so does a select-input, and a sync
+# on one connection says nothing about the other.
+#
+# Sourcing this file loads Tk and the shim, installs the X error sink,
+# arms the redirect and the dispatcher.  Call substrate-start AFTER the
+# policy layer is loaded: it starts dispatching events (whatever
+# arrived before is replayed, not lost) and adopts pre-existing windows.
 #
 # The policy layer must implement these hooks (called by the substrate):
 #   policy-attach w cw ch   build a decoration for client w (client area
@@ -110,10 +117,9 @@
 #                               absent otherwise)
 #   $::focused                  currently focused client (0 = none)
 
-package require cffi
-package require Thread
-# NB: Tk is required LATER, after our X error handler is installed — see the
-# error handler section for why the order matters.
+package require Tk
+package require tkwmx
+wm withdraw .   ;# our own real toplevel is no client of ours
 
 # ---------------- soft failures: survived, but never silent ----------------
 # A WM has to outlive the errors its clients hand it — a window dies
@@ -167,211 +173,105 @@ foreach ch {stdout stderr} {
 # the frame — and with those in place the live case was fixed with no
 # timers at all. A switch with nothing behind it only rots.)
 
-# ---------------- raw Xlib over cffi (second connection) ----------------
-cffi::Wrapper create X11 libX11.so.6
-X11 function XOpenDisplay pointer.unsafe {name string}
-X11 function XDefaultRootWindow ulong {dpy pointer.unsafe}
-X11 function XSelectInput int {dpy pointer.unsafe w ulong mask long}
-X11 function XPending int {dpy pointer.unsafe}
-X11 function XNextEvent int {dpy pointer.unsafe ev pointer.unsafe}
-X11 function XWindowEvent int {dpy pointer.unsafe w ulong mask long ev pointer.unsafe}
-X11 function XMapWindow int {dpy pointer.unsafe w ulong}
-X11 function XUnmapWindow int {dpy pointer.unsafe w ulong}
-X11 function XSync int {dpy pointer.unsafe discard int}
-X11 function XConnectionNumber int {dpy pointer.unsafe}
-X11 function XAddToSaveSet int {dpy pointer.unsafe w ulong}
-X11 function XReparentWindow int {dpy pointer.unsafe w ulong parent ulong x int y int}
-X11 function XConfigureWindow int {dpy pointer.unsafe w ulong mask uint changes pointer.unsafe}
-X11 function XSetInputFocus int {dpy pointer.unsafe focus ulong revert_to int time ulong}
-X11 function XResizeWindow int {dpy pointer.unsafe w ulong width uint height uint}
-X11 function XInternAtom ulong {dpy pointer.unsafe name string only_if_exists int}
-X11 function XSendEvent int {dpy pointer.unsafe w ulong propagate int mask long ev pointer.unsafe}
-X11 function XKillClient int {dpy pointer.unsafe resource ulong}
-X11 function XGrabButton int {dpy pointer.unsafe button uint modifiers uint w ulong owner_events int event_mask uint pointer_mode int keyboard_mode int confine ulong cursor ulong}
-X11 function XAllowEvents int {dpy pointer.unsafe mode int time ulong}
-X11 function XFlush int {dpy pointer.unsafe}
-X11 function XChangeProperty int {dpy pointer.unsafe w ulong prop ulong type ulong fmt int mode int data pointer.unsafe n int}
-X11 function XCreateSimpleWindow ulong {dpy pointer.unsafe parent ulong x int y int w uint h uint bw uint border ulong bg ulong}
-X11 function XChangeWindowAttributes int {dpy pointer.unsafe w ulong mask ulong attrs pointer.unsafe}
-# A capability probe: declare a group of Xlib entry points and answer
-# whether this libX11 has them. The answer is a flag the code below
-# gates features on, so a failure must SAY which group went missing —
-# a silent 0 would mean, say, no icons for the rest of the run with
-# nothing anywhere to explain it.
-proc have {label script} {
-    if {[catch {uplevel 1 $script} err]} {
-        puts "WM: capability «$label» unavailable in this libX11: $err"
-        return 0
-    }
-    return 1
-}
-set has_transient [have "WM_TRANSIENT_FOR" {
-    X11 function XGetTransientForHint int {dpy pointer.unsafe w ulong prop {ulong out}}
-}]
-set has_geometry [have "XGetGeometry" {
-    X11 function XGetGeometry int {dpy pointer.unsafe d ulong root {ulong out}
-        x {int out} y {int out} width {uint out} height {uint out}
-        bw {uint out} depth {uint out}}
-}]
-set has_getfocus [have "XGetInputFocus" {
-    X11 function XGetInputFocus int {dpy pointer.unsafe focus {ulong out} revert_to {int out}}
-}]
-set has_protocols [have "WM_PROTOCOLS + XFree" {
-    X11 function XGetWMProtocols int {dpy pointer.unsafe w ulong protocols {pointer unsafe out} count {int out}}
-    # The parameter is the ANNOTATION form {pointer unsafe}, not the
-    # dotted pointer.unsafe: the dot form declares a pointer TAGGED
-    # "unsafe" and cffi then demands a REGISTERED pointer of that tag —
-    # which the {pointer unsafe out} results below never are. Declared
-    # the dotted way (as it was until 2026-07-28), every call here threw
-    # "not registered" straight into its catch, so not one XFree in this
-    # file ever freed anything. The annotation form takes any pointer,
-    # tagged or not, and actually calls XFree.
-    X11 function XFree int {ptr {pointer unsafe}}
-}]
-# Every Xlib-allocated buffer goes back through here — one place to
-# hold the pointer-form lesson (see the XFree declaration above), and
-# one label in the log if freeing ever stops working again. NULL is
-# nothing to free: XFree(NULL) is a legal no-op in Xlib, but cffi
-# refuses to marshal a null pointer, and a property read that came
-# back empty hands us exactly that (found the moment the wrapper got
-# a voice — the old bare catch had been eating it all along).
-proc xfree {p} {
-    if {[cffi::pointer isnull $p]} return
-    soft XFree [list XFree $p]
-}
-
-set has_querytree [have "XQueryTree (adoption)" {
-    X11 function XQueryTree int {dpy pointer.unsafe w ulong rootw {ulong out} parentw {ulong out} children {pointer unsafe out} nkids {uint out}}
-    X11 function XGetWindowAttributes int {dpy pointer.unsafe w ulong attrs pointer.unsafe}
-}]
-set has_fetchname [have "XFetchName" {
-    X11 function XFetchName int {dpy pointer.unsafe w ulong name {pointer unsafe out}}
-}]
-# The ICCCM text-property pair: fetch a property AS a text property
-# (value + its encoding atom), and let Xlib's own converter turn
-# whatever encoding that is — COMPOUND_TEXT above all — into UTF-8.
-# See client-title for why this beats reading the bytes ourselves.
-set has_textprop [have "text properties (compound text)" {
-    X11 function XGetTextProperty int {dpy pointer.unsafe w ulong
-        prop pointer.unsafe atom ulong}
-    X11 function Xutf8TextPropertyToTextList int {dpy pointer.unsafe
-        prop pointer.unsafe list {pointer unsafe out} count {int out}}
-    X11 function XFreeStringList void {list {pointer unsafe}}
-}]
-set has_getprop [have "XGetWindowProperty" {
-    X11 function XGetWindowProperty int {dpy pointer.unsafe w ulong prop ulong
-        off long len long delete int reqtype ulong actual_type {ulong out}
-        actual_format {int out} nitems {ulong out} bytes_after {ulong out}
-        data {pointer unsafe out}}
-}]
-set has_normalhints [have "WM_NORMAL_HINTS" {
-    X11 function XGetWMNormalHints int {dpy pointer.unsafe w ulong
-        hints pointer.unsafe supplied {long out}}
-}]
-set has_keys [have "keyboard grabs" {
-    X11 function XGrabKey int {dpy pointer.unsafe keycode int modifiers uint
-        w ulong owner_events int pointer_mode int keyboard_mode int}
-    X11 function XUngrabKey int {dpy pointer.unsafe keycode int modifiers uint w ulong}
-    X11 function XGrabKeyboard int {dpy pointer.unsafe w ulong owner_events int
-        pointer_mode int keyboard_mode int time ulong}
-    X11 function XUngrabKeyboard int {dpy pointer.unsafe time ulong}
-    X11 function XStringToKeysym ulong {name string}
-    X11 function XKeysymToString pointer.unsafe {keysym ulong}
-    X11 function XKeysymToKeycode uchar {dpy pointer.unsafe keysym ulong}
-    X11 function XkbKeycodeToKeysym ulong {dpy pointer.unsafe kc uchar group int level int}
-    X11 function XRefreshKeyboardMapping int {ev pointer.unsafe}
-    X11 function XQueryKeymap int {dpy pointer.unsafe keys pointer.unsafe}
-}]
-
 # ---------------- the X transport layer ----------------
 # Every X call the substrate makes goes through this section and
-# nothing else does. Today each proc is a thin cffi call; tomorrow the
-# same signatures are served by the tkwmx shim built into the kit
-# (thoughts: plans/tk9wm-shim.md), and the swap touches this section
-# alone — that is the whole point of it existing.
+# nothing else does. Each proc is now one tkwmx call; until the swap
+# each was one cffi call on a second connection, and this layer is
+# what made that swap a rewrite of THIRTY-ODD BODIES instead of a
+# rewrite of the file — the whole point of it existing.
 #
-# The signatures follow the SHIM's rules, not Xlib's, so that the swap
-# is a rename and not a redesign: no pointer ever crosses this
-# boundary, out-parameters come back as VALUES (a list, or {} for "the
-# server said no"), and the display is implicit — the shim will take
-# it as -displayof, we take it from $::dpy.
-proc x-map {w}                  { XMapWindow $::dpy $w }
-proc x-unmap {w}                { XUnmapWindow $::dpy $w }
-proc x-reparent {w parent x y}  { XReparentWindow $::dpy $w $parent $x $y }
-proc x-resize {w cw ch}         { XResizeWindow $::dpy $w $cw $ch }
-proc x-kill-client {w}          { XKillClient $::dpy $w }
-proc x-save-set-add {w}         { XAddToSaveSet $::dpy $w }
-proc x-select-input {w mask}    { XSelectInput $::dpy $w $mask }
-proc x-sync {{discard 0}}       { XSync $::dpy $discard }
-proc x-flush {}                 { XFlush $::dpy }
-proc x-intern {name}            { XInternAtom $::dpy $name 0 }
-proc x-configure {w mask changes} { XConfigureWindow $::dpy $w $mask $changes }
-proc x-send-event {w propagate mask ev} { XSendEvent $::dpy $w $propagate $mask $ev }
-proc x-change-attrs {w mask attrs} { XChangeWindowAttributes $::dpy $w $mask $attrs }
-proc x-create-window {parent x y width height bw border bg} {
-    XCreateSimpleWindow $::dpy $parent $x $y $width $height $bw $border $bg
+# The rules the signatures follow are the shim's: no pointer ever
+# crosses this boundary, out-parameters come back as VALUES (a list or
+# a dict, {} for "the server would not say"), event masks are named
+# and not numbered, and the display is implicit — the shim takes it
+# from Tk's main window, which is the only connection there is now.
+proc x-map {w}                  { tkwmx::window map $w }
+proc x-unmap {w}                { tkwmx::window unmap $w }
+proc x-reparent {w parent x y}  { tkwmx::window reparent $w $parent $x $y }
+proc x-resize {w cw ch}         { tkwmx::window resize $w $cw $ch }
+proc x-kill-client {w}          { tkwmx::window kill $w }
+proc x-save-set-add {w}         { tkwmx::window saveset add $w }
+proc x-sync {{discard 0}}       { tkwmx::server sync $discard }
+proc x-flush {}                 { tkwmx::server flush }
+proc x-intern {name}            { tkwmx::atom intern $name }
+# A mask is a LIST OF NAMES here (see tkwmx::event masks). On a window
+# of OUR OWN the shim adds them to what Tk selected instead of
+# replacing it — the single-connection trap, spelled out there.
+proc x-select-input {w masks}   { tkwmx::event select $w $masks }
+# The answer to a ConfigureRequest, in the request's own terms: only
+# the keys present are applied.
+proc x-configure {w changes}    { tkwmx::window configure $w $changes }
+# The attributes of a window we did not create: with a dict it sets
+# them, without one it reads them ({} when the window is gone).
+proc x-attrs {w {changes ""}} {
+    if {$changes eq ""} { return [tkwmx::window attrs $w] }
+    tkwmx::window attrs $w $changes
 }
-proc x-allow-events {mode time} { XAllowEvents $::dpy $mode $time }
-proc x-change-property {w prop type fmt mode data n} {
-    XChangeProperty $::dpy $w $prop $type $fmt $mode $data $n
+# Our own bare windows (the EWMH check window, the focus holder);
+# -override for the ones no manager, ours included, should ever frame.
+proc x-create-window {parent x y width height {override ""}} {
+    tkwmx::window create $parent $x $y $width $height {*}$override
 }
-# RevertToParent (2) is the substrate's only revert mode — see focus-to.
-proc x-focus-set {w {revert 2} {time 0}} { XSetInputFocus $::dpy $w $revert $time }
+proc x-allow-events {mode {time 0}} { tkwmx::grab allow $mode $time }
+proc x-prop-set {w prop type fmt value {append 0}} {
+    tkwmx::prop set $w $prop $type $fmt $value $append
+}
+# {type format value}, or {} when the property is absent
+proc x-prop-get {w prop}        { tkwmx::prop get $w $prop }
+# a text property in any encoding, decoded; "" when absent
+proc x-prop-text {w prop}       { tkwmx::prop text $w $prop }
+proc x-prop-class {w}           { tkwmx::prop class $w }
+proc x-prop-hints {w}           { tkwmx::prop hints $w }
+proc x-prop-normal-hints {w}    { tkwmx::prop normal-hints $w }
+proc x-prop-protocols {w}       { tkwmx::prop protocols $w }
+proc x-prop-transient {w}       { tkwmx::prop transient $w }
+# RevertToParent is the substrate's only revert mode — see focus-to.
+# 1 = the server took it, 0 = it refused.
+proc x-focus-set {w {revert parent} {time 0}} { tkwmx::focus set $w $revert $time }
 # {window revert-to}, or {} when the server would not say
-proc x-focus-get {} {
-    if {!$::has_getfocus} { return {} }
-    if {[catch {XGetInputFocus $::dpy f r}]} { return {} }
-    list $f $r
-}
+proc x-focus-get {}             { tkwmx::focus get }
 # {x y width height border-width depth}, or {} — the window is gone
-proc x-geometry {w} {
-    if {!$::has_geometry} { return {} }
-    if {[catch {XGetGeometry $::dpy $w rr gx gy gw gh gbw gd}]} { return {} }
-    list $gx $gy $gw $gh $gbw $gd
+proc x-geometry {w}             { tkwmx::window geometry $w }
+# {root parent {children...}}, or {} — the window is gone
+proc x-query-tree {w}           { tkwmx::window tree $w }
+proc x-grab-key {keycode mods w}   { tkwmx::grab key $keycode $mods $w }
+proc x-ungrab-key {keycode mods w} { tkwmx::grab ungrab-key $keycode $mods $w }
+# 1 = the server gave the keyboard, 0 = someone else holds it
+proc x-grab-keyboard {w {time 0}}  { tkwmx::grab keyboard $w $time }
+proc x-ungrab-keyboard {{time 0}}  { tkwmx::grab ungrab-keyboard $time }
+proc x-grab-button {button mods w masks} {
+    tkwmx::grab button $button $mods $w $masks
 }
-# {root parent {children...}}, or {} — no XQueryTree in this libX11
-proc x-query-tree {w} {
-    if {!$::has_querytree} { return {} }
-    if {[catch {XQueryTree $::dpy $w rootw parentw children n}] || $n == 0} {
-        return {}
-    }
-    set kids {}
-    if {![cffi::pointer isnull $children]} {
-        binary scan [cffi::memory tobinary! $children [expr {8 * $n}]] wu$n kids
-    }
-    xfree $children
-    list $rootw $parentw $kids
+proc x-keysym {name}            { tkwmx::keyboard keysym $name }
+proc x-keysym-name {ks}         { tkwmx::keyboard name $ks }
+proc x-keycode {keysym}         { tkwmx::keyboard keycode $keysym }
+proc x-keysym-at {kc {group 0} {level 0}} { tkwmx::keyboard at $kc $group $level }
+# which keys are physically down, as a 32-byte bit vector
+proc x-keymap {}                { tkwmx::keyboard state }
+# a ClientMessage with a verbatim payload — every protocol built on one
+proc x-send-client {w type data} { tkwmx::event client $w $type $data }
+# the synthetic ConfigureNotify of ICCCM 4.1.5
+proc x-send-configure {w target x y width height} {
+    tkwmx::event configure-notify $w $target $x $y $width $height
 }
-proc x-grab-key {keycode mods w} {
-    XGrabKey $::dpy $keycode $mods $w 0 1 1
-}
-proc x-ungrab-key {keycode mods w} { XUngrabKey $::dpy $keycode $mods $w }
-proc x-grab-keyboard {w time} { XGrabKeyboard $::dpy $w 0 1 1 $time }
-proc x-ungrab-keyboard {time} { XUngrabKeyboard $::dpy $time }
-proc x-grab-button {button mods w mask cursor} {
-    XGrabButton $::dpy $button $mods $w 0 $mask 0 1 0 $cursor
-}
-proc x-keysym {name}     { XStringToKeysym $name }
-proc x-keycode {keysym}  { XKeysymToKeycode $::dpy $keysym }
-proc x-keysym-at {kc {group 0} {level 0}} {
-    XkbKeycodeToKeysym $::dpy $kc $group $level
-}
-proc x-refresh-mapping {ev} { XRefreshKeyboardMapping $ev }
+# a fresh server timestamp — fetched, not guessed (see server-time)
+proc x-server-time {w prop}     { tkwmx::server time $w $prop }
+proc x-error-text {code}        { tkwmx::server error-text $code }
+proc x-error-handler {cmd}      { tkwmx::server error-handler $cmd }
+# replace this process with a fresh copy of itself (see restart-wm)
+proc x-exec-self {path arglist} { tkwmx::exec-self $path $arglist }
 
-# ---------------- X error handler (cffi callback) ----------------
-# Xlib's default error handler exits the process; for a WM, BadWindow races
-# with dying clients are routine — so: swallow and log.
+# ---------------- the X error sink ----------------
+# Xlib's default error handler exits the process; for a WM, BadWindow
+# races with dying clients are routine — so: swallow and log.
 #
-# Install order is the whole trick: our handler goes in BEFORE Tk loads.
-# Tk's tkError.c then does XSetErrorHandler(ErrorProc) itself and saves the
-# previous handler — us — as its fallback. Result: Tk's own per-request
-# error traps (Tk_CreateErrorHandler) keep working and consume the errors
-# Tk expects (e.g. colormap walks over dying windows), while anything
-# unmatched falls through to us and is logged instead of hitting Xlib's
-# exit(). No chaining code needed — the chain assembles itself.
-array set xerrname {1 BadRequest 2 BadValue 3 BadWindow 4 BadPixmap 5 BadAtom
-    6 BadCursor 7 BadFont 8 BadMatch 9 BadDrawable 10 BadAccess 11 BadAlloc
-    12 BadColor 13 BadGC 14 BadIDChoice 15 BadName 16 BadLength 17 BadImplementation}
+# It used to take a trick to get here: our handler had to be installed
+# BEFORE Tk loaded, so that Tk's own tkError.c would save it as its
+# fallback. With the shim there is no trick left — `server
+# error-handler` IS a Tk_ErrorHandler, so Tk's per-request traps sit
+# closer to their calls and are consulted first (they consume the
+# errors Tk expects, e.g. colormap walks over dying windows) and
+# everything unclaimed arrives here.
 set xerr_last ""
 set xerr_n 0
 proc xerror-flush {} {
@@ -380,18 +280,15 @@ proc xerror-flush {} {
     }
     set ::xerr_last ""; set ::xerr_n 0
 }
-proc xerror {edpy ev} {
-    # XErrorEvent (LP64): type@0 display@8 resourceid@16 serial@24
-    # error_code@32 request_code@33 minor_code@34. No X calls in here!
-    # Consecutive identical errors are collapsed (Tk's colormap walk over a
-    # dying hierarchy produces bursts).
+proc xerror {info} {
+    # A dict: serial, error, request, minor, resource. The error's NAME
+    # comes from the server itself (x-error-text) — better than a table
+    # of names kept by hand. Consecutive identical errors are collapsed
+    # (Tk's colormap walk over a dying hierarchy produces bursts).
     if {[catch {
-        binary scan [cffi::memory tobinary! $ev 40] iux4wuwuwucucucu \
-            type disp rid serial code req minor
-        set nm [expr {[info exists ::xerrname($code)] ? $::xerrname($code) : "code$code"}]
-        set conn [expr {[info exists ::dpy] &&
-                        $disp == [cffi::pointer address $::dpy] ? "wm" : "tk"}]
-        set key "$nm request=$req resource=[format 0x%x $rid] conn=$conn"
+        set key "[x-error-text [dict get $info error]]\
+ request=[dict get $info request]\
+ resource=[format 0x%x [dict get $info resource]]"
         if {$key eq $::xerr_last} {
             incr ::xerr_n
         } else {
@@ -403,29 +300,28 @@ proc xerror {edpy ev} {
     # inside the X error callback, and the only thing left to fail is
     # the logging itself — reporting a failed report would recurse out
     # of a callback that has nowhere to throw.
-    } err]} { catch {puts "WM: X error (decode failed: $err) — ignored"} }
-    return 0
+    } err]} { catch {puts "WM: X error (report failed: $err) — ignored"} }
 }
-set has_errhandler [expr {![catch {
-    cffi::prototype function XErrHandler int {edpy {pointer unsafe} ev {pointer unsafe}}
-    X11 function XSetErrorHandler pointer.unsafe {handler pointer.XErrHandler}
-    XSetErrorHandler [cffi::callback new ::XErrHandler ::xerror 0]
-} errh]}]
-if {!$has_errhandler} { puts "WM: error handler NOT installed: $errh" }
+x-error-handler xerror
 
-# Only now let Tk in: it will chain its ErrorProc on top of our handler.
-package require Tk
-wm withdraw .   ;# our own real toplevel must never hit our own redirect
-
-set dpy [XOpenDisplay $::env(DISPLAY)]
-if {[cffi::pointer isnull $dpy]} {puts "WM: cannot open display"; exit 1}
-set root [XDefaultRootWindow $dpy]
+# The root, asked of the server rather than computed: XQueryTree names
+# the root of the screen whatever depth it is asked from, and our own
+# main window is the one window we are sure of.
+set root [lindex [x-query-tree .] 0]
 # SubstructureRedirect|SubstructureNotify|FocusChange — the last one so we
 # SEE when something external (Xephyr on outer focus crossings!) resets the
 # input focus to PointerRoot, and can re-assert ours — plus
 # StructureNotify for the root's OWN ConfigureNotify: a RandR resize
 # (Xephyr's -resizeable, a mode switch) announces itself there.
-x-select-input $root [expr {(1 << 20) | (1 << 19) | (1 << 21) | (1 << 17)}]
+#
+# Taking substructure-redirect IS becoming the window manager, and the
+# server refuses a second one: an error here means somebody else has
+# the desk, which is a thing to say plainly and leave, not to survive.
+if {[catch {x-select-input $root {substructure-redirect substructure-notify
+                                  focus-change structure-notify}} err]} {
+    puts "WM: cannot take the redirect on root [format 0x%x $root]: $err"
+    exit 1
+}
 x-sync 0
 chan configure stdout -buffering line
 puts "WM: redirect armed on root [format 0x%x $root]"
@@ -451,18 +347,10 @@ soft "intern _NET_WM_ICON" { set NET_WM_ICON [x-intern _NET_WM_ICON] }
 # _NET_WM_NAME. (GTK apps probe this early; its absence is the prime
 # suspect in gimp's startup crash.)
 proc set-prop-longs {win prop type values} {
-    # format=32 properties take an array of C longs on LP64
-    set b ""
-    foreach v $values { append b [binary format wu $v] }
-    set p [cffi::memory frombinary $b unsafe]
-    x-change-property $win $prop $type 32 0 $p [llength $values]
-    cffi::memory free $p
+    x-prop-set $win $prop $type 32 $values
 }
 proc set-prop-utf8 {win prop str} {
-    set b [encoding convertto utf-8 $str]
-    set p [cffi::memory frombinary $b unsafe]
-    x-change-property $win $prop $::UTF8 8 0 $p [string length $b]
-    cffi::memory free $p
+    x-prop-set $win $prop $::UTF8 8 [encoding convertto utf-8 $str]
 }
 if {[catch {
     set NET_CHECK     [x-intern _NET_SUPPORTING_WM_CHECK]
@@ -472,7 +360,7 @@ if {[catch {
     set NET_WM_STATE  [x-intern _NET_WM_STATE]
     set NET_WM_STATE_HIDDEN [x-intern _NET_WM_STATE_HIDDEN]
     set UTF8          [x-intern UTF8_STRING]
-    set wmcheck [x-create-window $root -100 -100 1 1 0 0 0]
+    set wmcheck [x-create-window $root -100 -100 1 1]
     set-prop-longs $root    $NET_CHECK 33 [list $wmcheck]   ;# XA_WINDOW
     set-prop-longs $wmcheck $NET_CHECK 33 [list $wmcheck]
     set-prop-utf8  $wmcheck $NET_WM_NAME tk9wm
@@ -481,7 +369,7 @@ if {[catch {
     # the server's current time (see server-time). Selected only NOW, so
     # the writes above do not leave stale notifications in the queue for
     # server-time to mistake for the current time.
-    x-select-input $wmcheck [expr {1 << 22}]
+    x-select-input $wmcheck {property-change}
     # _NET_ACTIVE_WINDOW is load-bearing for Wine 10+: it derives its
     # foreground from this root property, and its focus-stealing guard
     # judges our WM_TAKE_FOCUS invitations against that foreground —
@@ -511,21 +399,15 @@ if {[catch {
 # focus window — root is an ancestor of this one).
 set nofocus 0
 if {[catch {
-    set nofocus [x-create-window $root -10 -10 10 10 0 0 0]
-    # override-redirect: without it our OWN SubstructureRedirect would
-    # hand us a MapRequest for the holder and we would frame it.
-    # XSetWindowAttributes (LP64): override_redirect@88, CWOverrideRedirect=1<<9
-    set at [cffi::memory frombinary [binary format x88ix20 1] unsafe]
-    x-change-attrs $nofocus 512 $at
-    cffi::memory free $at
+    # override-redirect: the holder is nobody's client. On one
+    # connection our own maps are not redirected to us anyway, but the
+    # flag is the honest statement of what this window is — and it is
+    # what keeps a NEXT window manager from framing it.
+    set nofocus [x-create-window $root -10 -10 10 10 -override]
     x-map $nofocus        ;# must be viewable to hold the focus
     x-sync 0
     puts "WM: focus holder up (0x[format %x $nofocus])"
 } err]} { puts "WM: focus holder setup failed: $err"; set nofocus 0 }
-
-set evbuf [cffi::memory allocate 256 unsafe]
-set timebuf [cffi::memory allocate 256 unsafe]
-set timepoke [cffi::memory allocate 1 unsafe]
 
 # A fresh server timestamp, fetched — not guessed. Every WM_TAKE_FOCUS
 # invitation must carry a time NEWER than the server's last focus change,
@@ -542,48 +424,55 @@ set timepoke [cffi::memory allocate 1 unsafe]
 # current time.
 proc server-time {} {
     if {![info exists ::wmcheck]} { return $::evtime }
-    if {[catch {
-        # XA_STRING(31), format 8, PropModeAppend(2), zero elements
-        x-change-property $::wmcheck $::TK9WM_TIME 31 8 2 $::timepoke 0
-        # Wait for OUR notification specifically: any other property
-        # traffic on this window would answer with an older time, and an
-        # old time is exactly what this procedure exists to avoid.
-        # PropertyNotify (LP64): atom@40, time@48.
-        set t 0
-        while {$t == 0} {
-            XWindowEvent $::dpy $::wmcheck [expr {1 << 22}] $::timebuf
-            binary scan [cffi::memory tobinary! $::timebuf 56] x40wuwu atom pt
-            if {$atom == $::TK9WM_TIME} { set t $pt }
-        }
-    } err]} {
-        puts "WM: server-time failed ($err) — falling back to the event clock"
+    if {[catch {x-server-time $::wmcheck $::TK9WM_TIME} t]} {
+        puts "WM: server-time failed ($t) — falling back to the event clock"
         return $::evtime
     }
     if {$t > $::evtime} { set ::evtime $t }
     return $t
 }
 
-proc evbytes {n} {
-    if {[catch {cffi::memory tobinary $::evbuf $n} b]} {
-        set b [cffi::memory tobinary! $::evbuf $n]
-    }
-    return $b
-}
-
-# LP64 XEvent prefix: type@0 serial@8 send_event@16 display@24 A@32 B@40;
-# ConfigureRequest tail: x@48 y@52 w@56 h@60 bw@64 above@72 detail@80 mask@88.
-proc decode {} {
-    binary scan [evbytes 96] iux4wuiux4wuwuwuiiiiix4wuiux4wu \
-        type serial sendev disp A B x y w h bw above detail vmask
-    list $type $A $B $x $y $w $h $bw $above $detail $vmask
-}
-
 # ---------------- event dispatch ----------------
-proc handle-event {} {
-    lassign [decode] type A B x y w h bw above detail vmask
-    switch -- $type {
-        23 { # ConfigureRequest: managed → the frame follows the client;
+# One event, one DICT — named type, named fields, straight from the
+# shim. The twenty-two `binary scan`s at hand-counted LP64 offsets this
+# used to be are gone, and with them a whole class of bug: a field read
+# at the wrong offset still looks like a number.
+#
+# What the single connection changed is the AUDIENCE. This handler now
+# sees every event TK sees — motion over our own widgets, expose,
+# clicks on the titlebar, keys typed into the panel — and not just what
+# a second connection had selected. So each branch below says out loud
+# whose event it acts on, and the ones that answer the server (the sync
+# grab's replay) make sure they are answering OUR grab and not
+# intruding on Tk's business. The shim's handler never claims an event:
+# Tk goes on getting its own.
+#
+# Errors are caught HERE and logged. Letting one out would reach Tcl's
+# background handler, and in a Tk process that means an error DIALOG —
+# from the window manager, on a desk whose dialogs it is supposed to be
+# managing.
+set evqueue {}      ;# what arrived before the policy layer was in
+set dispatching 0   ;# substrate-start flips this and replays the queue
+proc handle-event {ev} {
+    # Before substrate-start the events are QUEUED, not dropped: the
+    # redirect is armed while this file is sourced, but the policy layer
+    # this dispatches into is not loaded yet. (The old pump got this for
+    # free — a second connection just held them in its queue.)
+    if {!$::dispatching} { lappend ::evqueue $ev; return }
+    if {[catch {dispatch-event $ev} err]} { puts "WM: handler error: $err" }
+}
+
+# X stack-mode codes, in the order a ConfigureRequest spells them.
+set stackmodes {above below top-if bottom-if opposite}
+
+proc dispatch-event {ev} {
+    switch -- [dict get $ev type] {
+        configure-request { # managed → the frame follows the client;
             # unmanaged → honor verbatim and remember the size
+            set B [dict get $ev window]
+            set vmask [dict get $ev value-mask]
+            set x [dict get $ev x]; set y [dict get $ev y]
+            set w [dict get $ev width]; set h [dict get $ev height]
             if {[info exists ::managed($B)]} {
                 if {$vmask & 3} { move-client-request $B $x $y $vmask }
                 resize-client $B $w $h $vmask
@@ -610,38 +499,52 @@ proc handle-event {} {
                 if {$vmask & (1 << 2)} { set gw $w }
                 if {$vmask & (1 << 3)} { set gh $h }
                 set ::geomof($B) [list $gw $gh]
-                if {[catch {
-                    set chg [cffi::memory frombinary \
-                        [binary format iiiiix4wuix4 $x $y $w $h $bw $above $detail] unsafe]
-                    x-configure $B $vmask $chg
-                    cffi::memory free $chg
-                } err]} { puts "WM: honor ConfigureRequest failed: $err" }
+                # Honored in the request's OWN terms: the value-mask
+                # decides which keys the shim is given, and the ones it
+                # is not given are left alone — the same contract the
+                # client asked in, with no struct to lay out by hand.
+                set chg {}
+                foreach {bit key field} {1 x x   2 y y
+                        4 width width            8 height height
+                        16 border-width border-width
+                        32 sibling above         64 stack-mode detail} {
+                    if {$vmask & $bit} { dict set chg $key [dict get $ev $field] }
+                }
+                if {[dict exists $chg stack-mode]} {
+                    dict set chg stack-mode \
+                        [lindex $::stackmodes [dict get $chg stack-mode]]
+                }
+                soft "honor ConfigureRequest" { x-configure $B $chg }
                 puts "WM: ConfigureRequest 0x[format %x $B] ${w}x${h} honored"
             }
         }
-        20 { manage $B }
-        17 { unmanage $B 1 }
-        19 { # MapNotify (self-report): the client is now really on screen
-            # and past its own map bookkeeping — tell it where it is once
-            # more, see tell-where-you-are.
-            if {$A == $B && [info exists ::managed($B)]} {
+        map-request { manage [dict get $ev window] }
+        destroy-notify { unmanage [dict get $ev window] 1 }
+        map-notify { # MapNotify (self-report): the client is now really
+            # on screen and past its own map bookkeeping — tell it where
+            # it is once more, see tell-where-you-are.
+            set B [dict get $ev window]
+            if {[dict get $ev event-window] == $B && [info exists ::managed($B)]} {
                 send-synthetic-configure $B
             }
         }
-        22 { # ConfigureNotify: only the root's own is interesting — the
+        configure-notify { # only the root's own is interesting — the
             # screen changed size (RandR). The SubstructureNotify copies
-            # for reparented children arrive here too (A=root, B=child)
-            # and are noise.
-            if {$A == $::root && $B == $::root} {
-                puts "WM: screen -> ${w}x${h}"
+            # for reparented children arrive here too (event=root,
+            # window=child), and so does every move of our own Tk
+            # windows: all noise.
+            if {[dict get $ev event-window] == $::root
+                    && [dict get $ev window] == $::root} {
+                puts "WM: screen -> [dict get $ev width]x[dict get $ev height]"
                 policy-screen-changed
             }
         }
-        18 { # UnmapNotify: the client withdrew itself. Trust only the
+        unmap-notify { # the client withdrew itself. Trust only the
             # StructureNotify self-report (event==window — the root's
             # SubstructureNotify copy has event=root) and skip the unmap
             # echo generated by our own adoption reparent.
-            if {$A == $B && [info exists ::managed($B)]} {
+            set B [dict get $ev window]
+            if {[dict get $ev event-window] == $B && [info exists ::managed($B)]} {
                 if {[info exists ::skip_unmap($B)]} {
                     unset ::skip_unmap($B)
                 } else {
@@ -650,9 +553,10 @@ proc handle-event {} {
                 }
             }
         }
-        9 { # FocusIn: window@32 mode@40 detail@44
-            binary scan [evbytes 48] iux4wuiux4wuwuiuiu \
-                _t _s _se _d win mode detail
+        focus-in {
+            set win [dict get $ev window]
+            set mode [dict get $ev mode]
+            set detail [dict get $ev detail]
             # Only mode Normal (0) reports a real focus change; the
             # pairs a keyboard grab generates (Grab, Ungrab,
             # WhileGrabbed) are bookkeeping about the grab, not about
@@ -709,7 +613,7 @@ proc handle-event {} {
                 }
             }
         }
-        28 { # PropertyNotify (window@32 atom@40 = the generic A B): a
+        property-notify { # a
             # title change repaints the frame's titlebar; changed
             # WM_NORMAL_HINTS (XA_ predefined 40) are re-read; a changed
             # WM_TRANSIENT_FOR (XA_ predefined 68) re-aims the dialog —
@@ -719,6 +623,8 @@ proc handle-event {} {
             # invitation stamps. Step 32 fetches the stamp from the
             # server instead — see server-time — so this handler is
             # back to being about properties only.)
+            set A [dict get $ev window]
+            set B [dict get $ev atom]
             if {[info exists ::managed($A)]} {
                 if {$B == $::WM_NAME
                         || ([info exists ::NET_WM_NAME]
@@ -737,9 +643,15 @@ proc handle-event {} {
                 }
             }
         }
-        33 { # ClientMessage. The restart knob arrives here: send-restart
+        client-message { # The restart knob arrives here: send-restart
             # addresses the wmcheck window, and a zero-mask XSendEvent is
             # delivered to the window's CREATOR — this connection.
+            set A [dict get $ev window]
+            set B [dict get $ev message-type]
+            # data.l as a list of five, and only when the message really
+            # is format 32 — a format-8 payload would be a byte array.
+            set data [expr {[dict get $ev format] == 32
+                ? [dict get $ev data] : {}}]
             if {[info exists ::wmcheck] && $A == $::wmcheck
                     && $B == $::TK9WM_RESTART} {
                 restart-wm
@@ -754,61 +666,73 @@ proc handle-event {} {
                 # never lie that the client is already active. Honored
                 # as a click would be: raise the group, focus (which
                 # invites a globally active window).
-                binary scan [evbytes 72] x64wu rt
+                set rt [lindex $data 1]
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
                 soft "activation request" { policy-client-click $A }
             } elseif {$B == $::WM_CHANGE_STATE && [info exists ::managed($A)]} {
                 # ICCCM 4.1.4: the iconify request. data.l[0] carries
                 # the wanted state — IconicState (3) is the only one
                 # sent this way in practice.
-                binary scan [evbytes 64] x56wu want
+                set want [lindex $data 0]
                 if {$want == 3} {
                     puts "WM: iconify request for 0x[format %x $A]"
                     policy-minimize-request $A
                 }
             }
         }
-        2 { # KeyPress from our grabs (a top-chord XGrabKey, or the
-            # sequence's temporary XGrabKeyboard). XKeyEvent (LP64):
-            # time@56 state@80 keycode@84.
-            binary scan [evbytes 96] iux4wuiux4wuwuwuwuwux16iuiu \
-                _t _s _se _d win rootw subw time state kc
-            set ::evtime $time
-            if {$::has_keys} { handle-key $state $kc $time }
+        key-press { # from OUR grabs: a top-chord XGrabKey or the
+            # sequence's temporary XGrabKeyboard, both taken on the root
+            # with owner_events False — so the server reports them
+            # against the ROOT, and that is exactly how they are told
+            # apart from the keys Tk's own widgets are being typed into.
+            if {[dict get $ev window] != $::root} return
+            set ::evtime [dict get $ev time]
+            handle-key [dict get $ev state] [dict get $ev keycode] $::evtime
         }
-        3 { # KeyRelease: only a keyboard-modal router cares (the
-            # alt-tab commit-on-release); the keymap machine ignores
-            # releases.
-            if {$::has_keys && $::keyrouter ne ""} {
-                binary scan [evbytes 96] iux4wuiux4wuwuwuwuwux16iuiu \
-                    _t _s _se _d win rootw subw time state kc
-                set ::evtime $time
-                route-key release \
-                    [keysym-name [x-keysym-at $kc 0 0]] \
-                    [expr {$state & ~(2 | 16)}]
-            }
+        key-release { # only a keyboard-modal router cares (the alt-tab
+            # commit-on-release); the keymap machine ignores releases.
+            if {$::keyrouter eq "" || [dict get $ev window] != $::root} return
+            set ::evtime [dict get $ev time]
+            route-key release \
+                [keysym-name [x-keysym-at [dict get $ev keycode] 0 0]] \
+                [expr {[dict get $ev state] & ~(2 | 16)}]
         }
-        34 { # MappingNotify: request@40 — 2 (pointer) is not ours
-            binary scan [evbytes 48] iux4wuiux4wuwuiu _t _s _se _d _w req
-            if {$::has_keys && $req != 2} {
-                soft x-refresh-mapping {x-refresh-mapping $::evbuf}
-                keys-remap
-            }
+        mapping-notify { # 2 (pointer) is not ours
+            if {[dict get $ev request] == 2} return
+            # Xlib's keymap is refreshed by TK, for the same event — but
+            # only after every generic handler has had it (tkEvent.c,
+            # RefreshKeyboardMappingIfNeeded, which runs past us). So the
+            # re-grab waits for idle: doing it here would read the OLD
+            # map and re-grab the chords at their old keycodes, which is
+            # precisely the bug MappingNotify exists to prevent.
+            after cancel keys-remap
+            after idle keys-remap
         }
-        4 { # ButtonPress via our sync grab: let the policy react (focus,
+        button-press { # via our sync grab: let the policy react (focus,
             # raise, whatever), then replay the frozen click to the client.
-            # XButtonEvent: window@32 root@40 subwindow@48 time@56.
-            binary scan [evbytes 64] iux4wuiux4wuwuwuwuwu \
-                _t _s _se _d win rootw subw time
-            set ::evtime $time
+            set win [dict get $ev window]
+            # A click on one of OUR OWN widgets (titlebar, grip, panel)
+            # is Tk's business and was never frozen — answering the
+            # server for it would be answering a grab that does not
+            # exist. Everything else got here through our grab.
+            if {[our-window $win]} return
+            set ::evtime [dict get $ev time]
             soft "click on a client" {
                 if {[info exists ::managed($win)]} { policy-client-click $win }
             }
             # NEVER skip this: a sync grab left unanswered freezes the pointer
-            x-allow-events 2 $time   ;# ReplayPointer
+            x-allow-events replay-pointer $::evtime
             x-sync 0
         }
     }
+}
+
+# Is this X id one of Tk's own windows — a frame, a grip, the panel? Tk
+# answers by name (or refuses to, for a foreign id), which is the one
+# honest test now that our clients and our decorations share a
+# connection.
+proc our-window {id} {
+    expr {![catch {winfo pathname -displayof . $id}]}
 }
 
 # ---------------- facts the policy layer asks about ----------------
@@ -817,8 +741,8 @@ proc handle-event {} {
 # exactly that), and a placement policy that cached the startup size
 # would put windows off-screen for the rest of the session.
 proc screen-size {} {
-    if {$::has_geometry && ![catch {XGetGeometry $::dpy $::root rr rx ry rw rh rbw rd}]} {
-        return [list $rw $rh]
+    if {[llength [set g [x-geometry $::root]]] == 6} {
+        return [lrange $g 2 3]
     }
     return [list [winfo screenwidth .] [winfo screenheight .]]
 }
@@ -826,101 +750,32 @@ proc screen-size {} {
 # ICCCM WM_TRANSIENT_FOR: "this window is a dialog FOR that one". Returns
 # 0 when unset. Placement and, later, focus-return policy need it.
 proc transient-for {w} {
-    if {!$::has_transient} { return 0 }
-    if {[catch {XGetTransientForHint $::dpy $w parent} ok] || !$ok} { return 0 }
-    return $parent
-}
-
-# Text-property bytes of a type we read ourselves, decoded; "" means
-# "not one of those" and the caller hands the property to Xlib.
-# STRING is latin1 by the letter of ICCCM, but a client started in the
-# C locale writes raw UTF-8 into it (xterm does exactly that) — so the
-# bytes are offered to UTF-8 first, strictly, and only genuinely
-# invalid ones fall back to latin1. Pure ASCII passes either way.
-proc decode-text-property {enc raw} {
-    if {[info exists ::UTF8] && $enc == $::UTF8} {
-        return [encoding convertfrom utf-8 $raw]
-    }
-    if {$enc == $::XA_STRING} {
-        if {![catch {encoding convertfrom -profile strict utf-8 $raw} s]} {
-            return $s
-        }
-        return [encoding convertfrom iso8859-1 $raw]
-    }
-    return ""
-}
-
-# Everything else — COMPOUND_TEXT above all — through Xlib's own
-# converter: an XTextProperty in, UTF-8 out. A property may legally
-# hold several strings; a title is one, but joining is cheaper than
-# pretending otherwise.
-proc xlib-text-property {tp} {
-    if {[catch {Xutf8TextPropertyToTextList $::dpy $tp lst n} rc] || $rc < 0} {
-        return ""
-    }
-    if {$n <= 0 || [cffi::pointer isnull $lst]} { return "" }
-    set parts {}
-    binary scan [cffi::memory tobinary! $lst [expr {8 * $n}]] wu$n ptrs
-    foreach p $ptrs {
-        if {$p == 0} continue
-        lappend parts [cffi::memory tostring! [cffi::pointer make $p] utf-8]
-    }
-    soft XFreeStringList [list XFreeStringList $lst]
-    join $parts " "
+    soft "read WM_TRANSIENT_FOR" { x-prop-transient $w } 0
 }
 
 # The client's window title: _NET_WM_NAME (UTF8, the modern spelling)
 # when present, else WM_NAME. Empty string = the client named nothing.
 #
-# WM_NAME is pre-Unicode territory and its TYPE decides the reading —
-# which is why it comes in as a TEXT PROPERTY (value plus encoding
-# atom), not as bytes. STRING and UTF8_STRING we decode ourselves
-# (above); anything else is COMPOUND_TEXT, i.e. ISO 2022 with charset
-# designations — a standard in its own right. A Cyrillic xterm title
+# WM_NAME is pre-Unicode territory and its TYPE decides the reading, so
+# it is read AS A TEXT PROPERTY and not as bytes: UTF8_STRING is plain
+# UTF-8, STRING is latin1 by the letter of ICCCM but carries UTF-8 in
+# practice (a client started in the C locale — xterm does exactly
+# that), and anything else is COMPOUND_TEXT, i.e. ISO 2022 with charset
+# designations, a standard in its own right. A Cyrillic xterm title
 # arrives as ESC-designated ISO 8859-5 from an en_US.UTF-8 client and
-# as JIS X 0208 rows from a ru_RU.UTF-8 one (Xlib picks the charset by
-# the CLIENT's locale), and reading either as bytes left the titlebar
-# on its "клиент 0x…" fallback — XFetchName refuses a non-STRING
-# property outright (owner's report, 2026-07-28). Xlib carries the
-# whole conversion table already, so compound text goes to Xlib and
-# comes back UTF-8; verified against both flavours with this process
-# in the C locale, so no setlocale dance is needed.
+# as JIS X 0208 rows from a ru_RU.UTF-8 one — Xlib picks the charset by
+# the CLIENT's locale — and reading either as bytes left the titlebar
+# on its "клиент 0x…" fallback (owner's report, 2026-07-28).
+#
+# That whole ladder now lives in the shim (`prop text`), where Xlib's
+# conversion table is one call away instead of four cffi declarations
+# and a walk over an array of char*.
 proc client-title {w} {
-    if {$::has_getprop && [info exists ::NET_WM_NAME]
-            && ![catch {XGetWindowProperty $::dpy $w $::NET_WM_NAME 0 256 0 \
-                    $::UTF8 atype afmt nitems after data} status]
-            && $status == 0} {   ;# Success
-        set title ""
-        if {$afmt == 8 && $nitems > 0 && ![cffi::pointer isnull $data]} {
-            set title [encoding convertfrom utf-8 \
-                [cffi::memory tobinary! $data $nitems]]
-        }
-        xfree $data
+    if {[info exists ::NET_WM_NAME]} {
+        set title [soft "read _NET_WM_NAME" { x-prop-text $w $::NET_WM_NAME }]
         if {$title ne ""} { return $title }
     }
-    if {$::has_textprop} {
-        set tp [cffi::memory allocate 32 unsafe]
-        set title ""
-        if {![catch {XGetTextProperty $::dpy $w $tp $::WM_NAME} ok] && $ok} {
-            # XTextProperty (LP64): value@0 encoding@8 format@16 nitems@24
-            binary scan [cffi::memory tobinary! $tp 32] wuwuiux4wu val enc fmt n
-            if {$fmt == 8 && $n > 0 && $val != 0} {
-                set title [decode-text-property $enc \
-                    [cffi::memory tobinary! [cffi::pointer make $val] $n]]
-                if {$title eq ""} { set title [xlib-text-property $tp] }
-            }
-            if {$val != 0} { xfree [cffi::pointer make $val] }
-        }
-        cffi::memory free $tp
-        if {$title ne ""} { return $title }
-    }
-    if {$::has_fetchname && ![catch {XFetchName $::dpy $w np} ok] && $ok
-            && ![cffi::pointer isnull $np]} {
-        set s [cffi::memory tostring! $np]
-        xfree $np
-        return $s
-    }
-    return ""
+    soft "read WM_NAME" { x-prop-text $w $::WM_NAME }
 }
 
 proc refresh-title {w} {
@@ -935,32 +790,21 @@ proc refresh-title {w} {
 # are STRING vs UTF8_STRING territory depending on the toolkit, and a
 # predicate wants the value, not the type fight.
 proc read-prop-bytes {w prop} {
-    if {!$::has_getprop} { return "" }
-    if {[catch {XGetWindowProperty $::dpy $w $prop 0 1024 0 0 \
-            atype afmt nitems after data} status] || $status != 0} { return "" }
-    set b ""
-    if {$afmt == 8 && $nitems > 0 && ![cffi::pointer isnull $data]} {
-        set b [cffi::memory tobinary! $data $nitems]
-    }
-    xfree $data
-    return $b
+    lassign [soft "read property" { x-prop-get $w $prop }] type fmt value
+    if {$fmt ne "8"} { return "" }
+    return $value
 }
 proc read-prop-long {w prop} {
-    if {!$::has_getprop} { return 0 }
-    if {[catch {XGetWindowProperty $::dpy $w $prop 0 1 0 0 \
-            atype afmt nitems after data} status] || $status != 0} { return 0 }
-    set v 0
-    if {$afmt == 32 && $nitems > 0 && ![cffi::pointer isnull $data]} {
-        # format=32 property data arrives as C longs on LP64
-        binary scan [cffi::memory tobinary! $data 8] wu v
-    }
-    xfree $data
-    return $v
+    lassign [soft "read property" { x-prop-get $w $prop }] type fmt value
+    if {$fmt ne "32" || ![llength $value]} { return 0 }
+    lindex $value 0
 }
 
-# WM_CLASS: {instance class}, {"" ""} when the client set none.
+# WM_CLASS: {instance class}, {"" ""} when the client set none. The
+# split on the embedded NUL is the shim's now (`prop class`), which
+# also means the pair comes back as two Tcl strings and not as bytes.
 proc client-class {w} {
-    set parts [split [string trimright [read-prop-bytes $w $::WM_CLASS] \x00] \x00]
+    set parts [soft "read WM_CLASS" { x-prop-class $w }]
     list [lindex $parts 0] [lindex $parts 1]
 }
 
@@ -1041,24 +885,20 @@ proc rgba-png {w h raw} {
 proc client-icon {w target} {
     if {[info exists ::iconof($w)]} { return $::iconof($w) }
     set ::iconof($w) ""
-    if {!$::has_getprop || ![info exists ::NET_WM_ICON]} { return "" }
-    # 1<<20 32-bit units = 4 MB of icon data, beyond any real client
-    if {[catch {XGetWindowProperty $::dpy $w $::NET_WM_ICON 0 [expr {1<<20}] \
-            0 0 atype afmt nitems after data} status] || $status != 0} {
-        return ""
-    }
-    set bin ""
-    if {$afmt == 32 && $nitems >= 4 && ![cffi::pointer isnull $data]} {
-        # format=32 property data arrives as C longs on LP64
-        set bin [cffi::memory tobinary! $data [expr {$nitems * 8}]]
-    }
-    xfree $data
-    if {$bin eq ""} { return "" }
+    if {![info exists ::NET_WM_ICON]} { return "" }
+    lassign [soft "read _NET_WM_ICON" { x-prop-get $w $::NET_WM_ICON }] \
+        atype afmt vals
+    if {$afmt ne "32"} { return "" }
+    # A format-32 property arrives as a LIST of integers — the shim has
+    # already done the LP64 unpacking that used to be a per-pixel
+    # `binary scan` at a computed offset.
+    set nitems [llength $vals]
+    if {$nitems < 4} { return "" }
     set entries {}
     set pos 0
     while {$pos + 2 <= $nitems} {
-        binary scan $bin "@[expr {$pos * 8}]wuwu" iw ih
-        set iw [expr {$iw & 0xffffffff}]; set ih [expr {$ih & 0xffffffff}]
+        set iw [expr {[lindex $vals $pos] & 0xffffffff}]
+        set ih [expr {[lindex $vals [expr {$pos + 1}]] & 0xffffffff}]
         if {$iw < 1 || $ih < 1 || $pos + 2 + $iw*$ih > $nitems} break
         lappend entries [list $iw $ih [expr {$pos + 2}]]
         incr pos [expr {2 + $iw*$ih}]
@@ -1090,7 +930,7 @@ proc client-icon {w target} {
         set sy [expr {$y * $ih / $oh}]
         for {set x 0} {$x < $ow} {incr x} {
             set sx [expr {$x * $iw / $ow}]
-            binary scan $bin "@[expr {($off + $sy*$iw + $sx) * 8}]wu" v
+            set v [lindex $vals [expr {$off + $sy*$iw + $sx}]]
             append raw [binary format cccc \
                 [expr {($v >> 16) & 255}] [expr {($v >> 8) & 255}] \
                 [expr {$v & 255}] [expr {($v >> 24) & 255}]]
@@ -1126,41 +966,39 @@ proc read-normal-hints {w} {
     set ::baseof($w) {0 0}
     set ::poshintof($w) none
     set ::gravof($w) 1                           ;# NorthWest, the default
-    if {!$::has_normalhints} return
-    set buf [cffi::memory allocate 96 unsafe]
-    if {![catch {XGetWMNormalHints $::dpy $w $buf supplied} ok] && $ok} {
-        # XSizeHints (LP64): flags@0; x y width height min_w min_h max_w
-        # max_h width_inc height_inc — ints @8..47; aspect pairs @48..63;
-        # base_width base_height win_gravity @64..75
-        binary scan [cffi::memory tobinary! $buf 80] wuiiiiiiiiiix16iii \
-            flags hx hy hw hh minw minh maxw maxh winc hinc basew baseh grav
-        if {$flags & 16} {                       ;# PMinSize
-            set ::minof($w) [list [expr {max($minw,0)}] [expr {max($minh,0)}]]
-        } elseif {$flags & 256} {                ;# PBaseSize as min (ICCCM)
-            set ::minof($w) [list [expr {max($basew,0)}] [expr {max($baseh,0)}]]
-        }
-        if {$flags & 64} {                       ;# PResizeInc
-            set ::incof($w) [list [expr {max($winc,0)}] [expr {max($hinc,0)}]]
-        }
-        if {$flags & 256} {                      ;# PBaseSize as inc origin
-            set ::baseof($w) [list [expr {max($basew,0)}] [expr {max($baseh,0)}]]
-        } else {                                 ;# ICCCM: base defaults to min
-            set ::baseof($w) $::minof($w)
-        }
-        # The position claim: USPosition = the user typed it (xterm
-        # -geometry, Tk wm geometry), PPosition = the program picked it.
-        # The x/y INSIDE the hints are obsolete — the honest position is
-        # the window's own geometry; only the flags matter here.
-        if {$flags & 1} {                        ;# USPosition
-            set ::poshintof($w) user
-        } elseif {$flags & 4} {                  ;# PPosition
-            set ::poshintof($w) program
-        }
-        if {$flags & 512 && $grav >= 1 && $grav <= 10} {   ;# PWinGravity
-            set ::gravof($w) $grav
-        }
+    # A dict from the shim, with only the fields the client actually
+    # declared present — the flags are decoded there, so the ICCCM
+    # fallbacks below are the only arithmetic left here.
+    set h [soft "read WM_NORMAL_HINTS" { x-prop-normal-hints $w }]
+    if {![dict size $h]} return
+    if {[dict exists $h min]} {
+        lassign [dict get $h min] minw minh
+        set ::minof($w) [list [expr {max($minw,0)}] [expr {max($minh,0)}]]
+    } elseif {[dict exists $h base]} {           ;# PBaseSize as min (ICCCM)
+        lassign [dict get $h base] basew baseh
+        set ::minof($w) [list [expr {max($basew,0)}] [expr {max($baseh,0)}]]
     }
-    cffi::memory free $buf
+    if {[dict exists $h inc]} {
+        lassign [dict get $h inc] winc hinc
+        set ::incof($w) [list [expr {max($winc,0)}] [expr {max($hinc,0)}]]
+    }
+    if {[dict exists $h base]} {                 ;# PBaseSize as inc origin
+        lassign [dict get $h base] basew baseh
+        set ::baseof($w) [list [expr {max($basew,0)}] [expr {max($baseh,0)}]]
+    } else {                                     ;# ICCCM: base defaults to min
+        set ::baseof($w) $::minof($w)
+    }
+    # The position claim: USPosition = the user typed it (xterm
+    # -geometry, Tk wm geometry), PPosition = the program picked it.
+    # The x/y INSIDE the hints are obsolete — the honest position is
+    # the window's own geometry; only the claim matters here.
+    if {[dict exists $h position]} {
+        set ::poshintof($w) [dict get $h position]
+    }
+    if {[dict exists $h gravity]} {
+        set grav [dict get $h gravity]
+        if {$grav >= 1 && $grav <= 10} { set ::gravof($w) $grav }
+    }
 }
 
 # The position claim and its gravity, for placement and move requests.
@@ -1199,13 +1037,11 @@ proc client-size-hints {w} {
 # to tell "managed by a WM" from "still wild" — we never set it, which
 # left GTK guessing about our clients.
 proc set-wm-state {w state} {
-    if {[catch {
-        # WithdrawnState=0, NormalState=1, IconicState=3
-        set b [binary format wuwu $state 0]
-        set p [cffi::memory frombinary $b unsafe]
-        x-change-property $w $::WM_STATE $::WM_STATE 32 0 $p 2
-        cffi::memory free $p
-    } err]} { puts "WM: WM_STATE update failed: $err" }
+    # WithdrawnState=0, NormalState=1, IconicState=3; the second long is
+    # the icon window, which we do not use.
+    if {[catch {x-prop-set $w $::WM_STATE $::WM_STATE 32 [list $state 0]} err]} {
+        puts "WM: WM_STATE update failed: $err"
+    }
 }
 
 # _NET_WM_STATE — the EWMH state list. We publish exactly one member,
@@ -1329,8 +1165,8 @@ proc manage {w} {
         if {$ch <= 0} { set ch 120 }
     }
     set aw 0; set ah 0
-    if {$::has_geometry
-            && ![catch {XGetGeometry $::dpy $w rr gx gy gw gh gbw gd}]} {
+    if {[llength [set g [x-geometry $w]]] == 6} {
+        lassign $g gx gy gw gh
         set cw $gw; set ch $gh
         set aw $gw; set ah $gh    ;# actual size, to skip a no-op resize
         # ... and the position half: where the window put itself before
@@ -1351,7 +1187,7 @@ proc manage {w} {
     set ::managed($w) 1
     # StructureNotify (Destroy/Unmap) + FocusChange (honest highlight even
     # when focus moves behind our back) + PropertyChange (live titles)
-    x-select-input $w [expr {(1 << 17) | (1 << 21) | (1 << 22)}]
+    x-select-input $w {structure-notify focus-change property-change}
     # After the reparent the client is no longer a child of root, so root's
     # SubstructureRedirect no longer covers it: keep redirecting its
     # ConfigureRequests by holding the mask on the frame slot as well.
@@ -1366,22 +1202,25 @@ proc manage {w} {
     # nowhere at all while the frame highlight claimed all was well.
     # The frame toplevel is watched for the same reason (the revert
     # walks up if the slot goes away).
-    x-select-input $slot [expr {(1 << 20) | (1 << 21)}]
+    #
+    # Both of these are TK's own windows, and on one connection a plain
+    # selection on such a window would replace the mask Tk chose when it
+    # built the widget — which Tk never selects again. The shim adds to
+    # it instead; the trap and its cure are spelled out there.
+    x-select-input $slot {substructure-redirect focus-change}
     set ::ourwin($slot) $w
     set ::decoof($w) [list $slot]
     if {[llength [set fg [policy-frame-geometry $w]]] == 5} {
         set fwin [lindex $fg 0]
-        x-select-input $fwin [expr {1 << 21}]
+        x-select-input $fwin {focus-change}
         set ::ourwin($fwin) $w
         lappend ::decoof($w) $fwin
     }
-    # Click-to-focus inside the client: passive SYNC grab on any button.
-    # The press freezes the pointer and wakes us (ButtonPress above); after
-    # the policy reacts we XAllowEvents(ReplayPointer) so the client still
-    # gets the click un-eaten.
-    x-grab-button 0 0x8000 $w 4 0
-    ;# AnyButton, AnyModifier, owner_events=False, ButtonPressMask,
-    ;# GrabModeSync pointer, GrabModeAsync keyboard, no confine, no cursor
+    # Click-to-focus inside the client: passive SYNC grab on any button
+    # (AnyButton, AnyModifier). The press freezes the pointer and wakes
+    # us (button-press above); after the policy reacts we allow
+    # replay-pointer so the client still gets the click un-eaten.
+    x-grab-button 0 0x8000 $w {button-press}
     x-save-set-add $w
     x-reparent $w $slot 0 0
     if {$cw != $aw || $ch != $ah} { x-resize $w $cw $ch }
@@ -1403,20 +1242,12 @@ proc manage {w} {
     }
 }
 
-# WM_HINTS initial_state == IconicState, and only when the StateHint
-# flag (bit 1) actually claims the field.
+# WM_HINTS initial_state == IconicState. The shim's dict carries the
+# field only when the StateHint flag actually claims it, so its
+# presence IS the claim.
 proc client-initial-iconic {w} {
-    if {!$::has_getprop} { return 0 }
-    set iconic 0
-    if {![catch {XGetWindowProperty $::dpy $w 35 0 9 0 35 \
-            atype afmt nitems after data} status] && $status == 0} {
-        if {$afmt == 32 && $nitems >= 3 && ![cffi::pointer isnull $data]} {
-            binary scan [cffi::memory tobinary! $data 24] wuwuwu flags _inp st
-            if {($flags & 2) && $st == 3} { set iconic 1 }
-        }
-        xfree $data
-    }
-    return $iconic
+    set h [soft "read WM_HINTS" { x-prop-hints $w }]
+    expr {[dict exists $h initial-state] && [dict get $h initial-state] == 3}
 }
 
 # ICCCM 4.1.5 says WHAT to send; it does not say a client will be in a
@@ -1479,11 +1310,13 @@ proc unmanage {w {dead 0}} {
     # our own frame) and the keyboard stops working. Ask the server and
     # repair either way.
     set stale [expr {$::focused == $w}]
-    if {!$stale && $::has_getfocus && ![catch {XGetInputFocus $::dpy f r}]
-            && ($f <= 1 || [info exists ::ourwin($f)])} {
-        puts "WM: server focus reverted to a dead end\
+    if {!$stale} {
+        set f [lindex [x-focus-get] 0]
+        if {$f ne "" && ($f <= 1 || [info exists ::ourwin($f)])} {
+            puts "WM: server focus reverted to a dead end\
  ([format 0x%x $f]) — repairing"
-        set stale 1
+            set stale 1
+        }
     }
     if {$stale} {
         set ::focused 0
@@ -1521,21 +1354,13 @@ proc paint-focus {w} {
 }
 # ICCCM input model: the WM_HINTS input member, meaningful when the
 # InputHint flag is set; an absent property or flag means input=True —
-# the passive default the world's toolkits assume. WM_HINTS is the
-# predefined atom 35 (property and type alike): flags in the first
-# long (InputHint = bit 0), input in the second.
+# the passive default the world's toolkits assume. (The shim's dict
+# carries `input` only when the flag claims it, so "absent" and "not
+# claimed" are the same answer here, as ICCCM wants.)
 proc client-input-hint {w} {
-    if {!$::has_getprop} { return 1 }
-    set input 1
-    if {![catch {XGetWindowProperty $::dpy $w 35 0 9 0 35 \
-            atype afmt nitems after data} status] && $status == 0} {
-        if {$afmt == 32 && $nitems >= 2 && ![cffi::pointer isnull $data]} {
-            binary scan [cffi::memory tobinary! $data 16] wuwu flags inp
-            if {$flags & 1} { set input [expr {$inp != 0}] }
-        }
-        xfree $data
-    }
-    return $input
+    set h [soft "read WM_HINTS" { x-prop-hints $w }]
+    if {![dict exists $h input]} { return 1 }
+    dict get $h input
 }
 proc focus-to {w} {
     if {![info exists ::managed($w)]} { return 0 }
@@ -1572,7 +1397,7 @@ proc focus-to {w} {
     # we refocus, a parent revert leaves the keyboard silent for a moment,
     # while a PointerRoot revert switches the whole session to
     # focus-follows-pointer behind our back.
-    x-focus-set $w 2 0
+    x-focus-set $w parent
     x-sync 0
     # Record the focus ONLY if the server agrees. A refused XSetInputFocus
     # (swallowed BadMatch when the window stopped being viewable, a client
@@ -1583,7 +1408,8 @@ proc focus-to {w} {
     # to the previous window while the frame highlight claimed otherwise
     # (live report, GIMP's Quit dialog). Believing the server costs one
     # roundtrip and cannot wedge.
-    if {$::has_getfocus && ![catch {XGetInputFocus $::dpy f r}] && $f != $w} {
+    lassign [x-focus-get] f r
+    if {$f ne "" && $f != $w} {
         puts "WM: focus -> 0x[format %x $w] REFUSED by server\
  (focus=[format 0x%x $f] revert=$r) — not recorded, will retry"
         return 0
@@ -1613,9 +1439,9 @@ proc focus-park {why} {
     puts "WM: parking focus on the holder ($why)"
     set ::invited 0
     if {$::nofocus} {
-        x-focus-set $::nofocus 2 0   ;# RevertToParent = root
+        x-focus-set $::nofocus parent   ;# revert to the parent = root
     } else {
-        x-focus-set 1 1 0            ;# no holder: PointerRoot
+        x-focus-set pointer-root pointer-root   ;# no holder at all
     }
     x-sync 0
     set ::focused 0
@@ -1708,26 +1534,17 @@ proc wm-resize-client {w cw ch} {
 # path assumes a modern client (1), the focus path stays silent (0)
 # — an unadvertised WM_TAKE_FOCUS must never be sent.
 proc client-advertises {w atom fallback} {
-    if {!$::has_protocols} { return $fallback }
-    set found 0
-    if {![catch {XGetWMProtocols $::dpy $w protos n} status] && $status && $n > 0} {
-        if {![catch {cffi::memory tobinary! $protos [expr {8 * $n}]} bytes]} {
-            binary scan $bytes wu$n atoms
-            set found [expr {$atom in $atoms}]
-        }
-        xfree $protos
+    if {[catch {x-prop-protocols $w} protos]} {
+        soft-log "read WM_PROTOCOLS" $protos
+        return $fallback
     }
-    return $found
+    expr {$atom in $protos}
 }
 proc send-protocol {w atom time} {
-    # XClientMessageEvent LP64: type@0 serial@8 send_event@16 display@24
-    # window@32 message_type@40 format@48 data.l[0]@56 data.l[1]@64
-    set b [binary format iux4wuiux4wuwuwuiux4wuwu \
-        33 0 1 0 $w $::WM_PROTOCOLS 32 $atom $time]
-    set ev [cffi::memory frombinary [binary format a192 $b] unsafe]
-    x-send-event $w 0 0 $ev
+    # data.l = {atom time}, the ICCCM shape of every WM_PROTOCOLS
+    # message; a zero send-mask means "to the window's own client".
+    x-send-client $w $::WM_PROTOCOLS [list $atom $time]
     x-sync 0
-    cffi::memory free $ev
 }
 proc close-client {w} {
     if {[client-advertises $w $::WM_DELETE_WINDOW 1]} {
@@ -1802,15 +1619,13 @@ array set modkeysyms {
 }
 # Keysyms of the modifier keys themselves: pressing one during a
 # sequence is not a chord — wait for the real key.
-if {$has_keys} {
-    foreach name {Shift_L Shift_R Control_L Control_R Alt_L Alt_R
-            Meta_L Meta_R Super_L Super_R Hyper_L Hyper_R
-            Caps_Lock Shift_Lock Num_Lock Scroll_Lock
-            Mode_switch ISO_Level3_Shift ISO_Level5_Shift} {
-        if {[set ks [x-keysym $name]] != 0} { set ismodks($ks) 1 }
-    }
-    set KS_ESC [x-keysym Escape]
-} else { puts "WM: key machinery not available in this libX11" }
+foreach name {Shift_L Shift_R Control_L Control_R Alt_L Alt_R
+        Meta_L Meta_R Super_L Super_R Hyper_L Hyper_R
+        Caps_Lock Shift_Lock Num_Lock Scroll_Lock
+        Mode_switch ISO_Level3_Shift ISO_Level5_Shift} {
+    if {[set ks [x-keysym $name]] != 0} { set ismodks($ks) 1 }
+}
+set KS_ESC [x-keysym Escape]
 
 proc parse-chord {tok} {
     set mods 0
@@ -1826,9 +1641,8 @@ proc parse-chord {tok} {
 }
 
 proc keysym-name {ks} {
-    if {![catch {XKeysymToString $ks} p] && ![cffi::pointer isnull $p]} {
-        return [cffi::memory tostring! $p]
-    }
+    set name [soft "keysym name" { x-keysym-name $ks }]
+    if {$name ne ""} { return $name }
     format 0x%x $ks
 }
 proc chord-name {mods ks} {
@@ -1859,7 +1673,6 @@ proc keymap-set {node keys script} {
 }
 
 proc wm-bind {spec script} {
-    if {!$::has_keys} { puts "WM: wm-bind: no key machinery"; return }
     set chords [lmap tok $spec {parse-chord $tok}]
     if {![llength $chords]} { error "wm-bind: empty chord sequence" }
     set ::keymap [keymap-set $::keymap [lmap c $chords {join $c ,}] $script]
@@ -1889,8 +1702,10 @@ proc grab-chord {chord} {
     x-sync 0
 }
 
-# Keycodes moved under us (setxkbmap and friends): refresh Xlib's
-# keysym cache and re-grab every top chord at its new keycode.
+# Keycodes moved under us (setxkbmap and friends): re-grab every top
+# chord at its new keycode. Xlib's own keysym cache is refreshed by Tk
+# when the MappingNotify passes through it — which is why the
+# dispatcher defers this to idle instead of calling it on the spot.
 proc keys-remap {} {
     x-ungrab-key 0 32768 $::root      ;# AnyKey, AnyModifier
     foreach chord $::grabbed_top { grab-chord $chord }
@@ -1910,8 +1725,8 @@ proc keyseq-abort {why} {
     keyseq-end
 }
 
-# Keyboard-modal UI (the menus): hold the keyboard on the raw
-# connection and route every key event to cmd, called with press or
+# Keyboard-modal UI (the menus): hold the keyboard and route every key
+# event to cmd, called with press or
 # release, the keysym name and the (lock-stripped) modifier mask —
 # releases included, and modifier keys unfiltered: the alt-tab commit
 # rides on the release of a bare modifier. The Tk focus path is no use
@@ -1925,11 +1740,9 @@ proc grab-keys-to {cmd} {
         keyseq-end
         return 1
     }
-    if {!$::has_keys} { return 0 }
     if {!$::kbd_grabbed} {
-        set st [x-grab-keyboard $::root 0]
-        if {$st != 0} {
-            puts "WM: grab-keys-to: XGrabKeyboard refused ($st)"
+        if {![x-grab-keyboard $::root]} {
+            puts "WM: grab-keys-to: the keyboard grab was refused"
             return 0
         }
         set ::kbd_grabbed 1
@@ -1950,27 +1763,22 @@ proc route-key {kind name mods} {
 # that happened before our grab began is something we never saw, so
 # the server's live keymap is the only honest answer.
 proc modifier-held {mask} {
-    if {!$::has_keys} { return 0 }
     set names {}
     foreach {bit syms} [array get ::modkeysyms] {
         if {$mask & $bit} { lappend names {*}$syms }
     }
     if {![llength $names]} { return 0 }
-    set buf [cffi::memory allocate 32 unsafe]
-    set held 0
-    if {![catch {XQueryKeymap $::dpy $buf}]} {
-        set v [cffi::memory tobinary! $buf 32]
-        foreach n $names {
-            set ks [x-keysym $n]
-            if {$ks == 0} continue
-            set kc [x-keycode $ks]
-            if {$kc == 0} continue
-            binary scan $v "x[expr {$kc / 8}]cu" byte
-            if {$byte & (1 << ($kc % 8))} { set held 1; break }
-        }
+    set v [soft "read the keymap" { x-keymap }]
+    if {[string length $v] != 32} { return 0 }
+    foreach n $names {
+        set ks [x-keysym $n]
+        if {$ks == 0} continue
+        set kc [x-keycode $ks]
+        if {$kc == 0} continue
+        binary scan $v "x[expr {$kc / 8}]cu" byte
+        if {$byte & (1 << ($kc % 8))} { return 1 }
     }
-    cffi::memory free $buf
-    return $held
+    return 0
 }
 
 # One KeyPress from our grabs walks the keymap: idle state consults the
@@ -2010,9 +1818,9 @@ proc handle-key {state kc time} {
         }
     } else {
         if {$::keyseq eq ""} {
-            set st [x-grab-keyboard $::root $time]
-            if {$st != 0} {
-                puts "WM: key [chord-name $mods $ks]: XGrabKeyboard refused ($st) — sequence dropped"
+            if {![x-grab-keyboard $::root $time]} {
+                puts "WM: key [chord-name $mods $ks]: the keyboard grab was\
+ refused — sequence dropped"
                 return
             }
             set ::kbd_grabbed 1
@@ -2027,19 +1835,24 @@ proc handle-key {state kc time} {
 # restart via the save-set) are already viewable children of root and never
 # produce a MapRequest — walk the tree once at startup and manage them.
 proc adopt-existing {} {
-    global dpy root
-    if {!$::has_querytree} { puts "WM: no XQueryTree — adoption skipped"; return }
-    set tree [x-query-tree $root]
+    set tree [x-query-tree $::root]
     if {![llength $tree]} return
-    set kids [lindex $tree 2]
-    set attrs [cffi::memory allocate 136 unsafe]
-    foreach w $kids {
+    foreach w [lindex $tree 2] {
         if {[info exists ::managed($w)]} continue
-        if {[catch {XGetWindowAttributes $dpy $w $attrs} ok] || !$ok} continue
-        # XWindowAttributes (LP64): width@8 height@12 map_state@92
-        # override_redirect@120; IsViewable = 2
-        binary scan [cffi::memory tobinary! $attrs 136] x8iuiux76iux24iu aw ah mstate orr
-        if {$mstate != 2 || $orr} continue
+        # A window OF OURS is not a client to adopt: the frames, the
+        # panel and the main window are children of the root too, and on
+        # one connection they are in this very list. (With two
+        # connections the check was implicit and invisible — our
+        # decorations belonged to the OTHER client.)
+        if {[our-window $w] || $w == $::nofocus
+                || ([info exists ::wmcheck] && $w == $::wmcheck)} continue
+        set at [x-attrs $w]
+        if {![dict size $at]} continue
+        # Viewable and not override-redirect: anything else is either
+        # not on the screen or has declared itself no manager's business.
+        if {[dict get $at map-state] ne "viewable"
+                || [dict get $at override-redirect]} continue
+        set aw [dict get $at width]; set ah [dict get $at height]
         set ::geomof($w) [list $aw $ah]
         # reparenting a MAPPED window generates an UnmapNotify we must not
         # mistake for the client withdrawing itself
@@ -2047,7 +1860,6 @@ proc adopt-existing {} {
         puts "WM: adopting existing window 0x[format %x $w] (${aw}x${ah})"
         manage $w
     }
-    cffi::memory free $attrs
 }
 
 # ICCCM 4.1.5: when the WM moves a client by moving its FRAME, the client
@@ -2058,14 +1870,7 @@ proc send-synthetic-configure {w} {
     if {![info exists ::managed($w)]} return
     lassign $::geomof($w) cw ch
     if {[catch {lassign [policy-origin $w] x y}]} return
-    # XConfigureEvent LP64: type@0 serial@8 send_event@16 display@24
-    # event@32 window@40 x@48 y@52 width@56 height@60 border_width@64
-    # above@72 override_redirect@80
-    set b [binary format iux4wuiux4wuwuwuiiiiix4wuiu \
-        22 0 1 0 $w $w $x $y $cw $ch 0 0 0]
-    set ev [cffi::memory frombinary [binary format a192 $b] unsafe]
-    x-send-event $w 0 131072 $ev   ;# StructureNotifyMask
-    cffi::memory free $ev
+    x-send-configure $w $w $x $y $cw $ch
     # And a copy addressed to the DECORATION window. fvwm carries the same
     # workaround (events.c, send_for_frame_too): "for buggy tk, which waits
     # for the real ConfigureNotify on frame instead of the synthetic one on
@@ -2076,47 +1881,24 @@ proc send-synthetic-configure {w} {
     # own Tk hears this event too, so it must not be lied to.
     if {[llength [set fg [policy-frame-geometry $w]]] == 5} {
         lassign $fg fwin fx fy fw fh
-        set fb [binary format iux4wuiux4wuwuwuiiiiix4wuiu \
-            22 0 1 0 $fwin $fwin $fx $fy $fw $fh 0 0 0]
-        set fev [cffi::memory frombinary [binary format a192 $fb] unsafe]
-        x-send-event $fwin 0 131072 $fev
-        cffi::memory free $fev
+        x-send-configure $fwin $fwin $fx $fy $fw $fh
     }
-    x-flush   ;# no cffi roundtrip follows during a Tk-side drag
+    x-flush   ;# no round trip follows during a Tk-side drag
 }
 
-# ---------------- fd pump: worker thread + blocking poll() ----------------
-set xfd [XConnectionNumber $dpy]
-set worker [thread::create -preserved {thread::wait}]
-thread::send $worker [list set ::auto_path $::auto_path]
-thread::send $worker [list set ::main [thread::id]]
-thread::send $worker [list set ::pfdbytes [binary format iss $xfd 1 0]] ;# pollfd{fd,POLLIN,0}
-thread::send $worker {
-    package require cffi
-    cffi::Wrapper create LC libc.so.6
-    LC function poll int {fds pointer.unsafe nfds ulong timeout int}
-    set ::pfd [cffi::memory frombinary $::pfdbytes unsafe]
-    proc go {} {
-        poll $::pfd 1 -1
-        # main may already be gone at shutdown; a failed ping is fine.
-        # Bare catch on purpose: this body runs in the WORKER
-        # interpreter, which has no `soft` (nor a log worth writing to
-        # while the main thread is dying).
-        catch {thread::send -async $::main ::drain}
-    }
-}
-
-proc drain {} {
-    while {[XPending $::dpy] > 0} {
-        XNextEvent $::dpy $::evbuf
-        if {[catch handle-event err]} { puts "WM: handler error: $err" }
-    }
-    thread::send -async $::worker ::go
-}
+# ---------------- the pump ----------------
+# There is none, and that is the point: `event on` is a
+# Tk_CreateGenericHandler, so the redirect's events arrive in the same
+# event loop as everything else, the moment Tk processes them. What
+# this replaced was a worker thread blocked in poll() on a second
+# connection's fd, pinging the main thread with a single token to drain
+# XPending — a machine whose only job was to make two connections look
+# like one.
+tkwmx::event on handle-event
 
 # Orderly shutdown: release every client back to root before Tk destroys
 # the frames (otherwise WM exit would take all clients with it). A hard
-# kill still loses them — the split-connection save-set wart, see notes.
+# kill still loses them — see notes.
 rename ::exit ::tk9wm-real-exit
 proc ::exit {{code 0}} {
     soft "release clients on exit" \
@@ -2130,38 +1912,30 @@ proc ::exit {{code 0}} {
 # fresh code from disk; the X sockets are close-on-exec, so the server
 # reaps the old frames itself, and the new WM adopts the released
 # clients at startup — adoption is exactly "windows that lived before
-# the WM". Tcl has no exec-replacement of its own, so libc's execv is
-# one more cffi call.
+# the WM". Tcl has no exec-replacement of its own; the shim does
+# (x-exec-self), and returning from it at all means it failed.
 proc restart-wm {} {
     puts "WM: restart requested — releasing clients, exec'ing myself"
     soft "release clients on restart" \
         { foreach w [array names ::managed] { unmanage $w } }
     soft "sync before exec" { x-sync 0 }
-    set exe [info nameofexecutable]
     if {[catch {
-        cffi::Wrapper create LCX libc.so.6
-        LCX function execv int {path string argv pointer.unsafe}
-        # char *argv[] on LP64: NUL-terminated copies of the strings,
-        # their addresses packed as an array with a NULL sentinel
-        set addrs ""
-        foreach a [list $exe $::argv0 {*}$::argv] {
-            set p [cffi::memory frombinary \
-                "[encoding convertto utf-8 $a]\x00" unsafe]
-            append addrs [binary format wu [cffi::pointer address $p]]
-        }
-        append addrs [binary format wu 0]
-        set argvp [cffi::memory frombinary $addrs unsafe]
-        execv $exe $argvp
-        error "execv returned: [expr {[info exists ::errorCode] ? $::errorCode : "?"}]"
+        x-exec-self [info nameofexecutable] [list $::argv0 {*}$::argv]
     } err]} { puts "WM: restart FAILED: $err" }
 }
 
-# To be called by the assembly once the policy layer is in: start draining
-# (the first drain arms the worker; a single token from here on) and adopt
-# whatever was already on the screen.
+# To be called by the assembly once the policy layer is in: start
+# dispatching (replaying whatever arrived while it was being loaded)
+# and adopt whatever was already on the screen.
 proc substrate-start {} {
-    puts "WM: pump: X fd $::xfd watched by worker thread (blocking poll, ping-pong)"
-    after idle drain
+    set queued $::evqueue
+    set ::evqueue {}
+    set ::dispatching 1
+    if {[llength $queued]} {
+        puts "WM: [llength $queued] event(s) arrived before the policy was\
+ in — replaying"
+        foreach ev $queued { handle-event $ev }
+    }
     adopt-existing
     # A fresh X server starts in PointerRoot, and a WM that leaves it
     # there runs the whole session in focus-follows-pointer — plus it
@@ -2171,8 +1945,8 @@ proc substrate-start {} {
     # end, and one no FocusIn will ever report to us, since we only
     # started listening now. Take the display into a known state; a
     # focus a real client already holds is left alone.
-    if {$::has_getfocus && ![catch {XGetInputFocus $::dpy f r}]
-            && ($f <= 1 || $f == $::root)} {
+    set f [lindex [x-focus-get] 0]
+    if {$f ne "" && ($f <= 1 || $f == $::root)} {
         focus-repair "the display started with no honest focus"
     }
 }
