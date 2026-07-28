@@ -283,6 +283,81 @@ set has_keys [have "keyboard grabs" {
     X11 function XQueryKeymap int {dpy pointer.unsafe keys pointer.unsafe}
 }]
 
+# ---------------- the X transport layer ----------------
+# Every X call the substrate makes goes through this section and
+# nothing else does. Today each proc is a thin cffi call; tomorrow the
+# same signatures are served by the tkwmx shim built into the kit
+# (thoughts: plans/tk9wm-shim.md), and the swap touches this section
+# alone — that is the whole point of it existing.
+#
+# The signatures follow the SHIM's rules, not Xlib's, so that the swap
+# is a rename and not a redesign: no pointer ever crosses this
+# boundary, out-parameters come back as VALUES (a list, or {} for "the
+# server said no"), and the display is implicit — the shim will take
+# it as -displayof, we take it from $::dpy.
+proc x-map {w}                  { XMapWindow $::dpy $w }
+proc x-unmap {w}                { XUnmapWindow $::dpy $w }
+proc x-reparent {w parent x y}  { XReparentWindow $::dpy $w $parent $x $y }
+proc x-resize {w cw ch}         { XResizeWindow $::dpy $w $cw $ch }
+proc x-kill-client {w}          { XKillClient $::dpy $w }
+proc x-save-set-add {w}         { XAddToSaveSet $::dpy $w }
+proc x-select-input {w mask}    { XSelectInput $::dpy $w $mask }
+proc x-sync {{discard 0}}       { XSync $::dpy $discard }
+proc x-flush {}                 { XFlush $::dpy }
+proc x-intern {name}            { XInternAtom $::dpy $name 0 }
+proc x-configure {w mask changes} { XConfigureWindow $::dpy $w $mask $changes }
+proc x-send-event {w propagate mask ev} { XSendEvent $::dpy $w $propagate $mask $ev }
+proc x-change-attrs {w mask attrs} { XChangeWindowAttributes $::dpy $w $mask $attrs }
+proc x-create-window {parent x y width height bw border bg} {
+    XCreateSimpleWindow $::dpy $parent $x $y $width $height $bw $border $bg
+}
+proc x-allow-events {mode time} { XAllowEvents $::dpy $mode $time }
+proc x-change-property {w prop type fmt mode data n} {
+    XChangeProperty $::dpy $w $prop $type $fmt $mode $data $n
+}
+# RevertToParent (2) is the substrate's only revert mode — see focus-to.
+proc x-focus-set {w {revert 2} {time 0}} { XSetInputFocus $::dpy $w $revert $time }
+# {window revert-to}, or {} when the server would not say
+proc x-focus-get {} {
+    if {!$::has_getfocus} { return {} }
+    if {[catch {XGetInputFocus $::dpy f r}]} { return {} }
+    list $f $r
+}
+# {x y width height border-width depth}, or {} — the window is gone
+proc x-geometry {w} {
+    if {!$::has_geometry} { return {} }
+    if {[catch {XGetGeometry $::dpy $w rr gx gy gw gh gbw gd}]} { return {} }
+    list $gx $gy $gw $gh $gbw $gd
+}
+# {root parent {children...}}, or {} — no XQueryTree in this libX11
+proc x-query-tree {w} {
+    if {!$::has_querytree} { return {} }
+    if {[catch {XQueryTree $::dpy $w rootw parentw children n}] || $n == 0} {
+        return {}
+    }
+    set kids {}
+    if {![cffi::pointer isnull $children]} {
+        binary scan [cffi::memory tobinary! $children [expr {8 * $n}]] wu$n kids
+    }
+    xfree $children
+    list $rootw $parentw $kids
+}
+proc x-grab-key {keycode mods w} {
+    XGrabKey $::dpy $keycode $mods $w 0 1 1
+}
+proc x-ungrab-key {keycode mods w} { XUngrabKey $::dpy $keycode $mods $w }
+proc x-grab-keyboard {w time} { XGrabKeyboard $::dpy $w 0 1 1 $time }
+proc x-ungrab-keyboard {time} { XUngrabKeyboard $::dpy $time }
+proc x-grab-button {button mods w mask cursor} {
+    XGrabButton $::dpy $button $mods $w 0 $mask 0 1 0 $cursor
+}
+proc x-keysym {name}     { XStringToKeysym $name }
+proc x-keycode {keysym}  { XKeysymToKeycode $::dpy $keysym }
+proc x-keysym-at {kc {group 0} {level 0}} {
+    XkbKeycodeToKeysym $::dpy $kc $group $level
+}
+proc x-refresh-mapping {ev} { XRefreshKeyboardMapping $ev }
+
 # ---------------- X error handler (cffi callback) ----------------
 # Xlib's default error handler exits the process; for a WM, BadWindow races
 # with dying clients are routine — so: swallow and log.
@@ -350,25 +425,25 @@ set root [XDefaultRootWindow $dpy]
 # input focus to PointerRoot, and can re-assert ours — plus
 # StructureNotify for the root's OWN ConfigureNotify: a RandR resize
 # (Xephyr's -resizeable, a mode switch) announces itself there.
-XSelectInput $dpy $root [expr {(1 << 20) | (1 << 19) | (1 << 21) | (1 << 17)}]
-XSync $dpy 0
+x-select-input $root [expr {(1 << 20) | (1 << 19) | (1 << 21) | (1 << 17)}]
+x-sync 0
 chan configure stdout -buffering line
 puts "WM: redirect armed on root [format 0x%x $root]"
 
-set WM_PROTOCOLS      [XInternAtom $dpy WM_PROTOCOLS 0]
-set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
-set WM_TAKE_FOCUS     [XInternAtom $dpy WM_TAKE_FOCUS 0]
-set WM_STATE          [XInternAtom $dpy WM_STATE 0]
-set WM_CHANGE_STATE   [XInternAtom $dpy WM_CHANGE_STATE 0]  ;# iconify request
-set TK9WM_RESTART     [XInternAtom $dpy TK9WM_RESTART 0]
-set TK9WM_TIME        [XInternAtom $dpy TK9WM_TIME 0]  ;# server-time poke
+set WM_PROTOCOLS      [x-intern WM_PROTOCOLS]
+set WM_DELETE_WINDOW  [x-intern WM_DELETE_WINDOW]
+set WM_TAKE_FOCUS     [x-intern WM_TAKE_FOCUS]
+set WM_STATE          [x-intern WM_STATE]
+set WM_CHANGE_STATE   [x-intern WM_CHANGE_STATE]  ;# iconify request
+set TK9WM_RESTART     [x-intern TK9WM_RESTART]
+set TK9WM_TIME        [x-intern TK9WM_TIME]  ;# server-time poke
 set WM_NAME           39   ;# XA_WM_NAME, predefined
 set XA_STRING         31   ;# XA_STRING, predefined — a text property's type
 set WM_COMMAND        34   ;# XA_WM_COMMAND, predefined
 set WM_CLIENT_MACHINE 36   ;# XA_WM_CLIENT_MACHINE, predefined
 set WM_CLASS          67   ;# XA_WM_CLASS, predefined
-soft "intern _NET_WM_PID"  { set NET_WM_PID [XInternAtom $dpy _NET_WM_PID 0] }
-soft "intern _NET_WM_ICON" { set NET_WM_ICON [XInternAtom $dpy _NET_WM_ICON 0] }
+soft "intern _NET_WM_PID"  { set NET_WM_PID [x-intern _NET_WM_PID] }
+soft "intern _NET_WM_ICON" { set NET_WM_ICON [x-intern _NET_WM_ICON] }
 
 # ---------------- EWMH minimum ----------------
 # Enough for toolkits to see "a WM is present": _NET_SUPPORTING_WM_CHECK on
@@ -380,24 +455,24 @@ proc set-prop-longs {win prop type values} {
     set b ""
     foreach v $values { append b [binary format wu $v] }
     set p [cffi::memory frombinary $b unsafe]
-    XChangeProperty $::dpy $win $prop $type 32 0 $p [llength $values]
+    x-change-property $win $prop $type 32 0 $p [llength $values]
     cffi::memory free $p
 }
 proc set-prop-utf8 {win prop str} {
     set b [encoding convertto utf-8 $str]
     set p [cffi::memory frombinary $b unsafe]
-    XChangeProperty $::dpy $win $prop $::UTF8 8 0 $p [string length $b]
+    x-change-property $win $prop $::UTF8 8 0 $p [string length $b]
     cffi::memory free $p
 }
 if {[catch {
-    set NET_CHECK     [XInternAtom $dpy _NET_SUPPORTING_WM_CHECK 0]
-    set NET_SUPPORTED [XInternAtom $dpy _NET_SUPPORTED 0]
-    set NET_WM_NAME   [XInternAtom $dpy _NET_WM_NAME 0]
-    set NET_ACTIVE    [XInternAtom $dpy _NET_ACTIVE_WINDOW 0]
-    set NET_WM_STATE  [XInternAtom $dpy _NET_WM_STATE 0]
-    set NET_WM_STATE_HIDDEN [XInternAtom $dpy _NET_WM_STATE_HIDDEN 0]
-    set UTF8          [XInternAtom $dpy UTF8_STRING 0]
-    set wmcheck [XCreateSimpleWindow $dpy $root -100 -100 1 1 0 0 0]
+    set NET_CHECK     [x-intern _NET_SUPPORTING_WM_CHECK]
+    set NET_SUPPORTED [x-intern _NET_SUPPORTED]
+    set NET_WM_NAME   [x-intern _NET_WM_NAME]
+    set NET_ACTIVE    [x-intern _NET_ACTIVE_WINDOW]
+    set NET_WM_STATE  [x-intern _NET_WM_STATE]
+    set NET_WM_STATE_HIDDEN [x-intern _NET_WM_STATE_HIDDEN]
+    set UTF8          [x-intern UTF8_STRING]
+    set wmcheck [x-create-window $root -100 -100 1 1 0 0 0]
     set-prop-longs $root    $NET_CHECK 33 [list $wmcheck]   ;# XA_WINDOW
     set-prop-longs $wmcheck $NET_CHECK 33 [list $wmcheck]
     set-prop-utf8  $wmcheck $NET_WM_NAME tk9wm
@@ -406,7 +481,7 @@ if {[catch {
     # the server's current time (see server-time). Selected only NOW, so
     # the writes above do not leave stale notifications in the queue for
     # server-time to mistake for the current time.
-    XSelectInput $dpy $wmcheck [expr {1 << 22}]
+    x-select-input $wmcheck [expr {1 << 22}]
     # _NET_ACTIVE_WINDOW is load-bearing for Wine 10+: it derives its
     # foreground from this root property, and its focus-stealing guard
     # judges our WM_TAKE_FOCUS invitations against that foreground —
@@ -415,7 +490,7 @@ if {[catch {
     set-prop-longs $root $NET_SUPPORTED 4 \
         [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
               $NET_WM_STATE $NET_WM_STATE_HIDDEN]           ;# XA_ATOM
-    XSync $dpy 0
+    x-sync 0
     puts "WM: EWMH minimum up (_NET_SUPPORTING_WM_CHECK=[format 0x%x $wmcheck])"
 } err]} { puts "WM: EWMH setup failed: $err" }
 
@@ -436,15 +511,15 @@ if {[catch {
 # focus window — root is an ancestor of this one).
 set nofocus 0
 if {[catch {
-    set nofocus [XCreateSimpleWindow $dpy $root -10 -10 10 10 0 0 0]
+    set nofocus [x-create-window $root -10 -10 10 10 0 0 0]
     # override-redirect: without it our OWN SubstructureRedirect would
     # hand us a MapRequest for the holder and we would frame it.
     # XSetWindowAttributes (LP64): override_redirect@88, CWOverrideRedirect=1<<9
     set at [cffi::memory frombinary [binary format x88ix20 1] unsafe]
-    XChangeWindowAttributes $dpy $nofocus 512 $at
+    x-change-attrs $nofocus 512 $at
     cffi::memory free $at
-    XMapWindow $dpy $nofocus        ;# must be viewable to hold the focus
-    XSync $dpy 0
+    x-map $nofocus        ;# must be viewable to hold the focus
+    x-sync 0
     puts "WM: focus holder up (0x[format %x $nofocus])"
 } err]} { puts "WM: focus holder setup failed: $err"; set nofocus 0 }
 
@@ -469,7 +544,7 @@ proc server-time {} {
     if {![info exists ::wmcheck]} { return $::evtime }
     if {[catch {
         # XA_STRING(31), format 8, PropModeAppend(2), zero elements
-        XChangeProperty $::dpy $::wmcheck $::TK9WM_TIME 31 8 2 $::timepoke 0
+        x-change-property $::wmcheck $::TK9WM_TIME 31 8 2 $::timepoke 0
         # Wait for OUR notification specifically: any other property
         # traffic on this window would answer with an older time, and an
         # old time is exactly what this procedure exists to avoid.
@@ -538,7 +613,7 @@ proc handle-event {} {
                 if {[catch {
                     set chg [cffi::memory frombinary \
                         [binary format iiiiix4wuix4 $x $y $w $h $bw $above $detail] unsafe]
-                    XConfigureWindow $::dpy $B $vmask $chg
+                    x-configure $B $vmask $chg
                     cffi::memory free $chg
                 } err]} { puts "WM: honor ConfigureRequest failed: $err" }
                 puts "WM: ConfigureRequest 0x[format %x $B] ${w}x${h} honored"
@@ -709,14 +784,14 @@ proc handle-event {} {
                     _t _s _se _d win rootw subw time state kc
                 set ::evtime $time
                 route-key release \
-                    [keysym-name [XkbKeycodeToKeysym $::dpy $kc 0 0]] \
+                    [keysym-name [x-keysym-at $kc 0 0]] \
                     [expr {$state & ~(2 | 16)}]
             }
         }
         34 { # MappingNotify: request@40 — 2 (pointer) is not ours
             binary scan [evbytes 48] iux4wuiux4wuwuiu _t _s _se _d _w req
             if {$::has_keys && $req != 2} {
-                soft XRefreshKeyboardMapping {XRefreshKeyboardMapping $::evbuf}
+                soft x-refresh-mapping {x-refresh-mapping $::evbuf}
                 keys-remap
             }
         }
@@ -730,8 +805,8 @@ proc handle-event {} {
                 if {[info exists ::managed($win)]} { policy-client-click $win }
             }
             # NEVER skip this: a sync grab left unanswered freezes the pointer
-            XAllowEvents $::dpy 2 $time   ;# ReplayPointer
-            XSync $::dpy 0
+            x-allow-events 2 $time   ;# ReplayPointer
+            x-sync 0
         }
     }
 }
@@ -1128,7 +1203,7 @@ proc set-wm-state {w state} {
         # WithdrawnState=0, NormalState=1, IconicState=3
         set b [binary format wuwu $state 0]
         set p [cffi::memory frombinary $b unsafe]
-        XChangeProperty $::dpy $w $::WM_STATE $::WM_STATE 32 0 $p 2
+        x-change-property $w $::WM_STATE $::WM_STATE 32 0 $p 2
         cffi::memory free $p
     } err]} { puts "WM: WM_STATE update failed: $err" }
 }
@@ -1186,12 +1261,12 @@ proc iconify-client {w} {
     # "reparenting" and IGNORES the focus loss — nothing to restore.
     # XSync, not XFlush: the round trip is what guarantees the server
     # processed it before Tk's connection speaks.
-    XUnmapWindow $::dpy $w
-    XSync $::dpy 0
+    x-unmap $w
+    x-sync 0
     set-wm-state $w 3          ;# IconicState
     set-net-wm-state $w [list $::NET_WM_STATE_HIDDEN]
     policy-iconified $w        ;# the decoration goes with it
-    XSync $::dpy 0
+    x-sync 0
     puts "WM: iconified 0x[format %x $w]"
     if {$was_focused} {
         set ::focused 0
@@ -1203,10 +1278,10 @@ proc deiconify-client {w} {
     if {![info exists ::managed($w)] || ![info exists ::iconic($w)]} return
     unset ::iconic($w)
     policy-deiconified $w
-    XMapWindow $::dpy $w
+    x-map $w
     set-wm-state $w 1          ;# NormalState
     set-net-wm-state $w {}
-    XSync $::dpy 0
+    x-sync 0
     puts "WM: deiconified 0x[format %x $w]"
     focus-to $w
 }
@@ -1223,8 +1298,8 @@ proc refuse-iconify {w} {
     if {![info exists ::managed($w)]} return
     set-wm-state $w 1
     set-net-wm-state $w {}
-    XMapWindow $::dpy $w
-    XSync $::dpy 0
+    x-map $w
+    x-sync 0
     puts "WM: iconify refused for 0x[format %x $w] — answered NormalState"
 }
 
@@ -1237,7 +1312,7 @@ proc manage {w} {
         # (4.1.4 — "the client should map the window"), so honor it as
         # one; an ordinary re-map is just a map.
         if {[info exists ::iconic($w)]} { deiconify-client $w } else {
-            XMapWindow $dpy $w
+            x-map $w
         }
         return
     }
@@ -1276,7 +1351,7 @@ proc manage {w} {
     set ::managed($w) 1
     # StructureNotify (Destroy/Unmap) + FocusChange (honest highlight even
     # when focus moves behind our back) + PropertyChange (live titles)
-    XSelectInput $dpy $w [expr {(1 << 17) | (1 << 21) | (1 << 22)}]
+    x-select-input $w [expr {(1 << 17) | (1 << 21) | (1 << 22)}]
     # After the reparent the client is no longer a child of root, so root's
     # SubstructureRedirect no longer covers it: keep redirecting its
     # ConfigureRequests by holding the mask on the frame slot as well.
@@ -1291,12 +1366,12 @@ proc manage {w} {
     # nowhere at all while the frame highlight claimed all was well.
     # The frame toplevel is watched for the same reason (the revert
     # walks up if the slot goes away).
-    XSelectInput $dpy $slot [expr {(1 << 20) | (1 << 21)}]
+    x-select-input $slot [expr {(1 << 20) | (1 << 21)}]
     set ::ourwin($slot) $w
     set ::decoof($w) [list $slot]
     if {[llength [set fg [policy-frame-geometry $w]]] == 5} {
         set fwin [lindex $fg 0]
-        XSelectInput $dpy $fwin [expr {1 << 21}]
+        x-select-input $fwin [expr {1 << 21}]
         set ::ourwin($fwin) $w
         lappend ::decoof($w) $fwin
     }
@@ -1304,15 +1379,15 @@ proc manage {w} {
     # The press freezes the pointer and wakes us (ButtonPress above); after
     # the policy reacts we XAllowEvents(ReplayPointer) so the client still
     # gets the click un-eaten.
-    XGrabButton $dpy 0 0x8000 $w 0 4 0 1 0 0
+    x-grab-button 0 0x8000 $w 4 0
     ;# AnyButton, AnyModifier, owner_events=False, ButtonPressMask,
     ;# GrabModeSync pointer, GrabModeAsync keyboard, no confine, no cursor
-    XAddToSaveSet $dpy $w
-    XReparentWindow $dpy $w $slot 0 0
-    if {$cw != $aw || $ch != $ah} { XResizeWindow $dpy $w $cw $ch }
-    XMapWindow $dpy $w
+    x-save-set-add $w
+    x-reparent $w $slot 0 0
+    if {$cw != $aw || $ch != $ah} { x-resize $w $cw $ch }
+    x-map $w
     set-wm-state $w 1          ;# NormalState — ICCCM, see set-wm-state
-    XSync $dpy 0
+    x-sync 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
     refresh-title $w
     policy-managed $w
@@ -1378,8 +1453,8 @@ proc unmanage {w {dead 0}} {
             { lassign [policy-origin $w] x y }
         soft "release the client back to root" {
             set-wm-state $w 0      ;# WithdrawnState before letting it go
-            XReparentWindow $::dpy $w $::root $x $y
-            XSync $::dpy 0
+            x-reparent $w $::root $x $y
+            x-sync 0
         }
     }
     policy-detach $w
@@ -1497,8 +1572,8 @@ proc focus-to {w} {
     # we refocus, a parent revert leaves the keyboard silent for a moment,
     # while a PointerRoot revert switches the whole session to
     # focus-follows-pointer behind our back.
-    XSetInputFocus $::dpy $w 2 0
-    XSync $::dpy 0
+    x-focus-set $w 2 0
+    x-sync 0
     # Record the focus ONLY if the server agrees. A refused XSetInputFocus
     # (swallowed BadMatch when the window stopped being viewable, a client
     # grabbing focus behind our back) used to be logged as MISMATCH and
@@ -1538,11 +1613,11 @@ proc focus-park {why} {
     puts "WM: parking focus on the holder ($why)"
     set ::invited 0
     if {$::nofocus} {
-        XSetInputFocus $::dpy $::nofocus 2 0   ;# RevertToParent = root
+        x-focus-set $::nofocus 2 0   ;# RevertToParent = root
     } else {
-        XSetInputFocus $::dpy 1 1 0            ;# no holder: PointerRoot
+        x-focus-set 1 1 0            ;# no holder: PointerRoot
     }
-    XSync $::dpy 0
+    x-sync 0
     set ::focused 0
     if {[info exists ::NET_ACTIVE]} {
         soft "clear _NET_ACTIVE_WINDOW" \
@@ -1588,8 +1663,8 @@ proc resize-client {win rw rh vmask} {
     if {$vmask & (1 << 3)} { set ch $rh }
     set ::geomof($win) [list $cw $ch]
     policy-resize $win $cw $ch
-    XResizeWindow $::dpy $win $cw $ch
-    XSync $::dpy 0
+    x-resize $win $cw $ch
+    x-sync 0
     puts "WM: resize 0x[format %x $win] -> ${cw}x${ch}, frame follows"
     # the synthetic ConfigureNotify is sent by the ConfigureRequest
     # handler for EVERY request, granted or not — see there
@@ -1620,8 +1695,8 @@ proc wm-resize-client {w cw ch} {
     if {$::geomof($w) eq [list $cw $ch]} return
     set ::geomof($w) [list $cw $ch]
     policy-resize $w $cw $ch
-    XResizeWindow $::dpy $w $cw $ch
-    XSync $::dpy 0
+    x-resize $w $cw $ch
+    x-sync 0
     puts "WM: wm-resize 0x[format %x $w] -> ${cw}x${ch}"
     send-synthetic-configure $w
 }
@@ -1650,8 +1725,8 @@ proc send-protocol {w atom time} {
     set b [binary format iux4wuiux4wuwuwuiux4wuwu \
         33 0 1 0 $w $::WM_PROTOCOLS 32 $atom $time]
     set ev [cffi::memory frombinary [binary format a192 $b] unsafe]
-    XSendEvent $::dpy $w 0 0 $ev
-    XSync $::dpy 0
+    x-send-event $w 0 0 $ev
+    x-sync 0
     cffi::memory free $ev
 }
 proc close-client {w} {
@@ -1666,8 +1741,8 @@ proc close-client {w} {
         after 2000 [list close-unanswered $w]
     } else {
         puts "WM: close 0x[format %x $w]: no WM_DELETE_WINDOW, XKillClient"
-        XKillClient $::dpy $w
-        XSync $::dpy 0
+        x-kill-client $w
+        x-sync 0
     }
 }
 
@@ -1685,8 +1760,8 @@ proc close-unanswered {w} {
 # ignores the polite path above.
 proc kill-client {w} {
     puts "WM: destroy 0x[format %x $w]: XKillClient"
-    XKillClient $::dpy $w
-    XSync $::dpy 0
+    x-kill-client $w
+    x-sync 0
 }
 
 # ---------------- key bindings: grabs + a stumpwm-style sequence machine ----------------
@@ -1732,9 +1807,9 @@ if {$has_keys} {
             Meta_L Meta_R Super_L Super_R Hyper_L Hyper_R
             Caps_Lock Shift_Lock Num_Lock Scroll_Lock
             Mode_switch ISO_Level3_Shift ISO_Level5_Shift} {
-        if {[set ks [XStringToKeysym $name]] != 0} { set ismodks($ks) 1 }
+        if {[set ks [x-keysym $name]] != 0} { set ismodks($ks) 1 }
     }
-    set KS_ESC [XStringToKeysym Escape]
+    set KS_ESC [x-keysym Escape]
 } else { puts "WM: key machinery not available in this libX11" }
 
 proc parse-chord {tok} {
@@ -1745,7 +1820,7 @@ proc parse-chord {tok} {
         set tok $rest
     }
     if {$tok eq ""} { error "chord without a key" }
-    set ks [XStringToKeysym $tok]
+    set ks [x-keysym $tok]
     if {$ks == 0} { error "unknown keysym «$tok»" }
     list $mods $ks
 }
@@ -1803,29 +1878,29 @@ proc wm-bind {spec script} {
 # click-to-focus button grab.
 proc grab-chord {chord} {
     lassign $chord mods ks
-    set kc [XKeysymToKeycode $::dpy $ks]
+    set kc [x-keycode $ks]
     if {$kc == 0} {
         puts "WM: no keycode for [keysym-name $ks] — chord not grabbed"
         return
     }
     foreach locks {0 2 16 18} {
-        XGrabKey $::dpy $kc [expr {$mods | $locks}] $::root 0 1 1
+        x-grab-key $kc [expr {$mods | $locks}] $::root
     }
-    XSync $::dpy 0
+    x-sync 0
 }
 
 # Keycodes moved under us (setxkbmap and friends): refresh Xlib's
 # keysym cache and re-grab every top chord at its new keycode.
 proc keys-remap {} {
-    XUngrabKey $::dpy 0 32768 $::root      ;# AnyKey, AnyModifier
+    x-ungrab-key 0 32768 $::root      ;# AnyKey, AnyModifier
     foreach chord $::grabbed_top { grab-chord $chord }
     puts "WM: keyboard remapped — [llength $::grabbed_top] top chords re-grabbed"
 }
 
 proc keyseq-end {} {
     if {$::kbd_grabbed} {
-        XUngrabKeyboard $::dpy 0
-        XSync $::dpy 0
+        x-ungrab-keyboard 0
+        x-sync 0
         set ::kbd_grabbed 0
     }
     set ::keyseq ""
@@ -1852,7 +1927,7 @@ proc grab-keys-to {cmd} {
     }
     if {!$::has_keys} { return 0 }
     if {!$::kbd_grabbed} {
-        set st [XGrabKeyboard $::dpy $::root 0 1 1 0]
+        set st [x-grab-keyboard $::root 0]
         if {$st != 0} {
             puts "WM: grab-keys-to: XGrabKeyboard refused ($st)"
             return 0
@@ -1886,9 +1961,9 @@ proc modifier-held {mask} {
     if {![catch {XQueryKeymap $::dpy $buf}]} {
         set v [cffi::memory tobinary! $buf 32]
         foreach n $names {
-            set ks [XStringToKeysym $n]
+            set ks [x-keysym $n]
             if {$ks == 0} continue
-            set kc [XKeysymToKeycode $::dpy $ks]
+            set kc [x-keycode $ks]
             if {$kc == 0} continue
             binary scan $v "x[expr {$kc / 8}]cu" byte
             if {$byte & (1 << ($kc % 8))} { set held 1; break }
@@ -1904,7 +1979,7 @@ proc modifier-held {mask} {
 # temporary XGrabKeyboard). An unbound press aborts a sequence but is
 # ignored in idle state — a stale grab echo is not an error.
 proc handle-key {state kc time} {
-    set ks [XkbKeycodeToKeysym $::dpy $kc 0 0]
+    set ks [x-keysym-at $kc 0 0]
     set mods [expr {$state & ~(2 | 16)}]   ;# Caps/Num make no chord distinct
     if {$::keyrouter ne ""} {
         route-key press [keysym-name $ks] $mods
@@ -1935,7 +2010,7 @@ proc handle-key {state kc time} {
         }
     } else {
         if {$::keyseq eq ""} {
-            set st [XGrabKeyboard $::dpy $::root 0 1 1 $time]
+            set st [x-grab-keyboard $::root $time]
             if {$st != 0} {
                 puts "WM: key [chord-name $mods $ks]: XGrabKeyboard refused ($st) — sequence dropped"
                 return
@@ -1954,10 +2029,9 @@ proc handle-key {state kc time} {
 proc adopt-existing {} {
     global dpy root
     if {!$::has_querytree} { puts "WM: no XQueryTree — adoption skipped"; return }
-    if {[catch {XQueryTree $dpy $root r p children n} status] || !$status || $n == 0} return
-    if {[cffi::pointer isnull $children]} return
-    binary scan [cffi::memory tobinary! $children [expr {8 * $n}]] wu$n kids
-    xfree $children
+    set tree [x-query-tree $root]
+    if {![llength $tree]} return
+    set kids [lindex $tree 2]
     set attrs [cffi::memory allocate 136 unsafe]
     foreach w $kids {
         if {[info exists ::managed($w)]} continue
@@ -1990,7 +2064,7 @@ proc send-synthetic-configure {w} {
     set b [binary format iux4wuiux4wuwuwuiiiiix4wuiu \
         22 0 1 0 $w $w $x $y $cw $ch 0 0 0]
     set ev [cffi::memory frombinary [binary format a192 $b] unsafe]
-    XSendEvent $::dpy $w 0 131072 $ev   ;# StructureNotifyMask
+    x-send-event $w 0 131072 $ev   ;# StructureNotifyMask
     cffi::memory free $ev
     # And a copy addressed to the DECORATION window. fvwm carries the same
     # workaround (events.c, send_for_frame_too): "for buggy tk, which waits
@@ -2005,10 +2079,10 @@ proc send-synthetic-configure {w} {
         set fb [binary format iux4wuiux4wuwuwuiiiiix4wuiu \
             22 0 1 0 $fwin $fwin $fx $fy $fw $fh 0 0 0]
         set fev [cffi::memory frombinary [binary format a192 $fb] unsafe]
-        XSendEvent $::dpy $fwin 0 131072 $fev
+        x-send-event $fwin 0 131072 $fev
         cffi::memory free $fev
     }
-    XFlush $::dpy   ;# no cffi roundtrip follows during a Tk-side drag
+    x-flush   ;# no cffi roundtrip follows during a Tk-side drag
 }
 
 # ---------------- fd pump: worker thread + blocking poll() ----------------
@@ -2062,7 +2136,7 @@ proc restart-wm {} {
     puts "WM: restart requested — releasing clients, exec'ing myself"
     soft "release clients on restart" \
         { foreach w [array names ::managed] { unmanage $w } }
-    soft "sync before exec" { XSync $::dpy 0 }
+    soft "sync before exec" { x-sync 0 }
     set exe [info nameofexecutable]
     if {[catch {
         cffi::Wrapper create LCX libc.so.6
