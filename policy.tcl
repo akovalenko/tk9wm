@@ -124,7 +124,10 @@ proc retitle-frames {} {
         frame-layout $t [$t.slot cget -width] [$t.slot cget -height]
     }
     update idletasks
-    foreach {w t} [array get ::frameof] { send-synthetic-configure $w }
+    foreach {w t} [array get ::frameof] {
+        send-synthetic-configure $w
+        publish-frame-extents $w   ;# the strip's height just moved
+    }
 }
 # a ttk theme switch would change TkDefaultFont-derived looks the same
 # way; today the only real trigger is set-title-font
@@ -479,6 +482,16 @@ proc policy-frame-geometry {w} {
     set t $::frameof($w)
     list [winfo id $t] [winfo rootx $t] [winfo rooty $t] \
         [winfo width $t] [winfo height $t]
+}
+
+# EWMH _NET_FRAME_EXTENTS, {left right top bottom}. Our decoration is
+# uniform — the same border on three sides, the title strip on top —
+# so the answer does not depend on the window, and a client asking
+# BEFORE its first map (_NET_REQUEST_FRAME_EXTENTS, which is not
+# managed yet and has no frame to measure) gets the same honest
+# numbers as a framed one.
+proc policy-frame-extents {w} {
+    list $::border $::border $::decotop $::border
 }
 
 proc policy-detach {w} {
@@ -2041,7 +2054,8 @@ proc panel-click {x y} {
 }
 proc panel-on-top {} {
     if {[winfo exists .panel]} { raise .panel }
-    if {[winfo exists .tray]} { raise .tray }
+    if {[winfo exists .traybg]} { raise .traybg }   ;# under the strip...
+    if {[winfo exists .tray]} { raise .tray }       ;# ...and over the desk
 }
 
 # ---- the system tray strip ----
@@ -2072,19 +2086,115 @@ set tray_sid 0
 set tray_order {}        ;# icon windows, in dock order
 set tray_seen_extent 0   ;# the length the panel last reserved for us
 set tray_geo ""          ;# the strip geometry we last asked for
+set tray_argb 0          ;# the ARGB experiment — see set-tray-argb
 proc set-tray {on} {
     set want [expr {$on ? 1 : 0}]
     if {$want == $::tray_on} return
     if {$want} {
+        # The strip is built FIRST: its visual is what the claim
+        # advertises, and a client may dock the instant it hears the
+        # announcement.
+        tray-ensure
+        set vis 0
+        if {$::tray_argb} {
+            scan [winfo visualid .tray] %x vis
+        }
         # a vertical panel gets a vertical tray — the orientation is
         # published for the icons, which size themselves by it
         set ::tray_on [tray-start [expr {$::panel_side eq "right"
-            ? "vertical" : "horizontal"}]]
+            ? "vertical" : "horizontal"}] $vis]
+        if {!$::tray_on} { destroy .tray }
     } else {
         tray-stop "turned off by the config"
         set ::tray_on 0
     }
     tray-layout
+}
+# The ARGB experiment, off by default and deliberately so.
+#
+# On, the strip becomes a 32-bit top-level and we ADVERTISE that visual
+# (_NET_SYSTEM_TRAY_VISUAL): a toolkit that sees the offer makes its
+# icon in the same visual and paints it with alpha. Two things then
+# have to hold, and both are ours to arrange: the cell must be the same
+# depth (only then is ParentRelative legal, and only then does the
+# icon's transparency show OUR color rather than black), and a
+# compositor must be running to blend the strip — the server never
+# blends a child window's alpha by itself.
+#
+# The catch that makes this more than a flag: Tk computes a color's
+# pixel from the visual's masks, and a TrueColor visual has no mask
+# over the alpha bits — so every Tk color in a 32-bit visual comes out
+# with alpha ZERO, which a compositor draws as "not there". The strip
+# would be an invisible bar with icons floating over the wallpaper. So
+# the background pixel is set from outside Tk, alpha byte and all (see
+# tray-paint-opaque) — that is what the shim's `window background`
+# primitive is for.
+#
+# Chrome ignores the negotiation and makes an ARGB icon whether or not
+# we advertise (measured 2026-07-29), so with the offer OFF it is the
+# one client that looks wrong, and with it ON it is the one client that
+# looks right. Hence a knob and not a default.
+proc set-tray-argb {on} {
+    set want [expr {$on ? 1 : 0}]
+    if {$want == $::tray_argb} return
+    if {$want && [tray-argb-visual] eq ""} {
+        puts "WM: tray: no 32-bit TrueColor visual on this screen — ARGB refused"
+        return
+    }
+    set ::tray_argb $want
+    if {!$::tray_on} return    ;# takes effect when the tray starts
+    # A window's visual is fixed when it is made, and the offer goes
+    # out with the claim — so the whole tray is rebuilt: icons come
+    # back either by the fresh MANAGER announcement or, for the clients
+    # that ignore it, by the orphan scan.
+    puts "WM: tray: rebuilding for a [expr {$want ? {32-bit ARGB} : {default}}] visual"
+    tray-stop "the tray visual changed"
+    destroy .tray
+    if {[winfo exists .traybg]} { destroy .traybg }
+    set ::tray_geo ""
+    set ::tray_on 0
+    set-tray on
+    tray-adopt-orphans
+}
+# "truecolor 32" as [winfo visualsavailable] spells it, or "" when the
+# screen has none (a plain 24-bit server: then there is no ARGB to be
+# had and the knob says so instead of building a broken strip).
+proc tray-argb-visual {} {
+    foreach v [winfo visualsavailable .] {
+        if {$v eq "truecolor 32"} { return $v }
+    }
+    return ""
+}
+# The backdrop, and why the ARGB strip needs one — measured, not
+# reasoned (run-trayargb-test.sh, 2026-07-29).
+#
+# With the ARGB offer taken, an icon's see-through parts are alpha ZERO
+# in the top-level's composite pixmap, and the compositor duly shows
+# whatever is BEHIND the strip: the wallpaper, through a hole the size
+# of the icon. ParentRelative does not save it — the toolkit sets its
+# own transparent background in ARGB mode and paints over ours. Nor
+# does painting the strip opaque: the icon's own window covers the
+# cell, and a child's pixels replace the parent's in that pixmap.
+#
+# So what is behind the strip has to be OURS: a plain, opaque
+# 24-bit top-level of exactly the strip's geometry, stacked directly
+# under it. The holes then show the tray's own color, the icon's
+# antialiased edge blends against it, and nothing of the desk shows
+# through. Only in ARGB mode — the default strip is opaque by itself.
+proc tray-backdrop {geo} {
+    if {!$::tray_argb} {
+        if {[winfo exists .traybg]} { destroy .traybg }
+        return
+    }
+    if {![winfo exists .traybg]} {
+        toplevel .traybg -background $::tray_bg
+        wm overrideredirect .traybg 1
+        wm withdraw .traybg
+    }
+    if {$geo eq ""} { wm withdraw .traybg; return }
+    wm geometry .traybg $geo
+    wm deiconify .traybg
+    raise .traybg        ;# ...and tray-layout raises .tray over it
 }
 proc set-tray-icon-size {px} {
     set ::tray_icon_size $px
@@ -2092,6 +2202,7 @@ proc set-tray-icon-size {px} {
 }
 proc set-tray-background {color} {
     set ::tray_bg $color
+    if {[winfo exists .traybg]} { .traybg configure -background $color }
     if {[winfo exists .tray]} {
         .tray configure -background $color
         foreach w $::tray_order { $::tray_slot($w) configure -background $color }
@@ -2099,7 +2210,11 @@ proc set-tray-background {color} {
 }
 proc tray-ensure {} {
     if {[winfo exists .tray]} return
-    toplevel .tray -background $::tray_bg
+    if {$::tray_argb && [set v [tray-argb-visual]] ne ""} {
+        toplevel .tray -background $::tray_bg -visual $v -colormap new
+    } else {
+        toplevel .tray -background $::tray_bg
+    }
     wm overrideredirect .tray 1   ;# our own furniture, not a client
     wm withdraw .tray             ;# shown by tray-layout once it holds a cell
 }
@@ -2110,6 +2225,9 @@ proc policy-tray-attach {w} {
     if {!$::tray_on} { return {0 0} }
     tray-ensure
     set f .tray.i[incr ::tray_sid]
+    # The cell inherits the strip's visual (a child of a 32-bit
+    # top-level is 32-bit unless told otherwise) — which is what makes
+    # ParentRelative legal for an ARGB icon.
     frame $f -width $::tray_icon_size -height $::tray_icon_size \
         -background $::tray_bg
     set ::tray_slot($w) $f
@@ -2151,6 +2269,8 @@ proc tray-layout {} {
     set len [tray-extent]
     if {$len == 0} {
         wm withdraw .tray
+        set ::tray_geo ""
+        tray-backdrop ""
         tray-tell-panel
         return
     }
@@ -2175,6 +2295,7 @@ proc tray-layout {} {
         set geo ${len}x${thick}+[expr {$sw - $len}]+[expr {$sh - $thick}]
     }
     wm geometry .tray $geo
+    tray-backdrop $geo       ;# the opaque floor under an ARGB strip
     wm deiconify .tray
     raise .tray
     # The COMPUTED string, not [wm geometry .tray]: that answers with

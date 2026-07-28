@@ -169,6 +169,16 @@
 #   set-tray-background #2e3436
 #   set-tray-icon-size 24
 #
+# For clients that draw their icon with alpha whether or not anybody
+# offered them a visual (Chrome does), there is set-tray-argb: the
+# strip becomes a 32-bit top-level, the visual is advertised, and an
+# opaque backdrop is put under the strip so the transparent parts of an
+# icon show the tray's color instead of punching a hole through to the
+# desk. It needs a COMPOSITOR running — without one nothing blends and
+# the offer only makes things worse — so it is off by default. Set it
+# before turning the tray on (changing it later rebuilds the tray).
+#   set-tray-argb on
+#
 # ---- key bindings ----
 #
 # wm-bind SPEC SCRIPT binds a chord sequence, stumpwm-style: only the

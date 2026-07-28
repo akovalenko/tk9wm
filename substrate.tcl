@@ -218,6 +218,10 @@ proc x-attrs {w {changes ""}} {
 proc x-create-window {parent x y width height {override ""}} {
     tkwmx::window create $parent $x $y $width $height {*}$override
 }
+# Repaint a window from its background — the other half of setting one.
+# -exposures asks the CLIENT to redraw too, which a foreign window
+# needs: its own drawing is not ours to reproduce.
+proc x-clear {w {exposures ""}} { tkwmx::window clear $w {*}$exposures }
 proc x-allow-events {mode {time 0}} { tkwmx::grab allow $mode $time }
 proc x-prop-set {w prop type fmt value {append 0}} {
     tkwmx::prop set $w $prop $type $fmt $value $append
@@ -375,6 +379,8 @@ if {[catch {
     set NET_ACTIVE    [x-intern _NET_ACTIVE_WINDOW]
     set NET_WM_STATE  [x-intern _NET_WM_STATE]
     set NET_WM_STATE_HIDDEN [x-intern _NET_WM_STATE_HIDDEN]
+    set NET_FRAME_EXTENTS [x-intern _NET_FRAME_EXTENTS]
+    set NET_REQUEST_FRAME_EXTENTS [x-intern _NET_REQUEST_FRAME_EXTENTS]
     set UTF8          [x-intern UTF8_STRING]
     set wmcheck [x-create-window $root -100 -100 1 1]
     set-prop-longs $root    $NET_CHECK 33 [list $wmcheck]   ;# XA_WINDOW
@@ -393,7 +399,8 @@ if {[catch {
     set-prop-longs $root $NET_ACTIVE 33 [list 0]
     set-prop-longs $root $NET_SUPPORTED 4 \
         [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
-              $NET_WM_STATE $NET_WM_STATE_HIDDEN]           ;# XA_ATOM
+              $NET_WM_STATE $NET_WM_STATE_HIDDEN \
+              $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS]  ;# XA_ATOM
     x-sync 0
     puts "WM: EWMH minimum up (_NET_SUPPORTING_WM_CHECK=[format 0x%x $wmcheck])"
 } err]} { puts "WM: EWMH setup failed: $err" }
@@ -726,6 +733,15 @@ proc dispatch-event {ev} {
                 set rt [lindex $data 1]
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
                 soft "activation request" { policy-client-click $A }
+            } elseif {[info exists ::NET_REQUEST_FRAME_EXTENTS]
+                    && $B == $::NET_REQUEST_FRAME_EXTENTS} {
+                # EWMH: a client asking how big its decoration WILL be,
+                # before it has one — GTK does this while working out
+                # where to put its window. The message names the asking
+                # window (which is not managed yet), and the answer is
+                # the property on that window.
+                puts "WM: frame extents requested for 0x[format %x $A]"
+                publish-frame-extents $A
             } elseif {$::tray_owner != 0 && $A == $::tray_owner
                     && $B == $::TRAY_OPCODE} {
                 # The tray protocol's one request: data.l[1] is the
@@ -1114,6 +1130,26 @@ proc set-wm-state {w state} {
     }
 }
 
+# EWMH _NET_FRAME_EXTENTS: how thick the decoration is on each side,
+# {left right top bottom}. A client cannot measure this for itself —
+# its own geometry is inside the frame — and toolkits use it to place
+# what they position by the WINDOW rather than by the widget: menus and
+# popups anchored to a corner, "remember my position" arithmetic, input
+# method hint windows. Absent, GTK falls back to walking the window
+# tree, and whatever it concludes we never confirmed.
+#
+# Published at manage and again whenever the decoration metrics move
+# (the title font). Clients may also ASK before their first map, when
+# there is no frame yet to measure — see the request below; our
+# decoration is uniform, so the answer is honest either way.
+proc publish-frame-extents {w} {
+    if {![info exists ::NET_FRAME_EXTENTS]} return
+    set e [soft "frame extents" { policy-frame-extents $w } {0 0 0 0}]
+    if {[llength $e] != 4} return
+    soft "publish _NET_FRAME_EXTENTS" \
+        [list set-prop-longs $w $::NET_FRAME_EXTENTS 6 $e]   ;# XA_CARDINAL
+}
+
 # _NET_WM_STATE — the EWMH state list. We publish exactly one member,
 # _NET_WM_STATE_HIDDEN, and only while a window is iconic: it is the
 # property EWMH-aware clients read to learn they are minimized (wine's
@@ -1309,6 +1345,7 @@ proc manage {w} {
     if {$cw != $aw || $ch != $ah} { x-resize $w $cw $ch }
     x-map $w
     set-wm-state $w 1          ;# NormalState — ICCCM, see set-wm-state
+    publish-frame-extents $w   ;# EWMH — how much decoration is around it
     x-sync 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
     refresh-title $w
@@ -1723,12 +1760,13 @@ proc tray-screen {} {
 # Claim the tray for this display. 0 = there already is one (we do not
 # fight for it: two managers on one selection is how icons end up
 # nowhere) or the server refused us.
-proc tray-start {{orient horizontal}} {
+proc tray-start {{orient horizontal} {visual 0}} {
     if {$::tray_owner != 0} { return 1 }
     if {[catch {
         set ::TRAY_SELECTION [x-intern _NET_SYSTEM_TRAY_S[tray-screen]]
         set ::TRAY_OPCODE    [x-intern _NET_SYSTEM_TRAY_OPCODE]
         set ::TRAY_ORIENT    [x-intern _NET_SYSTEM_TRAY_ORIENTATION]
+        set ::TRAY_VISUAL    [x-intern _NET_SYSTEM_TRAY_VISUAL]
         set ::XEMBED         [x-intern _XEMBED]
         set ::XEMBED_INFO    [x-intern _XEMBED_INFO]
         set ::MANAGER        [x-intern MANAGER]
@@ -1762,6 +1800,16 @@ proc tray-start {{orient horizontal}} {
     # bare. (XA_CARDINAL; 0 = horizontal, 1 = vertical.)
     set-prop-longs $owner $::TRAY_ORIENT 6 \
         [list [expr {$orient eq "vertical" ? 1 : 0}]]
+    # ...and the ARGB offer, when the policy built itself a 32-bit
+    # strip to back it up. This property is a PROMISE: a toolkit that
+    # sees it makes its icon in that visual and paints it with alpha,
+    # which is only survivable if our cell has the same depth (so
+    # ParentRelative is legal) and a compositor is there to blend the
+    # strip. Absent, the toolkit uses the screen's own visual — the
+    # safe default, and the reason this is opt-in. (XA_VISUALID = 32.)
+    if {$visual != 0} {
+        set-prop-longs $owner $::TRAY_VISUAL 32 [list $visual]
+    }
     set t [server-time]
     if {![x-selection-own $::TRAY_SELECTION $owner $t]} {
         puts "WM: tray: the server refused the selection"
@@ -1774,8 +1822,13 @@ proc tray-start {{orient horizontal}} {
     x-send-client $::root $::MANAGER \
         [list $t $::TRAY_SELECTION $owner 0 0] 32 {structure-notify}
     x-sync 0
+    # (the visual spelled OUTSIDE expr: expr would read "0x40" back as
+    # a number and print 64, which is the kind of small lie a log line
+    # should not tell)
+    set vs default
+    if {$visual != 0} { set vs [format 0x%x $visual] }
     puts "WM: tray up (owner 0x[format %x $owner],\
- _NET_SYSTEM_TRAY_S[tray-screen], $orient)"
+ _NET_SYSTEM_TRAY_S[tray-screen], $orient, visual $vs)"
     return 1
 }
 
@@ -1836,7 +1889,20 @@ proc tray-dock {w} {
     # commonest tray complaint there is, and reading it off the icon
     # costs nothing: we already have its attributes.
     set cell [dict get [x-attrs $slot] depth]
-    if {$depth ne "" && $cell ne "" && $depth != $cell} {
+    if {$depth eq $cell} {
+        # Same depth: the icon can be told to take the CELL's
+        # background, and that is the classic cure for a transparent
+        # icon coming out on black — the client's see-through parts
+        # then show our color. Toolkits that already do this for
+        # themselves (Tk's systray, GTK's) lose nothing; the ones that
+        # forget are exactly the ones that need it. Across depths the
+        # server refuses (BadMatch), which is the whole ARGB story
+        # below — hence the guard rather than a blind attempt.
+        soft "parent-relative background for an icon" {
+            x-attrs $w {background parent-relative}
+            x-clear $w -exposures
+        }
+    } elseif {$depth ne "" && $cell ne ""} {
         puts "WM: tray: 0x[format %x $w] is depth $depth in a depth-$cell\
  cell — an ARGB icon, though we advertise no ARGB visual (Chrome does\
  this unconditionally; measured 2026-07-29). Nobody blends a CHILD\
