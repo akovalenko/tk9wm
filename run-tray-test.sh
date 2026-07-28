@@ -49,6 +49,17 @@ sleep 2                # client B destroys its icon on its own
 STRIP1=$(sed -n 's/^WM: tray strip \(.*\) (1 icons)/\1/p' "$HERE/wm-tray.log" | tail -1)
 ICON_B=$(sed -n 's/^WM: tray: docked \(0x[0-9a-f]*\) in slot .*/\1/p' "$HERE/wm-tray.log" | sed -n 2p)
 
+# A DECOY: a window that carries _XEMBED_INFO but was never docked —
+# fcitx5's input and menu windows are exactly this, and an adoption
+# that goes by the property instead of by its own record swallows them
+# whole (owner's live desk, 2026-07-29: a 425x196 menu window folded
+# into a 36x36 cell). It must still be a child of the root, untouched,
+# after the restart below.
+"$LINUX/whale" "$HERE/plug-decoy.tcl" > "$HERE/tray-decoy.log" 2>&1 &
+CD=$!
+sleep 1.5
+DECOY=$(sed -n 's/^DECOY: window \(0x[0-9a-f]*\)/\1/p' "$HERE/tray-decoy.log")
+
 # Restart in place: A's icon goes back to the root and must be picked
 # up again by the fresh instance WITHOUT its client doing anything —
 # the client is not obliged to hear the MANAGER announcement, and
@@ -58,7 +69,13 @@ sleep 3
 PARENT_A2=$(xwininfo -id "$ICON_A" -children 2>/dev/null | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')
 SLOT_A2=$(sed -n 's/^WM: tray: docked 0x[0-9a-f]* in slot \(0x[0-9a-f]*\).*/\1/p' "$HERE/wm-tray.log" | tail -1)
 
-kill $CA $CB 2>/dev/null
+DECOY_PARENT=""
+if [ -n "$DECOY" ]; then
+    DECOY_PARENT=$(xwininfo -id "$DECOY" -children 2>/dev/null | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')
+fi
+ROOTID=$(xwininfo -root 2>/dev/null | sed -n 's/^xwininfo: Window id: \(0x[0-9a-f]*\).*/\1/p')
+
+kill $CA $CB $CD 2>/dev/null
 sleep 1
 kill $WM 2>/dev/null
 sleep 0.5
@@ -112,7 +129,7 @@ if [ -n "$ICON_B" ] && grep -q "^WM: tray: undocked $ICON_B" "$HERE/wm-tray.log"
 else
     echo "FAIL: no undock line for B ($ICON_B)"
 fi
-if grep -q "^WM: tray: $ICON_A is an orphaned icon" "$HERE/wm-tray.log"; then
+if grep -q "^WM: tray: $ICON_A was ours and is orphaned" "$HERE/wm-tray.log"; then
     echo "OK: the restarted WM found A's orphaned icon by itself"
 else
     echo "FAIL: A's icon was not picked up as an orphan after the restart"
@@ -121,6 +138,11 @@ if [ -n "$PARENT_A2" ] && [ "$PARENT_A2" = "$SLOT_A2" ]; then
     echo "OK: A's icon sits in a cell of the NEW instance ($PARENT_A2)"
 else
     echo "FAIL: after the restart A's parent is «$PARENT_A2», cell «$SLOT_A2»"
+fi
+if [ -n "$DECOY" ] && [ "$DECOY_PARENT" = "$ROOTID" ]; then
+    echo "OK: the decoy plug was left alone (still a child of the root)"
+else
+    echo "FAIL: the decoy $DECOY was adopted — parent «$DECOY_PARENT», root «$ROOTID»"
 fi
 if grep -q 'handler error' "$HERE/wm-tray.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-tray.log"

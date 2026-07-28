@@ -356,6 +356,10 @@ set WM_STATE          [x-intern WM_STATE]
 set WM_CHANGE_STATE   [x-intern WM_CHANGE_STATE]  ;# iconify request
 set TK9WM_RESTART     [x-intern TK9WM_RESTART]
 set TK9WM_TIME        [x-intern TK9WM_TIME]  ;# server-time poke
+# Our own record of which windows are tray icons, kept ON THE ROOT so
+# it outlives us — see tray-adopt-orphans for why guessing instead of
+# recording was a bug and not a shortcut.
+set TK9WM_TRAY_ICONS  [x-intern TK9WM_TRAY_ICONS]
 set WM_NAME           39   ;# XA_WM_NAME, predefined
 set XA_STRING         31   ;# XA_STRING, predefined — a text property's type
 set WM_COMMAND        34   ;# XA_WM_COMMAND, predefined
@@ -1848,6 +1852,17 @@ proc kill-client {w} {
 set tray_owner 0        ;# the selection owner window, 0 = no tray here
 array set trayicon {}   ;# icon window -> the slot it sits in
 array set traysize {}   ;# icon window -> the size we hold it at
+set trayseq {}          ;# the same icons in dock order — the record below
+set tray_freeze 0       ;# hold the record still while the tray goes down
+
+# The record of what our icons ARE, published on the root so it
+# outlives this process — a restart reads it back, and so does a fresh
+# instance after a crash (the root survives us; the property with it).
+proc publish-tray-icons {} {
+    if {$::tray_freeze || ![info exists ::TK9WM_TRAY_ICONS]} return
+    soft "publish the tray record" \
+        { set-prop-longs $::root $::TK9WM_TRAY_ICONS 33 $::trayseq }  ;# XA_WINDOW
+}
 
 # Which screen the selection names. Tk knows ours by name (":0.0"); a
 # display spelled without a screen means screen 0.
@@ -1980,6 +1995,14 @@ proc tray-dock {w} {
     # message goes to the window's own client, not to onlookers.
     x-send-client $w $::XEMBED [list [server-time] 0 $slot 0 0]
     tray-refresh-map $w
+    # Ask the client to paint. A fresh dock gets its Expose from the
+    # map anyway; an ADOPTED one may not — it has been sitting unmapped
+    # on the root, its client believes nothing in particular about it,
+    # and what shows up in the cell otherwise is whatever was in the
+    # window when the last tray let go of it.
+    soft "ask an icon to repaint" { x-clear $w -exposures }
+    lappend ::trayseq $w
+    publish-tray-icons
     x-sync 0
     set depth [dict get $at depth]
     puts "WM: tray: docked 0x[format %x $w] in slot\
@@ -2011,31 +2034,50 @@ proc tray-dock {w} {
     }
 }
 
-# Icons orphaned by a tray that went away: ours across a restart (the
-# save-set hands them back to the root), or a foreign one that died.
-# The protocol says a client should re-dock when it hears the next
-# MANAGER announcement, and a well-behaved one does — but Chrome does
-# not (measured on a live desk, 2026-07-29: its icon was lost across a
-# restart of tk9wm AND of stalonetray). So the tray goes and finds
-# them instead of waiting: a root child carrying _XEMBED_INFO is an
-# icon and nothing else.
+# Icons orphaned by a tray that went away — ours across a restart, when
+# the save-set (or our own release) hands them back to the root. The
+# protocol says a client should re-dock when it hears the next MANAGER
+# announcement, and a well-behaved one does; Chrome does not (measured
+# on a live desk, 2026-07-29: its icon was lost across a restart of
+# tk9wm AND of stalonetray), so the tray goes and gets them.
 #
-# Runs BEFORE adopt-existing, and the order is load-bearing: a stray
-# icon that is not override-redirect (nm-applet's is not, Chrome's is)
-# would otherwise be adopted as an ordinary window and handed a
-# titlebar.
+# It goes by its own RECORD, and that distinction is the whole lesson
+# here. The first version of this asked the screen instead: every root
+# child carrying _XEMBED_INFO was taken for an icon. But that property
+# marks an XEmbed PLUG — any embeddable window at all — and fcitx5 puts
+# it on its input window and on its menu window as readily as on its
+# tray icon. The live desk showed the result: a 425x196 menu window and
+# the input window that draws the input-method hint, both squeezed into
+# 36x36 tray cells (owner's report, 2026-07-29). A property that says
+# "I can be embedded" was read as "I am a tray icon", and those are not
+# the same sentence.
+#
+# So the icons are written down while they are ours (TK9WM_TRAY_ICONS
+# on the root, which outlives the process), and only those come back.
+# The checks that remain are about the window's fate since: still
+# alive, still a child of the root, still a plug.
+#
+# Runs BEFORE adopt-existing, and the order is load-bearing: an icon
+# that is not override-redirect (nm-applet's is not, Chrome's is) would
+# otherwise be adopted as an ordinary window and handed a titlebar.
 proc tray-adopt-orphans {} {
     if {$::tray_owner == 0} return
-    set tree [x-query-tree $::root]
-    if {![llength $tree]} return
-    foreach w [lindex $tree 2] {
-        if {[info exists ::trayicon($w)] || [our-window $w]} continue
-        if {$w == $::nofocus || $w == $::tray_owner} continue
-        if {[info exists ::wmcheck] && $w == $::wmcheck} continue
+    lassign [soft "read the tray record" \
+        { x-prop-get $::root $::TK9WM_TRAY_ICONS }] type fmt val
+    if {$fmt ne "32"} return
+    foreach w $val {
+        if {[info exists ::trayicon($w)]} continue   ;# already re-docked itself
+        if {![dict size [x-attrs $w]]} continue      ;# died with its client
+        # Still a child of the ROOT — that is where the save-set (or our
+        # own release) leaves an icon whose tray went away. Anywhere
+        # else means somebody took it in already, and taking it back
+        # would be a fight.
+        set tree [soft "parent of a recorded icon" { x-query-tree $w }]
+        if {[llength $tree] < 2 || [lindex $tree 1] != $::root} continue
         lassign [soft "read _XEMBED_INFO" { x-prop-get $w $::XEMBED_INFO }] \
-            type fmt val
-        if {$fmt ne "32" || [llength $val] < 2} continue
-        puts "WM: tray: 0x[format %x $w] is an orphaned icon — taking it in"
+            t f v
+        if {$f ne "32" || [llength $v] < 2} continue   ;# no longer a plug
+        puts "WM: tray: 0x[format %x $w] was ours and is orphaned — taking it back"
         tray-dock $w
     }
 }
@@ -2059,6 +2101,8 @@ proc tray-undock {w {gone 0}} {
     if {![info exists ::trayicon($w)]} return
     unset ::trayicon($w)
     unset -nocomplain ::traysize($w)
+    set ::trayseq [lsearch -exact -all -inline -not $::trayseq $w]
+    publish-tray-icons
     if {!$gone} {
         # Hand it back to the root, unmapped. The icon outlives us (it
         # is in the save-set); what to do next is its client's call.
@@ -2078,7 +2122,12 @@ proc tray-undock {w {gone 0}} {
 proc tray-stop {why} {
     if {$::tray_owner == 0} return
     puts "WM: tray: stopping ($why)"
+    # The record is what a NEXT instance adopts by, so it has to survive
+    # the teardown that is about to empty it — freeze it while the icons
+    # go back to the root.
+    set ::tray_freeze 1
     foreach w [array names ::trayicon] { tray-undock $w }
+    set ::tray_freeze 0
     set ::tray_owner 0
 }
 
