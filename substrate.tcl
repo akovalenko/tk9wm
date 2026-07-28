@@ -50,7 +50,14 @@
 #                           anything glued to a screen edge re-places
 #
 # The substrate provides to the policy layer:
-#   focus-to w                  set the input focus honestly + repaint
+#   focus-to w                  aim the input focus at w. For an ordinary
+#                               client that means setting it and believing
+#                               the server; for a globally active one
+#                               (Wine 10+) it means inviting the client to
+#                               take it and touching nothing — so a return
+#                               of 1 means "asked", not "done". The
+#                               highlight follows the CONFIRMED focus (see
+#                               the focus core), never the request
 #   wm-bind spec script         bind a key chord sequence ("<Alt>space",
 #                               "<Super>t w m") to a script — see the key
 #                               bindings section
@@ -106,6 +113,7 @@ X11 function XDefaultRootWindow ulong {dpy pointer.unsafe}
 X11 function XSelectInput int {dpy pointer.unsafe w ulong mask long}
 X11 function XPending int {dpy pointer.unsafe}
 X11 function XNextEvent int {dpy pointer.unsafe ev pointer.unsafe}
+X11 function XWindowEvent int {dpy pointer.unsafe w ulong mask long ev pointer.unsafe}
 X11 function XMapWindow int {dpy pointer.unsafe w ulong}
 X11 function XSync int {dpy pointer.unsafe discard int}
 X11 function XConnectionNumber int {dpy pointer.unsafe}
@@ -122,6 +130,7 @@ X11 function XAllowEvents int {dpy pointer.unsafe mode int time ulong}
 X11 function XFlush int {dpy pointer.unsafe}
 X11 function XChangeProperty int {dpy pointer.unsafe w ulong prop ulong type ulong fmt int mode int data pointer.unsafe n int}
 X11 function XCreateSimpleWindow ulong {dpy pointer.unsafe parent ulong x int y int w uint h uint bw uint border ulong bg ulong}
+X11 function XChangeWindowAttributes int {dpy pointer.unsafe w ulong mask ulong attrs pointer.unsafe}
 set has_transient [expr {![catch {
     X11 function XGetTransientForHint int {dpy pointer.unsafe w ulong prop {ulong out}}
 }]}]
@@ -242,6 +251,7 @@ set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
 set WM_TAKE_FOCUS     [XInternAtom $dpy WM_TAKE_FOCUS 0]
 set WM_STATE          [XInternAtom $dpy WM_STATE 0]
 set TK9WM_RESTART     [XInternAtom $dpy TK9WM_RESTART 0]
+set TK9WM_TIME        [XInternAtom $dpy TK9WM_TIME 0]  ;# server-time poke
 set WM_NAME           39   ;# XA_WM_NAME, predefined
 set WM_COMMAND        34   ;# XA_WM_COMMAND, predefined
 set WM_CLIENT_MACHINE 36   ;# XA_WM_CLIENT_MACHINE, predefined
@@ -278,6 +288,12 @@ if {[catch {
     set-prop-longs $root    $NET_CHECK 33 [list $wmcheck]   ;# XA_WINDOW
     set-prop-longs $wmcheck $NET_CHECK 33 [list $wmcheck]
     set-prop-utf8  $wmcheck $NET_WM_NAME tk9wm
+    # PropertyChange on our own window is what makes server-time work: a
+    # zero-length property append comes back as a PropertyNotify carrying
+    # the server's current time (see server-time). Selected only NOW, so
+    # the writes above do not leave stale notifications in the queue for
+    # server-time to mistake for the current time.
+    XSelectInput $dpy $wmcheck [expr {1 << 22}]
     # _NET_ACTIVE_WINDOW is load-bearing for Wine 10+: it derives its
     # foreground from this root property, and its focus-stealing guard
     # judges our WM_TAKE_FOCUS invitations against that foreground —
@@ -289,7 +305,74 @@ if {[catch {
     puts "WM: EWMH minimum up (_NET_SUPPORTING_WM_CHECK=[format 0x%x $wmcheck])"
 } err]} { puts "WM: EWMH setup failed: $err" }
 
+# ---------------- the focus holder ----------------
+# fvwm's NoFocusWin, ported: a real, viewable, off-screen window that
+# holds the keyboard focus whenever no client deserves it. The obvious
+# alternative — PointerRoot — is a trap we walked into (step 26, cured
+# in step 32): PointerRoot IS focus-follows-pointer, so the whole
+# session silently changes policy, and worse, it arms Tk's own implicit
+# focus machinery (generic/tkFocus.c: a crossing into any Tk window
+# whose xcrossing.focus is set makes Tk claim the focus, and the
+# matching LeaveNotify makes it call XSetInputFocus(PointerRoot) —
+# our frames, grips and panel are Tk windows, so the WM kept knocking
+# its own display back into pointer-follows mode).
+#
+# A real holder has neither problem and keeps the root key grabs alive
+# (a passive grab fires when the grab window is an ancestor of the
+# focus window — root is an ancestor of this one).
+set nofocus 0
+if {[catch {
+    set nofocus [XCreateSimpleWindow $dpy $root -10 -10 10 10 0 0 0]
+    # override-redirect: without it our OWN SubstructureRedirect would
+    # hand us a MapRequest for the holder and we would frame it.
+    # XSetWindowAttributes (LP64): override_redirect@88, CWOverrideRedirect=1<<9
+    set at [cffi::memory frombinary [binary format x88ix20 1] unsafe]
+    XChangeWindowAttributes $dpy $nofocus 512 $at
+    cffi::memory free $at
+    XMapWindow $dpy $nofocus        ;# must be viewable to hold the focus
+    XSync $dpy 0
+    puts "WM: focus holder up (0x[format %x $nofocus])"
+} err]} { puts "WM: focus holder setup failed: $err"; set nofocus 0 }
+
 set evbuf [cffi::memory allocate 256 unsafe]
+set timebuf [cffi::memory allocate 256 unsafe]
+set timepoke [cffi::memory allocate 1 unsafe]
+
+# A fresh server timestamp, fetched — not guessed. Every WM_TAKE_FOCUS
+# invitation must carry a time NEWER than the server's last focus change,
+# or the client's answer (which echoes our stamp) is silently dropped;
+# and Wine additionally refuses an invitation older than its current
+# foreground's focus time. Until step 32 we passed an accumulated clock
+# fed by whatever events happened to reach us, which went stale exactly
+# when it mattered (typing INTO a window is invisible to us) and forced
+# a retry timer to paper over it.
+#
+# The standard recipe (this is what GDK's gdk_x11_get_server_time does):
+# a ZERO-LENGTH append to a property on our own window. It changes
+# nothing, and the server answers with a PropertyNotify carrying its
+# current time.
+proc server-time {} {
+    if {![info exists ::wmcheck]} { return $::evtime }
+    if {[catch {
+        # XA_STRING(31), format 8, PropModeAppend(2), zero elements
+        XChangeProperty $::dpy $::wmcheck $::TK9WM_TIME 31 8 2 $::timepoke 0
+        # Wait for OUR notification specifically: any other property
+        # traffic on this window would answer with an older time, and an
+        # old time is exactly what this procedure exists to avoid.
+        # PropertyNotify (LP64): atom@40, time@48.
+        set t 0
+        while {$t == 0} {
+            XWindowEvent $::dpy $::wmcheck [expr {1 << 22}] $::timebuf
+            binary scan [cffi::memory tobinary! $::timebuf 56] x40wuwu atom pt
+            if {$atom == $::TK9WM_TIME} { set t $pt }
+        }
+    } err]} {
+        puts "WM: server-time failed ($err) — falling back to the event clock"
+        return $::evtime
+    }
+    if {$t > $::evtime} { set ::evtime $t }
+    return $t
+}
 
 proc evbytes {n} {
     if {[catch {cffi::memory tobinary $::evbuf $n} b]} {
@@ -381,26 +464,47 @@ proc handle-event {} {
         9 { # FocusIn: window@32 mode@40 detail@44
             binary scan [evbytes 48] iux4wuiux4wuwuiuiu \
                 _t _s _se _d win mode detail
-            if {$win == $::root && ($detail == 6 || $detail == 7)} {
-                # PointerRoot(6)/None(7): something external reset the
-                # focus (Xephyr does this on outer focus crossings) —
-                # re-assert our focused window. An empty desk has none
-                # to re-assert: a None focus must still be repaired to
-                # PointerRoot, or the root key grabs go dead (see
-                # focus-to-pointerroot); a PointerRoot focus is fine.
-                if {$::focused != 0 && [info exists ::managed($::focused)]} {
-                    puts "WM: external focus reset (detail=$detail) —\
- re-asserting 0x[format %x $::focused]"
-                    # via focus-to: a globally active window must be
-                    # re-invited, not XSetInputFocus-ed at
-                    focus-to $::focused
-                } elseif {$detail == 7 && $::focused == 0} {
-                    focus-to-pointerroot
+            # Only mode Normal (0) reports a real focus change; the
+            # pairs a keyboard grab generates (Grab, Ungrab,
+            # WhileGrabbed) are bookkeeping about the grab, not about
+            # who owns the keyboard afterwards.
+            #
+            # detail says whether THIS window is the new focus window
+            # (Ancestor 0, Inferior 2, Nonlinear 3) or merely lies on
+            # the path to it (Virtual 1, NonlinearVirtual 4) — the
+            # difference between "the focus landed here" and "the focus
+            # passed through here on its way to a child".
+            if {$mode == 0} {
+                set is_focus_win [expr {$detail == 0 || $detail == 2 || $detail == 3}]
+                if {[info exists ::managed($win)] && $detail < 5} {
+                    # A client took the focus: our invitation was
+                    # answered, or the focus moved behind our back
+                    # (focus -force). Either way this is the moment the
+                    # WM may believe it — and the ONLY moment it
+                    # publishes _NET_ACTIVE_WINDOW.
+                    set ::invited 0
+                    if {$::focused != $win} { paint-focus $win }
+                } elseif {$win == $::root && ($detail == 6 || $detail == 7)} {
+                    # PointerRoot(6)/None(7): the focus has no honest
+                    # home. PointerRoot means the display just silently
+                    # switched to focus-follows-pointer (Tk's implicit
+                    # focus release does exactly this — see the focus
+                    # holder); None means the keyboard is dead and even
+                    # our root chords stopped firing.
+                    focus-repair [expr {$detail == 6 ?
+                        "focus fell to PointerRoot" : "focus fell to None"}]
+                } elseif {$is_focus_win
+                        && ($win == $::root || [info exists ::ourwin($win)])} {
+                    # The focus landed on our own decoration or on the
+                    # root: a dead end — nobody there reads the
+                    # keyboard. Typical cause: a client that had the
+                    # focus unmapped itself and the server reverted the
+                    # focus to the parent, which is our frame.
+                    set prefer 0
+                    if {[info exists ::ourwin($win)]} { set prefer $::ourwin($win) }
+                    focus-repair "focus landed on our own window\
+ 0x[format %x $win]" $prefer
                 }
-            } elseif {[info exists ::managed($win)] && $mode == 0 && $detail < 5} {
-                # focus moved behind our back (e.g. focus -force):
-                # honor it, keep the highlight honest
-                if {$::focused != $win} { paint-focus $win }
             }
         }
         28 { # PropertyNotify (window@32 atom@40 = the generic A B): a
@@ -409,16 +513,10 @@ proc handle-event {} {
             # WM_TRANSIENT_FOR (XA_ predefined 68) re-aims the dialog —
             # toolkits are free to point a mapped window at a leader
             # (or away from one) at any time.
-            # Every PropertyNotify also feeds the event clock (time@48):
-            # key/button events reach us only through our grabs, so the
-            # clock would otherwise go stale the moment the user types
-            # INTO a window — and a WM_TAKE_FOCUS invitation stamped
-            # with a stale time loses to Wine's focus-stealing guard
-            # (the smsrc-at-startup wedge). Our own WM_STATE stamp at
-            # manage time notifies here too — a fresh tick exactly when
-            # a new window needs inviting.
-            binary scan [evbytes 56] x48wu ptime
-            if {$ptime > $::evtime} { set ::evtime $ptime }
+            # (Step 31 also fed the event clock from here, to freshen
+            # invitation stamps. Step 32 fetches the stamp from the
+            # server instead — see server-time — so this handler is
+            # back to being about properties only.)
             if {[info exists ::managed($A)]} {
                 if {$B == $::WM_NAME
                         || ([info exists ::NET_WM_NAME]
@@ -446,15 +544,15 @@ proc handle-event {} {
             } elseif {[info exists ::NET_ACTIVE] && $B == $::NET_ACTIVE
                     && [info exists ::managed($A)]} {
                 # An EWMH activation request (data.l: source, timestamp,
-                # requestor's active window). Wine leans on these: when
-                # an invitation of ours loses to its focus-stealing
-                # guard, Wine re-asks for activation itself — with its
-                # own fresh timestamp, which we fold into the clock so
-                # the re-invitation carries it. Honored as a click
-                # would be: raise the group, focus (which re-invites a
-                # globally active window).
+                # requestor's active window). This is the recovery path
+                # that costs nothing and needs no timer: a client that
+                # wanted the focus and did not get it asks again, by
+                # itself, when it next has a reason to. Wine does
+                # exactly this — which is why _NET_ACTIVE_WINDOW must
+                # never lie that the client is already active. Honored
+                # as a click would be: raise the group, focus (which
+                # invites a globally active window).
                 binary scan [evbytes 72] x64wu rt
-                if {$rt > $::evtime} { set ::evtime $rt }
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
                 catch { policy-client-click $A }
             }
@@ -876,7 +974,24 @@ proc manage {w} {
     # ConfigureRequests by holding the mask on the frame slot as well.
     # (Our own requests are exempt — the redirecting client is never
     # redirected by itself.)
-    XSelectInput $dpy $slot [expr {1 << 20}]
+    #
+    # FocusChange on the same window closes the WM's oldest blind spot:
+    # the slot is the client's PARENT, so when a client that had the
+    # focus unmaps, the server's RevertToParent lands the focus HERE —
+    # on a window that reads no keyboard. Until step 32 nothing watched
+    # for that, and the wedge was invisible and permanent: the keys went
+    # nowhere at all while the frame highlight claimed all was well.
+    # The frame toplevel is watched for the same reason (the revert
+    # walks up if the slot goes away).
+    XSelectInput $dpy $slot [expr {(1 << 20) | (1 << 21)}]
+    set ::ourwin($slot) $w
+    set ::decoof($w) [list $slot]
+    if {[llength [set fg [policy-frame-geometry $w]]] == 5} {
+        set fwin [lindex $fg 0]
+        XSelectInput $dpy $fwin [expr {1 << 21}]
+        set ::ourwin($fwin) $w
+        lappend ::decoof($w) $fwin
+    }
     # Click-to-focus inside the client: passive SYNC grab on any button.
     # The press freezes the pointer and wakes us (ButtonPress above); after
     # the policy reacts we XAllowEvents(ReplayPointer) so the client still
@@ -938,24 +1053,35 @@ proc unmanage {w {dead 0}} {
     icon-invalidate $w
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
     unset -nocomplain ::poshintof($w) ::gravof($w) ::mapxyof($w)
+    # The decoration is gone: stop treating its windows as ours, and
+    # settle an invitation this window will now never answer (fvwm's
+    # ebdd006ea — a mark that outlives its window is a mark that
+    # silently misdirects the next repair).
+    if {[info exists ::decoof($w)]} {
+        foreach id $::decoof($w) { unset -nocomplain ::ourwin($id) }
+        unset ::decoof($w)
+    }
+    if {$::invited == $w} { set ::invited 0 }
     puts "WM: unmanaged 0x[format %x $w], frame destroyed"
     # Refocus not only when OUR records say the dead window was focused:
     # a client may have grabbed focus behind our back (focus -force) and
-    # died — then the server reverts to None/PointerRoot and input starts
-    # following the pointer. Ask the server and repair either way.
+    # died — then the server reverts to a dead end (None, PointerRoot, or
+    # our own frame) and the keyboard stops working. Ask the server and
+    # repair either way.
     set stale [expr {$::focused == $w}]
     if {!$stale && $::has_getfocus && ![catch {XGetInputFocus $::dpy f r}]
-            && $f <= 1} {   ;# None (0) or PointerRoot (1)
-        puts "WM: server focus reverted to [expr {$f ? "PointerRoot" : "None"}] — repairing"
+            && ($f <= 1 || [info exists ::ourwin($f)])} {
+        puts "WM: server focus reverted to a dead end\
+ ([format 0x%x $f]) — repairing"
         set stale 1
     }
     if {$stale} {
         set ::focused 0
-        if {$refocus != 0} {
-            focus-to $refocus
-        } else {
-            focus-to-pointerroot
-        }
+        # Park first, aim second — the ordering that makes the next
+        # invitation's stamp newer than the last focus change (see
+        # focus-repair).
+        focus-park "the focused window went away"
+        if {$refocus != 0} { focus-to $refocus }
     }
 }
 
@@ -965,6 +1091,14 @@ proc unmanage {w {dead 0}} {
 # highlight looks is the policy layer's business.
 set focused 0
 set evtime 0   ;# timestamp of the last user input event we parsed
+# The window we invited with WM_TAKE_FOCUS and whose answer we are still
+# waiting for (0 = none). It carries the INTENT while the X focus still
+# says otherwise: an honest WM publishes the focus it HAS, not the one it
+# asked for, so between invitation and answer ::focused is still the old
+# window and this is the only record of where we are heading. Settled by
+# any FocusIn, by any focus we set ourselves, and by the window going
+# away. There is no timer behind it: fvwm's mark, same discipline.
+set invited 0
 proc paint-focus {w} {
     set ::focused $w
     # every honest focus change publishes _NET_ACTIVE_WINDOW — Wine
@@ -996,30 +1130,33 @@ proc focus-to {w} {
     if {![info exists ::managed($w)]} { return 0 }
     # The ICCCM "globally active" client — input=False plus
     # WM_TAKE_FOCUS (Wine 10+ lives here) — handles the focus ITSELF.
-    # The WM only sends the invitation, stamped with the user event's
-    # time, and must then LEAVE THE X FOCUS ALONE: the client answers
-    # with its own XSetInputFocus carrying that same timestamp, and
-    # the server silently drops a request older than the last focus
-    # change — so any focus op of ours in between (step 28 set the
-    # focus right before inviting) makes the answer stale and the
-    # window keyboard-dead. The same war was fought and won in fvwm3
-    # (its commit 6ec006d9c; notes/fvwm3-wine-focus.md in thoughts):
-    # invite, hands off, let the FocusIn confirm.
+    # The WM only sends the invitation and must then LEAVE THE X FOCUS
+    # ALONE: the client answers with its own XSetInputFocus carrying the
+    # invitation's timestamp, and the server silently drops a request
+    # older than the last focus change — so any focus op of ours in
+    # between (step 28 set the focus right before inviting) makes the
+    # answer stale and the window keyboard-dead. The same war was fought
+    # and won in fvwm3 (its commit 6ec006d9c; notes/fvwm3-wine-focus.md
+    # in thoughts): invite, hands off, let the FocusIn confirm.
+    #
+    # The stamp is FETCHED from the server at this very moment
+    # (server-time), not taken from an accumulated clock: that makes it
+    # newer than the last focus change by construction, so the answer
+    # cannot arrive stale and no retry timer is needed. And nothing is
+    # painted here — ::focused and _NET_ACTIVE_WINDOW move when the
+    # FocusIn confirms, not when we hope. That honesty is load-bearing
+    # for Wine specifically: it derives its foreground from
+    # _NET_ACTIVE_WINDOW, so a premature "you are active" suppresses the
+    # very activation request it would otherwise use to recover.
     if {[client-advertises $w $::WM_TAKE_FOCUS 0] && ![client-input-hint $w]} {
+        set t [server-time]
+        set ::invited $w
         puts "WM: focus -> 0x[format %x $w]: WM_TAKE_FOCUS invitation\
- (globally active), t=$::evtime"
-        send-protocol $w $::WM_TAKE_FOCUS $::evtime
-        # An invitation can lose to the client's focus-stealing guard
-        # (a manage-time invite carries whatever time the clock had).
-        # Verify in a beat and re-invite — the clock is fresher by
-        # then (the WM_STATE PropertyNotify at the very least), and
-        # the retries are capped: a client that keeps refusing is
-        # exercising its right.
-        after cancel $::ga_reinvite_pending
-        set ::ga_reinvite_pending [after 200 [list ga-reinvite $w 3]]
-        paint-focus $w
+ (globally active), t=$t"
+        send-protocol $w $::WM_TAKE_FOCUS $t
         return 1
     }
+    set ::invited 0
     # RevertToParent (2), NOT PointerRoot: if the focus window dies before
     # we refocus, a parent revert leaves the keyboard silent for a moment,
     # while a PointerRoot revert switches the whole session to
@@ -1046,39 +1183,53 @@ proc focus-to {w} {
     # (dwm ships exactly this XSetInputFocus + ClientMessage pair).
     if {[client-advertises $w $::WM_TAKE_FOCUS 0]} {
         puts "WM: focus -> 0x[format %x $w]: sending WM_TAKE_FOCUS"
-        send-protocol $w $::WM_TAKE_FOCUS $::evtime
+        send-protocol $w $::WM_TAKE_FOCUS [server-time]
     }
     paint-focus $w
     puts "WM: focus -> 0x[format %x $w]"
     return 1
 }
 
-# No window deserves the focus — the desk is empty: park the focus on
-# PointerRoot, never leave it None. With focus None the server
-# activates NO passive key grab (GrabKey fires only when the grab
-# window is an ancestor of the focus window, or the focus is
-# PointerRoot) — so every root-grabbed chord, the panel launchers
-# included, goes dead on an empty desk (live report, 2026-07-28).
-# PointerRoot is also the state a fresh server starts in.
-set ga_reinvite_pending ""
-proc ga-reinvite {w tries} {
-    if {![info exists ::managed($w)] || $::focused != $w} return
-    if {!$::has_getfocus || [catch {XGetInputFocus $::dpy f r}]
-            || $f == $w} return
-    puts "WM: invitation to 0x[format %x $w] unanswered —\
- re-inviting (t=$::evtime)"
-    send-protocol $w $::WM_TAKE_FOCUS $::evtime
-    if {$tries > 1} {
-        set ::ga_reinvite_pending \
-            [after 200 [list ga-reinvite $w [expr {$tries - 1}]]]
+# No window deserves the focus (the desk is empty), or the focus landed
+# somewhere it must not rest — park it on the holder. Never None: with
+# focus None the server activates NO passive key grab (GrabKey fires
+# only when the grab window is an ancestor of the focus window), so
+# every root-grabbed chord, the panel launchers included, goes dead
+# (live report, 2026-07-28). And never PointerRoot: that is
+# focus-follows-pointer, and it arms Tk's implicit-focus machinery
+# against us — see the focus holder above.
+proc focus-park {why} {
+    puts "WM: parking focus on the holder ($why)"
+    set ::invited 0
+    if {$::nofocus} {
+        XSetInputFocus $::dpy $::nofocus 2 0   ;# RevertToParent = root
+    } else {
+        XSetInputFocus $::dpy 1 1 0            ;# no holder: PointerRoot
     }
-}
-proc focus-to-pointerroot {} {
-    puts "WM: no window to focus — parking focus on PointerRoot"
-    XSetInputFocus $::dpy 1 1 0   ;# PointerRoot, RevertToPointerRoot
     XSync $::dpy 0
+    set ::focused 0
     if {[info exists ::NET_ACTIVE]} {
         catch { set-prop-longs $::root $::NET_ACTIVE 33 [list 0] }
+    }
+}
+# The focus reached a dead end: it sits on our own decoration, on the
+# root, on nothing, or it follows the pointer. Whatever the cause (a
+# RevertToParent onto a frame when a client unmapped, Tk's implicit
+# focus release, an outer Xephyr crossing), the repair is the same and
+# is ORDERED: park FIRST, so the holder's focus change is what the
+# server's clock last saw, and only THEN re-aim at the window that
+# deserves the focus. That ordering is what makes an invitation
+# deterministic — its freshly fetched stamp is newer than the park,
+# so the client's answer cannot be dropped as stale. No timers, no
+# blind resends: one repair per event that reports the dead end.
+proc focus-repair {why {prefer 0}} {
+    set want $prefer
+    if {$want == 0 || ![info exists ::managed($want)]} { set want $::invited }
+    if {$want == 0 || ![info exists ::managed($want)]} { set want $::focused }
+    if {$want == 0 || ![info exists ::managed($want)]} { set want [policy-pick-refocus 0] }
+    focus-park $why
+    if {$want != 0 && [info exists ::managed($want)]} {
+        focus-to $want
     }
 }
 
@@ -1587,4 +1738,16 @@ proc substrate-start {} {
     puts "WM: pump: X fd $::xfd watched by worker thread (blocking poll, ping-pong)"
     after idle drain
     adopt-existing
+    # A fresh X server starts in PointerRoot, and a WM that leaves it
+    # there runs the whole session in focus-follows-pointer — plus it
+    # keeps Tk's implicit-focus machinery armed (see the focus holder).
+    # A restart lands here too: the previous instance's holder died with
+    # its connection, so the focus reverted to the root — the same dead
+    # end, and one no FocusIn will ever report to us, since we only
+    # started listening now. Take the display into a known state; a
+    # focus a real client already holds is left alone.
+    if {$::has_getfocus && ![catch {XGetInputFocus $::dpy f r}]
+            && ($f <= 1 || $f == $::root)} {
+        focus-repair "the display started with no honest focus"
+    }
 }

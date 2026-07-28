@@ -5,7 +5,14 @@
 # grab (GrabKey demands the grab window be an ancestor of the focus
 # window, or a PointerRoot focus) — so every root-grabbed chord,
 # panel launchers included, went dead on an empty desk. The WM must
-# park the focus on PointerRoot whenever no window deserves it.
+# park the focus whenever no window deserves it.
+#
+# Step 26 parked it on PointerRoot, which cured the chords and bought
+# a worse bug: PointerRoot IS focus-follows-pointer. Step 32 parks it
+# on a real holder window (fvwm's NoFocusWin) instead — a child of
+# root, so root's passive grabs still fire, with no policy change and
+# nothing to arm Tk's implicit-focus machinery. This test now demands
+# the chords AND a focus that is never PointerRoot.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LINUX="${LINUX:-$HERE/../whalebuild/work/linux}"
 export DISPLAY=:99
@@ -36,13 +43,18 @@ xdotool key super+w          # desk occupied
 sleep 3                      # the client dies, the desk is empty again
 xdotool key super+w          # the wedge used to start here
 sleep 0.5
+# The desk is genuinely empty right here — this is where the parked
+# focus must be sitting on the holder and not on PointerRoot.
+FOCUS=$("$LINUX/whale" "$HERE/probe-focus.tcl")
+HOLDER=$(sed -n 's/^WM: focus holder up (\(0x[0-9a-f]*\)).*/\1/p' "$HERE/wm-emptydesk.log" | head -1)
 xdotool key super+z          # the launcher must fire too
 sleep 1.5
 
 kill $WM 2>/dev/null
 
 echo "--- key/focus lines:"
-grep -E 'MARKER|panel проба|parking|unmanaged' "$HERE/wm-emptydesk.log"
+grep -E 'MARKER|panel проба|parking|holder|unmanaged' "$HERE/wm-emptydesk.log"
+echo "--- focus on the empty desk: $FOCUS (holder $HOLDER)"
 
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-emptydesk.log"; then
@@ -60,11 +72,20 @@ if [ "$L" = 2 ]; then
 else
     echo "FAIL: $L launch lines, want 2"
 fi
-if grep -q 'parking focus on PointerRoot' "$HERE/wm-emptydesk.log"; then
-    echo "OK: the empty desk parked the focus on PointerRoot"
+if grep -q 'parking focus on the holder' "$HERE/wm-emptydesk.log"; then
+    echo "OK: the empty desk parked the focus on the holder"
 else
-    echo "FAIL: no PointerRoot parking line"
+    echo "FAIL: no parking line"
 fi
+case "$FOCUS" in
+    *"focus=$HOLDER "*)
+        echo "OK: the empty desk rests on the holder, not on PointerRoot" ;;
+    *"focus=0x1 "*)
+        echo "FAIL: the desk was left in PointerRoot — the display just\
+ changed policy to focus-follows-pointer" ;;
+    *)
+        echo "FAIL: unexpected empty-desk focus: $FOCUS (want $HOLDER)" ;;
+esac
 if grep -q 'handler error' "$HERE/wm-emptydesk.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-emptydesk.log"
 fi
