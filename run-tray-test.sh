@@ -49,6 +49,15 @@ sleep 2                # client B destroys its icon on its own
 STRIP1=$(sed -n 's/^WM: tray strip \(.*\) (1 icons)/\1/p' "$HERE/wm-tray.log" | tail -1)
 ICON_B=$(sed -n 's/^WM: tray: docked \(0x[0-9a-f]*\) in slot .*/\1/p' "$HERE/wm-tray.log" | sed -n 2p)
 
+# Restart in place: A's icon goes back to the root and must be picked
+# up again by the fresh instance WITHOUT its client doing anything —
+# the client is not obliged to hear the MANAGER announcement, and
+# Chrome does not (live measurement, 2026-07-29).
+"$LINUX/whale-cli" "$HERE/send-restart.tcl" :92
+sleep 3
+PARENT_A2=$(xwininfo -id "$ICON_A" -children 2>/dev/null | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')
+SLOT_A2=$(sed -n 's/^WM: tray: docked 0x[0-9a-f]* in slot \(0x[0-9a-f]*\).*/\1/p' "$HERE/wm-tray.log" | tail -1)
+
 kill $CA $CB 2>/dev/null
 sleep 1
 kill $WM 2>/dev/null
@@ -68,10 +77,13 @@ if grep -q '^WM: tray up (owner' "$HERE/wm-tray.log"; then
 else
     echo "FAIL: no tray-up line — the selection was not taken"
 fi
-if [ "$(grep -c '^WM: tray: docked' "$HERE/wm-tray.log")" = 2 ]; then
+# only the first lifetime: the restart below docks A a second time
+DOCKED=$(awk '/restart requested/ {exit} /^WM: tray: docked/ {n++} END {print n+0}' \
+    "$HERE/wm-tray.log")
+if [ "$DOCKED" = 2 ]; then
     echo "OK: both icons docked"
 else
-    echo "FAIL: want 2 docked icons, got $(grep -c '^WM: tray: docked' "$HERE/wm-tray.log")"
+    echo "FAIL: want 2 docked icons before the restart, got $DOCKED"
 fi
 if [ -n "$PARENT_A" ] && [ "$PARENT_A" = "$SLOT_A" ]; then
     echo "OK: icon A really lives in our cell ($PARENT_A)"
@@ -99,6 +111,16 @@ if [ -n "$ICON_B" ] && grep -q "^WM: tray: undocked $ICON_B" "$HERE/wm-tray.log"
     echo "OK: B's icon was undocked when its client destroyed it"
 else
     echo "FAIL: no undock line for B ($ICON_B)"
+fi
+if grep -q "^WM: tray: $ICON_A is an orphaned icon" "$HERE/wm-tray.log"; then
+    echo "OK: the restarted WM found A's orphaned icon by itself"
+else
+    echo "FAIL: A's icon was not picked up as an orphan after the restart"
+fi
+if [ -n "$PARENT_A2" ] && [ "$PARENT_A2" = "$SLOT_A2" ]; then
+    echo "OK: A's icon sits in a cell of the NEW instance ($PARENT_A2)"
+else
+    echo "FAIL: after the restart A's parent is «$PARENT_A2», cell «$SLOT_A2»"
 fi
 if grep -q 'handler error' "$HERE/wm-tray.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-tray.log"

@@ -1800,7 +1800,8 @@ proc tray-dock {w} {
         puts "WM: tray: 0x[format %x $w] is a managed client — dock ignored"
         return
     }
-    if {![dict size [x-attrs $w]]} {
+    set at [x-attrs $w]
+    if {![dict size $at]} {
         puts "WM: tray: 0x[format %x $w] is already gone"
         return
     }
@@ -1828,8 +1829,50 @@ proc tray-dock {w} {
     x-send-client $w $::XEMBED [list [server-time] 0 $slot 0 0]
     tray-refresh-map $w
     x-sync 0
+    set depth [dict get $at depth]
     puts "WM: tray: docked 0x[format %x $w] in slot\
- 0x[format %x $slot] (${size}px)"
+ 0x[format %x $slot] (${size}px, depth $depth)"
+    # The depth is logged because ONE mismatched number explains the
+    # commonest tray complaint there is, and reading it off the icon
+    # costs nothing: we already have its attributes.
+    set cell [dict get [x-attrs $slot] depth]
+    if {$depth ne "" && $cell ne "" && $depth != $cell} {
+        puts "WM: tray: 0x[format %x $w] is depth $depth in a depth-$cell\
+ cell — an ARGB icon, though we advertise no ARGB visual (Chrome does\
+ this unconditionally; measured 2026-07-29). Nobody blends a CHILD\
+ window's alpha, so its transparent pixels come out BLACK, and\
+ ParentRelative cannot be forced on it either — that is a BadMatch\
+ across depths."
+    }
+}
+
+# Icons orphaned by a tray that went away: ours across a restart (the
+# save-set hands them back to the root), or a foreign one that died.
+# The protocol says a client should re-dock when it hears the next
+# MANAGER announcement, and a well-behaved one does — but Chrome does
+# not (measured on a live desk, 2026-07-29: its icon was lost across a
+# restart of tk9wm AND of stalonetray). So the tray goes and finds
+# them instead of waiting: a root child carrying _XEMBED_INFO is an
+# icon and nothing else.
+#
+# Runs BEFORE adopt-existing, and the order is load-bearing: a stray
+# icon that is not override-redirect (nm-applet's is not, Chrome's is)
+# would otherwise be adopted as an ordinary window and handed a
+# titlebar.
+proc tray-adopt-orphans {} {
+    if {$::tray_owner == 0} return
+    set tree [x-query-tree $::root]
+    if {![llength $tree]} return
+    foreach w [lindex $tree 2] {
+        if {[info exists ::trayicon($w)] || [our-window $w]} continue
+        if {$w == $::nofocus || $w == $::tray_owner} continue
+        if {[info exists ::wmcheck] && $w == $::wmcheck} continue
+        lassign [soft "read _XEMBED_INFO" { x-prop-get $w $::XEMBED_INFO }] \
+            type fmt val
+        if {$fmt ne "32" || [llength $val] < 2} continue
+        puts "WM: tray: 0x[format %x $w] is an orphaned icon — taking it in"
+        tray-dock $w
+    }
 }
 
 # The icon's own ConfigureRequest. A tray decides the size; the client
@@ -2233,6 +2276,7 @@ proc substrate-start {} {
  in — replaying"
         foreach ev $queued { handle-event $ev }
     }
+    tray-adopt-orphans   ;# before adopt-existing — see the proc
     adopt-existing
     # A fresh X server starts in PointerRoot, and a WM that leaves it
     # there runs the whole session in focus-follows-pointer — plus it
