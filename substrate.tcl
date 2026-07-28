@@ -2127,6 +2127,19 @@ proc tray-hold-size {w} {
     x-flush
 }
 
+# The cell size changed under the icons (a config reload can do it):
+# hold every one of them at the new size and ask it to paint again.
+proc tray-refit {size} {
+    foreach w [array names ::trayicon] {
+        set ::traysize($w) $size
+        soft "refit a tray icon" {
+            x-resize $w $size $size
+            x-clear $w -exposures
+        }
+    }
+    soft "flush a refit" { x-flush }
+}
+
 # gone = the window is already destroyed or has left our slot: touching
 # it would be either an error or a fight with whoever took it.
 proc tray-undock {w {gone 0}} {

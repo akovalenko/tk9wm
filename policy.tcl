@@ -1828,7 +1828,13 @@ proc panel-geometry {} {
     } else {
         set content [expr {max($isz, $line)}]
     }
-    set itemh [expr {$content + 16}]
+    # The two paddings the item's height is made of, named because the
+    # live indicator has to find the face's edge again later: FPAD is
+    # the face's own inner air (-ipady), FGAP the air between the face
+    # and the item's edge.
+    set FPAD 3
+    set FGAP 5
+    set itemh [expr {$content + 2*$FPAD + 2*$FGAP}]
     if {![llength $::panel_buttons]} {
         set thick 0
     } elseif {$::panel_side eq "right"} {
@@ -1858,7 +1864,7 @@ proc panel-geometry {} {
         set thick [expr {$itemh + 2}]
     }
     dict create faces $faces iconic $iconic itemh $itemh thick $thick \
-        zone $zone aw $aw
+        zone $zone aw $aw fpad $FPAD fgap $FGAP
 }
 proc panel-thickness {} { dict get [panel-geometry] thick }
 proc panel-build {} {
@@ -1876,6 +1882,16 @@ proc panel-build {} {
     set er [expr {8 + $zone}]   ;# the face's east inner pad
     set isz $::panel_icon_size
     set vert [expr {$::panel_side eq "right"}]
+    # A VERTICAL strip is one column, and a column wants one width: the
+    # faces are stretched to the widest button's content so their edges
+    # line up instead of every face hugging its own label (owner's
+    # report, 2026-07-29 — "ничего не выровнено друг с другом"). The
+    # face is a UNION element and treectrl ignores -iexpand on those
+    # (the badge square met the same wall), so the minimum goes on a
+    # MEMBER: the label cell, which every style has. The arithmetic is
+    # panel-geometry's, backwards — the strip is content + 20 + zone
+    # wide, so the content cell is the strip less its own paddings.
+    set memw [expr {max(1, $thick - 2 - 4 - 8 - $er)}]
     toplevel .panel -background $::OUTLINE
     wm overrideredirect .panel 1
     set T [treectrl .panel.t -showheader no -showroot no -showbuttons no \
@@ -1945,6 +1961,26 @@ proc panel-build {} {
             -expand wens
         $T style layout sBtnB eBTxt -expand ns
     }
+    # One column, one width: every label cell is min-sized to the
+    # widest button's content, so the faces around them come out the
+    # same and their edges line up. (Horizontally there is nothing to
+    # line up — each button is as wide as it needs and they sit in a
+    # row.) eBTxt is in every style's union, which is what makes one
+    # line reach all three.
+    if {$vert} {
+        foreach s [$T style names] {
+            # In a STACK the label cell is the whole content width (the
+            # icon sits above it); in a ROW the icon shares the line, so
+            # the label gets what is left of it. Get this wrong and the
+            # face is wider than the strip, which treectrl answers by
+            # pushing the label against the far edge.
+            set mw $memw
+            if {$::panel_preset ne "stack" && $s in {sBtnI sBtnB}} {
+                set mw [expr {max(1, $memw - $isz - 4)}]
+            }
+            $T style layout $s eBTxt -minwidth $mw
+        }
+    }
     # The live furniture rides every style: the indicator bar along
     # the bottom edge, and — in a zoned panel — the arrow furniture
     # inside the reserved east strip: a separator line and the glyph,
@@ -1954,7 +1990,19 @@ proc panel-build {} {
         set els [concat [$T style elements $s] {eLive}]
         if {$zone} { lappend els eSep eArrow }
         $T style elements $s $els
-        $T style layout $s eLive -detach yes -iexpand x -expand n
+        if {$vert} {
+            # In a column the item's bottom edge is the NEXT button's
+            # doorstep, and a full-width bar drawn there reads as that
+            # button's top border — the indicator pointed at the wrong
+            # face (owner's report, 2026-07-29). Pulled up by the item's
+            # own air (fgap) it lands on ITS face's lower edge, and
+            # -padx 2 (the face's own) gives it exactly the face's
+            # width: inside the button it belongs to, and nowhere else.
+            $T style layout $s eLive -detach yes -iexpand x -expand n \
+                -padx 2 -pady [list 0 [dict get $g fgap]]
+        } else {
+            $T style layout $s eLive -detach yes -iexpand x -expand n
+        }
         if {$zone} {
             $T style layout $s eSep -detach yes -expand wns \
                 -padx [list 0 [expr {2 + $zone}]] -visible {yes multi no {}}
@@ -2094,26 +2142,57 @@ set tray_order {}        ;# icon windows, in dock order
 set tray_seen_extent 0   ;# the length the panel last reserved for us
 set tray_geo ""          ;# the strip geometry we last asked for
 set tray_argb 0          ;# the ARGB experiment — see set-tray-argb
+set tray_strip_argb 0    ;# ...and what the LIVE strip was built with
+set tray_laid_size 0     ;# the cell size the live cells were laid out at
 proc set-tray {on} {
-    set want [expr {$on ? 1 : 0}]
-    if {$want == $::tray_on} return
-    if {$want} {
+    set ::tray_on [expr {$on ? 1 : 0}]
+    tray-reconcile
+}
+# The wish (::tray_on, ::tray_argb) and the LIVE state (a claimed
+# selection, a built strip) are two different things, and this is the
+# one place that brings them together. Everything else just says what
+# it wants and calls here.
+#
+# Written this way because of a config RELOAD. The reset puts the wish
+# back to "no tray" and the config then asks for one again — and if
+# that were carried out literally, every reload would tear the tray
+# down and build it again. A tray icon is somebody else's window: GTK
+# answers being un-embedded by DESTROYING its icon window and making a
+# new one (measured), and nm-applet does not survive the trip at all —
+# it takes an X error on a window that went out from under it (owner's
+# report, 2026-07-29). So: if the tray is live and still wanted, this
+# does NOTHING, and the icons never notice a reload happened.
+proc tray-reconcile {} {
+    set live [expr {$::tray_owner != 0 && [winfo exists .tray]}]
+    # A window's visual is fixed when it is created, so a change of
+    # mind about ARGB is the one wish that needs the strip rebuilt.
+    set rebuild [expr {$live && $::tray_on && $::tray_strip_argb != $::tray_argb}]
+    if {$live && (!$::tray_on || $rebuild)} {
+        tray-stop [expr {$rebuild ? {the tray visual changed}
+                                  : {the config no longer asks for a tray}}]
+        destroy .tray
+        if {[winfo exists .traybg]} { destroy .traybg }
+        set ::tray_geo ""
+        set ::tray_seen_extent 0
+        set live 0
+    }
+    if {$::tray_on && !$live} {
         # The strip is built FIRST: its visual is what the claim
         # advertises, and a client may dock the instant it hears the
         # announcement.
         tray-ensure
         set vis 0
-        if {$::tray_argb} {
-            scan [winfo visualid .tray] %x vis
-        }
+        if {$::tray_argb} { scan [winfo visualid .tray] %x vis }
         # a vertical panel gets a vertical tray — the orientation is
         # published for the icons, which size themselves by it
         set ::tray_on [tray-start [expr {$::panel_side eq "right"
             ? "vertical" : "horizontal"}] $vis]
-        if {!$::tray_on} { destroy .tray }
-    } else {
-        tray-stop "turned off by the config"
-        set ::tray_on 0
+        if {$::tray_on} {
+            set ::tray_strip_argb $::tray_argb
+            tray-adopt-orphans   ;# ours from before, if any are waiting
+        } else {
+            destroy .tray
+        }
     }
     tray-layout
 }
@@ -2143,25 +2222,12 @@ proc set-tray {on} {
 # looks right. Hence a knob and not a default.
 proc set-tray-argb {on} {
     set want [expr {$on ? 1 : 0}]
-    if {$want == $::tray_argb} return
     if {$want && [tray-argb-visual] eq ""} {
         puts "WM: tray: no 32-bit TrueColor visual on this screen — ARGB refused"
         return
     }
     set ::tray_argb $want
-    if {!$::tray_on} return    ;# takes effect when the tray starts
-    # A window's visual is fixed when it is made, and the offer goes
-    # out with the claim — so the whole tray is rebuilt: icons come
-    # back either by the fresh MANAGER announcement or, for the clients
-    # that ignore it, by the orphan scan.
-    puts "WM: tray: rebuilding for a [expr {$want ? {32-bit ARGB} : {default}}] visual"
-    tray-stop "the tray visual changed"
-    destroy .tray
-    if {[winfo exists .traybg]} { destroy .traybg }
-    set ::tray_geo ""
-    set ::tray_on 0
-    set-tray on
-    tray-adopt-orphans
+    tray-reconcile   ;# a live strip is rebuilt only if the visual moved
 }
 # "truecolor 32" as [winfo visualsavailable] spells it, or "" when the
 # screen has none (a plain 24-bit server: then there is no ARGB to be
@@ -2206,6 +2272,19 @@ proc tray-backdrop {geo} {
 proc set-tray-icon-size {px} {
     set ::tray_icon_size $px
     tray-layout
+}
+# The cells follow the size knob; so must the foreign windows sitting
+# in them, or a reload that changes the size leaves every icon drawn at
+# the old one. The refit is the substrate's — it owns what an icon is
+# held at — and costs nothing when the size did not move.
+proc tray-refit-cells {} {
+    if {$::tray_laid_size == $::tray_icon_size} return
+    set ::tray_laid_size $::tray_icon_size
+    foreach w $::tray_order {
+        $::tray_slot($w) configure \
+            -width $::tray_icon_size -height $::tray_icon_size
+    }
+    tray-refit $::tray_icon_size
 }
 proc set-tray-background {color} {
     set ::tray_bg $color
@@ -2281,6 +2360,7 @@ proc tray-layout {} {
         tray-tell-panel
         return
     }
+    tray-refit-cells        ;# the size knob may have moved under them
     set thick [tray-thickness]
     set sz $::tray_icon_size
     set cross [expr {($thick - $sz) / 2}]   ;# centered across the strip
@@ -2389,17 +2469,13 @@ proc policy-snapshot-defaults {} {
     set ::config_default(TitleFont) [font actual TitleFont]
 }
 proc policy-reset {} {
-    # The stateful knobs first, and by their own procs: the tray holds
-    # an X selection and a strip of windows, so putting its VARIABLE
-    # back would leave the desk out of step with what the variable
-    # claims. Its icons go back to the root and are taken up again in
-    # policy-apply — by the tray's own record, so nothing else on the
-    # desk is disturbed.
-    if {$::tray_on} { set-tray off }
-    if {[winfo exists .tray]} { destroy .tray }
-    if {[winfo exists .traybg]} { destroy .traybg }
-    set ::tray_geo ""
-    set ::tray_seen_extent 0
+    # The tray is deliberately NOT torn down here, only WISHED away:
+    # ::tray_on goes back to 0 with the other variables and the live
+    # strip is left standing until policy-apply reconciles it with what
+    # the new config asked for. A reload that keeps the tray therefore
+    # does not disturb a single icon — and an icon is somebody else's
+    # window, which does not always survive being un-embedded (see
+    # tray-reconcile).
     foreach v $::config_vars { set ::$v $::config_default($v) }
     font configure TitleFont {*}$::config_default(TitleFont)
     title-metrics
@@ -2418,11 +2494,10 @@ proc policy-reset {} {
 }
 proc policy-apply {} {
     panel-build         ;# no buttons declared -> the strip goes away
-    tray-layout
+    tray-reconcile      ;# start, stop or leave the tray exactly alone
     retitle-frames      ;# live frames follow the metrics and the font
     publish-workarea
     panel-match-kick
-    if {$::tray_on} { tray-adopt-orphans }   ;# our icons come back
     puts "WM: config applied ([llength $::panel_buttons] panel buttons,\
  [llength $::style_rules] style rules, tray [expr {$::tray_on ? {on} : {off}}])"
 }
