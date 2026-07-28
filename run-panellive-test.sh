@@ -53,17 +53,24 @@ proc live-empty {} {
     lchk {empty desk: the dud button is not live either} 0 [has-state 2 live]
     puts "LIVE BATTERY empty done"
 }
+proc sep-hidden {} {
+    expr {[catch {.panel.t item bbox 1 C0 eSep} bb] || $bb eq ""}
+}
 proc live-one {} {
     lchk {one match: live} 1 [has-state 1 live]
     lchk {one match: not multi} 0 [has-state 1 multi]
+    lchk {one match: no separator drawn} 1 [sep-hidden]
     lchk {one match: the dud button stays dark} 0 [has-state 2 live]
     puts "LIVE BATTERY one done"
 }
 proc live-two {} {
     lchk {two matches: multi} 1 [has-state 1 multi]
-    lassign [.panel.t item bbox 1 C0 eArrow] ax ay ax2 ay2
-    panel-click [expr {($ax + $ax2) / 2}] [expr {($ay + $ay2) / 2}]
-    lchk {arrow click opens the filtered list} 1 [winfo exists .winlist]
+    lchk {two matches: the separator is drawn} 0 [sep-hidden]
+    # click the inner edge of the reserved strip — the whole zone is
+    # the target, not the glyph
+    lassign [.panel.t item bbox 1] bx1 by1 bx2 by2
+    panel-click [expr {$bx2 - 4}] [expr {($by1 + $by2) / 2}]
+    lchk {a zone-edge click opens the filtered list} 1 [winfo exists .winlist]
     lchk {the list holds exactly the matches} 2 [llength $::winlist_wins]
     lchk {MRU: the fresh window leads} [by-title жилец-B] \
         [lindex $::winlist_wins 0]
@@ -145,10 +152,10 @@ else
     echo "OK: no battery failures"
 fi
 PASS=$(grep -c 'LIVE PASS' "$HERE/wm-panellive.log")
-if [ "$PASS" = 15 ]; then
-    echo "OK: all 15 checks passed"
+if [ "$PASS" = 17 ]; then
+    echo "OK: all 17 checks passed"
 else
-    echo "FAIL: $PASS PASS lines, want 15"
+    echo "FAIL: $PASS PASS lines, want 17"
 fi
 DONE=$(grep -c 'LIVE BATTERY .* done' "$HERE/wm-panellive.log")
 if [ "$DONE" = 6 ]; then

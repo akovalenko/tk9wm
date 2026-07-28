@@ -1487,6 +1487,7 @@ set panel_buttons {}
 set panel_side bottom    ;# which screen edge holds the strip
 set panel_preset row     ;# iconic button layout: row | stack
 set panel_icon_size 48   ;# resolve-icon target for button faces
+set panel_zone 0         ;# the reserved arrow strip, set per build
 proc set-panel-side {side} {
     if {$side ni {bottom right}} { error "set-panel-side: bottom or right" }
     set ::panel_side $side
@@ -1588,6 +1589,15 @@ proc panel-geometry {} {
     # badge lettering follows the badge size (the winlist formula)
     font configure PanelIconFont -family [font actual TitleFont -family] \
         -size -[expr {max(7, $isz * 5 / 8)}]
+    # the arrow zone: once ANY button can match, every button
+    # reserves an east strip for the multi arrow — the row reads
+    # uniformly, an unarmed button just shows calm space there
+    set aw [font measure TitleFont ▾]
+    set zoned 0
+    foreach b $::panel_buttons {
+        if {[dict exists [lindex $b 1] match]} { set zoned 1; break }
+    }
+    set zone [expr {$zoned ? $aw + 12 : 0}]
     if {!$iconic} {
         set content $line
     } elseif {$::panel_preset eq "stack"} {
@@ -1618,13 +1628,14 @@ proc panel-geometry {} {
                     set cw [expr {$iw + 4 + $tw}]
                 }
             }
-            set maxw [expr {max($maxw, $cw + 20)}]
+            set maxw [expr {max($maxw, $cw + 20 + $zone)}]
         }
         set thick [expr {$maxw + 2}]
     } else {
         set thick [expr {$itemh + 2}]
     }
-    dict create faces $faces iconic $iconic itemh $itemh thick $thick
+    dict create faces $faces iconic $iconic itemh $itemh thick $thick \
+        zone $zone aw $aw
 }
 proc panel-thickness {} { dict get [panel-geometry] thick }
 proc panel-build {} {
@@ -1636,6 +1647,10 @@ proc panel-build {} {
     set iconic [dict get $g iconic]
     set itemh [dict get $g itemh]
     set thick [dict get $g thick]
+    set zone [dict get $g zone]
+    set aw [dict get $g aw]
+    set ::panel_zone $zone
+    set er [expr {8 + $zone}]   ;# the face's east inner pad
     set isz $::panel_icon_size
     set vert [expr {$::panel_side eq "right"}]
     toplevel .panel -background $::OUTLINE
@@ -1661,6 +1676,8 @@ proc panel-build {} {
     $T element create eBTxt text -fill white -lines 1 -font TitleFont
     $T element create eLive rect -fill [list $::panel_live_bar live] \
         -height 3
+    $T element create eSep rect -fill #888a85 -width 1 \
+        -height [expr {$itemh - 14}]
     $T element create eArrow text -text ▾ -fill #d3d7cf -font TitleFont
     # Three button styles, assigned per item by what its face resolved
     # to: plain (today's text chip — every button when nothing is
@@ -1671,20 +1688,20 @@ proc panel-build {} {
     # the union element itself are ignored by treectrl.
     $T style create sBtn
     $T style elements sBtn {eFace eBTxt}
-    $T style layout sBtn eFace -union eBTxt -ipadx 8 -ipady 3 -padx 2 \
-        -expand ns
+    $T style layout sBtn eFace -union eBTxt -ipadx [list 8 $er] -ipady 3 \
+        -padx 2 -expand ns
     $T style layout sBtn eBTxt -expand ns
     if {$iconic && $::panel_preset eq "stack"} {
         $T style create sBtnI -orient vertical
         $T style elements sBtnI {eFace eBIcon eBTxt}
-        $T style layout sBtnI eFace -union {eBIcon eBTxt} -ipadx 8 -ipady 3 \
-            -padx 2 -expand wens
+        $T style layout sBtnI eFace -union {eBIcon eBTxt} \
+            -ipadx [list 8 $er] -ipady 3 -padx 2 -expand wens
         $T style layout sBtnI eBIcon -expand we -pady {0 2}
         $T style layout sBtnI eBTxt -expand we
         $T style create sBtnB -orient vertical
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
-        $T style layout sBtnB eFace -union {ePRect eBTxt} -ipadx 8 -ipady 3 \
-            -padx 2 -expand wens
+        $T style layout sBtnB eFace -union {ePRect eBTxt} \
+            -ipadx [list 8 $er] -ipady 3 -padx 2 -expand wens
         $T style layout sBtnB ePRect -union ePTxt -expand we -pady {0 2}
         $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
             -expand wens
@@ -1692,26 +1709,36 @@ proc panel-build {} {
     } elseif {$iconic} {
         $T style create sBtnI
         $T style elements sBtnI {eFace eBIcon eBTxt}
-        $T style layout sBtnI eFace -union {eBIcon eBTxt} -ipadx 8 -ipady 3 \
-            -padx 2 -expand wens
+        $T style layout sBtnI eFace -union {eBIcon eBTxt} \
+            -ipadx [list 8 $er] -ipady 3 -padx 2 -expand wens
         $T style layout sBtnI eBIcon -expand ns -padx {0 4}
         $T style layout sBtnI eBTxt -expand ns
         $T style create sBtnB
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
-        $T style layout sBtnB eFace -union {ePRect eBTxt} -ipadx 8 -ipady 3 \
-            -padx 2 -expand wens
+        $T style layout sBtnB eFace -union {ePRect eBTxt} \
+            -ipadx [list 8 $er] -ipady 3 -padx 2 -expand wens
         $T style layout sBtnB ePRect -union ePTxt -expand ns -padx {0 4}
         $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
             -expand wens
         $T style layout sBtnB eBTxt -expand ns
     }
-    # the live furniture rides every style: the indicator bar along
-    # the bottom edge, the arrow zone at the east edge (multi only)
+    # The live furniture rides every style: the indicator bar along
+    # the bottom edge, and — in a zoned panel — the arrow furniture
+    # inside the reserved east strip: a separator line and the glyph,
+    # both drawn only when the arrow is armed (multi). The whole
+    # strip, not the glyph, is the click target — see panel-click.
     foreach s [$T style names] {
-        $T style elements $s [concat [$T style elements $s] {eLive eArrow}]
+        set els [concat [$T style elements $s] {eLive}]
+        if {$zone} { lappend els eSep eArrow }
+        $T style elements $s $els
         $T style layout $s eLive -detach yes -iexpand x -expand n
-        $T style layout $s eArrow -detach yes -expand wns -padx {0 4} \
-            -visible {yes multi no {}}
+        if {$zone} {
+            $T style layout $s eSep -detach yes -expand wns \
+                -padx [list 0 [expr {2 + $zone}]] -visible {yes multi no {}}
+            $T style layout $s eArrow -detach yes -expand wns \
+                -padx [list 0 [expr {2 + ($zone - $aw) / 2}]] \
+                -visible {yes multi no {}}
+        }
     }
     foreach b $::panel_buttons f $faces {
         lassign $b label settings
@@ -1786,7 +1813,13 @@ proc panel-click {x y} {
     set T .panel.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     set i [expr {$A(item) - 1}]
-    if {$A(element) eq "eArrow"} { panel-arrow $i } else { panel-fire $i }
+    # the whole reserved east strip is the arrow's click target, not
+    # the glyph — but only while the arrow is armed (multi)
+    if {$::panel_zone > 0 && "multi" in [$T item state get $A(item)]} {
+        lassign [$T item bbox $A(item)] _x _y x2 _y2
+        if {$x >= $x2 - 2 - $::panel_zone} { panel-arrow $i; return }
+    }
+    panel-fire $i
 }
 proc panel-on-top {} {
     if {[winfo exists .panel]} { raise .panel }

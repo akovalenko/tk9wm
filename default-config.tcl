@@ -109,12 +109,14 @@
 #
 # A button whose match sees a LIVE window says so: an indicator bar
 # along its bottom edge and a light face tint (recolor with
-# set-panel-live-colors BAR FACE). More than one match grows an
-# arrow zone at the button's east edge — clicking it drops the
-# window list filtered to the matches (most recent first, numbered),
-# picking focuses; a body click keeps the idempotent fire on the
-# most recent match. The judgement follows windows coming, going and
-# renaming themselves.
+# set-panel-live-colors BAR FACE). Every button reserves an arrow
+# strip inside its east edge (the moment any button carries a
+# match); with more than one match the strip draws a separator line
+# and the arrow, and the WHOLE strip is the click target — clicking
+# drops the window list filtered to the matches (most recent first,
+# numbered), picking focuses; a body click keeps the idempotent
+# fire on the most recent match. The judgement follows windows
+# coming, going and renaming themselves.
 #
 # ---- key bindings ----
 #
