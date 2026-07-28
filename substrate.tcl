@@ -99,13 +99,49 @@ package require Thread
 # NB: Tk is required LATER, after our X error handler is installed — see the
 # error handler section for why the order matters.
 
+# ---------------- soft failures: survived, but never silent ----------------
+# A WM has to outlive the errors its clients hand it — a window dies
+# mid-request, a property read races the client's exit — so a good
+# many calls in this file are wrapped so a failure cannot take the WM
+# down. What such a wrapper must NOT do is hide the failure: a bare
+# `catch {XFree $data}` looked like sound hygiene for months while the
+# call inside it threw on EVERY invocation (the pointer-tag bug,
+# ce99c12) and nothing ever said a word.
+#
+# `soft LABEL SCRIPT ?DEFAULT?` is that catch with a voice. The script
+# runs in the CALLER's scope, so out-parameters and `lassign` still
+# land where they should; a failure logs one line and yields DEFAULT.
+# Repeats of the same (label, message) collapse into a count — a
+# per-event failure must not flood the log, the same discipline the X
+# error handler keeps for its bursts.
+array set soft_n {}
+proc soft {label script {default ""}} {
+    if {![catch {uplevel 1 $script} res]} { return $res }
+    soft-log $label $res
+    return $default
+}
+proc soft-log {label msg} {
+    set key $label\n$msg
+    if {![info exists ::soft_n($key)]} {
+        set ::soft_n($key) 1
+        puts "WM: soft failure — $label: $msg"
+        return
+    }
+    set n [incr ::soft_n($key)]
+    # 10th, 100th, then every thousandth: enough to show a failure is
+    # relentless, quiet enough to keep the log readable
+    if {$n == 10 || $n == 100 || ($n > 100 && $n % 1000 == 0)} {
+        puts "WM: soft failure (x$n) — $label: $msg"
+    }
+}
+
 # Our log is UTF-8, whatever locale the session hands us. Client titles
 # go into it verbatim, and a title is any script on earth: with stdout
 # left on a C-locale (ascii) encoding, the first Cyrillic one makes
 # `puts` THROW — inside an event handler, before the title ever reaches
 # the frame. The log is ours to define, so define it.
 foreach ch {stdout stderr} {
-    catch {chan configure $ch -encoding utf-8 -profile replace}
+    soft "log encoding ($ch)" {chan configure $ch -encoding utf-8 -profile replace}
 }
 
 # (There is no quirks switch any more. It existed to hold timed repeats of
@@ -140,18 +176,30 @@ X11 function XFlush int {dpy pointer.unsafe}
 X11 function XChangeProperty int {dpy pointer.unsafe w ulong prop ulong type ulong fmt int mode int data pointer.unsafe n int}
 X11 function XCreateSimpleWindow ulong {dpy pointer.unsafe parent ulong x int y int w uint h uint bw uint border ulong bg ulong}
 X11 function XChangeWindowAttributes int {dpy pointer.unsafe w ulong mask ulong attrs pointer.unsafe}
-set has_transient [expr {![catch {
+# A capability probe: declare a group of Xlib entry points and answer
+# whether this libX11 has them. The answer is a flag the code below
+# gates features on, so a failure must SAY which group went missing —
+# a silent 0 would mean, say, no icons for the rest of the run with
+# nothing anywhere to explain it.
+proc have {label script} {
+    if {[catch {uplevel 1 $script} err]} {
+        puts "WM: capability «$label» unavailable in this libX11: $err"
+        return 0
+    }
+    return 1
+}
+set has_transient [have "WM_TRANSIENT_FOR" {
     X11 function XGetTransientForHint int {dpy pointer.unsafe w ulong prop {ulong out}}
-}]}]
-set has_geometry [expr {![catch {
+}]
+set has_geometry [have "XGetGeometry" {
     X11 function XGetGeometry int {dpy pointer.unsafe d ulong root {ulong out}
         x {int out} y {int out} width {uint out} height {uint out}
         bw {uint out} depth {uint out}}
-}]}]
-set has_getfocus [expr {![catch {
+}]
+set has_getfocus [have "XGetInputFocus" {
     X11 function XGetInputFocus int {dpy pointer.unsafe focus {ulong out} revert_to {int out}}
-}]}]
-set has_protocols [expr {![catch {
+}]
+set has_protocols [have "WM_PROTOCOLS + XFree" {
     X11 function XGetWMProtocols int {dpy pointer.unsafe w ulong protocols {pointer unsafe out} count {int out}}
     # The parameter is the ANNOTATION form {pointer unsafe}, not the
     # dotted pointer.unsafe: the dot form declares a pointer TAGGED
@@ -162,36 +210,48 @@ set has_protocols [expr {![catch {
     # file ever freed anything. The annotation form takes any pointer,
     # tagged or not, and actually calls XFree.
     X11 function XFree int {ptr {pointer unsafe}}
-}]}]
-set has_querytree [expr {![catch {
+}]
+# Every Xlib-allocated buffer goes back through here — one place to
+# hold the pointer-form lesson (see the XFree declaration above), and
+# one label in the log if freeing ever stops working again. NULL is
+# nothing to free: XFree(NULL) is a legal no-op in Xlib, but cffi
+# refuses to marshal a null pointer, and a property read that came
+# back empty hands us exactly that (found the moment the wrapper got
+# a voice — the old bare catch had been eating it all along).
+proc xfree {p} {
+    if {[cffi::pointer isnull $p]} return
+    soft XFree [list XFree $p]
+}
+
+set has_querytree [have "XQueryTree (adoption)" {
     X11 function XQueryTree int {dpy pointer.unsafe w ulong rootw {ulong out} parentw {ulong out} children {pointer unsafe out} nkids {uint out}}
     X11 function XGetWindowAttributes int {dpy pointer.unsafe w ulong attrs pointer.unsafe}
-}]}]
-set has_fetchname [expr {![catch {
+}]
+set has_fetchname [have "XFetchName" {
     X11 function XFetchName int {dpy pointer.unsafe w ulong name {pointer unsafe out}}
-}]}]
+}]
 # The ICCCM text-property pair: fetch a property AS a text property
 # (value + its encoding atom), and let Xlib's own converter turn
 # whatever encoding that is — COMPOUND_TEXT above all — into UTF-8.
 # See client-title for why this beats reading the bytes ourselves.
-set has_textprop [expr {![catch {
+set has_textprop [have "text properties (compound text)" {
     X11 function XGetTextProperty int {dpy pointer.unsafe w ulong
         prop pointer.unsafe atom ulong}
     X11 function Xutf8TextPropertyToTextList int {dpy pointer.unsafe
         prop pointer.unsafe list {pointer unsafe out} count {int out}}
     X11 function XFreeStringList void {list {pointer unsafe}}
-}]}]
-set has_getprop [expr {![catch {
+}]
+set has_getprop [have "XGetWindowProperty" {
     X11 function XGetWindowProperty int {dpy pointer.unsafe w ulong prop ulong
         off long len long delete int reqtype ulong actual_type {ulong out}
         actual_format {int out} nitems {ulong out} bytes_after {ulong out}
         data {pointer unsafe out}}
-}]}]
-set has_normalhints [expr {![catch {
+}]
+set has_normalhints [have "WM_NORMAL_HINTS" {
     X11 function XGetWMNormalHints int {dpy pointer.unsafe w ulong
         hints pointer.unsafe supplied {long out}}
-}]}]
-set has_keys [expr {![catch {
+}]
+set has_keys [have "keyboard grabs" {
     X11 function XGrabKey int {dpy pointer.unsafe keycode int modifiers uint
         w ulong owner_events int pointer_mode int keyboard_mode int}
     X11 function XUngrabKey int {dpy pointer.unsafe keycode int modifiers uint w ulong}
@@ -204,7 +264,7 @@ set has_keys [expr {![catch {
     X11 function XkbKeycodeToKeysym ulong {dpy pointer.unsafe kc uchar group int level int}
     X11 function XRefreshKeyboardMapping int {ev pointer.unsafe}
     X11 function XQueryKeymap int {dpy pointer.unsafe keys pointer.unsafe}
-}]}]
+}]
 
 # ---------------- X error handler (cffi callback) ----------------
 # Xlib's default error handler exits the process; for a WM, BadWindow races
@@ -247,6 +307,10 @@ proc xerror {edpy ev} {
             set ::xerr_last $key; set ::xerr_n 1
             puts "WM: X error $key — ignored"
         }
+    # The one catch in this file that stays MUTE, deliberately: we are
+    # inside the X error callback, and the only thing left to fail is
+    # the logging itself — reporting a failed report would recurse out
+    # of a callback that has nowhere to throw.
     } err]} { catch {puts "WM: X error (decode failed: $err) — ignored"} }
     return 0
 }
@@ -285,8 +349,8 @@ set XA_STRING         31   ;# XA_STRING, predefined — a text property's type
 set WM_COMMAND        34   ;# XA_WM_COMMAND, predefined
 set WM_CLIENT_MACHINE 36   ;# XA_WM_CLIENT_MACHINE, predefined
 set WM_CLASS          67   ;# XA_WM_CLASS, predefined
-catch { set NET_WM_PID [XInternAtom $dpy _NET_WM_PID 0] }
-catch { set NET_WM_ICON [XInternAtom $dpy _NET_WM_ICON 0] }
+soft "intern _NET_WM_PID"  { set NET_WM_PID [XInternAtom $dpy _NET_WM_PID 0] }
+soft "intern _NET_WM_ICON" { set NET_WM_ICON [XInternAtom $dpy _NET_WM_ICON 0] }
 
 # ---------------- EWMH minimum ----------------
 # Enough for toolkits to see "a WM is present": _NET_SUPPORTING_WM_CHECK on
@@ -596,7 +660,7 @@ proc handle-event {} {
                 # invites a globally active window).
                 binary scan [evbytes 72] x64wu rt
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
-                catch { policy-client-click $A }
+                soft "activation request" { policy-client-click $A }
             }
         }
         2 { # KeyPress from our grabs (a top-chord XGrabKey, or the
@@ -622,7 +686,7 @@ proc handle-event {} {
         34 { # MappingNotify: request@40 — 2 (pointer) is not ours
             binary scan [evbytes 48] iux4wuiux4wuwuiu _t _s _se _d _w req
             if {$::has_keys && $req != 2} {
-                catch {XRefreshKeyboardMapping $::evbuf}
+                soft XRefreshKeyboardMapping {XRefreshKeyboardMapping $::evbuf}
                 keys-remap
             }
         }
@@ -632,7 +696,7 @@ proc handle-event {} {
             binary scan [evbytes 64] iux4wuiux4wuwuwuwuwu \
                 _t _s _se _d win rootw subw time
             set ::evtime $time
-            catch {
+            soft "click on a client" {
                 if {[info exists ::managed($win)]} { policy-client-click $win }
             }
             # NEVER skip this: a sync grab left unanswered freezes the pointer
@@ -696,7 +760,7 @@ proc xlib-text-property {tp} {
         if {$p == 0} continue
         lappend parts [cffi::memory tostring! [cffi::pointer make $p] utf-8]
     }
-    catch {XFreeStringList $lst}
+    soft XFreeStringList [list XFreeStringList $lst]
     join $parts " "
 }
 
@@ -726,7 +790,7 @@ proc client-title {w} {
             set title [encoding convertfrom utf-8 \
                 [cffi::memory tobinary! $data $nitems]]
         }
-        catch {XFree $data}
+        xfree $data
         if {$title ne ""} { return $title }
     }
     if {$::has_textprop} {
@@ -740,7 +804,7 @@ proc client-title {w} {
                     [cffi::memory tobinary! [cffi::pointer make $val] $n]]
                 if {$title eq ""} { set title [xlib-text-property $tp] }
             }
-            if {$val != 0} { catch {XFree [cffi::pointer make $val]} }
+            if {$val != 0} { xfree [cffi::pointer make $val] }
         }
         cffi::memory free $tp
         if {$title ne ""} { return $title }
@@ -748,7 +812,7 @@ proc client-title {w} {
     if {$::has_fetchname && ![catch {XFetchName $::dpy $w np} ok] && $ok
             && ![cffi::pointer isnull $np]} {
         set s [cffi::memory tostring! $np]
-        catch {XFree $np}
+        xfree $np
         return $s
     }
     return ""
@@ -773,7 +837,7 @@ proc read-prop-bytes {w prop} {
     if {$afmt == 8 && $nitems > 0 && ![cffi::pointer isnull $data]} {
         set b [cffi::memory tobinary! $data $nitems]
     }
-    catch {XFree $data}
+    xfree $data
     return $b
 }
 proc read-prop-long {w prop} {
@@ -785,7 +849,7 @@ proc read-prop-long {w prop} {
         # format=32 property data arrives as C longs on LP64
         binary scan [cffi::memory tobinary! $data 8] wu v
     }
-    catch {XFree $data}
+    xfree $data
     return $v
 }
 
@@ -822,7 +886,7 @@ proc client-pid {w} {
 # is read too and either may vouch.
 proc local-names {} {
     set names [list [info hostname]]
-    catch {
+    soft "read /proc/sys/kernel/hostname" {
         set f [open /proc/sys/kernel/hostname r]
         lappend names [string trim [read $f]]
         close $f
@@ -883,7 +947,7 @@ proc client-icon {w target} {
         # format=32 property data arrives as C longs on LP64
         set bin [cffi::memory tobinary! $data [expr {$nitems * 8}]]
     }
-    catch {XFree $data}
+    xfree $data
     if {$bin eq ""} { return "" }
     set entries {}
     set pos 0
@@ -936,7 +1000,9 @@ proc client-icon {w target} {
 }
 proc icon-invalidate {w} {
     if {[info exists ::iconof($w)]} {
-        if {$::iconof($w) ne ""} { catch {image delete $::iconof($w)} }
+        if {$::iconof($w) ne ""} {
+            soft "delete icon image" [list image delete $::iconof($w)]
+        }
         unset ::iconof($w)
     }
 }
@@ -1148,8 +1214,9 @@ proc unmanage {w {dead 0}} {
     # Skip for clients that are already destroyed.
     if {!$dead} {
         set x 0; set y 0
-        catch { lassign [policy-origin $w] x y }
-        catch {
+        soft "origin of the window being released" \
+            { lassign [policy-origin $w] x y }
+        soft "release the client back to root" {
             set-wm-state $w 0      ;# WithdrawnState before letting it go
             XReparentWindow $::dpy $w $::root $x $y
             XSync $::dpy 0
@@ -1211,7 +1278,8 @@ proc paint-focus {w} {
     # every honest focus change publishes _NET_ACTIVE_WINDOW — Wine
     # reads its foreground from here (see the EWMH block)
     if {[info exists ::NET_ACTIVE]} {
-        catch { set-prop-longs $::root $::NET_ACTIVE 33 [list $w] }
+        soft "publish _NET_ACTIVE_WINDOW" \
+            { set-prop-longs $::root $::NET_ACTIVE 33 [list $w] }
     }
     policy-paint-focus $w
 }
@@ -1229,7 +1297,7 @@ proc client-input-hint {w} {
             binary scan [cffi::memory tobinary! $data 16] wuwu flags inp
             if {$flags & 1} { set input [expr {$inp != 0}] }
         }
-        catch {XFree $data}
+        xfree $data
     }
     return $input
 }
@@ -1316,7 +1384,8 @@ proc focus-park {why} {
     XSync $::dpy 0
     set ::focused 0
     if {[info exists ::NET_ACTIVE]} {
-        catch { set-prop-longs $::root $::NET_ACTIVE 33 [list 0] }
+        soft "clear _NET_ACTIVE_WINDOW" \
+            { set-prop-longs $::root $::NET_ACTIVE 33 [list 0] }
     }
 }
 # The focus reached a dead end: it sits on our own decoration, on the
@@ -1401,7 +1470,7 @@ proc client-advertises {w atom fallback} {
             binary scan $bytes wu$n atoms
             set found [expr {$atom in $atoms}]
         }
-        catch {XFree $protos}
+        xfree $protos
     }
     return $found
 }
@@ -1718,7 +1787,7 @@ proc adopt-existing {} {
     if {[catch {XQueryTree $dpy $root r p children n} status] || !$status || $n == 0} return
     if {[cffi::pointer isnull $children]} return
     binary scan [cffi::memory tobinary! $children [expr {8 * $n}]] wu$n kids
-    catch {XFree $children}
+    xfree $children
     set attrs [cffi::memory allocate 136 unsafe]
     foreach w $kids {
         if {[info exists ::managed($w)]} continue
@@ -1785,7 +1854,10 @@ thread::send $worker {
     set ::pfd [cffi::memory frombinary $::pfdbytes unsafe]
     proc go {} {
         poll $::pfd 1 -1
-        # main may already be gone at shutdown; a failed ping is fine
+        # main may already be gone at shutdown; a failed ping is fine.
+        # Bare catch on purpose: this body runs in the WORKER
+        # interpreter, which has no `soft` (nor a log worth writing to
+        # while the main thread is dying).
         catch {thread::send -async $::main ::drain}
     }
 }
@@ -1803,7 +1875,8 @@ proc drain {} {
 # kill still loses them — the split-connection save-set wart, see notes.
 rename ::exit ::tk9wm-real-exit
 proc ::exit {{code 0}} {
-    catch { foreach w [array names ::managed] { unmanage $w } }
+    soft "release clients on exit" \
+        { foreach w [array names ::managed] { unmanage $w } }
     ::tk9wm-real-exit $code
 }
 
@@ -1817,8 +1890,9 @@ proc ::exit {{code 0}} {
 # one more cffi call.
 proc restart-wm {} {
     puts "WM: restart requested — releasing clients, exec'ing myself"
-    catch { foreach w [array names ::managed] { unmanage $w } }
-    catch { XSync $::dpy 0 }
+    soft "release clients on restart" \
+        { foreach w [array names ::managed] { unmanage $w } }
+    soft "sync before exec" { XSync $::dpy 0 }
     set exe [info nameofexecutable]
     if {[catch {
         cffi::Wrapper create LCX libc.so.6

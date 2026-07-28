@@ -676,7 +676,7 @@ proc rz-end {} { unset -nocomplain ::rz }
 proc press-end {t} {
     rz-end
     unset -nocomplain ::drag($t)
-    catch { rz-hover $t {*}[winfo pointerxy $t] }
+    soft "re-hover after a press" { rz-hover $t {*}[winfo pointerxy $t] }
 }
 
 # A client that named nothing is shown by its id — on the titlebar and
@@ -1929,9 +1929,12 @@ proc panel-flash {i state} {
     # items are created in declaration order: button i = item i+1
     set item [expr {$i + 1}]
     if {![winfo exists .panel.t]} return
-    catch {
+    soft "panel flash" {
         .panel.t item state set $item $state
-        after 600 [list catch [list .panel.t item state set $item !$state]]
+        # the un-flash fires 600 ms later, by which time the panel may
+        # have been rebuilt out from under this item — soft, like the rest
+        after 600 [list soft "panel unflash" \
+            [list .panel.t item state set $item !$state]]
     }
 }
 proc panel-click {x y} {
