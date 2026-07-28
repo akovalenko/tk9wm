@@ -14,10 +14,7 @@
 # (ships in the kit) and a GTK3 GtkStatusIcon (what the world's tray
 # clients actually are — Chrome's Linux status icon included). A
 # compositor must run for any of this to mean anything, so one is
-# started; note that with a compositor the rootless desk is whatever
-# the compositor paints (compton: flat grey), so `xsetroot -solid`
-# never reaches the screen — the discriminator is simply "the tray's
-# color or not".
+# started, over a magenta desk so a hole is unmistakable.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LINUX="${LINUX:-$HERE/../whalebuild/work/linux}"
 export DISPLAY=:94
@@ -26,6 +23,11 @@ Xvfb :94 -screen 0 800x600x24 +extension Composite +extension RENDER >/dev/null 
 XVFB=$!
 trap 'kill $XVFB $COMP 2>/dev/null' EXIT
 sleep 1
+# A LOUD desk behind the strip, so a hole through it cannot be mistaken
+# for anything else. hsetroot and not xsetroot: a compositor composites
+# the root PIXMAP (_XROOTPMAP_ID), which xsetroot -solid never publishes
+# — see notes/xephyr-playground.md in thoughts.
+hsetroot -solid '#ff00ff' 2>/dev/null
 compton --backend xrender --config /dev/null >"$HERE/trayargb-compositor.log" 2>&1 &
 COMP=$!
 sleep 1
@@ -99,7 +101,8 @@ for who_px in "tk:$CORNER1" "gtk:$CORNER2"; do
     case "$val" in
         *"46,52,54"*) echo "OK: $who — the icon's transparent corner shows the tray's color" ;;
         *"0,0,0"*) echo "FAIL: $who — the corner is black, nothing blended" ;;
-        *) echo "FAIL: $who — the corner is $val, a hole through to the desk" ;;
+        *"255,0,255"*) echo "FAIL: $who — the corner is the WALLPAPER: a hole through the strip" ;;
+        *) echo "FAIL: $who — the corner is $val, neither the tray nor the desk" ;;
     esac
 done
 case "$MIDDLE1" in
