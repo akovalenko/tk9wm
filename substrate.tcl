@@ -408,7 +408,17 @@ proc handle-event {} {
             # WM_NORMAL_HINTS (XA_ predefined 40) are re-read; a changed
             # WM_TRANSIENT_FOR (XA_ predefined 68) re-aims the dialog —
             # toolkits are free to point a mapped window at a leader
-            # (or away from one) at any time
+            # (or away from one) at any time.
+            # Every PropertyNotify also feeds the event clock (time@48):
+            # key/button events reach us only through our grabs, so the
+            # clock would otherwise go stale the moment the user types
+            # INTO a window — and a WM_TAKE_FOCUS invitation stamped
+            # with a stale time loses to Wine's focus-stealing guard
+            # (the smsrc-at-startup wedge). Our own WM_STATE stamp at
+            # manage time notifies here too — a fresh tick exactly when
+            # a new window needs inviting.
+            binary scan [evbytes 56] x48wu ptime
+            if {$ptime > $::evtime} { set ::evtime $ptime }
             if {[info exists ::managed($A)]} {
                 if {$B == $::WM_NAME
                         || ([info exists ::NET_WM_NAME]
@@ -433,6 +443,20 @@ proc handle-event {} {
             if {[info exists ::wmcheck] && $A == $::wmcheck
                     && $B == $::TK9WM_RESTART} {
                 restart-wm
+            } elseif {[info exists ::NET_ACTIVE] && $B == $::NET_ACTIVE
+                    && [info exists ::managed($A)]} {
+                # An EWMH activation request (data.l: source, timestamp,
+                # requestor's active window). Wine leans on these: when
+                # an invitation of ours loses to its focus-stealing
+                # guard, Wine re-asks for activation itself — with its
+                # own fresh timestamp, which we fold into the clock so
+                # the re-invitation carries it. Honored as a click
+                # would be: raise the group, focus (which re-invites a
+                # globally active window).
+                binary scan [evbytes 72] x64wu rt
+                if {$rt > $::evtime} { set ::evtime $rt }
+                puts "WM: activation request for 0x[format %x $A] (t=$rt)"
+                catch { policy-client-click $A }
             }
         }
         2 { # KeyPress from our grabs (a top-chord XGrabKey, or the
@@ -985,6 +1009,14 @@ proc focus-to {w} {
         puts "WM: focus -> 0x[format %x $w]: WM_TAKE_FOCUS invitation\
  (globally active), t=$::evtime"
         send-protocol $w $::WM_TAKE_FOCUS $::evtime
+        # An invitation can lose to the client's focus-stealing guard
+        # (a manage-time invite carries whatever time the clock had).
+        # Verify in a beat and re-invite — the clock is fresher by
+        # then (the WM_STATE PropertyNotify at the very least), and
+        # the retries are capped: a client that keeps refusing is
+        # exercising its right.
+        after cancel $::ga_reinvite_pending
+        set ::ga_reinvite_pending [after 200 [list ga-reinvite $w 3]]
         paint-focus $w
         return 1
     }
@@ -1028,6 +1060,19 @@ proc focus-to {w} {
 # PointerRoot) — so every root-grabbed chord, the panel launchers
 # included, goes dead on an empty desk (live report, 2026-07-28).
 # PointerRoot is also the state a fresh server starts in.
+set ga_reinvite_pending ""
+proc ga-reinvite {w tries} {
+    if {![info exists ::managed($w)] || $::focused != $w} return
+    if {!$::has_getfocus || [catch {XGetInputFocus $::dpy f r}]
+            || $f == $w} return
+    puts "WM: invitation to 0x[format %x $w] unanswered —\
+ re-inviting (t=$::evtime)"
+    send-protocol $w $::WM_TAKE_FOCUS $::evtime
+    if {$tries > 1} {
+        set ::ga_reinvite_pending \
+            [after 200 [list ga-reinvite $w [expr {$tries - 1}]]]
+    }
+}
 proc focus-to-pointerroot {} {
     puts "WM: no window to focus — parking focus on PointerRoot"
     XSetInputFocus $::dpy 1 1 0   ;# PointerRoot, RevertToPointerRoot

@@ -10,7 +10,12 @@
 # own-focus traffic real Wine generates, which is what makes a
 # careless WM's next invitation stale. Reports every KeyPress, so a
 # driver can prove keys actually flow.
-# Usage: DISPLAY=:N whale ga-client.tcl ?title?
+# An optional REJECT count models Wine's focus-stealing guard: the
+# first N invitations are refused (logged, unanswered), and each
+# refusal renames the window — the property traffic that ticks the
+# WM's event clock, as real Wine's traffic does — so the WM's
+# re-invitation can carry a fresher stamp.
+# Usage: DISPLAY=:N whale ga-client.tcl ?title? ?rejectN?
 package require cffi
 cffi::Wrapper create X11 libX11.so.6
 X11 function XOpenDisplay pointer.unsafe {name string}
@@ -32,6 +37,7 @@ X11 function XWhitePixel ulong {dpy pointer.unsafe screen int}
 
 chan configure stdout -buffering line
 set title [expr {[llength $argv] ? [lindex $argv 0] : "га-клиент"}]
+set rejects [expr {[llength $argv] > 1 ? [lindex $argv 1] : 0}]
 set dpy [XOpenDisplay $::env(DISPLAY)]
 if {[cffi::pointer isnull $dpy]} { puts "GACLIENT: no display"; exit 1 }
 set root [XDefaultRootWindow $dpy]
@@ -68,6 +74,13 @@ while 1 {
         exit 0
     }
     if {$type == 33 && $mtype == $WM_PROTOCOLS && $l0 == $WM_TAKE_FOCUS} {
+        if {$rejects > 0} {
+            incr rejects -1
+            puts "GACLIENT: invitation REJECTED t=$l1"
+            XStoreName $dpy $win "$title (отверг $l1)"
+            XSync $dpy 0
+            continue
+        }
         puts "GACLIENT: invited t=$l1"
         XSetInputFocus $dpy $win 2 $l1   ;# the answer, invitation's stamp
         XSync $dpy 0
