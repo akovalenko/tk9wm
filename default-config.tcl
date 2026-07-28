@@ -107,6 +107,15 @@
 #   set-panel-preset stack
 #   set-panel-icon-size 32
 #
+# A button whose match sees a LIVE window says so: an indicator bar
+# along its bottom edge and a light face tint (recolor with
+# set-panel-live-colors BAR FACE). More than one match grows an
+# arrow zone at the button's east edge — clicking it drops the
+# window list filtered to the matches (most recent first, numbered),
+# picking focuses; a body click keeps the idempotent fire on the
+# most recent match. The judgement follows windows coming, going and
+# renaming themselves.
+#
 # ---- key bindings ----
 #
 # wm-bind SPEC SCRIPT binds a chord sequence, stumpwm-style: only the

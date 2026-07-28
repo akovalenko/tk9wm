@@ -441,6 +441,7 @@ proc policy-detach {w} {
     unset -nocomplain ::maxsaved($w)
     unset -nocomplain ::styleof($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
+    panel-match-kick
 }
 
 # Root coordinates of the CLIENT area — asked of Tk directly, since the
@@ -634,6 +635,7 @@ proc policy-title {w title} {
     if {![info exists ::frameof($w)]} return
     set t $::frameof($w)
     $t.title item element configure 1 C0 eTxt -text [title-or-id $w $title]
+    panel-match-kick   ;# a title flip can turn a -title matcher around
 }
 
 # The substrate re-read WM_TRANSIENT_FOR after a PropertyNotify: a
@@ -758,6 +760,7 @@ proc policy-client-click {w} {
 proc policy-managed {w} {
     raise-group $w
     focus-to $w
+    panel-match-kick
 }
 
 # Refocus pick after w's unmanage (the smsrc observation: an unpatched
@@ -1075,10 +1078,19 @@ proc winlist {} {
         if {$w ni $wins} { lappend wins $w }
     }
     if {![llength $wins]} { puts "WM: winlist: no windows"; return }
+    winlist-open $wins center
+}
+# The list itself, reusable: winlist passes every window and centers;
+# a panel button's arrow zone passes its matches and anchors the
+# popup by the button. The anchor is "center" or {panel I}; only the
+# centered full list may enter cycle mode and preselects the SECOND
+# entry (the toggle) — an anchored filtered list is a plain chooser,
+# most recent first.
+proc winlist-open {wins anchor} {
     set ::winlist_wins $wins
     set ::winlist_prev $::focused
     set ::winlist_cycle 0
-    if {$::winlist_cycle_opt && $::key_invoke_mods != 0
+    if {$anchor eq "center" && $::winlist_cycle_opt && $::key_invoke_mods != 0
             && [modifier-held $::key_invoke_mods]} {
         set ::winlist_cycle $::key_invoke_mods
     }
@@ -1151,12 +1163,27 @@ proc winlist {} {
         }
         $T item lastchild root $item
     }
-    $T selection add [expr {[llength $wins] > 1 ? 2 : 1}]
+    $T selection add [expr {$anchor eq "center" && [llength $wins] > 1 ? 2 : 1}]
     bind $T <ButtonPress-1> {winlist-click %x %y}
     lassign [screen-size] sw sh
     set W [expr {min(max($maxw + $numw + $iconw + 28, 200), $sw * 3 / 5)}]
     set H [expr {[llength $wins] * $ih + 2}]
-    popup-show .winlist $W $H [expr {($sw - $W) / 2}] [expr {($sh - $H) / 3}]
+    if {$anchor eq "center"} {
+        set X [expr {($sw - $W) / 2}]
+        set Y [expr {($sh - $H) / 3}]
+    } else {
+        # by the button: over a bottom strip, beside a right one
+        # (popup-show clamps to the screen either way)
+        lassign [.panel.t item bbox [expr {[lindex $anchor 1] + 1}]] bx by
+        if {$::panel_side eq "right"} {
+            set X [expr {[winfo x .panel] - $W}]
+            set Y [expr {[winfo rooty .panel.t] + $by}]
+        } else {
+            set X [expr {[winfo rootx .panel.t] + $bx}]
+            set Y [expr {[winfo y .panel] - $H}]
+        }
+    }
+    popup-show .winlist $W $H $X $Y
     if {![grab-keys-to winlist-key]} {
         puts "WM: winlist: keyboard not grabbed — mouse only"
     }
@@ -1444,6 +1471,18 @@ proc kbmr-key {kind name mods} {
 # case holds one unified height. panel-icon-size (default 48, the
 # hicolor stock) is the resolve-icon target; a foreign size is
 # resampled by resolve-icon itself.
+#
+# A button whose match sees a LIVE window says so persistently: an
+# indicator bar along the button's bottom edge plus a light tint of
+# the face — the same state machinery the flash feedback uses, only
+# not timed out (set-panel-live-colors BAR FACE re-paints). More
+# than one match grows an ARROW zone at the button's east edge:
+# clicking it drops the winlist filtered to the matches, anchored by
+# the button (MRU, icons, numbered hotkeys — the shared machinery),
+# picking focuses; a body click keeps the old idempotent fire on the
+# most recent match. Matches are re-judged on manage, unmanage and
+# every title change (a title flip can turn a -title filter around),
+# debounced like the RandR rebuild.
 set panel_buttons {}
 set panel_side bottom    ;# which screen edge holds the strip
 set panel_preset row     ;# iconic button layout: row | stack
@@ -1462,6 +1501,13 @@ proc set-panel-icon-size {px} {
     set ::panel_icon_size $px
     panel-rebuild-soon
 }
+set panel_live_bar  #8ae234  ;# the indicator strip
+set panel_live_face #5d6e59  ;# the face tint under a live match
+proc set-panel-live-colors {bar face} {
+    set ::panel_live_bar $bar
+    set ::panel_live_face $face
+    panel-rebuild-soon
+}
 proc panel-button {label settings} {
     lappend ::panel_buttons [list $label $settings]
     if {[dict exists $settings key]} {
@@ -1475,6 +1521,48 @@ proc panel-rebuild-soon {} {
     if {![info exists ::panel_pending]} {
         set ::panel_pending 1
         after idle {unset ::panel_pending; panel-build}
+    }
+}
+# Every managed window a button's match accepts, MRU first — the
+# winlist order, never-focused windows trailing. Feeds the fire (the
+# head is the most recent), the live/multi judgement, and the arrow
+# zone's filtered list.
+proc panel-matches {label settings} {
+    if {![dict exists $settings match]} { return {} }
+    set pred [dict get $settings match]
+    set cands $::focus_hist
+    foreach w [array names ::frameof] {
+        if {$w ni $cands} { lappend cands $w }
+    }
+    set hits {}
+    foreach w $cands {
+        if {![info exists ::frameof($w)]} continue
+        if {[catch {uplevel #0 [list {*}$pred $w]} m]} {
+            puts "WM: panel $label: predicate error on 0x[format %x $w]: $m"
+        } elseif {$m} { lappend hits $w }
+    }
+    return $hits
+}
+# Re-judge every button's match against the living windows and set
+# the persistent states. Kicked (debounced — one manage can cascade
+# a burst of property traffic) from the policy hooks: manage,
+# unmanage, title change; run straight at the end of every rebuild.
+set panel_reeval_pending ""
+proc panel-match-kick {} {
+    if {![llength $::panel_buttons]} return
+    after cancel $::panel_reeval_pending
+    set ::panel_reeval_pending [after 200 panel-reeval]
+}
+proc panel-reeval {} {
+    if {![winfo exists .panel.t]} return
+    set i 0
+    foreach b $::panel_buttons {
+        lassign $b label settings
+        set n [llength [panel-matches $label $settings]]
+        .panel.t item state set [expr {$i + 1}] \
+            [list [expr {$n >= 1 ? "live" : "!live"}] \
+                  [expr {$n >= 2 ? "multi" : "!multi"}]]
+        incr i
     }
 }
 # Everything the strip's shape depends on, decided in one place: the
@@ -1560,15 +1648,21 @@ proc panel-build {} {
     bindtags $T [list $T all]
     $T state define found    ;# the flash: predicate found a window
     $T state define firing   ;# the flash: launching the command
+    $T state define live     ;# persistent: the match sees a window
+    $T state define multi    ;# persistent: ... more than one
     $T column create -tags C0
     if {$vert} { $T column configure C0 -width [expr {$thick - 2}] }
     $T element create eFace rect \
-        -fill [list #4e9a06 found #ce5c00 firing #555753 {}] \
+        -fill [list #4e9a06 found #ce5c00 firing \
+                    $::panel_live_face live #555753 {}] \
         -outline #888a85 -outlinewidth 1
     $T element create eBIcon image
     $T element create ePRect rect
     $T element create ePTxt text -fill white -lines 1 -font PanelIconFont
     $T element create eBTxt text -fill white -lines 1 -font TitleFont
+    $T element create eLive rect -fill [list $::panel_live_bar live] \
+        -height 3
+    $T element create eArrow text -text ▾ -fill #d3d7cf -font TitleFont
     # Three button styles, assigned per item by what its face resolved
     # to: plain (today's text chip — every button when nothing is
     # iconic), icon, and badge; row and stack presets differ in the
@@ -1609,6 +1703,14 @@ proc panel-build {} {
         $T style layout sBtnB ePTxt -expand wens
         $T style layout sBtnB eBTxt -expand ns
     }
+    # the live furniture rides every style: the indicator bar along
+    # the bottom edge, the arrow zone at the east edge (multi only)
+    foreach s [$T style names] {
+        $T style elements $s [concat [$T style elements $s] {eLive eArrow}]
+        $T style layout $s eLive -detach yes -iexpand x -expand n
+        $T style layout $s eArrow -detach yes -expand wns -padx {0 4} \
+            -visible {yes multi no {}}
+    }
     foreach b $::panel_buttons f $faces {
         lassign $b label settings
         set item [$T item create]
@@ -1636,27 +1738,14 @@ proc panel-build {} {
     }
     wm geometry .panel $geo
     raise .panel
+    panel-reeval   ;# a rebuild starts stateless — judge the matches now
     puts "WM: panel up ([llength $::panel_buttons] buttons, $thick px,\
  $::panel_side/$::panel_preset, $geo)"
 }
 proc panel-fire {i} {
     lassign [lindex $::panel_buttons $i] label settings
-    set hit 0
-    if {[dict exists $settings match]} {
-        set pred [dict get $settings match]
-        # MRU first — like the winlist, never-focused windows trail
-        set cands $::focus_hist
-        foreach w [array names ::frameof] {
-            if {$w ni $cands} { lappend cands $w }
-        }
-        foreach w $cands {
-            if {![info exists ::frameof($w)]} continue
-            if {[catch {uplevel #0 [list {*}$pred $w]} m]} {
-                puts "WM: panel $label: predicate error on 0x[format %x $w]: $m"
-            } elseif {$m} { set hit $w; break }
-        }
-    }
-    if {$hit != 0} {
+    set hit [lindex [panel-matches $label $settings] 0]
+    if {$hit ne ""} {
         puts "WM: panel $label: found 0x[format %x $hit]"
         panel-flash $i found
         raise-group $hit
@@ -1671,6 +1760,17 @@ proc panel-fire {i} {
         puts "WM: panel $label: nothing matched, nothing to launch"
     }
 }
+# The arrow zone: the winlist filtered to this button's matches,
+# anchored by the button — picking focuses (winlist-pick). Fewer
+# than two matches means the arrow is stale (the debounce window):
+# degrade to the plain fire.
+proc panel-arrow {i} {
+    lassign [lindex $::panel_buttons $i] label settings
+    set wins [panel-matches $label $settings]
+    if {[llength $wins] < 2} { panel-fire $i; return }
+    puts "WM: panel $label: arrow — [llength $wins] matches"
+    winlist-open $wins [list panel $i]
+}
 proc panel-flash {i state} {
     # items are created in declaration order: button i = item i+1
     set item [expr {$i + 1}]
@@ -1683,7 +1783,8 @@ proc panel-flash {i state} {
 proc panel-click {x y} {
     set T .panel.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
-    panel-fire [expr {$A(item) - 1}]
+    set i [expr {$A(item) - 1}]
+    if {$A(element) eq "eArrow"} { panel-arrow $i } else { panel-fire $i }
 }
 proc panel-on-top {} {
     if {[winfo exists .panel]} { raise .panel }
