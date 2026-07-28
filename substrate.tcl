@@ -46,6 +46,14 @@
 #   policy-close-unanswered w  a WM_DELETE_WINDOW went unanswered — the
 #                           window is still managed after the grace
 #                           period; show the user the client is silent
+#   policy-minimize-request w  a client asked to be iconified (ICCCM
+#                           WM_CHANGE_STATE). The policy DECIDES and
+#                           must answer by calling iconify-client w or
+#                           refuse-iconify w — ignoring the request is
+#                           the one thing that must not happen
+#   policy-iconified w      w just went iconic: take its decoration off
+#                           the screen (the window stays managed)
+#   policy-deiconified w    w is coming back: put the decoration up
 #   policy-screen-changed   the root changed size under us (RandR);
 #                           anything glued to a screen edge re-places
 #
@@ -92,6 +100,14 @@
 #   client-pid w                _NET_WM_PID, 0 = none
 #   client-cmdline w            argv of a LOCAL client as a Tcl list
 #                               (via /proc), {} for remote/undeclared
+#   iconify-client w            put w in IconicState for real: WM_STATE,
+#                               _NET_WM_STATE_HIDDEN, the client unmapped,
+#                               the focus moved on. Stays MANAGED
+#   deiconify-client w          bring an iconic w back and focus it
+#   refuse-iconify w            answer an iconify request with a NO the
+#                               client can act on (see the proc)
+#   $::iconic(w)                set while w is iconic (array member
+#                               absent otherwise)
 #   $::focused                  currently focused client (0 = none)
 
 package require cffi
@@ -160,6 +176,7 @@ X11 function XPending int {dpy pointer.unsafe}
 X11 function XNextEvent int {dpy pointer.unsafe ev pointer.unsafe}
 X11 function XWindowEvent int {dpy pointer.unsafe w ulong mask long ev pointer.unsafe}
 X11 function XMapWindow int {dpy pointer.unsafe w ulong}
+X11 function XUnmapWindow int {dpy pointer.unsafe w ulong}
 X11 function XSync int {dpy pointer.unsafe discard int}
 X11 function XConnectionNumber int {dpy pointer.unsafe}
 X11 function XAddToSaveSet int {dpy pointer.unsafe w ulong}
@@ -342,6 +359,7 @@ set WM_PROTOCOLS      [XInternAtom $dpy WM_PROTOCOLS 0]
 set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
 set WM_TAKE_FOCUS     [XInternAtom $dpy WM_TAKE_FOCUS 0]
 set WM_STATE          [XInternAtom $dpy WM_STATE 0]
+set WM_CHANGE_STATE   [XInternAtom $dpy WM_CHANGE_STATE 0]  ;# iconify request
 set TK9WM_RESTART     [XInternAtom $dpy TK9WM_RESTART 0]
 set TK9WM_TIME        [XInternAtom $dpy TK9WM_TIME 0]  ;# server-time poke
 set WM_NAME           39   ;# XA_WM_NAME, predefined
@@ -376,6 +394,8 @@ if {[catch {
     set NET_SUPPORTED [XInternAtom $dpy _NET_SUPPORTED 0]
     set NET_WM_NAME   [XInternAtom $dpy _NET_WM_NAME 0]
     set NET_ACTIVE    [XInternAtom $dpy _NET_ACTIVE_WINDOW 0]
+    set NET_WM_STATE  [XInternAtom $dpy _NET_WM_STATE 0]
+    set NET_WM_STATE_HIDDEN [XInternAtom $dpy _NET_WM_STATE_HIDDEN 0]
     set UTF8          [XInternAtom $dpy UTF8_STRING 0]
     set wmcheck [XCreateSimpleWindow $dpy $root -100 -100 1 1 0 0 0]
     set-prop-longs $root    $NET_CHECK 33 [list $wmcheck]   ;# XA_WINDOW
@@ -393,7 +413,8 @@ if {[catch {
     # kept honest by paint-focus below
     set-prop-longs $root $NET_ACTIVE 33 [list 0]
     set-prop-longs $root $NET_SUPPORTED 4 \
-        [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE]          ;# XA_ATOM
+        [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
+              $NET_WM_STATE $NET_WM_STATE_HIDDEN]           ;# XA_ATOM
     XSync $dpy 0
     puts "WM: EWMH minimum up (_NET_SUPPORTING_WM_CHECK=[format 0x%x $wmcheck])"
 } err]} { puts "WM: EWMH setup failed: $err" }
@@ -661,6 +682,15 @@ proc handle-event {} {
                 binary scan [evbytes 72] x64wu rt
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
                 soft "activation request" { policy-client-click $A }
+            } elseif {$B == $::WM_CHANGE_STATE && [info exists ::managed($A)]} {
+                # ICCCM 4.1.4: the iconify request. data.l[0] carries
+                # the wanted state — IconicState (3) is the only one
+                # sent this way in practice.
+                binary scan [evbytes 64] x56wu want
+                if {$want == 3} {
+                    puts "WM: iconify request for 0x[format %x $A]"
+                    policy-minimize-request $A
+                }
             }
         }
         2 { # KeyPress from our grabs (a top-chord XGrabKey, or the
@@ -1095,17 +1125,100 @@ proc client-size-hints {w} {
 # left GTK guessing about our clients.
 proc set-wm-state {w state} {
     if {[catch {
-        set b [binary format wuwu $state 0]      ;# NormalState=1, WithdrawnState=0
+        # WithdrawnState=0, NormalState=1, IconicState=3
+        set b [binary format wuwu $state 0]
         set p [cffi::memory frombinary $b unsafe]
         XChangeProperty $::dpy $w $::WM_STATE $::WM_STATE 32 0 $p 2
         cffi::memory free $p
     } err]} { puts "WM: WM_STATE update failed: $err" }
 }
 
+# _NET_WM_STATE — the EWMH state list. We publish exactly one member,
+# _NET_WM_STATE_HIDDEN, and only while a window is iconic: it is the
+# property EWMH-aware clients read to learn they are minimized (wine's
+# X11 driver among them), and pagers use it to grey an entry out.
+proc set-net-wm-state {w atoms} {
+    if {![info exists ::NET_WM_STATE]} return
+    soft "publish _NET_WM_STATE" \
+        [list set-prop-longs $w $::NET_WM_STATE 4 $atoms]   ;# XA_ATOM
+}
+
+# ---------------- iconification ----------------
+# ICCCM 4.1.4: a client asks to be iconified by sending WM_CHANGE_STATE
+# with IconicState to the root — that is all XIconifyWindow() does, and
+# it is the same message Tk's `wm iconify` and wine's Win32 SW_MINIMIZE
+# (its X11 driver calls XIconifyWindow for a managed window) end up
+# sending. Ignoring it is NOT neutral: the asking side often minimizes
+# on its own account first and then waits for the WM to agree, so the
+# window sits there mapped while the app behind it believes itself
+# hidden and stops painting (owner's report on wine, 2026-07-28).
+#
+# So the request always gets an ANSWER, and the policy layer picks
+# which: iconify-client (do it) or refuse-iconify (say no, audibly).
+# An iconic window stays MANAGED — it has to come back — and the way
+# back is the window list, which shows it with its state.
+proc iconify-client {w} {
+    if {![info exists ::managed($w)] || [info exists ::iconic($w)]} return
+    # The pick has to happen while the window is still ordinary: the
+    # policy's refocus choice reads per-frame facts, and an iconic
+    # window must not be picked as a focus target.
+    set refocus [expr {$::focused == $w ? [policy-pick-refocus $w] : 0}]
+    set ::iconic($w) 1
+    set ::skip_unmap($w) 1     ;# our own unmap is not the client withdrawing
+    XUnmapWindow $::dpy $w
+    set-wm-state $w 3          ;# IconicState
+    set-net-wm-state $w [list $::NET_WM_STATE_HIDDEN]
+    policy-iconified $w        ;# the decoration goes with it
+    XSync $::dpy 0
+    puts "WM: iconified 0x[format %x $w]"
+    if {$::focused == $w} {
+        set ::focused 0
+        focus-park "the focused window was iconified"
+        if {$refocus != 0} { focus-to $refocus }
+    }
+}
+proc deiconify-client {w} {
+    if {![info exists ::managed($w)] || ![info exists ::iconic($w)]} return
+    unset ::iconic($w)
+    policy-deiconified $w
+    XMapWindow $::dpy $w
+    set-wm-state $w 1          ;# NormalState
+    set-net-wm-state $w {}
+    XSync $::dpy 0
+    puts "WM: deiconified 0x[format %x $w]"
+    focus-to $w
+}
+# The refusal, and why it can be made to stick: ICCCM gives a WM no way
+# to reply "no" to WM_CHANGE_STATE — but WM_STATE is the channel every
+# client watches, and stating NormalState at a client that just asked
+# for IconicState is precisely what a de-iconify looks like from its
+# side. Wine's X11 driver answers an unasked-for NormalState with
+# SC_RESTORE, so its Win32 side un-minimizes and the app paints again;
+# a Tk client never got as far as believing itself iconic. That is the
+# difference between refusing and ignoring — ignoring is what left the
+# window on screen with a client convinced it was gone.
+proc refuse-iconify {w} {
+    if {![info exists ::managed($w)]} return
+    set-wm-state $w 1
+    set-net-wm-state $w {}
+    XMapWindow $::dpy $w
+    XSync $::dpy 0
+    puts "WM: iconify refused for 0x[format %x $w] — answered NormalState"
+}
+
 # ---------------- manage / unmanage ----------------
 proc manage {w} {
     global dpy
-    if {[info exists ::managed($w)]} { XMapWindow $dpy $w; return }
+    if {[info exists ::managed($w)]} {
+        # A MapRequest for a window we already hold: an iconic client
+        # mapping itself IS the ICCCM way to ask for de-iconification
+        # (4.1.4 — "the client should map the window"), so honor it as
+        # one; an ordinary re-map is just a map.
+        if {[info exists ::iconic($w)]} { deiconify-client $w } else {
+            XMapWindow $dpy $w
+        }
+        return
+    }
     # How big does this window want to be? The truth is its CURRENT
     # geometry: a client that created its window at the right size and
     # mapped it never sends a ConfigureRequest, and the old code framed
@@ -1182,6 +1295,31 @@ proc manage {w} {
     refresh-title $w
     policy-managed $w
     tell-where-you-are $w
+    # "Start me minimized" — ICCCM 4.1.4 spells it as WM_HINTS
+    # initial_state = IconicState, and that is what `start /min` under
+    # wine (and a session restoring a minimized window) sets. Framed
+    # and mapped first, then iconified: the frame has to exist for the
+    # window list to have anything to bring back.
+    if {[client-initial-iconic $w]} {
+        puts "WM: 0x[format %x $w] asked to start iconic"
+        policy-minimize-request $w
+    }
+}
+
+# WM_HINTS initial_state == IconicState, and only when the StateHint
+# flag (bit 1) actually claims the field.
+proc client-initial-iconic {w} {
+    if {!$::has_getprop} { return 0 }
+    set iconic 0
+    if {![catch {XGetWindowProperty $::dpy $w 35 0 9 0 35 \
+            atype afmt nitems after data} status] && $status == 0} {
+        if {$afmt == 32 && $nitems >= 3 && ![cffi::pointer isnull $data]} {
+            binary scan [cffi::memory tobinary! $data 24] wuwuwu flags _inp st
+            if {($flags & 2) && $st == 3} { set iconic 1 }
+        }
+        xfree $data
+    }
+    return $iconic
 }
 
 # ICCCM 4.1.5 says WHAT to send; it does not say a client will be in a
@@ -1225,6 +1363,7 @@ proc unmanage {w {dead 0}} {
     policy-detach $w
     unset ::managed($w)
     icon-invalidate $w
+    unset -nocomplain ::iconic($w) ::skip_unmap($w)
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
     unset -nocomplain ::poshintof($w) ::gravof($w) ::mapxyof($w)
     # The decoration is gone: stop treating its windows as ours, and

@@ -18,6 +18,20 @@
 # Title alignment in the bar: left (default), center, right.
 #   set-title-justify center
 #
+# Minimize (ICCCM iconification — what a client asks for with
+# WM_CHANGE_STATE: Tk's `wm iconify`, wine's Win32 SW_MINIMIZE, the
+# winops menu's own entry):
+#   iconify (default) — honor it. The window leaves the screen, keeps
+#     its place in the window list marked "(свёрнуто)", and comes back
+#     when picked there, when a panel button matching it is fired, or
+#     when the client maps itself again.
+#   refuse — this desk has no minimize. The request is DECLINED to the
+#     client's face (WM_STATE re-stated as NormalState), not ignored:
+#     an app that already minimized itself internally — wine does — is
+#     told to come back, instead of leaving a window on screen whose
+#     owner thinks it is hidden and stops painting it.
+#   set-minimize refuse
+#
 # ---- per-client style rules ----
 #
 # wm-style PREDICATE SETTINGS appends a rule. The predicate is any

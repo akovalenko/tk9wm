@@ -734,6 +734,54 @@ proc policy-paint-focus {w} {
     }
 }
 
+# ---- minimize: honored, or refused out loud ----
+# What to do when a client asks to be iconified (ICCCM WM_CHANGE_STATE
+# — Tk's `wm iconify`, wine's Win32 minimize). Two answers, and the
+# knob picks which; there is deliberately no third answer "ignore it",
+# because that is the one that misleads: the asking side may have
+# minimized on its own account already, and a window left on screen
+# with its client convinced it is hidden stops painting (owner's
+# report on wine, 2026-07-28).
+#
+#   iconify (default) — do it: the window goes off screen, its entry in
+#     the window list stays and carries the mark, and picking it there
+#     (or the panel button that matches it, or the client mapping
+#     itself) brings it back.
+#   refuse — this desk has no minimize. The refusal is stated to the
+#     client (see refuse-iconify) rather than swallowed, so an app that
+#     already minimized itself internally is told to come back.
+set minimize iconify
+proc set-minimize {mode} {
+    if {$mode ni {iconify refuse}} { error "set-minimize: iconify|refuse" }
+    set ::minimize $mode
+}
+proc policy-minimize-request {w} {
+    if {$::minimize eq "refuse"} { refuse-iconify $w } else { iconify-client $w }
+}
+proc policy-iconified {w} {
+    if {![info exists ::frameof($w)]} return
+    wm withdraw $::frameof($w)
+    panel-match-kick   ;# a button's live-match count just changed
+}
+proc policy-deiconified {w} {
+    if {![info exists ::frameof($w)]} return
+    wm deiconify $::frameof($w)
+    raise-group $w
+    # Flush Tk's connection before the substrate maps the client on ITS
+    # connection: the client lives inside this frame, and a child of an
+    # unmapped parent is not viewable — the focus that follows would be
+    # refused by the server ("focus REFUSED ... will retry" showed up
+    # after every restore until this line).
+    update idletasks
+    panel-match-kick
+}
+# The window list is the way back, so an iconic window must be
+# recognizable in it — and the entry has to say so in the list's own
+# language, plain text next to the title.
+proc iconic-mark {w} {
+    expr {[info exists ::iconic($w)] ? " (свёрнуто)" : ""}
+}
+
 # The wink: a client is not answering its WM_DELETE_WINDOW — pulse the
 # frame red a couple of times so the silence is visible. Each pulse
 # step re-derives the resting color: the focus may move mid-wink, and
@@ -844,10 +892,11 @@ proc policy-pick-refocus {w} {
         }
     }
     foreach cand $::focus_hist {
-        if {$cand != $w && [info exists ::frameof($cand)]} { return $cand }
+        if {$cand != $w && [info exists ::frameof($cand)]
+                && ![info exists ::iconic($cand)]} { return $cand }
     }
     foreach cand [array names ::frameof] {
-        if {$cand != $w} { return $cand }
+        if {$cand != $w && ![info exists ::iconic($cand)]} { return $cand }
     }
     return 0
 }
@@ -1209,7 +1258,7 @@ proc winlist-open {wins anchor} {
     $T style layout sWin eTxt -expand ns -padx 4 -squeeze x
     set maxw 0
     foreach w $wins key $::winlist_keys {
-        set title [title-or-id $w [client-title $w]]
+        set title [title-or-id $w [client-title $w]][iconic-mark $w]
         set maxw [expr {max($maxw, [font measure TitleFont $title])}]
         set item [$T item create]
         $T item style set $item Cnum sNum C0 sWin
@@ -1297,6 +1346,10 @@ proc winlist-pick {} {
     popups-close
     if {$w ne "" && [info exists ::frameof($w)]} {
         puts "WM: winlist pick 0x[format %x $w]"
+        if {[info exists ::iconic($w)]} {
+            deiconify-client $w    ;# raises and focuses on its own
+            return
+        }
         raise-group $w
         focus-to $w
     }
@@ -1330,6 +1383,7 @@ set winops_actions {
     lower    l {lower-group $w}
     move     m {move-keyboard $w}
     resize   s {resize-keyboard $w}
+    minimize i {policy-minimize-request $w}
 }
 proc winops {{w 0}} {
     if {$w == 0} { set w $::focused }
@@ -1902,6 +1956,10 @@ proc panel-fire {i} {
     if {$hit ne ""} {
         puts "WM: panel $label: found 0x[format %x $hit]"
         panel-flash $i found
+        if {[info exists ::iconic($hit)]} {
+            deiconify-client $hit   ;# raises and focuses on its own
+            return
+        }
         raise-group $hit
         focus-to $hit
     } elseif {[dict exists $settings launch]} {
