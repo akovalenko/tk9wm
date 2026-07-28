@@ -2001,7 +2001,19 @@ proc panel-build {} {
             if {$::panel_preset ne "stack" && $s in {sBtnI sBtnB}} {
                 set mw [expr {max(1, $memw - $isz - 4)}]
             }
-            $T style layout $s eBTxt -minwidth $mw
+            if {$::panel_preset eq "stack" && $s in {sBtnI sBtnB}} {
+                # under the icon, centred on it
+                $T style layout $s eBTxt -minwidth $mw
+            } else {
+                # Beside the icon (or alone): the label sticks to the
+                # WEST of its (now wider) cell, so a column of labels of
+                # different lengths shares one left edge instead of each
+                # floating in the middle of its own button (owner,
+                # 2026-07-29). -sticky and not -expand: expand moves the
+                # cell inside the style, sticky moves the element inside
+                # the cell, and it is the cell that was widened here.
+                $T style layout $s eBTxt -minwidth $mw -sticky w
+            }
         }
     }
     # The live furniture rides every style: the indicator bar along

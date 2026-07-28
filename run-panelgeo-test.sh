@@ -121,6 +121,12 @@ proc geo-battery {} {
         gchk "row: item $item — the indicator ends where its face does" \
             [list $fx2 $fy2] [list $lx2 $ly2]
     }
+    # Alignment of the LABELS inside their (widened) cells. The cell is
+    # what item bbox reports, so it cannot show this — the check is on
+    # the layout option itself: west in a row, centred under an icon.
+    gchk {row: labels stick to the left edge} \
+        [list w w] [list [.panel.t style layout sBtnI eBTxt -sticky] \
+                         [.panel.t style layout sBtnB eBTxt -sticky]]
     gchk {row: the badge button is as wide as the icon one} \
         [lrange [.panel.t item bbox 1 C0 eFace] 0 0] \
         [lrange [.panel.t item bbox 2 C0 eFace] 0 0]
@@ -129,6 +135,11 @@ proc geo-battery {} {
         [lrange [.panel.t item bbox 2 C0 eFace] 2 2]
     set-panel-preset stack
     update; update idletasks
+    # ...and back to treectrl's own default (fill the cell), which is
+    # what centres a label under the icon above it
+    gchk {stack: labels stay centred under their icons} \
+        [list wnes wnes] [list [.panel.t style layout sBtnI eBTxt -sticky] \
+                               [.panel.t style layout sBtnB eBTxt -sticky]]
 
     # --- icon size knob
     set-panel-icon-size 32
@@ -175,12 +186,12 @@ else
     echo "OK: no battery failures"
 fi
 PASS=$(grep -c 'GEO PASS' "$HERE/wm-panelgeo.log")
-if [ "$PASS" = 23 ]; then
-    echo "OK: all 23 checks passed"
+if [ "$PASS" = 25 ]; then
+    echo "OK: all 25 checks passed"
 else
-    echo "FAIL: $PASS PASS lines, want 23"
+    echo "FAIL: $PASS PASS lines, want 25"
 fi
-if grep -q 'GEO BATTERY: 23 checks' "$HERE/wm-panelgeo.log"; then
+if grep -q 'GEO BATTERY: 25 checks' "$HERE/wm-panelgeo.log"; then
     echo "OK: the battery ran to completion"
 else
     echo "FAIL: the battery is missing or truncated"
