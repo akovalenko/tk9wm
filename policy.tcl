@@ -77,12 +77,14 @@ proc title-metrics {} {
 # white outlined square holding a thin white glyph, drawn flat on the
 # titlebar color. The glyphs are svg — re-rendered crisp at whatever
 # size the font dictates, never scaled bitmaps.
-# Frame colors: the focus highlight pair, the matching lighter shade
-# for the corner grips, and the constant dark outline that keeps two
-# touching frames readable as two windows (before it, several inactive
-# titlebars fused into one gray field).
+# Frame colors: the focus highlight pair, the modal amber a keyboard
+# move/resize wears, the matching lighter shade for each one's corner
+# grips, and the constant dark outline that keeps two touching frames
+# readable as two windows (before it, several inactive titlebars fused
+# into one gray field).
 set OUTLINE #2e3436
-array set gripof {#3465a4 #6b93c0 #888a85 #a5a7a1}
+set KBMR_BG #c17d11
+array set gripof {#3465a4 #6b93c0 #888a85 #a5a7a1 #c17d11 #e0a94a}
 
 set SVG_CLOSE {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 <path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" stroke="#ffffff"
@@ -479,9 +481,19 @@ proc policy-frame-geometry {w} {
 
 proc policy-detach {w} {
     if {![info exists ::frameof($w)]} return
+    # A keyboard move/resize on this very window dies with it — and the
+    # key router has to be handed back HERE: kbmr-key only notices the
+    # frame is gone on the next keystroke, and until one arrives every
+    # key on the desk would go on feeding a mode with no victim.
+    if {[kbmr-owns $w]} {
+        set ::kbmr {}
+        grab-keys-to {}
+        puts "WM: keyboard mode dropped — 0x[format %x $w] is gone"
+    }
     unset -nocomplain ::btn($::frameof($w))
     destroy $::frameof($w)
     unset ::frameof($w)
+    unset -nocomplain ::titleof($w)
     unset -nocomplain ::leaderof($w)
     unset -nocomplain ::maxsaved($w)
     unset -nocomplain ::styleof($w)
@@ -675,11 +687,18 @@ proc title-or-id {w title} {
 
 # The client named (or renamed) itself: put the title on the titlebar.
 # The treectrl item is always 1 — a fresh widget per frame, the single
-# item created right after it.
+# item created right after it. The title is REMEMBERED as well: a
+# keyboard move/resize borrows the bar for its geometry readout, and
+# what goes back on the bar afterwards has to come from somewhere —
+# and a client that renames itself mid-mode must not shove the readout
+# aside, it just updates what will be restored.
 proc policy-title {w title} {
     if {![info exists ::frameof($w)]} return
-    set t $::frameof($w)
-    $t.title item element configure 1 C0 eTxt -text [title-or-id $w $title]
+    set ::titleof($w) $title
+    if {![kbmr-owns $w]} {
+        $::frameof($w).title item element configure 1 C0 eTxt \
+            -text [title-or-id $w $title]
+    }
     panel-match-kick   ;# a title flip can turn a -title matcher around
 }
 
@@ -704,6 +723,7 @@ proc frame-recolor {t bg} {
     $t.title configure -background $bg
 }
 proc frame-focus-color {w} {
+    if {[kbmr-owns $w]} { return $::KBMR_BG }   ;# the mode outranks focus
     expr {$w == $::focused ? "#3465a4" : "#888a85"}
 }
 proc policy-paint-focus {w} {
@@ -1404,7 +1424,64 @@ proc winops-click {x y} {
 # 10 px step serves better (Shift/Ctrl fine/coarse apply then too).
 # Sizes funnel through apply-size-hints and wm-resize-client as
 # everywhere, so the declared minimum binds and the grid holds.
+#
+# THE MODE IS VISIBLE, and it has to be: a modal grab with no sign of
+# itself reads as a wedged desktop — "why is everything hanging?"
+# (owner's report, 2026-07-28). Two marks, both on the window being
+# worked on, because that is where the eyes already are: the whole
+# frame turns amber for as long as the mode lasts (a fvwm-style
+# geometry box in a screen corner was the alternative, and loses —
+# the color says "modal" from across the screen, before any number is
+# read), and the titlebar lends its text to a live readout, +X+Y while
+# moving and WxH while resizing. Both are undone on commit AND on
+# cancel; nothing about the client changes, only our decoration.
 set kbmr {}   ;# {move|resize w saved-geometry}, {} = mode off
+proc kbmr-owns {w} {
+    expr {[llength $::kbmr] && [lindex $::kbmr 1] == $w}
+}
+# The readout the titlebar carries while the mode runs. Sizes are the
+# CLIENT's, in pixels, plus the client's own units in parentheses when
+# it declared a real grid and its style respects it — an xterm dragged
+# by whole cells should say 80x24, the way fvwm's box does, but the
+# pixels stay on show for everything that has no such notion.
+proc kbmr-text {} {
+    lassign $::kbmr mode w
+    if {$mode eq "" || ![info exists ::frameof($w)]} { return "" }
+    set t $::frameof($w)
+    if {$mode eq "move"} {
+        regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
+        return [format "move %+d%+d" $fx $fy]
+    }
+    set cw [$t.slot cget -width]; set ch [$t.slot cget -height]
+    set text "resize ${cw}x${ch}"
+    lassign [client-size-hints $w] minw minh incw inch basew baseh
+    if {[dict get [style-of $w] increments] eq "respect"
+            && ($incw > 1 || $inch > 1)} {
+        set cols [expr {$incw > 1 ? ($cw - $basew) / $incw : $cw}]
+        set rows [expr {$inch > 1 ? ($ch - $baseh) / $inch : $ch}]
+        append text " ($cols x $rows)"
+    }
+    return $text
+}
+proc kbmr-readout {} {
+    lassign $::kbmr mode w
+    if {$mode eq "" || ![info exists ::frameof($w)]} return
+    $::frameof($w).title item element configure 1 C0 eTxt -text [kbmr-text]
+}
+# Enter/leave the mode's look. Leaving reads ::kbmr as already
+# cleared — frame-focus-color must give the honest focus color again,
+# and the titlebar takes back the title policy-title remembered.
+proc kbmr-paint {} {
+    lassign $::kbmr mode w
+    if {![info exists ::frameof($w)]} return
+    frame-recolor $::frameof($w) [frame-focus-color $w]
+    kbmr-readout
+}
+proc kbmr-unpaint {w} {
+    if {![info exists ::frameof($w)]} return
+    frame-recolor $::frameof($w) [frame-focus-color $w]
+    policy-title $w [expr {[info exists ::titleof($w)] ? $::titleof($w) : ""}]
+}
 proc move-keyboard {{w 0}} {
     if {$w == 0} { set w $::focused }
     if {$w == 0 || ![info exists ::frameof($w)]} return
@@ -1424,7 +1501,8 @@ proc kbmr-enter {mode w orig} {
         puts "WM: keyboard $mode: keyboard not grabbed"
         return
     }
-    puts "WM: keyboard $mode 0x[format %x $w]"
+    kbmr-paint
+    puts "WM: keyboard $mode 0x[format %x $w] — [kbmr-text]"
 }
 proc kbmr-end {commit} {
     lassign $::kbmr mode w orig
@@ -1440,6 +1518,7 @@ proc kbmr-end {commit} {
             wm-resize-client $w {*}$orig
         }
     }
+    kbmr-unpaint $w
     set said [expr {$commit ? "done" : "cancelled"}]
     puts "WM: keyboard $mode 0x[format %x $w] $said"
 }
@@ -1480,6 +1559,7 @@ proc kbmr-key {kind name mods} {
         lassign [apply-size-hints $w $cw $ch] cw ch
         wm-resize-client $w [expr {max($cw, 40)}] [expr {max($ch, 30)}]
     }
+    kbmr-readout
 }
 
 # ---- the panel ----

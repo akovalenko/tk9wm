@@ -3,6 +3,11 @@
 # step the frame / the size, Enter commits, Escape cancels and
 # restores. The victim is a plain Tk client (its PResizeInc is the
 # degenerate 1x1, so resize steps land on the 10 px default).
+#
+# The mode must also SHOW itself — a modal grab with no sign of itself
+# reads as a wedged desktop. The frame wears amber for the duration,
+# so the border is sampled at rest, in the mode and after it; the
+# titlebar readout that rides along is for the eye (kbmove-mode.png).
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LINUX="${LINUX:-$HERE/../whalebuild/work/linux}"
 export DISPLAY=:98
@@ -22,16 +27,33 @@ sleep 1
 
 key() { xdotool key "$@"; sleep 0.4; }
 
+# The frame's left border, 20 px below the client's top edge: past the
+# corner grip's arm, so the pixel is the frame background and nothing
+# else. Reported the way ImageMagick names colors: srgb(r,g,b).
+VID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-kbmove.log" | head -1)
+border_color() {
+    vx=$(xwininfo -id "$VID" | awk '/Absolute upper-left X/ {print $NF}')
+    vy=$(xwininfo -id "$VID" | awk '/Absolute upper-left Y/ {print $NF}')
+    import -window root png:- 2>/dev/null \
+        | convert png:- -format "%[pixel:p{$((vx - 3)),$((vy + 20))}]" info:-
+}
+CLR_REST=$(border_color)
+
 key alt+space   # winops on the victim
 key m           # keyboard MOVE mode
+CLR_MOVE=$(border_color)
+import -window root "$HERE/kbmove-mode.png" 2>/dev/null \
+    && echo "DRIVER: screenshot (in the mode) -> $HERE/kbmove-mode.png"
 key Right
 key Right
 key Down        # 10 px per arrow: +110+80 -> +130+90
 key shift+Right # 1 px fine step   -> +131+90
 key Return      # commit
+CLR_DONE=$(border_color)
 
 key alt+space
 key s           # keyboard RESIZE mode
+CLR_RESIZE=$(border_color)
 key Right
 key Right
 key Down        # 10 px per arrow: 300x200 -> 320x210
@@ -61,6 +83,20 @@ import -display :98 -window root "$HERE/kbmove-test.png" 2>/dev/null \
 
 AX2=$(xwininfo -id "$AID" | awk '/Absolute upper-left X/ {print $NF}')
 SZ2=$(xwininfo -id "$AID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
+
+# a client with a REAL increment grid: the resize readout counts the
+# client's own units (an xterm thinks in cells) beside the pixels.
+# Last, so that the victim's numbers above are read before another
+# window takes the focus the winops chord follows.
+xterm -T грид -e sleep 30 &
+XT=$!
+sleep 2
+key alt+space
+key s
+import -window root "$HERE/kbmove-cells.png" 2>/dev/null \
+    && echo "DRIVER: screenshot (cells readout) -> $HERE/kbmove-cells.png"
+key Escape
+kill $XT 2>/dev/null
 
 kill $WM $CA 2>/dev/null
 
@@ -101,6 +137,26 @@ if grep -q 'keyboard move .* cancelled' "$HERE/wm-kbmove.log" \
     echo "OK: both cancels logged"
 else
     echo "FAIL: cancel lines missing"
+fi
+echo "--- frame border: rest=$CLR_REST move=$CLR_MOVE done=$CLR_DONE resize=$CLR_RESIZE"
+AMBER="srgb(193,125,17)"
+if [ "$CLR_MOVE" = "$AMBER" ] && [ "$CLR_RESIZE" = "$AMBER" ]; then
+    echo "OK: both keyboard modes wear the amber frame"
+else
+    echo "FAIL: the mode is invisible (move=$CLR_MOVE resize=$CLR_RESIZE, want $AMBER)"
+fi
+if [ "$CLR_DONE" = "$CLR_REST" ] && [ "$CLR_REST" != "$AMBER" ]; then
+    echo "OK: committing gave the frame its focus color back ($CLR_REST)"
+else
+    echo "FAIL: frame stuck at $CLR_DONE after the commit (rest was $CLR_REST)"
+fi
+if grep -q 'keyboard resize .* — resize [0-9]*x[0-9]* ([0-9]* x [0-9]*)' \
+        "$HERE/wm-kbmove.log"; then
+    echo "OK: the xterm's readout counts cells as well as pixels"
+    grep -o 'resize [0-9]*x[0-9]* ([0-9]* x [0-9]*)' "$HERE/wm-kbmove.log" \
+        | sed 's/^/    /' | tail -1
+else
+    echo "FAIL: no cells in the resize readout for the xterm"
 fi
 if grep -q 'handler error' "$HERE/wm-kbmove.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-kbmove.log"
