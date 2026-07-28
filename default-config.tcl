@@ -25,19 +25,23 @@
 # the settings dict. All matching rules apply, later rules win per-key.
 # `always` is the match-everything builtin, `filter` the workhorse:
 #
-#   filter ?-regexp? ?-title PAT? ?-class PAT|{PAT PAT}? \
+#   filter ?-nocase? ?-regexp? ?-title PAT? ?-class PAT|{PAT PAT}? \
 #       ?-command PAT? ?-machine PAT?
 #
 # The options AND together; patterns are globs matching the whole
-# string, always case-insensitively (-regexp swaps the comparator;
-# (?c) inside a pattern turns sensitivity back on). A single -class
-# pattern matches either of {instance class}; two patterns are
-# positional, exactly as xprop prints them. -command matches
-# WM_COMMAND joined with spaces and falls back to the local client's
-# /proc argv. An absent property never matches. Identity accessors
-# for hand-rolled predicates: client-class (→ {instance class}),
-# client-machine, client-command (WM_COMMAND argv list), client-pid,
-# client-cmdline (argv list, local clients only), client-title.
+# string, case-sensitively — -nocase relaxes that for the whole call,
+# -regexp swaps the comparator (unanchored; (?i) inside a pattern is
+# nocase for that pattern alone). Case matters by default because
+# WM_CLASS uses it to tell things apart: an xterm is {xterm XTerm},
+# and one started as `xterm -name ninja` is {ninja XTerm} — nocase,
+# `-class xterm` would claim that one too. A single -class pattern
+# matches either of {instance class}; two patterns are positional,
+# exactly as xprop prints them. -command matches WM_COMMAND joined
+# with spaces and falls back to the local client's /proc argv. An
+# absent property never matches. Identity accessors for hand-rolled
+# predicates: client-class (→ {instance class}), client-machine,
+# client-command (WM_COMMAND argv list), client-pid, client-cmdline
+# (argv list, local clients only), client-title.
 #
 # Keys so far:
 #   increments respect|ignore — WM_NORMAL_HINTS resize increments;
@@ -51,8 +55,11 @@
 # Ignore increments for everything:
 #   wm-style always {increments ignore}
 #
-# Ignore them only for xterms, however capitalized:
-#   wm-style {filter -class {* xterm}} {increments ignore}
+# Ignore them only for windows of class XTerm, whatever instance name
+# they were started under:
+#   wm-style {filter -class {* XTerm}} {increments ignore}
+# ...and the same tolerant of capitalization drift:
+#   wm-style {filter -nocase -class {* xterm}} {increments ignore}
 #
 # The proc predicate stays the escape hatch for anything richer —
 # only local xterms started as /usr/bin/xterm:

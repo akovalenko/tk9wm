@@ -1,8 +1,10 @@
 #!/bin/sh
 # Regression for filter — the declarative match predicate: glob
-# comparisons (whole-string, nocase) over -title / -class / -command /
-# -machine, the -regexp comparator swap with (?c) sensitivity return,
-# single-vs-positional -class patterns, absent-property-fails, the
+# comparisons (whole-string, case-sensitive) over -title / -class /
+# -command / -machine, the -nocase opt-in, the -regexp comparator swap
+# with (?i) per-pattern nocase, single-vs-positional -class patterns
+# (including the case drift that made nocase the wrong default:
+# {ff XTerm} must NOT answer to `-class xterm`), absent-property-fails, the
 # WM_COMMAND -> /proc argv fallback, and filter riding the real call
 # sites (a wm-style rule and a panel-button match). The assertion
 # battery runs IN-PROCESS (fired by a chord) against two live actors:
@@ -63,13 +65,16 @@ proc filter-battery {name cases} {
 }
 set main_cases {
     {single -class token hits the instance slot}   1 {filter -class ff $xt}
-    {single -class token hits the class slot}      1 {filter -class xterm* $xt}
+    {single -class token hits the class slot}      1 {filter -class XTerm* $xt}
     {two -class patterns positional as xprop}      1 {filter -class {ff XTerm} $xt}
     {two -class patterns crossed fails}            0 {filter -class {XTerm ff} $xt}
-    {-class is nocase}                             1 {filter -class FF $xt}
+    {-class is case-sensitive}                     0 {filter -class FF $xt}
+    {the drift that cost more than it paid}        0 {filter -class xterm $xt}
+    {-nocase brings the drift tolerance back}      1 {filter -nocase -class xterm $xt}
     {-title glob}                                  1 {filter -title {Browser*} $xt}
     {-title glob is whole-string}                  0 {filter -title Browser $xt}
-    {-title is nocase}                             1 {filter -title {browser window} $xt}
+    {-title is case-sensitive}                     0 {filter -title {browser window} $xt}
+    {-nocase covers -title too}                    1 {filter -nocase -title {browser window} $xt}
     {two options AND}                              1 {filter -class ff -title {Browser*} $xt}
     {AND fails on one leg}                         0 {filter -class ff -title {nope*} $xt}
     {-command via WM_COMMAND}                      1 {filter -command {*xterm*} $xt}
@@ -77,9 +82,10 @@ set main_cases {
     {-command absent everywhere fails}             0 {filter -command * $tk}
     {-machine absent fails}                        0 {filter -machine * $tk}
     {-regexp comparator}                           1 {filter -regexp -title {^Browser} $xt}
-    {-regexp (?c) restores sensitivity}            0 {filter -regexp -title {(?c)^browser} $xt}
-    {-regexp (?c) positive control}                1 {filter -regexp -title {(?c)^Browser} $xt}
-    {-regexp alternation covers the OR niche}      1 {filter -regexp -class {xterm|nosuch} $xt}
+    {-regexp is case-sensitive too}                0 {filter -regexp -title {^browser} $xt}
+    {-regexp (?i) opts one pattern into nocase}    1 {filter -regexp -title {(?i)^browser} $xt}
+    {-nocase and -regexp compose}                  1 {filter -nocase -regexp -title {^browser} $xt}
+    {-regexp alternation covers the OR niche}      1 {filter -regexp -class {XTerm|nosuch} $xt}
     {unknown option errors out}                    1 {catch {filter -bogus x $xt}}
     {no options match everything}                  1 {filter $xt}
     {whale client class positional}                1 {filter -class {client.tcl Client.tcl} $tk}
@@ -143,12 +149,12 @@ else
     echo "OK: no battery failures"
 fi
 PASS=$(grep -c 'FILTER PASS' "$HERE/wm-filter.log")
-if [ "$PASS" = 27 ]; then
-    echo "OK: all 27 checks passed"
+if [ "$PASS" = 31 ]; then
+    echo "OK: all 31 checks passed"
 else
-    echo "FAIL: $PASS PASS lines, want 27"
+    echo "FAIL: $PASS PASS lines, want 31"
 fi
-if grep -q 'FILTER BATTERY main: 24 checks' "$HERE/wm-filter.log" \
+if grep -q 'FILTER BATTERY main: 28 checks' "$HERE/wm-filter.log" \
    && grep -q 'FILTER BATTERY fallback: 3 checks' "$HERE/wm-filter.log"; then
     echo "OK: both batteries ran to completion"
 else
