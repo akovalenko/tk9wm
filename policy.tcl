@@ -868,6 +868,7 @@ proc raise-group {w} {
               $::frameof([lindex $order [expr {$i - 1}]])
     }
     panel-on-top
+    publish-client-list   ;# the stacking order just changed (coalesced)
 }
 
 # Lower the whole transient group of w — the mirror image, same glue,
@@ -888,6 +889,7 @@ proc lower-group {w} {
             raise $::frameof($c) $::frameof($leader)
         }
     }
+    publish-client-list   ;# the stacking order just changed (coalesced)
 }
 
 # Click-to-focus: a click inside a client's body raises and focuses it.
@@ -992,6 +994,10 @@ proc workarea {} {
         list 0 0 $sw [expr {$sh - $strip}]
     }
 }
+# ...and the same answer for the world: EWMH's _NET_WORKAREA. What we
+# keep for ourselves (maximize, placement) is exactly what a pager or a
+# popup-placing toolkit needs, so the hook is a rename and nothing else.
+proc policy-workarea {} { workarea }
 
 # Maximize fills the workarea and remembers what the window was; the
 # second toggle restores it. "Maximized" is a saved-geometry flag, not
@@ -1990,8 +1996,9 @@ proc panel-build {} {
     }
     wm geometry .panel $geo
     raise .panel
-    panel-reeval   ;# a rebuild starts stateless — judge the matches now
-    tray-layout    ;# our thickness is the tray's too — it follows
+    panel-reeval     ;# a rebuild starts stateless — judge the matches now
+    tray-layout      ;# our thickness is the tray's too — it follows
+    publish-workarea ;# the strip just took a bite out of the screen
     puts "WM: panel up ([llength $::panel_buttons] buttons, $thick px,\
  $::panel_side/$::panel_preset, $geo)"
 }
@@ -2306,6 +2313,7 @@ proc tray-layout {} {
     if {$geo ne $::tray_geo} {
         set ::tray_geo $geo
         puts "WM: tray strip $geo ([llength $::tray_order] icons)"
+        publish-workarea   ;# a strip that grew took more of the screen
     }
     tray-tell-panel
 }

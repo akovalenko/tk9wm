@@ -69,6 +69,9 @@
 #   policy-tray-detach w    the icon left: drop its slot
 #   policy-tray-origin w    root {x y} of w's slot (for the synthetic
 #                           ConfigureNotify an icon's resize request gets)
+#   policy-workarea         {x y w h} of the screen minus whatever the
+#                           policy reserves (panel, tray) — published as
+#                           EWMH _NET_WORKAREA
 #
 # The substrate provides to the policy layer:
 #   focus-to w                  aim the input focus at w. For an ordinary
@@ -381,6 +384,23 @@ if {[catch {
     set NET_WM_STATE_HIDDEN [x-intern _NET_WM_STATE_HIDDEN]
     set NET_FRAME_EXTENTS [x-intern _NET_FRAME_EXTENTS]
     set NET_REQUEST_FRAME_EXTENTS [x-intern _NET_REQUEST_FRAME_EXTENTS]
+    # The KDE-era twin of the extents, still read by Qt4-vintage
+    # clients; four CARDINALs in the same order, so it costs one line
+    # to keep them in step and nothing to be wrong about.
+    set KDE_FRAME_STRUT [x-intern _KDE_NET_WM_FRAME_STRUT]
+    # What the desk looks like from OUTSIDE — the half of EWMH a client
+    # reads about the screen rather than about itself. A pager, wmctrl,
+    # xdotool and every "place my popup somewhere sensible" toolkit
+    # (fcitx among them) start here; we published none of it, which is
+    # what a diff against fvwm3's root window says in one line.
+    set NET_CLIENT_LIST [x-intern _NET_CLIENT_LIST]
+    set NET_CLIENT_LIST_STACKING [x-intern _NET_CLIENT_LIST_STACKING]
+    set NET_WORKAREA [x-intern _NET_WORKAREA]
+    set NET_NUMBER_OF_DESKTOPS [x-intern _NET_NUMBER_OF_DESKTOPS]
+    set NET_CURRENT_DESKTOP [x-intern _NET_CURRENT_DESKTOP]
+    set NET_DESKTOP_GEOMETRY [x-intern _NET_DESKTOP_GEOMETRY]
+    set NET_DESKTOP_VIEWPORT [x-intern _NET_DESKTOP_VIEWPORT]
+    set NET_WM_DESKTOP [x-intern _NET_WM_DESKTOP]
     set UTF8          [x-intern UTF8_STRING]
     set wmcheck [x-create-window $root -100 -100 1 1]
     set-prop-longs $root    $NET_CHECK 33 [list $wmcheck]   ;# XA_WINDOW
@@ -397,10 +417,20 @@ if {[catch {
     # judges our WM_TAKE_FOCUS invitations against that foreground —
     # kept honest by paint-focus below
     set-prop-longs $root $NET_ACTIVE 33 [list 0]
+    # One desktop, no viewport, and we say so rather than staying
+    # silent: a client that finds _NET_NUMBER_OF_DESKTOPS missing has
+    # to guess, and guessing is what puts things in the wrong place.
+    set-prop-longs $root $NET_NUMBER_OF_DESKTOPS 6 [list 1]   ;# XA_CARDINAL
+    set-prop-longs $root $NET_CURRENT_DESKTOP 6 [list 0]
+    set-prop-longs $root $NET_DESKTOP_VIEWPORT 6 [list 0 0]
     set-prop-longs $root $NET_SUPPORTED 4 \
         [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
               $NET_WM_STATE $NET_WM_STATE_HIDDEN \
-              $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS]  ;# XA_ATOM
+              $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS \
+              $NET_CLIENT_LIST $NET_CLIENT_LIST_STACKING $NET_WORKAREA \
+              $NET_NUMBER_OF_DESKTOPS $NET_CURRENT_DESKTOP \
+              $NET_DESKTOP_GEOMETRY $NET_DESKTOP_VIEWPORT \
+              $NET_WM_DESKTOP]                                 ;# XA_ATOM
     x-sync 0
     puts "WM: EWMH minimum up (_NET_SUPPORTING_WM_CHECK=[format 0x%x $wmcheck])"
 } err]} { puts "WM: EWMH setup failed: $err" }
@@ -597,6 +627,7 @@ proc dispatch-event {ev} {
                     && [dict get $ev window] == $::root} {
                 puts "WM: screen -> [dict get $ev width]x[dict get $ev height]"
                 policy-screen-changed
+                publish-workarea   ;# the desk itself just changed size
             }
         }
         unmap-notify { # the client withdrew itself. Trust only the
@@ -1148,6 +1179,63 @@ proc publish-frame-extents {w} {
     if {[llength $e] != 4} return
     soft "publish _NET_FRAME_EXTENTS" \
         [list set-prop-longs $w $::NET_FRAME_EXTENTS 6 $e]   ;# XA_CARDINAL
+    soft "publish _KDE_NET_WM_FRAME_STRUT" \
+        [list set-prop-longs $w $::KDE_FRAME_STRUT 6 $e]
+}
+
+# ---------------- what the desk looks like from outside ----------------
+# _NET_CLIENT_LIST is the managed windows in the order they arrived;
+# _NET_CLIENT_LIST_STACKING is the same set bottom-to-top, and the
+# server is the only honest source for that — we ask the root for its
+# children and translate the ones that are ours. The translation is by
+# the frame's WRAPPER (Tk's toplevels sit inside one, and it is the
+# wrapper that is the root's child), remembered per client at manage.
+#
+# Coalesced through the idle queue: a raise happens on every click, and
+# publishing is a round trip plus two property writes.
+set client_order {}          ;# managed windows, oldest first
+set clientlist_pending 0
+proc publish-client-list {} {
+    if {$::clientlist_pending || ![info exists ::NET_CLIENT_LIST]} return
+    set ::clientlist_pending 1
+    after idle {set ::clientlist_pending 0; publish-client-list-now}
+}
+proc publish-client-list-now {} {
+    if {![info exists ::NET_CLIENT_LIST]} return
+    set live {}
+    foreach w $::client_order {
+        if {[info exists ::managed($w)]} { lappend live $w }
+    }
+    set ::client_order $live
+    soft "publish _NET_CLIENT_LIST" \
+        [list set-prop-longs $::root $::NET_CLIENT_LIST 33 $live]  ;# XA_WINDOW
+    # ...and the stacking order, read off the server
+    set byroot {}
+    foreach w $live {
+        if {[info exists ::wrapof($w)]} { dict set byroot $::wrapof($w) $w }
+    }
+    set stack {}
+    set tree [soft "read the root's children" { x-query-tree $::root }]
+    foreach id [lindex $tree 2] {
+        if {[dict exists $byroot $id]} { lappend stack [dict get $byroot $id] }
+    }
+    soft "publish _NET_CLIENT_LIST_STACKING" \
+        [list set-prop-longs $::root $::NET_CLIENT_LIST_STACKING 33 $stack]
+}
+
+# _NET_WORKAREA — the screen minus whatever the policy reserves (our
+# panel and tray strips). Toolkits place popups and maximize by it, and
+# a WM that leaves it unset makes everyone guess the full screen.
+# Republished whenever the policy's furniture moves; _NET_DESKTOP_GEOMETRY
+# follows the root's own size, which RandR can change under us.
+proc publish-workarea {} {
+    if {![info exists ::NET_WORKAREA]} return
+    set a [soft "workarea" { policy-workarea } {}]
+    if {[llength $a] != 4} return
+    soft "publish _NET_WORKAREA" \
+        [list set-prop-longs $::root $::NET_WORKAREA 6 $a]   ;# XA_CARDINAL
+    soft "publish _NET_DESKTOP_GEOMETRY" \
+        [list set-prop-longs $::root $::NET_DESKTOP_GEOMETRY 6 [screen-size]]
 }
 
 # _NET_WM_STATE — the EWMH state list. We publish exactly one member,
@@ -1321,6 +1409,11 @@ proc manage {w} {
         x-select-input $fwin {focus-change}
         set ::ourwin($fwin) $w
         lappend ::decoof($w) $fwin
+        # The frame's WRAPPER — Tk puts every toplevel inside one, and
+        # it is the wrapper that is the root's child, so it is what a
+        # stacking order read off the root has to be translated by.
+        set wr [lindex [soft "wrapper of a frame" { x-query-tree $fwin }] 1]
+        if {$wr ne ""} { set ::wrapof($w) $wr }
     }
     # Click-to-focus inside the client: passive SYNC grab, one per
     # button, AnyModifier. The press freezes the pointer and wakes us
@@ -1346,6 +1439,10 @@ proc manage {w} {
     x-map $w
     set-wm-state $w 1          ;# NormalState — ICCCM, see set-wm-state
     publish-frame-extents $w   ;# EWMH — how much decoration is around it
+    soft "publish _NET_WM_DESKTOP" \
+        { set-prop-longs $w $::NET_WM_DESKTOP 6 [list 0] }   ;# the one desktop
+    lappend ::client_order $w
+    publish-client-list
     x-sync 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
     refresh-title $w
@@ -1410,6 +1507,8 @@ proc unmanage {w {dead 0}} {
     }
     policy-detach $w
     unset ::managed($w)
+    unset -nocomplain ::wrapof($w)
+    publish-client-list
     icon-invalidate $w
     unset -nocomplain ::iconic($w) ::skip_unmap($w)
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
@@ -2342,6 +2441,12 @@ proc substrate-start {} {
  in — replaying"
         foreach ev $queued { handle-event $ev }
     }
+    publish-workarea     ;# the desk's shape, before anyone asks
+    # ...and an EMPTY client list rather than none at all: "no windows"
+    # is an answer, "no property" makes the asker guess (fvwm3 states
+    # it on an empty desk too, and that is the whole difference a diff
+    # of the two root windows showed here).
+    publish-client-list-now
     tray-adopt-orphans   ;# before adopt-existing — see the proc
     adopt-existing
     # A fresh X server starts in PointerRoot, and a WM that leaves it
