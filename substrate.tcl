@@ -355,6 +355,7 @@ set WM_TAKE_FOCUS     [x-intern WM_TAKE_FOCUS]
 set WM_STATE          [x-intern WM_STATE]
 set WM_CHANGE_STATE   [x-intern WM_CHANGE_STATE]  ;# iconify request
 set TK9WM_RESTART     [x-intern TK9WM_RESTART]
+set TK9WM_RELOAD      [x-intern TK9WM_RELOAD]   ;# re-read the config in place
 set TK9WM_TIME        [x-intern TK9WM_TIME]  ;# server-time poke
 # Our own record of which windows are tray icons, kept ON THE ROOT so
 # it outlives us — see tray-adopt-orphans for why guessing instead of
@@ -608,9 +609,18 @@ proc dispatch-event {ev} {
             }
         }
         selection-clear { # somebody asked for a manager selection we
-            # hold — ICCCM 2.8, how a replacement announces itself
+            # hold — ICCCM 2.8, how a replacement announces itself.
+            #
+            # ...or the echo of our OWN release. Turning the tray off
+            # and on again (a config reload does exactly that) releases
+            # the selection and re-takes it, and the SelectionClear for
+            # the release arrives AFTER the new claim — read naively,
+            # the tray shuts itself down a moment after coming up
+            # (measured). ICCCM's own answer is the timestamp: an event
+            # older than our latest claim cannot be about it.
             if {$::tray_owner != 0
-                    && [dict get $ev selection] == $::TRAY_SELECTION} {
+                    && [dict get $ev selection] == $::TRAY_SELECTION
+                    && [dict get $ev time] >= $::tray_claim_time} {
                 tray-stop "another system tray took the selection"
             }
         }
@@ -754,6 +764,17 @@ proc dispatch-event {ev} {
             if {[info exists ::wmcheck] && $A == $::wmcheck
                     && $B == $::TK9WM_RESTART} {
                 restart-wm
+            } elseif {[info exists ::wmcheck] && $A == $::wmcheck
+                    && $B == $::TK9WM_RELOAD} {
+                # The lighter twin of the restart: same code, new
+                # config. Defined by the assembly (wm.tcl), which is
+                # what knows where a config comes from — the two layers
+                # can be sourced without it.
+                if {[llength [info commands reload-config]]} {
+                    reload-config
+                } else {
+                    puts "WM: reload requested, but no config layer is loaded"
+                }
             } elseif {[info exists ::NET_ACTIVE] && $B == $::NET_ACTIVE
                     && [info exists ::managed($A)]} {
                 # An EWMH activation request (data.l: source, timestamp,
@@ -1849,11 +1870,13 @@ proc kill-client {w} {
 #   policy-tray-detach w   the icon is gone: drop its slot
 #   policy-tray-origin w   root {x y} of w's slot, for the synthetic
 #                          ConfigureNotify
-set tray_owner 0        ;# the selection owner window, 0 = no tray here
+set tray_owner 0        ;# the selection owner while the tray RUNS, 0 = off
+set tray_owner_win 0    ;# ...the window itself, kept across stops
 array set trayicon {}   ;# icon window -> the slot it sits in
 array set traysize {}   ;# icon window -> the size we hold it at
 set trayseq {}          ;# the same icons in dock order — the record below
 set tray_freeze 0       ;# hold the record still while the tray goes down
+set tray_claim_time 0   ;# when we last took the selection (see selection-clear)
 
 # The record of what our icons ARE, published on the root so it
 # outlives this process — a restart reads it back, and so does a fresh
@@ -1888,13 +1911,21 @@ proc tray-start {{orient horizontal} {visual 0}} {
         puts "WM: tray: cannot intern the atoms: $err"
         return 0
     }
+    # The owner window OUTLIVES a stop — there is no way to destroy a
+    # window from the shim, and a new one per on/off cycle would be a
+    # slow leak. Which is also why the "somebody else has it" check has
+    # to know its own face: after a config reload the selection may
+    # still be held by the window we are about to reuse.
+    if {$::tray_owner_win == 0} {
+        set ::tray_owner_win [x-create-window $::root -200 -200 1 1 -override]
+    }
+    set owner $::tray_owner_win
     set held [soft "read the tray selection" { x-selection-get $::TRAY_SELECTION } 0]
-    if {$held != 0} {
+    if {$held != 0 && $held != $owner} {
         puts "WM: tray: 0x[format %x $held] already owns\
  _NET_SYSTEM_TRAY_S[tray-screen] — leaving it alone"
         return 0
     }
-    set owner [x-create-window $::root -200 -200 1 1 -override]
     # Selecting here is what makes the dock requests ARRIVE, and the
     # reason is a subtlety of XSendEvent worth writing down. A docking
     # client first selects StructureNotify on this very window (to hear
@@ -1930,6 +1961,7 @@ proc tray-start {{orient horizontal} {visual 0}} {
         return 0
     }
     set ::tray_owner $owner
+    set ::tray_claim_time $t
     # ICCCM 2.8: a new manager announces itself to the root, and every
     # client waiting for a tray docks on hearing it. This one has an
     # audience, so it carries a real send mask.
@@ -2128,6 +2160,14 @@ proc tray-stop {why} {
     set ::tray_freeze 1
     foreach w [array names ::trayicon] { tray-undock $w }
     set ::tray_freeze 0
+    # Let the selection go, or nobody can be the tray afterwards —
+    # ourselves included. A config reload turns the tray off and on
+    # again in one breath, and the second half used to find the
+    # selection still held (by our own window) and politely stand down.
+    soft "release the tray selection" {
+        x-selection-own $::TRAY_SELECTION 0 [server-time]
+        x-sync 0
+    }
     set ::tray_owner 0
 }
 
@@ -2256,6 +2296,19 @@ proc grab-chord {chord} {
 # chord at its new keycode. Xlib's own keysym cache is refreshed by Tk
 # when the MappingNotify passes through it — which is why the
 # dispatcher defers this to idle instead of calling it on the spot.
+# Drop every chord this WM holds — the config's and our own alike. A
+# config reload needs it: a config binds OVER the in-code defaults, and
+# an override cannot be un-bound piecemeal (the map keeps one entry per
+# chord, whoever wrote it last). So the floor is swept and re-laid.
+proc keys-reset {} {
+    x-ungrab-key 0 32768 $::root      ;# AnyKey, AnyModifier
+    keyseq-end
+    set ::keymap {}
+    set ::grabbed_top {}
+    x-sync 0
+    puts "WM: key bindings cleared"
+}
+
 proc keys-remap {} {
     x-ungrab-key 0 32768 $::root      ;# AnyKey, AnyModifier
     foreach chord $::grabbed_top { grab-chord $chord }

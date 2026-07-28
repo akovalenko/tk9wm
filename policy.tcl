@@ -2345,10 +2345,87 @@ proc policy-screen-changed {} {
 # Super+t w m; the window LIST sits on Alt+Tab — where the held Alt
 # turns it into the fvwm cycle — and on Super+t w w as a plain static
 # menu (the sequence ends with everything released).
-wm-bind {<Alt>space} winops
-wm-bind {<Super>t w m} winops
-wm-bind {<Alt>Tab} winlist
-wm-bind {<Super>t w w} winlist
+#
+# They live in a PROC because a config reload has to put them back: the
+# reset drops every grab this WM holds (a config is free to bind over a
+# default, and an override cannot be un-bound piecemeal), and then the
+# in-code defaults are laid down again as a fresh floor.
+proc policy-default-bindings {} {
+    wm-bind {<Alt>space} winops
+    wm-bind {<Super>t w m} winops
+    wm-bind {<Alt>Tab} winlist
+    wm-bind {<Super>t w w} winlist
+    # Re-read the config in place. Deliberately a default: the whole
+    # point of the reload is to try a config without restarting, and
+    # having to configure the way to reload the config first would be a
+    # poor joke. Bind over it like any other default.
+    wm-bind {<Super>t w r} reload-config
+}
+policy-default-bindings
+
+# ---- the config layer: defaults, reset, apply ----
+# A reload is "put everything back the way the CODE has it, then let the
+# config speak again on that clean floor" — the owner's own contract for
+# it. What that costs the config is one rule: it must be DECLARATIVE.
+# Calling the set-* knobs, declaring panel buttons, style rules and key
+# binds is all undoable, because the reset knows where that state
+# lives. Redefining a policy or substrate proc is not: a reset has no
+# way to remember what the proc used to be, and the next reload would
+# be building on the patch. (Procs the config defines FOR ITSELF —
+# predicates, launchers — are fine; they are just names, and the config
+# redefines them on every load.)
+#
+# The defaults are not written down twice. They are SNAPSHOTTED from
+# the code's own values the moment before the config is first sourced,
+# so a default and its copy cannot drift apart: there is no copy.
+set config_vars {
+    border gripz OUTLINE titlejust winlist_cycle_opt icon_path
+    style_rules minimize panel_buttons panel_side panel_preset
+    panel_icon_size panel_live_bar panel_live_face
+    tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb
+}
+proc policy-snapshot-defaults {} {
+    foreach v $::config_vars { set ::config_default($v) [set ::$v] }
+    set ::config_default(TitleFont) [font actual TitleFont]
+}
+proc policy-reset {} {
+    # The stateful knobs first, and by their own procs: the tray holds
+    # an X selection and a strip of windows, so putting its VARIABLE
+    # back would leave the desk out of step with what the variable
+    # claims. Its icons go back to the root and are taken up again in
+    # policy-apply — by the tray's own record, so nothing else on the
+    # desk is disturbed.
+    if {$::tray_on} { set-tray off }
+    if {[winfo exists .tray]} { destroy .tray }
+    if {[winfo exists .traybg]} { destroy .traybg }
+    set ::tray_geo ""
+    set ::tray_seen_extent 0
+    foreach v $::config_vars { set ::$v $::config_default($v) }
+    font configure TitleFont {*}$::config_default(TitleFont)
+    title-metrics
+    # Caches that a config decides the contents of: per-client style
+    # verdicts (the rules are gone) and resolved icons (the path may
+    # move under them).
+    array unset ::styleof
+    foreach {k img} [array get ::resolvedicon] {
+        if {$img ne ""} { soft "drop a cached icon" [list image delete $img] }
+    }
+    array unset ::resolvedicon
+    # Every chord, ours and the config's alike, and then our own floor
+    # back down. keys-reset is the substrate's: the grabs are its.
+    keys-reset
+    policy-default-bindings
+}
+proc policy-apply {} {
+    panel-build         ;# no buttons declared -> the strip goes away
+    tray-layout
+    retitle-frames      ;# live frames follow the metrics and the font
+    publish-workarea
+    panel-match-kick
+    if {$::tray_on} { tray-adopt-orphans }   ;# our icons come back
+    puts "WM: config applied ([llength $::panel_buttons] panel buttons,\
+ [llength $::style_rules] style rules, tray [expr {$::tray_on ? {on} : {off}}])"
+}
 
 # Move policy is plain Tk: drag the title bar, the client rides along.
 # A title click also raises and focuses.

@@ -150,6 +150,28 @@
 # fire on the most recent match. The judgement follows windows
 # coming, going and renaming themselves.
 #
+# ---- re-reading this file without restarting ----
+#
+# Super+t w r (or `whale-cli send-reload.tcl`) re-reads the config on
+# the live desk: no restart, no client disturbed — windows, frames and
+# focus stay exactly as they are. What happens is that everything
+# configurable goes back to the CODE's defaults first — empty panel, no
+# tray, stock fonts, stock bindings — and this file is then sourced on
+# that clean floor, exactly as at startup.
+#
+# That is worth one rule: KEEP THIS FILE DECLARATIVE. Calling the set-*
+# knobs, declaring panel buttons, style rules and key binds is all
+# undoable — the reset knows where that state lives. Redefining a
+# policy or substrate proc is not: nothing remembers what the proc used
+# to be, so the patch would survive the reset and the next reload would
+# build on top of it. Procs you define for your own use (predicates,
+# launchers) are fine — they are just names, and this file redefines
+# them every time it is read.
+#
+# A broken config leaves the desk on the defaults plus whatever it
+# managed to set before it threw. The reset happening FIRST is what
+# makes that predictable.
+#
 # ---- the system tray ----
 #
 # set-tray on makes this WM the display's tray manager (freedesktop's
