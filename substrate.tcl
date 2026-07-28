@@ -239,6 +239,7 @@ puts "WM: redirect armed on root [format 0x%x $root]"
 
 set WM_PROTOCOLS      [XInternAtom $dpy WM_PROTOCOLS 0]
 set WM_DELETE_WINDOW  [XInternAtom $dpy WM_DELETE_WINDOW 0]
+set WM_TAKE_FOCUS     [XInternAtom $dpy WM_TAKE_FOCUS 0]
 set WM_STATE          [XInternAtom $dpy WM_STATE 0]
 set TK9WM_RESTART     [XInternAtom $dpy TK9WM_RESTART 0]
 set WM_NAME           39   ;# XA_WM_NAME, predefined
@@ -432,6 +433,7 @@ proc handle-event {} {
             # time@56 state@80 keycode@84.
             binary scan [evbytes 96] iux4wuiux4wuwuwuwuwux16iuiu \
                 _t _s _se _d win rootw subw time state kc
+            set ::evtime $time
             if {$::has_keys} { handle-key $state $kc $time }
         }
         3 { # KeyRelease: only a keyboard-modal router cares (the
@@ -440,6 +442,7 @@ proc handle-event {} {
             if {$::has_keys && $::keyrouter ne ""} {
                 binary scan [evbytes 96] iux4wuiux4wuwuwuwuwux16iuiu \
                     _t _s _se _d win rootw subw time state kc
+                set ::evtime $time
                 route-key release \
                     [keysym-name [XkbKeycodeToKeysym $::dpy $kc 0 0]] \
                     [expr {$state & ~(2 | 16)}]
@@ -457,6 +460,7 @@ proc handle-event {} {
             # XButtonEvent: window@32 root@40 subwindow@48 time@56.
             binary scan [evbytes 64] iux4wuiux4wuwuwuwuwu \
                 _t _s _se _d win rootw subw time
+            set ::evtime $time
             catch {
                 if {[info exists ::managed($win)]} { policy-client-click $win }
             }
@@ -929,6 +933,7 @@ proc unmanage {w {dead 0}} {
 # verification and repair paths); which window DESERVES focus and how the
 # highlight looks is the policy layer's business.
 set focused 0
+set evtime 0   ;# timestamp of the last user input event we parsed
 proc paint-focus {w} {
     set ::focused $w
     policy-paint-focus $w
@@ -954,6 +959,17 @@ proc focus-to {w} {
         puts "WM: focus -> 0x[format %x $w] REFUSED by server\
  (focus=[format 0x%x $f] revert=$r) — not recorded, will retry"
         return 0
+    }
+    # ICCCM WM_TAKE_FOCUS, for the client that advertises it: the X
+    # focus alone does not activate everyone. Live case (smsrc under
+    # Wine, 2026-07-28): alt-tab back into the Wine window left its
+    # keyboard dead until a click — Wine turns a bare FocusIn into no
+    # Windows-level activation, but honors the WM_TAKE_FOCUS message
+    # (dwm ships exactly this XSetInputFocus + ClientMessage pair).
+    # Sent with the timestamp of the user event that led here.
+    if {[client-advertises $w $::WM_TAKE_FOCUS 0]} {
+        puts "WM: focus -> 0x[format %x $w]: sending WM_TAKE_FOCUS"
+        send-protocol $w $::WM_TAKE_FOCUS $::evtime
     }
     paint-focus $w
     puts "WM: focus -> 0x[format %x $w]"
@@ -1021,33 +1037,37 @@ proc wm-resize-client {w cw ch} {
 }
 
 # ---------------- close machinery ----------------
-# Close: ICCCM WM_DELETE_WINDOW when the client declares it, else XKillClient.
-proc client-supports-delete {w} {
-    if {!$::has_protocols} { return 1 }   ;# cannot check — assume a modern client
+# WM_PROTOCOLS plumbing, shared by the close path (WM_DELETE_WINDOW)
+# and the focus path (WM_TAKE_FOCUS). The fallback answers "is the
+# protocol there?" when the check itself is unavailable: the close
+# path assumes a modern client (1), the focus path stays silent (0)
+# — an unadvertised WM_TAKE_FOCUS must never be sent.
+proc client-advertises {w atom fallback} {
+    if {!$::has_protocols} { return $fallback }
     set found 0
     if {![catch {XGetWMProtocols $::dpy $w protos n} status] && $status && $n > 0} {
         if {![catch {cffi::memory tobinary! $protos [expr {8 * $n}]} bytes]} {
             binary scan $bytes wu$n atoms
-            set found [expr {$::WM_DELETE_WINDOW in $atoms}]
+            set found [expr {$atom in $atoms}]
         }
         catch {XFree $protos}
     }
     return $found
 }
-proc send-wm-delete {w} {
+proc send-protocol {w atom time} {
     # XClientMessageEvent LP64: type@0 serial@8 send_event@16 display@24
     # window@32 message_type@40 format@48 data.l[0]@56 data.l[1]@64
     set b [binary format iux4wuiux4wuwuwuiux4wuwu \
-        33 0 1 0 $w $::WM_PROTOCOLS 32 $::WM_DELETE_WINDOW 0]
+        33 0 1 0 $w $::WM_PROTOCOLS 32 $atom $time]
     set ev [cffi::memory frombinary [binary format a192 $b] unsafe]
     XSendEvent $::dpy $w 0 0 $ev
     XSync $::dpy 0
     cffi::memory free $ev
 }
 proc close-client {w} {
-    if {[client-supports-delete $w]} {
+    if {[client-advertises $w $::WM_DELETE_WINDOW 1]} {
         puts "WM: close 0x[format %x $w]: sending WM_DELETE_WINDOW"
-        send-wm-delete $w
+        send-protocol $w $::WM_DELETE_WINDOW 0
         # The polite path has no acknowledgement: a client that honors
         # the request unmaps or dies, a hung one does NOTHING — check
         # back after a grace period and let the policy show the user
