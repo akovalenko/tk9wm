@@ -467,14 +467,36 @@ proc handle-event {} {
             # Only mode Normal (0) reports a real focus change; the
             # pairs a keyboard grab generates (Grab, Ungrab,
             # WhileGrabbed) are bookkeeping about the grab, not about
-            # who owns the keyboard afterwards.
+            # who owns the keyboard afterwards. ONE exception below:
+            # the PointerRoot/None fall is heeded in EVERY mode.
             #
             # detail says whether THIS window is the new focus window
             # (Ancestor 0, Inferior 2, Nonlinear 3) or merely lies on
             # the path to it (Virtual 1, NonlinearVirtual 4) — the
             # difference between "the focus landed here" and "the focus
             # passed through here on its way to a child".
-            if {$mode == 0} {
+            if {$win == $::root && ($detail == 6 || $detail == 7)} {
+                # PointerRoot(6)/None(7): the focus has no honest
+                # home. PointerRoot means the display just silently
+                # switched to focus-follows-pointer (Tk's implicit
+                # focus release does exactly this — see the focus
+                # holder); None means the keyboard is dead and even
+                # our root chords stopped firing.
+                #
+                # Heeded in EVERY mode, not just Normal: while a popup
+                # menu holds our own keyboard grab, Tk's implicit
+                # release still fires (leaving the focused client's
+                # frame — its inferior holds the focus, so the crossing
+                # arms the trap) but every focus event arrives as
+                # WhileGrabbed, and dropping those left the display in
+                # focus-follows-mouse for good (live report,
+                # 2026-07-28). A detail-6/7 FocusIn on the root cannot
+                # lie: whatever the mode, the real focus is (or just
+                # became) PointerRoot/None — the grab pseudo-events
+                # only replay that same fact at grab boundaries.
+                focus-repair [expr {$detail == 6 ?
+                    "focus fell to PointerRoot" : "focus fell to None"}]
+            } elseif {$mode == 0} {
                 set is_focus_win [expr {$detail == 0 || $detail == 2 || $detail == 3}]
                 if {[info exists ::managed($win)] && $detail < 5} {
                     # A client took the focus: our invitation was
@@ -484,15 +506,6 @@ proc handle-event {} {
                     # publishes _NET_ACTIVE_WINDOW.
                     set ::invited 0
                     if {$::focused != $win} { paint-focus $win }
-                } elseif {$win == $::root && ($detail == 6 || $detail == 7)} {
-                    # PointerRoot(6)/None(7): the focus has no honest
-                    # home. PointerRoot means the display just silently
-                    # switched to focus-follows-pointer (Tk's implicit
-                    # focus release does exactly this — see the focus
-                    # holder); None means the keyboard is dead and even
-                    # our root chords stopped firing.
-                    focus-repair [expr {$detail == 6 ?
-                        "focus fell to PointerRoot" : "focus fell to None"}]
                 } elseif {$is_focus_win
                         && ($win == $::root || [info exists ::ourwin($win)])} {
                     # The focus landed on our own decoration or on the
