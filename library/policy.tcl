@@ -345,6 +345,19 @@ proc frame-buttons {t} {
 #
 # Returns {haxis vaxis}, each {size align} with size "" for sizeless
 # and align in start|end|center.
+# `force` is a term of the spec and not a placement: it says this rule
+# outranks the window's OWN claim on where it goes. Split out before
+# anything reads the terms.
+proc place-force {spec} {
+    set terms {}
+    set forced 0
+    foreach term [split [string map {, " "} $spec]] {
+        if {$term eq ""} continue
+        if {$term eq "force"} { set forced 1; continue }
+        lappend terms $term
+    }
+    list $terms $forced
+}
 proc parse-place {spec} {
     if {[string trim $spec] eq "max"} { set spec {100%left 100%top} }
     set ax [dict create]
@@ -423,7 +436,24 @@ proc policy-initial-size {w cw ch} {
     set ch [expr {max(min($ch, $maxh), $minh, 1)}]
     set st [style-of $w]
     if {![dict exists $st place]} { return [list $cw $ch] }
-    set spec [dict get $st place]
+    lassign [place-force [dict get $st place]] spec forced
+    # A rule is the user speaking IN GENERAL; USPosition is the same
+    # user speaking about THIS window — `xterm -geometry +40+40`, a
+    # session restoring where it was left. The particular wins, so a
+    # place YIELDS to it (the owner's call, 2026-07-30, reversing the
+    # day-old rule that it beat everything: with `place max` as a
+    # standing policy for half the desk, a rule that also overrode every
+    # -geometry would leave no way to ask for anything else). `force` in
+    # the spec is how a rule says it means it after all.
+    #
+    # USPosition only. PPosition — the program's own idea of where it
+    # should go, which it has for every window whether it thought about
+    # it or not — is not a user's word and does not outrank a rule.
+    if {!$forced && [lindex [client-position-hint $w] 0] eq "user"} {
+        puts "WM: place «$spec» on 0x[format %x $w] yields to its own\
+ -geometry (say `force` to override)"
+        return [list $cw $ch]
+    }
     if {[catch {
         # `max` is the maximized STATE and not just a size: without a
         # saved geometry the first "restore" would restore to what the
@@ -505,18 +535,24 @@ proc place-frame {w fw fh} {
     # workarea's ORIGIN, and a clamp that read the extent as the far
     # edge would put the window under exactly the strip it was meant to
     # keep clear.
-    # A `place` style beats every claim below it, the client's own
-    # -geometry included (the owner's call, 2026-07-29): the config is
-    # the same user saying it once and for all, and a rule that lost to
-    # a command line would be a rule one could not rely on. The position
-    # itself was settled with the size, in policy-initial-size.
+    # A `place` style that got this far outranks everything below: it
+    # either had `force`, or the window made no user claim to yield to
+    # (policy-initial-size). The position itself was settled there,
+    # with the size.
     if {[info exists ::placeof($w)]} { return $::placeof($w) }
     lassign [client-position-hint $w] kind grav
     set ipos [client-initial-position $w]
     if {$kind ne "none" && [llength $ipos] == 2} {
         lassign $ipos X Y
         if {$kind eq "user"} {
-            return [gravity-frame-xy $w $X $Y $grav]
+            # Honored as given — the position a user asked for is in
+            # ROOT coordinates and means the screen, panels and all —
+            # but clamped to the SCREEN, which is not a policy so much
+            # as arithmetic about reachability: Qt Creator's main window
+            # asks for +0-2 and arrives with its titlebar off the top
+            # edge, which is nobody's intent (owner's desk, 2026-07-30).
+            lassign [gravity-frame-xy $w $X $Y $grav] X Y
+            return [clamp-to-screen $X $Y $fw $fh]
         }
         if {$X != 0 || $Y != 0} {
             lassign [gravity-frame-xy $w $X $Y $grav] X Y
@@ -564,11 +600,19 @@ proc cascade-slot {fw fh} {
 # fit: better to lose the far edge than the one with the title bar on
 # it. The near edge is the workarea's origin — which is the panel's
 # inner face when the panel is on the left or the top.
-proc clamp-to-workarea {X Y fw fh} {
-    lassign [workarea] wax way ww wh
-    if {$X + $fw > $wax + $ww} { set X [expr {$wax + $ww - $fw}] }
-    if {$Y + $fh > $way + $wh} { set Y [expr {$way + $wh - $fh}] }
-    list [expr {max($X, $wax)}] [expr {max($Y, $way)}]
+proc clamp-to-rect {rect X Y fw fh} {
+    lassign $rect rx ry rw rh
+    if {$X + $fw > $rx + $rw} { set X [expr {$rx + $rw - $fw}] }
+    if {$Y + $fh > $ry + $rh} { set Y [expr {$ry + $rh - $fh}] }
+    list [expr {max($X, $rx)}] [expr {max($Y, $ry)}]
+}
+proc clamp-to-workarea {X Y fw fh} { clamp-to-rect [workarea] $X $Y $fw $fh }
+# ...and the screen's own rectangle, for the claim we honor but will
+# not let off the edge: a user's position is about the SCREEN, so the
+# workarea is the wrong box to hold it in — the panel is entitled to
+# overlap a window that asked for the corner.
+proc clamp-to-screen {X Y fw fh} {
+    clamp-to-rect [list 0 0 {*}[screen-size]] $X $Y $fw $fh
 }
 
 # The biggest client area THIS window's frame can hold — an oversized
@@ -4159,7 +4203,7 @@ policy-default-bindings
 set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize panels panel_target
-    panel_live_bar panel_live_face drag_mods root_cursor
+    panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
 proc policy-snapshot-defaults {} {
@@ -4202,11 +4246,71 @@ proc policy-apply {} {
  tray [expr {$::tray_on ? {on} : {off}}])"
 }
 
+# ---- carrying a window: the slop and the edges ----
+#
+# A title press is a CLICK until the pointer has travelled a few
+# pixels. Without that, aiming at a titlebar to raise or focus a window
+# nudges it a pixel or two on the way, which is easy to do by accident
+# and annoying every time (the owner, 2026-07-30). The cursor says
+# which it is so far: left_ptr while the press is still a click, the
+# carrying fleur from the moment it becomes a drag. Once it does, the
+# window follows the ORIGINAL press point — the pointer has moved by
+# the slop and the window catches up in one step, so the spot that was
+# grabbed stays under the pointer for the rest of the drag.
+#
+# The MODIFIER drag has no slop and wants none: holding a modifier
+# before pressing is not something one does by accident.
+set drag_slop 4
+proc set-drag-slop {px} {
+    if {![string is integer -strict $px] || $px < 0} {
+        error "set-drag-slop: a pixel count, 0 to carry from the first pixel"
+    }
+    set ::drag_slop $px
+}
+
+# Edge resistance: a carried window STICKS to an edge of the workarea —
+# within the resistance the frame sits exactly on it, and it takes that
+# much more pointer travel to get past. Flush against a strip is the
+# position one is usually aiming for, and hitting it by hand to the
+# pixel is aiming nobody should have to do (fvwm's EdgeResistance,
+# which the owner missed here). Both edges of both axes, and the
+# WORKAREA's rather than the screen's: the edge worth being flush with
+# is the one the panel leaves free. 0 switches it off.
+set edge_resist 12
+proc set-edge-resist {px} {
+    if {![string is integer -strict $px] || $px < 0} {
+        error "set-edge-resist: a pixel count, 0 to switch it off"
+    }
+    set ::edge_resist $px
+}
+proc resist-axis {pos size start extent} {
+    if {abs($pos - $start) < $::edge_resist} { return $start }
+    set far [expr {$start + $extent}]
+    if {abs($pos + $size - $far) < $::edge_resist} { return [expr {$far - $size}] }
+    return $pos
+}
+# Where a carried frame actually lands. The near edge wins on a window
+# too big to fit, the same way the clamps decide it.
+proc carry-to {t X Y} {
+    if {$::edge_resist <= 0} { return [list $X $Y] }
+    lassign [workarea] wax way ww wh
+    list [resist-axis $X [winfo width $t]  $wax $ww] \
+         [resist-axis $Y [winfo height $t] $way $wh]
+}
+# A pointer gesture on the window a KEYBOARD mode is holding is not an
+# error: it reads as a helper within that mode (the owner's call,
+# 2026-07-30), so the mode stays in charge — its readout follows the
+# carrying, and its Escape still undoes everything back to where the
+# mode began, the carrying included.
+proc carry-told {w} {
+    if {$w != 0} { send-synthetic-configure $w }
+    if {[kbmr-owns $w]} { kbmr-readout }
+}
+
 # Move policy is plain Tk: drag the title bar, the client rides along.
-# A title click also raises and focuses. The cursor says the window is
-# being carried: it goes on the TITLE widget, since that is where Tk's
-# implicit grab sits for the length of the drag, and comes off at the
-# release (press-end).
+# A title click also raises and focuses. The cursor goes on the TITLE
+# widget, since that is where Tk's implicit grab sits for the length of
+# the drag, and comes off at the release (press-end).
 proc drag-start {t w X Y} {
     popups-close
     # w == 0 is a window of the WM's OWN (see wm-window): there is no
@@ -4216,18 +4320,24 @@ proc drag-start {t w X Y} {
         raise-group $w
         focus-to $w
     }
-    $t.title configure -cursor fleur
+    $t.title configure -cursor left_ptr   ;# a click until it is a drag
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> wx wy
-    set ::drag($t) [list $X $Y $wx $wy]
+    set ::drag($t) [list $X $Y $wx $wy 0]
 }
 proc drag-move {t w X Y} {
     # No state — no drag: the press never landed on this title (a drag
     # that STARTED on the root background is a noop, not a pickup).
     if {![info exists ::drag($t)]} return
-    lassign $::drag($t) x0 y0 wx wy
-    wm geometry $t +[expr {$wx + $X - $x0}]+[expr {$wy + $Y - $y0}]
+    lassign $::drag($t) x0 y0 wx wy carrying
+    if {!$carrying} {
+        if {abs($X - $x0) < $::drag_slop && abs($Y - $y0) < $::drag_slop} return
+        lset ::drag($t) 4 1
+        $t.title configure -cursor fleur
+    }
+    lassign [carry-to $t [expr {$wx + $X - $x0}] [expr {$wy + $Y - $y0}]] nx ny
+    wm geometry $t +$nx+$ny
     if {$w == 0} return   ;# our own window: nobody to tell but ourselves
-    send-synthetic-configure $w
+    carry-told $w
 }
 
 # ---- carrying a window by a modifier, from anywhere on it ----
@@ -4340,8 +4450,9 @@ proc mouse-gesture {kind X Y} {
         return
     }
     if {$mode eq "move"} {
-        wm geometry $t +[expr {$fx + $X - $x0}]+[expr {$fy + $Y - $y0}]
-        send-synthetic-configure $w
+        lassign [carry-to $t [expr {$fx + $X - $x0}] [expr {$fy + $Y - $y0}]] nx ny
+        wm geometry $t +$nx+$ny
+        carry-told $w
     } else {
         rz-move $t $w $X $Y
     }

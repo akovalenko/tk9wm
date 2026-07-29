@@ -65,6 +65,21 @@
 #   set-drag-modifier {<Alt>}
 #   set-drag-modifier {<Ctrl><Alt>}
 #
+# A press on the TITLEBAR is a click until the pointer has travelled
+# this far — so aiming at a titlebar to raise or focus a window does
+# not nudge it a pixel on the way. The cursor says which it is: the
+# ordinary pointer while it is still a click, the carrying fleur from
+# the moment it becomes a drag. 0 carries from the first pixel; the
+# modifier gesture above has no slop and wants none, holding a modifier
+# before pressing not being something one does by accident.
+#   set-drag-slop 0
+#
+# Edge resistance: a carried window sticks to an edge of the WORKAREA
+# within this many pixels, and it takes that much more pointer travel
+# to get past. Flush against a strip is the position one is usually
+# aiming for. 0 switches it off.
+#   set-edge-resist 20
+#
 # The cursor over the desk itself. An X server leaves the root window
 # wearing the ancient X_cursor until somebody sets it, and that
 # somebody is conventionally the WM — so we do, and xsetroot is one
@@ -175,6 +190,15 @@
 #   wm-style {filter -title "*mutt*"} {place 50%right}
 #   wm-style my-monitor {place {30%bottom 50%right}}   ;# lower right
 #   wm-style {filter -class {* XClock}} {place {right bottom}}
+#
+# A place YIELDS to a window that claims its own position with
+# USPosition — `xterm -geometry +40+40`, a session restoring where it
+# was left. A rule is the user speaking in general; USPosition is the
+# same user speaking about THIS window, and the particular wins. (Not
+# PPosition: a program's own idea of where it should go, which it has
+# whether it thought about it or not, is not a user's word.) Add
+# `force` to the spec for a rule that means it anyway:
+#   wm-style {filter -class Emacs} {place {max force}}
 #
 # `max` is the whole workarea, spelled the way one thinks of it (the
 # same grammar's {100%left 100%top}). It also behaves like the

@@ -327,16 +327,37 @@ frames a client and shows a panel has proved both libraries loaded.
   fallback to a local client's /proc argv; a property that is not there
   did not match. A proc predicate remains the escape hatch.
 
-  **Placement in four rules** — the **style `place`** (which beats
-  everything else, the client's own `-geometry` included: the config is
-  the same user, having said this once and for all), the **client's
-  position claim** (`USPosition` — the user's word, verbatim;
-  `PPosition` — the program's word, clamped to the screen and with the
-  notorious (0,0) ignored; gravity NW means the point aims at the
-  frame, Static at the client area; the claim beats dialog centering
-  too, and adoption respects it), dialog centering on the parent, and
-  the cascade — plus shrinking a window that does not fit down to the
-  screen (never below its declared minimum).
+  **Placement in four rules** — the **client's position claim**
+  (`USPosition` — the user's word, honored as given and clamped only to
+  the SCREEN; `PPosition` — the program's word, clamped to the workarea
+  and with the notorious (0,0) ignored; gravity NW means the point aims
+  at the frame, Static at the client area; the claim beats dialog
+  centering too, and adoption respects it), the **style `place`**,
+  dialog centering on the parent, and the cascade — plus shrinking a
+  window that does not fit down to the screen (never below its declared
+  minimum).
+
+  A `place` **yields to USPosition** and outranks everything below it.
+  A rule is the user speaking in general; `USPosition` is the same user
+  speaking about *this* window — `xterm -geometry +40+40`, a session
+  restoring where it was left — and the particular wins (owner's call,
+  2026-07-30, reversing the day-old rule that a rule beat everything:
+  with `place max` as a standing policy for half the desk, a rule that
+  also overrode every `-geometry` leaves no way to ask for anything
+  else). `force` in the spec is how a rule says it means it anyway.
+  `PPosition` does not get this: a program's own idea of where it
+  should go, which it has whether it thought about it or not, is not a
+  user's word.
+
+  **What `+0+0` is the corner of** is the screen, not the workarea:
+  a position in `WM_NORMAL_HINTS` is in ROOT coordinates, and
+  `_NET_WORKAREA` is advice to whoever is placing a window, not a
+  redefinition of the coordinate system. So a panel is entitled to
+  overlap a window that asked for the corner, and `USPosition` is not
+  pushed out from under it. It IS clamped to the screen, which is
+  arithmetic about reachability rather than policy: Qt Creator's main
+  window asks for `+0-2` and would arrive with its titlebar above the
+  top edge, which is nobody's intent.
 
   **The `place` grammar** — a list of terms separated by spaces or
   commas, a term being `[N%]EDGE`, where the edge names both the axis
@@ -356,6 +377,24 @@ frames a client and shows a panel has proved both libraries loaded.
   the screen's new bottom on RandR (200 ms debounce). Drag by the
   title; resize by the border and all four corners (a 6px grip,
   per-zone cursors, the opposite edge anchored).
+
+  **A title press is a click until it travels** (`set-drag-slop`,
+  default 4 px) — aiming at a titlebar to raise a window should not
+  nudge it a pixel on the way, and the cursor says which it is so far:
+  the ordinary pointer while it is still a click, the carrying fleur
+  from the moment it becomes a drag (then the window catches up in one
+  step, so the spot that was grabbed stays under the pointer). The
+  modifier gesture has no slop and wants none. **Edge resistance**
+  (`set-edge-resist`, default 12 px) sticks a carried window to an edge
+  of the workarea — flush against a strip is the position one is
+  usually aiming for, and hitting it by hand to the pixel is aiming
+  nobody should have to do.
+
+  **A pointer gesture on a window a keyboard mode is holding** is not
+  an error: it reads as a helper within that mode, so the mode stays in
+  charge — its readout follows the carrying, and its Esc still undoes
+  everything back to where the mode began, the carrying included
+  (owner's call, 2026-07-30).
 
   **A gesture on a modifier** (`set-drag-modifier`, default `<Super>`)
   — hold it and drag from anywhere on the window: button 1 carries,
@@ -1005,7 +1044,13 @@ runs as a single shell call:
   is then dismissed, a keyboard move interrupted by its window dying —
   each asserting both the behaviour and that the WM raised no
   invariant complaint, plus that the keyboard was not left grabbed
-  after any of it).
+  after any of it), `run-carry-test.sh` (a two-pixel wobble on a
+  titlebar moves nothing while a real drag carries by the whole travel,
+  slop included; a carry aimed 5 px inside the workarea's left edge
+  lands ON it and one aimed 30 px inside stays 30 px inside; and a
+  client asking for `+0+-2` keeps its x under a left-hand panel while
+  its y is clamped onto the screen — the desk has a panel precisely so
+  the two rectangles differ).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second

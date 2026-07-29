@@ -13,8 +13,10 @@
 #                                       button then restores it to the
 #                                       geometry it never had (240x120
 #                                       at the first cascade slot)
-#   уголок       30%bottom,50%right   — and it CLAIMS +500+50, which the
-#                                       style must beat
+#   уголок       30%bottom,50%right   — and it CLAIMS +500+50 with
+#                                       USPosition, which the rule now
+#                                       YIELDS to (the owner's call,
+#                                       2026-07-30)
 #   полочный     declared by a panel-button's `style` shorthand:
 #                {decor none place 50%right} — the right half, no frame
 #                at all (frame extents 0)
@@ -23,6 +25,9 @@
 #   безрамочный  decor border         — border and grips, no title strip
 #   кривой       place 50%diagonal    — unreadable: logged and dropped,
 #                the window still managed and cascaded
+#   упрямый      the same terms plus `force`, and the same +500+50
+#                claim — force is how a rule says it outranks the
+#                window's own word after all
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:74
 rm -f /tmp/.X74-lock /tmp/.X11-unix/X74
@@ -41,6 +46,7 @@ wm-style {filter -title уголок}      {place "30%bottom,50%right"}
 wm-style {filter -title свойразмер}  {place {right bottom}}
 wm-style {filter -title безрамочный} {decor border}
 wm-style {filter -title кривой}      {place 50%diagonal}
+wm-style {filter -title упрямый}     {place {30%bottom 50%right force}}
 EOF
 sleep 1
 
@@ -50,7 +56,8 @@ WM=$!
 sleep 1.5
 
 for spec in "развёрнутый 240x120" "уголок 240x120+500+50" "полочный 240x120" \
-            "свойразмер 240x120" "безрамочный 240x120" "кривой 240x120"; do
+            "свойразмер 240x120" "безрамочный 240x120" "кривой 240x120" \
+            "упрямый 240x120+500+50"; do
     set -- $spec
     "$LINUX/whale" "$HERE/client.tcl" "$1" "$2" "#fce94f" "" "" 25 \
         >> "$HERE/style-client.log" 2>&1 &
@@ -63,7 +70,7 @@ import -display :74 -window root "$HERE/style-test.png" 2>/dev/null \
 
 # the ids in manage order, and the desk's own numbers
 set -- $(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG")
-MAXW=$1; CORNER=$2; SHELF=$3; OWNSZ=$4; BORDERED=$5; BROKEN=$6
+MAXW=$1; CORNER=$2; SHELF=$3; OWNSZ=$4; BORDERED=$5; BROKEN=$6; FORCED=$7
 eval "$(xprop -root _NET_WORKAREA | sed 's/.*= //; s/,//g' \
         | awk '{print "WAX=" $1 "; WAY=" $2 "; WAW=" $3 "; WAH=" $4}')"
 eval "$(sed -n 's/^WM: titlebar h=\([0-9]*\) top=\([0-9]*\) btn=\([0-9]*\).*/TITLEH=\1; TOP=\2; BTN=\3/p' \
@@ -91,7 +98,7 @@ echo "--- verdict"
 if grep -q 'BadAccess request=2' "$LOG"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
 fi
-if [ -z "$BROKEN" ]; then
+if [ -z "$FORCED" ]; then
     echo "FAIL: missing actor ids (got $*)"
 fi
 
@@ -100,9 +107,15 @@ check "max fills the workarea" \
     "$(geom "$MAXW")"
 
 CW=$((WAW / 2)); CH=$((WAH * 30 / 100))
-check "30%bottom,50%right beats the client's own +500+50" \
-    "$((CW - 2*B))x$((CH - TOP - B))+$((WAX + WAW - CW + B))+$((WAY + WAH - CH + TOP))" \
-    "$(geom "$CORNER")"
+CORNERGEOM="$((CW - 2*B))x$((CH - TOP - B))+$((WAX + WAW - CW + B))+$((WAY + WAH - CH + TOP))"
+check "a place YIELDS to the client's own USPosition +500+50" \
+    "240x120+$((500 + B))+$((50 + TOP))" "$(geom "$CORNER")"
+if grep -q 'yields to its own -geometry' "$LOG"; then
+    echo "OK: ...and said so, pointing at the way to override it"
+else
+    echo "FAIL: the yielded placement was not accounted for in the log"
+fi
+check '...and force in the spec takes it back' "$CORNERGEOM" "$(geom "$FORCED")"
 
 check "the panel button's style: right half, undecorated" \
     "$((WAW / 2))x${WAH}+$((WAX + WAW - WAW / 2))+${WAY}" \
