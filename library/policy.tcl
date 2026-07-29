@@ -1496,8 +1496,19 @@ proc popup-show {m W H X Y} {
 # client's window gets reparented into, and here it is simply where our
 # own widgets go. Returns that frame; pack into it.
 #
-# Keyboard comes from grab-keys-to, the same router the menus use. An
-# override-redirect window gets no X focus of its own and wants none.
+# Keyboard comes from grab-keys-to, the same router the menus use — and
+# that is the known limit of this, not a finished story. A grab is the
+# right answer for something modal (a menu, the Quit confirmation:
+# answer it or dismiss it, nothing else happens meanwhile). It is the
+# wrong answer for a window that should sit on the desk while you work
+# — a settings panel, a monitor — because such a window wants ORDINARY
+# focus: click to take it, alt-tab to reach it, give it up when
+# something else is picked. An override-redirect window is invisible to
+# all of that, so the WM will have to imitate normal focus for its own
+# windows rather than borrow the modal grab (owner, 2026-07-29). The
+# same goes for resize by the border and maximize: rz-* and the
+# maximize pair are still written around a client id, and each wants
+# the same "no client behind this frame" treatment the drag just got.
 proc wm-window {t title cw ch closescript} {
     lassign [list $::border $::decotop $::titleh] B top titleh
     toplevel $t -background #3465a4
@@ -1540,7 +1551,11 @@ proc wm-window {t title cw ch closescript} {
     lassign [screen-size] sw sh
     set W [expr {$cw + 2*$B}]
     set H [expr {$ch + $top + $B}]
-    frame-layout $t $cw $ch [expr {($sw - $W) / 2}] [expr {($sh - $H) / 3}]
+    # Centred, but never off the left or top edge: a question long
+    # enough to outgrow the screen would otherwise start off-screen,
+    # taking its buttons with it.
+    frame-layout $t $cw $ch \
+        [expr {max(0, ($sw - $W) / 2)}] [expr {max(0, ($sh - $H) / 3)}]
     raise $t
     update idletasks
     return $t.slot
@@ -2105,9 +2120,30 @@ foreach {_name _impl} $window_commands {
 # Quit asks first — but only when a PERSON asked. The same rule as
 # Maximize: a program that says Quit means it, and a modal question put
 # to a script is a hang rather than a safeguard.
+# The question warns rather than reassures, and deliberately does not
+# try to work out which it should do.
+#
+# What the window manager can promise is only its own half: it RELEASES
+# every client instead of destroying it, so nothing dies by our hand.
+# What happens next is the session's business, and in nearly every real
+# setup the session ends with us — .Xsession finishes with `exec wm`,
+# or with `wm & … wait`, and either way our exit is the end of the
+# script and every window goes with it. Only a window manager started
+# by hand inside an existing session leaves its clients standing.
+#
+# It said "Windows stay open" for one commit, which was true of the
+# case almost nobody is in. Detecting the difference was the obvious
+# next thought and is a trap (owner, 2026-07-29): pid == session id
+# catches `exec wm` and misses `wm & wait` completely — where we are
+# NOT the leader and the session ends anyway — so the heuristic would
+# print the reassuring line in precisely the case that must not be
+# reassured. A guess that fails toward "it's fine" is worse than no
+# guess, so: no guess, and the pessimistic wording, which is also the
+# true one nearly always.
 proc quit-command {} {
     if {![interactive-p]} { quit-wm; return }
-    confirm "tk9wm" "Leave the desk? Windows stay open." Quit quit-wm
+    confirm "tk9wm" "Quit? The X session normally ends with the\
+        window manager." Quit quit-wm
 }
 set desk_commands {
     Restart restart-wm

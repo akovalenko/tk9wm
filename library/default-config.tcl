@@ -352,10 +352,12 @@
 #             WM's own, keyboard-first — y/n, Left/Right or Tab to
 #             move, Return for the highlighted one, Escape to stay;
 #             Cancel starts selected). Confirmed, every client is
-#             released back to the root alive, then
-#             the WM stops. With .Xsession exec'ing it, that ends the
-#             session. Bound by default to <Super>t q — a desk you can
-#             only leave by finding another terminal and killing
+#             RELEASED back to the root alive rather than closed —
+#             but that is all the WM can promise: a .Xsession that
+#             ends with the window manager (exec wm, or wm & wait)
+#             ends the whole session when it goes, and the question
+#             says so. Bound by default to <Super>t q — a desk you
+#             can only leave by finding another terminal and killing
 #             yourself is not a desk.
 #
 # Their lowercase originals, restart-wm and reload-config, still work:
