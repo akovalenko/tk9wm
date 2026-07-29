@@ -337,17 +337,38 @@ frames a client and shows a panel has proved both libraries loaded.
   window that does not fit down to the screen (never below its declared
   minimum).
 
-  A `place` **yields to USPosition** and outranks everything below it.
-  A rule is the user speaking in general; `USPosition` is the same user
-  speaking about *this* window — `xterm -geometry +40+40`, a session
-  restoring where it was left — and the particular wins (owner's call,
-  2026-07-30, reversing the day-old rule that a rule beat everything:
-  with `place max` as a standing policy for half the desk, a rule that
-  also overrode every `-geometry` leaves no way to ask for anything
-  else). `force` in the spec is how a rule says it means it anyway.
-  `PPosition` does not get this: a program's own idea of where it
-  should go, which it has whether it thought about it or not, is not a
-  user's word.
+  A `place` **yields to the window's own `-geometry`** and outranks
+  everything below it. A rule is the user speaking in general; a
+  `-geometry` is the same user speaking about *this* window — and the
+  particular wins (owner's call, 2026-07-30, reversing the day-old rule
+  that a rule beat everything: with `place max` as a standing policy for
+  half the desk, a rule that also overrode every `-geometry` leaves no
+  way to ask for anything else).
+
+  It yields **aspect by aspect**, because `-geometry` is two claims and
+  X flags them separately. Said how big (`USSize`) → the rule's sizes
+  drop and its terms go **sizeless**: it may still pull the window to
+  the edge it names, at the size that was asked for. Said where
+  (`USPosition`) → the rule's position drops; it may still say how big.
+  Both → the rule has nothing left to say. An all-or-nothing yield read
+  `xterm -geometry 20x20` as no claim at all and placed it exactly like
+  a bare xterm, 20x20 and everything thrown away (owner's report, same
+  day). Only the US forms: the P forms are the program's own idea, which
+  it has for every window whether it thought about it or not. `force` in
+  the spec is how a rule says it means it anyway.
+
+  **Which flags a toolkit actually sets** is not guessable and was
+  measured (2026-07-30): `xterm -geometry 20x20` sets `USSize` alone,
+  and xterm stamps `USSize` whenever `-geometry` is present *at all* —
+  `-geometry +300+200` claims both. Tk's `wm geometry` sets `USPosition`
+  and **never** `USSize`, whatever the string carried. Qt Creator sets
+  both, plus `StaticGravity`, from its own restored geometry — so
+  `USPosition` in the wild means "the app remembers where it was" at
+  least as often as "the user typed it", and nothing in the protocol
+  distinguishes them. The WM logs the claim it read (`WM: 0x… claims
+  +0+-2 — USPosition, gravity Static`) because the property is the
+  app's to change at any moment and `xprop` by click lands on the
+  frame, which on this desk is a Tk toplevel carrying hints of its own.
 
   **What `+0+0` is the corner of** is the screen, not the workarea:
   a position in `WM_NORMAL_HINTS` is in ROOT coordinates, and
@@ -1050,7 +1071,13 @@ runs as a single shell call:
   lands ON it and one aimed 30 px inside stays 30 px inside; and a
   client asking for `+0+-2` keeps its x under a left-hand panel while
   its y is clamped onto the screen — the desk has a panel precisely so
-  the two rectangles differ).
+  the two rectangles differ), `run-yield-test.sh` (one rule against six
+  windows, each claiming a different combination: said nothing, said how
+  big, said where, said both, said both under `force`, and an unmatched
+  reference for "the size it would have had anyway". The cast is mixed
+  out of necessity — xterms for the size claims, since Tk never sets
+  `USSize`, and a Tk client for the position-only one, since xterm
+  cannot make that claim alone).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second

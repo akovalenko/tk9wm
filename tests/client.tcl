@@ -18,11 +18,15 @@ if {$minsize ne "" && [regexp {^(\d+)x(\d+)$} $minsize -> mw mh]} {
     wm minsize . $mw $mh
 }
 if {$title eq ""} { set title client }
-if {$geom  eq ""} { set geom 240x120 }
+# "-" = ask for NOTHING: no `wm geometry` at all, so no USSize and no
+# USPosition, which is the only way to be a client that made no claim
+# (the default 240x120 below is itself a claim — it goes through `wm
+# geometry` and lands in the flags).
+if {$geom  eq "-"} { set geom "" } elseif {$geom eq ""} { set geom 240x120 }
 if {$color eq ""} { set color #fce94f }
 chan configure stdout -buffering line
 wm title . $title
-wm geometry . $geom
+if {$geom ne ""} { wm geometry . $geom }
 wm protocol . WM_DELETE_WINDOW {
     puts "CLIENT $title: got WM_DELETE_WINDOW, exiting"
     exit 0

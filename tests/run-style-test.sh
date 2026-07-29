@@ -13,10 +13,12 @@
 #                                       button then restores it to the
 #                                       geometry it never had (240x120
 #                                       at the first cascade slot)
-#   уголок       30%bottom,50%right   — and it CLAIMS +500+50 with
-#                                       USPosition, which the rule now
-#                                       YIELDS to (the owner's call,
-#                                       2026-07-30)
+#   уголок       30%bottom,50%right   — and it CLAIMS +300+50 with
+#                                       USPosition (Tk sets that and
+#                                       never USSize), so the rule
+#                                       yields its POSITION and still
+#                                       says how big — aspect by
+#                                       aspect, see run-yield-test.sh
 #   полочный     declared by a panel-button's `style` shorthand:
 #                {decor none place 50%right} — the right half, no frame
 #                at all (frame extents 0)
@@ -25,7 +27,7 @@
 #   безрамочный  decor border         — border and grips, no title strip
 #   кривой       place 50%diagonal    — unreadable: logged and dropped,
 #                the window still managed and cascaded
-#   упрямый      the same terms plus `force`, and the same +500+50
+#   упрямый      the same terms plus `force`, and the same +300+50
 #                claim — force is how a rule says it outranks the
 #                window's own word after all
 . "$(dirname "$0")/common.sh"
@@ -55,9 +57,9 @@ XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
 sleep 1.5
 
-for spec in "развёрнутый 240x120" "уголок 240x120+500+50" "полочный 240x120" \
+for spec in "развёрнутый 240x120" "уголок 240x120+300+50" "полочный 240x120" \
             "свойразмер 240x120" "безрамочный 240x120" "кривой 240x120" \
-            "упрямый 240x120+500+50"; do
+            "упрямый 240x120+300+50"; do
     set -- $spec
     "$LINUX/whale" "$HERE/client.tcl" "$1" "$2" "#fce94f" "" "" 25 \
         >> "$HERE/style-client.log" 2>&1 &
@@ -108,10 +110,10 @@ check "max fills the workarea" \
 
 CW=$((WAW / 2)); CH=$((WAH * 30 / 100))
 CORNERGEOM="$((CW - 2*B))x$((CH - TOP - B))+$((WAX + WAW - CW + B))+$((WAY + WAH - CH + TOP))"
-check "a place YIELDS to the client's own USPosition +500+50" \
-    "240x120+$((500 + B))+$((50 + TOP))" "$(geom "$CORNER")"
-if grep -q 'yields to its own -geometry' "$LOG"; then
-    echo "OK: ...and said so, pointing at the way to override it"
+check "a place yields its POSITION to the client's own +300+50, and still sizes it" \
+    "$((CW - 2*B))x$((CH - TOP - B))+$((300 + B))+$((50 + TOP))" "$(geom "$CORNER")"
+if grep -q 'yields its position to the' "$LOG"; then
+    echo "OK: ...and said so"
 else
     echo "FAIL: the yielded placement was not accounted for in the log"
 fi

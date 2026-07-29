@@ -1140,6 +1140,13 @@ PropObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 	    Tcl_DictObjPut(interp, res, Tcl_NewStringObj("position", -1),
 		Tcl_NewStringObj((hints.flags & USPosition) ? "user" : "program", -1));
 	}
+	/* ...and the same question about the SIZE, which is a separate
+	 * claim and separately flagged: `xterm -geometry 20x20` sets
+	 * USSize and no USPosition at all (measured, 2026-07-30). */
+	if (hints.flags & (USSize | PSize)) {
+	    Tcl_DictObjPut(interp, res, Tcl_NewStringObj("size", -1),
+		Tcl_NewStringObj((hints.flags & USSize) ? "user" : "program", -1));
+	}
 	Tcl_SetObjResult(interp, res);
 	return TCL_OK;
     }

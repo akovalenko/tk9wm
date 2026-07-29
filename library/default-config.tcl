@@ -191,13 +191,24 @@
 #   wm-style my-monitor {place {30%bottom 50%right}}   ;# lower right
 #   wm-style {filter -class {* XClock}} {place {right bottom}}
 #
-# A place YIELDS to a window that claims its own position with
-# USPosition — `xterm -geometry +40+40`, a session restoring where it
-# was left. A rule is the user speaking in general; USPosition is the
-# same user speaking about THIS window, and the particular wins. (Not
-# PPosition: a program's own idea of where it should go, which it has
-# whether it thought about it or not, is not a user's word.) Add
-# `force` to the spec for a rule that means it anyway:
+# A place YIELDS to a window that asks for its own geometry — `xterm
+# -geometry 20x20`, a session restoring where it was left. A rule is
+# the user speaking in general; a -geometry is the same user speaking
+# about THIS window, and the particular wins.
+#
+# It yields ASPECT BY ASPECT, because -geometry is two claims and X
+# flags them separately:
+#   the window said HOW BIG (USSize) — the rule's sizes drop and its
+#     terms go sizeless: it may still pull the window to the edge it
+#     names, at the size that was asked for;
+#   the window said WHERE (USPosition) — the rule's position drops; it
+#     may still say how big;
+#   both — the rule has nothing left to say.
+# Only the US forms. The P forms are the program's own idea, which it
+# has for every window whether it thought about it or not, and are not
+# a user's word.
+#
+# Add `force` to the spec for a rule that means it anyway:
 #   wm-style {filter -class Emacs} {place {max force}}
 #
 # `max` is the whole workarea, spelled the way one thinks of it (the

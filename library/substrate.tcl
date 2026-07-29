@@ -1414,6 +1414,7 @@ proc read-normal-hints {w} {
     set ::incof($w) {0 0}
     set ::baseof($w) {0 0}
     set ::poshintof($w) none
+    set ::sizehintof($w) none
     set ::gravof($w) 1                           ;# NorthWest, the default
     # A dict from the shim, with only the fields the client actually
     # declared present — the flags are decoded there, so the ICCCM
@@ -1444,6 +1445,13 @@ proc read-normal-hints {w} {
     if {[dict exists $h position]} {
         set ::poshintof($w) [dict get $h position]
     }
+    # The SIZE claim is a separate flag and separately meant: `xterm
+    # -geometry 20x20` sets USSize and no USPosition whatever
+    # (measured, 2026-07-30), so "the user said where" and "the user
+    # said how big" are two questions and this layer keeps both facts.
+    if {[dict exists $h size]} {
+        set ::sizehintof($w) [dict get $h size]
+    }
     if {[dict exists $h gravity]} {
         set grav [dict get $h gravity]
         if {$grav >= 1 && $grav <= 10} { set ::gravof($w) $grav }
@@ -1456,6 +1464,11 @@ proc client-position-hint {w} {
     if {[info exists ::poshintof($w)]} { set kind $::poshintof($w) }
     if {[info exists ::gravof($w)]}    { set grav $::gravof($w) }
     list $kind $grav
+}
+# ...and the size claim: user|program|none.
+proc client-size-hint {w} {
+    if {[info exists ::sizehintof($w)]} { return $::sizehintof($w) }
+    return none
 }
 
 # Where the client window sat at manage time (root coords, from the
@@ -1954,7 +1967,7 @@ proc unmanage {w {dead 0}} {
     icon-invalidate $w
     unset -nocomplain ::iconic($w) ::fullscreen($w) ::skip_unmap($w)
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
-    unset -nocomplain ::poshintof($w) ::gravof($w) ::mapxyof($w)
+    unset -nocomplain ::poshintof($w) ::sizehintof($w) ::gravof($w) ::mapxyof($w)
     # The decoration is gone: stop treating its windows as ours, and
     # settle an invitation this window will now never answer (fvwm's
     # ebdd006ea — a mark that outlives its window is a mark that

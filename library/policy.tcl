@@ -437,22 +437,49 @@ proc policy-initial-size {w cw ch} {
     set st [style-of $w]
     if {![dict exists $st place]} { return [list $cw $ch] }
     lassign [place-force [dict get $st place]] spec forced
-    # A rule is the user speaking IN GENERAL; USPosition is the same
-    # user speaking about THIS window — `xterm -geometry +40+40`, a
-    # session restoring where it was left. The particular wins, so a
-    # place YIELDS to it (the owner's call, 2026-07-30, reversing the
-    # day-old rule that it beat everything: with `place max` as a
-    # standing policy for half the desk, a rule that also overrode every
-    # -geometry would leave no way to ask for anything else). `force` in
-    # the spec is how a rule says it means it after all.
+    # A rule is the user speaking IN GENERAL; a `-geometry` is the same
+    # user speaking about THIS window. The particular wins, so a place
+    # YIELDS to it (the owner's call, 2026-07-30, reversing the day-old
+    # rule that it beat everything: with `place max` as a standing
+    # policy for half the desk, a rule that also overrode every
+    # -geometry would leave no way to ask for anything else). `force`
+    # in the spec is how a rule says it means it after all.
     #
-    # USPosition only. PPosition — the program's own idea of where it
-    # should go, which it has for every window whether it thought about
-    # it or not — is not a user's word and does not outrank a rule.
-    if {!$forced && [lindex [client-position-hint $w] 0] eq "user"} {
-        puts "WM: place «$spec» on 0x[format %x $w] yields to its own\
+    # It yields ASPECT BY ASPECT, because `-geometry` is two claims and
+    # they are separately flagged: `xterm -geometry 20x20` sets USSize
+    # and no USPosition at all, `+300+200` alone sets USPosition and no
+    # USSize, and the full form sets both (measured, 2026-07-30). An
+    # all-or-nothing yield read the first of those as no claim and
+    # placed the window as if the size had never been asked for
+    # (owner's report, same day). So:
+    #
+    #   the user said HOW BIG  -> the rule's sizes drop and its terms go
+    #                             SIZELESS: it may still pull the window
+    #                             to the edge it names, at the size that
+    #                             was asked for
+    #   the user said WHERE    -> the rule's position drops; it may still
+    #                             say how big
+    #   both                   -> the rule has nothing left to say
+    #
+    # USPosition/USSize only. The P forms — the program's own idea,
+    # which it has for every window whether it thought about it or not —
+    # are not a user's word and do not outrank a rule.
+    set userpos [expr {[lindex [client-position-hint $w] 0] eq "user"}]
+    set usersize [expr {[client-size-hint $w] eq "user"}]
+    if {!$forced && ($userpos || $usersize)} {
+        if {$userpos && $usersize} {
+            puts "WM: place «$spec» on 0x[format %x $w] yields whole to its own\
  -geometry (say `force` to override)"
-        return [list $cw $ch]
+            return [list $cw $ch]
+        }
+        if {$usersize} {
+            set spec [place-sizeless $spec]
+            puts "WM: place on 0x[format %x $w] yields its sizes to the\
+ window's own -geometry — «$spec»"
+        } else {
+            puts "WM: place «$spec» on 0x[format %x $w] yields its position to\
+ the window's own -geometry"
+        }
     }
     if {[catch {
         # `max` is the maximized STATE and not just a size: without a
@@ -474,9 +501,27 @@ proc policy-initial-size {w cw ch} {
         unset -nocomplain ::maxsaved($w)
         return [list $cw $ch]
     }
-    set ::placeof($w) [list $X $Y]
-    puts "WM: place 0x[format %x $w] «$spec» -> ${pw}x${ph}+$X+$Y"
+    # The position is the rule's only when the rule still owns it.
+    if {$forced || !$userpos} {
+        set ::placeof($w) [list $X $Y]
+        puts "WM: place 0x[format %x $w] «$spec» -> ${pw}x${ph}+$X+$Y"
+    } else {
+        puts "WM: place 0x[format %x $w] «$spec» -> ${pw}x${ph}, at its own place"
+    }
     list $pw $ph
+}
+# The same terms with their sizes taken off — what a place has left to
+# say when the window itself asked how big to be. `max` is expanded
+# first: as a size it is the whole workarea, and what survives of it
+# sizeless is the corner it pins to.
+proc place-sizeless {spec} {
+    if {[string trim $spec] eq "max"} { set spec {100%left 100%top} }
+    set terms {}
+    foreach term [split [string map {, " "} $spec]] {
+        if {$term eq ""} continue
+        lappend terms [regsub {^[0-9]+%} $term ""]
+    }
+    return $terms
 }
 
 # Size hints applied the style's way: clamp to the declared minimum
