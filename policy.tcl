@@ -121,6 +121,13 @@ proc retitle-frames {} {
     title-metrics
     panel-build   ;# the strip height follows the font too
     foreach {w t} [array get ::frameof] {
+        # Re-asking the style, not just re-reading the metrics: this is
+        # also the path a config RELOAD takes, and by then the `decor`
+        # verdicts have been dropped with the rest of the style cache.
+        # So a reload can take a titlebar off a living window and put
+        # it back — while `place`, being a one-shot at map time, leaves
+        # every window exactly where it stands.
+        set ::chromeof($t) [chrome-of $w]
         frame-layout $t [$t.slot cget -width] [$t.slot cget -height]
     }
     update idletasks
@@ -168,6 +175,9 @@ proc set-title-justify {j} {
 # window in the window list, overriding the client's own _NET_WM_ICON.
 # minimize (iconify|refuse) — this client's answer to an iconify
 # request, overriding the desk-wide set-minimize.
+# decor (full|border|none) — how much frame this client wears; see
+# chrome-of. place (a term list) — the geometry it is born with; see
+# parse-place.
 set style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
@@ -175,7 +185,7 @@ proc wm-style {pred settings} {
 }
 proc style-of {w} {
     if {[info exists ::styleof($w)]} { return $::styleof($w) }
-    set st [dict create increments respect]
+    set st [dict create increments respect decor full]
     foreach rule $::style_rules {
         lassign $rule pred settings
         if {[catch {uplevel #0 [list {*}$pred $w]} match]} {
@@ -274,6 +284,164 @@ proc filter {args} {
     return 1
 }
 
+# ---- decor: how much frame a client wears ----
+# The style key `decor` in three steps, and the middle one is why it is
+# not a boolean: full (the default) is titlebar and border; border keeps
+# the border and its grips but drops the title strip — the window still
+# resizes by the edge, it just carries no name, no buttons and no drag
+# handle; none is nothing at all, the frame exactly the size of the
+# client. Returns the three measures every layout is built from:
+# {border top titleh}, where top is the offset of the client area.
+#
+# Everything that lays a frame out asks HERE instead of reading
+# ::border/::decotop, because those are the desk's numbers and this is
+# the window's. A frame remembers its own answer (::chromeof) — the
+# style verdict is cached per client, but the frame is what the drawing
+# and the resize code has in hand.
+proc chrome-of {w} {
+    switch -- [dict get [style-of $w] decor] {
+        none    { list 0 0 0 }
+        border  { list $::border $::border 0 }
+        full    { list $::border $::decotop $::titleh }
+        default { error "decor: full, border or none" }
+    }
+}
+proc frame-chrome {t} {
+    if {[info exists ::chromeof($t)]} { return $::chromeof($t) }
+    list $::border $::decotop $::titleh
+}
+
+# ---- place: the geometry a client is born with ----
+# The style key `place` — a list of terms, comma OR whitespace
+# separated, so both {30%bottom 50%right} and "30%bottom,50%right"
+# read the same.
+#
+#   term  = [SIZE]EDGE
+#   SIZE  = N%            (of the WORKAREA — the panel is never covered)
+#   EDGE  = left|right|hcenter | top|bottom|vcenter | center
+#
+# The EDGE picks the axis as well as the alignment, which is what makes
+# "50%right" say everything it needs to in seven characters. A term
+# WITH a size sets both the size and the alignment on its axis; a term
+# WITHOUT one keeps the window's own size and only pins it. `center` is
+# shorthand for `hcenter vcenter`. Two terms on one axis: the later
+# wins, the way a later style rule does.
+#
+# An axis NO term claims is FILLED — that is the rule that makes
+# 50%right the right half at full height. Its flip side, worth knowing
+# before it surprises: a lone `place right` is full height at the right
+# edge, and "pin it, leave the size alone" is written with a term per
+# axis ({right bottom}).
+#
+# `max` is the whole workarea — the same grammar's {100%left 100%top},
+# spelled the way one thinks of it.
+#
+# Returns {haxis vaxis}, each {size align} with size "" for sizeless
+# and align in start|end|center.
+proc parse-place {spec} {
+    if {[string trim $spec] eq "max"} { set spec {100%left 100%top} }
+    set ax [dict create]
+    foreach term [split [string map {, " "} $spec]] {
+        if {$term eq ""} continue
+        if {![regexp {^(?:([0-9]+)%)?(left|right|hcenter|top|bottom|vcenter|center)$} \
+                 $term -> size edge]} {
+            error "place: cannot read term «$term»"
+        }
+        if {$edge eq "center"} {
+            if {$size ne ""} { error "place: center takes no size" }
+            dict set ax h [list "" center]
+            dict set ax v [list "" center]
+            continue
+        }
+        switch -- $edge {
+            left    { dict set ax h [list $size start] }
+            right   { dict set ax h [list $size end] }
+            hcenter { dict set ax h [list $size center] }
+            top     { dict set ax v [list $size start] }
+            bottom  { dict set ax v [list $size end] }
+            vcenter { dict set ax v [list $size center] }
+        }
+    }
+    if {![dict size $ax]} { error "place: no terms" }
+    # the unclaimed axis fills
+    foreach a {h v} {
+        if {![dict exists $ax $a]} { dict set ax $a {100 start} }
+    }
+    list [dict get $ax h] [dict get $ax v]
+}
+
+# The placement spelled out for one client: {cw ch X Y} — the CLIENT
+# size and the FRAME position. The percentages are of the frame (what
+# one sees), so the client size is what is left after the decoration;
+# the size hints then bind it exactly as they bind maximize, and the
+# slack that leaves goes to the side the term did NOT pin — a
+# right-aligned xterm keeps its right edge flush and eats the remainder
+# on the left.
+proc place-geometry {w cw ch spec} {
+    lassign [workarea] wax way ww wh
+    lassign [chrome-of $w] B top
+    lassign [parse-place $spec] hax vax
+    lassign $hax hsize halign
+    lassign $vax vsize valign
+    set fw [expr {$hsize eq "" ? $cw + 2*$B : $ww * $hsize / 100}]
+    set fh [expr {$vsize eq "" ? $ch + $top + $B : $wh * $vsize / 100}]
+    lassign [apply-size-hints $w [expr {max($fw - 2*$B, 1)}] \
+                                 [expr {max($fh - $top - $B, 1)}]] cw ch
+    set fw [expr {$cw + 2*$B}]
+    set fh [expr {$ch + $top + $B}]
+    list $cw $ch [place-axis $wax $ww $fw $halign] \
+                 [place-axis $way $wh $fh $valign]
+}
+proc place-axis {origin extent size align} {
+    switch -- $align {
+        start  { return $origin }
+        end    { return [expr {$origin + $extent - $size}] }
+        center { return [expr {$origin + ($extent - $size) / 2}] }
+    }
+}
+
+# The initial CLIENT size, the substrate's one question about a
+# newcomer's geometry (it used to clamp by hand and ask the policy only
+# for the ceiling — but a `place` needs an exact size, not a maximum,
+# and the ceiling itself depends on how much decoration the style gave
+# this window, which only the policy knows).
+#
+# A placement that cannot be read is LOGGED and dropped, not thrown:
+# one bad line in a config must not cost the desk its ability to manage
+# a window.
+proc policy-initial-size {w cw ch} {
+    lassign [client-min-size $w] minw minh
+    lassign [policy-max-client-size $w] maxw maxh
+    set cw [expr {max(min($cw, $maxw), $minw, 1)}]
+    set ch [expr {max(min($ch, $maxh), $minh, 1)}]
+    set st [style-of $w]
+    if {![dict exists $st place]} { return [list $cw $ch] }
+    set spec [dict get $st place]
+    if {[catch {
+        # `max` is the maximized STATE and not just a size: without a
+        # saved geometry the first "restore" would restore to what the
+        # window already is, and the toggle would be a dead key for the
+        # rest of the window's life. What gets saved is what the window
+        # would have been WITHOUT the style — its own size at the
+        # position the ordinary placement would have given it, cascade
+        # slot and all.
+        if {[string trim $spec] eq "max"} {
+            lassign [chrome-of $w] B top
+            lassign [place-frame $w [expr {$cw + 2*$B}] \
+                                    [expr {$ch + $top + $B}]] X0 Y0
+            set ::maxsaved($w) [list $cw $ch $X0 $Y0]
+        }
+        lassign [place-geometry $w $cw $ch $spec] pw ph X Y
+    } err]} {
+        puts "WM: place «$spec» on 0x[format %x $w]: $err"
+        unset -nocomplain ::maxsaved($w)
+        return [list $cw $ch]
+    }
+    set ::placeof($w) [list $X $Y]
+    puts "WM: place 0x[format %x $w] «$spec» -> ${pw}x${ph}+$X+$Y"
+    list $pw $ph
+}
+
 # Size hints applied the style's way: clamp to the declared minimum
 # always; snap to the increment grid (from the PBaseSize origin) only
 # when this client's style says respect. Every WM-initiated size
@@ -297,9 +465,10 @@ proc apply-size-hints {w cw ch} {
 # gravity this WM does not model yet — aims the point at the frame's
 # own top-left; Static (10) aims it at the client area, so the frame
 # backs off by its decorations.
-proc gravity-frame-xy {x y grav} {
+proc gravity-frame-xy {w x y grav} {
     if {$grav == 10} {
-        return [list [expr {$x - $::border}] [expr {$y - $::decotop}]]
+        lassign [chrome-of $w] B top
+        return [list [expr {$x - $B}] [expr {$y - $top}]]
     }
     list $x $y
 }
@@ -326,19 +495,29 @@ proc place-frame {w fw fh} {
     # frames are placed within the WORKAREA: a new window must not be
     # born with its bottom edge under the panel
     lassign [workarea] wax way sw sh
+    # A `place` style beats every claim below it, the client's own
+    # -geometry included (the owner's call, 2026-07-29): the config is
+    # the same user saying it once and for all, and a rule that lost to
+    # a command line would be a rule one could not rely on. The position
+    # itself was settled with the size, in policy-initial-size.
+    if {[info exists ::placeof($w)]} { return $::placeof($w) }
     lassign [client-position-hint $w] kind grav
     set ipos [client-initial-position $w]
     if {$kind ne "none" && [llength $ipos] == 2} {
         lassign $ipos X Y
         if {$kind eq "user"} {
-            return [gravity-frame-xy $X $Y $grav]
+            return [gravity-frame-xy $w $X $Y $grav]
         }
         if {$X != 0 || $Y != 0} {
-            lassign [gravity-frame-xy $X $Y $grav] X Y
+            lassign [gravity-frame-xy $w $X $Y $grav] X Y
             return [clamp-to-screen $X $Y $fw $fh $sw $sh]
         }
     }
-    set parent $::leaderof($w)
+    # The leader is READ at attach, and this proc now runs before that
+    # too — policy-initial-size asks it what an un-styled window would
+    # have got. A lookup is not the authority on the answer: no entry
+    # yet simply means "no leader to center over".
+    set parent [expr {[info exists ::leaderof($w)] ? $::leaderof($w) : 0}]
     if {$parent != 0 && [info exists ::frameof($parent)]} {
         set pt $::frameof($parent)
         if {[regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $pt] -> pw ph px py]} {
@@ -370,13 +549,14 @@ proc clamp-to-screen {X Y fw fh sw sh} {
     list [expr {max($X, 0)}] [expr {max($Y, 0)}]
 }
 
-# The biggest client area a frame on this screen can hold — the
-# substrate shrinks an oversized newcomer to this (never below the
-# client's declared minimum) so no edge starts out unreachable.
-proc policy-max-client-size {} {
+# The biggest client area THIS window's frame can hold — an oversized
+# newcomer is shrunk to it (never below the client's declared minimum)
+# so no edge starts out unreachable. Window-specific because the
+# decoration is: an undecorated frame has the whole workarea to give.
+proc policy-max-client-size {w} {
     lassign [workarea] wax way sw sh
-    set B $::border
-    list [expr {$sw - 2*$B}] [expr {$sh - $::decotop - $B}]
+    lassign [chrome-of $w] B top
+    list [expr {$sw - 2*$B}] [expr {$sh - $top - $B}]
 }
 
 # Build a decoration for client w (client area cw x ch): blue titlebar
@@ -385,13 +565,18 @@ proc policy-max-client-size {} {
 # slot exists server-side before the raw connection reparents into it.
 proc policy-attach {w cw ch} {
     set t .f[incr ::fid]
-    set B $::border
+    # How much frame this client wears is the style's call, and the
+    # answer is pinned to the FRAME here: everything that lays it out
+    # later (a resize, a font change, a grip hunt) has $t in hand and
+    # not $w.
+    set ::chromeof($t) [chrome-of $w]
+    lassign $::chromeof($t) B top
     # WM_TRANSIENT_FOR is read NOW and kept: the refocus pick needs the
     # dialog's leader at a moment when the dialog may already be a dead
     # window that cannot be asked anything. A later property change
     # arrives through policy-transient below.
     set ::leaderof($w) [transient-for $w]
-    lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $::decotop + $B}]] X Y
+    lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $top + $B}]] X Y
     toplevel $t -background #3465a4
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
     # The decoration underlay: a canvas filling the whole frame, drawn
@@ -486,12 +671,14 @@ proc policy-frame-geometry {w} {
 
 # EWMH _NET_FRAME_EXTENTS, {left right top bottom}. Our decoration is
 # uniform — the same border on three sides, the title strip on top —
-# so the answer does not depend on the window, and a client asking
-# BEFORE its first map (_NET_REQUEST_FRAME_EXTENTS, which is not
-# managed yet and has no frame to measure) gets the same honest
-# numbers as a framed one.
+# so within one window the answer is three numbers, and it is asked of
+# the STYLE rather than of the frame: a client asking BEFORE its first
+# map (_NET_REQUEST_FRAME_EXTENTS — not managed yet, no frame to
+# measure) is matched by the same predicates as a live one, and gets
+# the same honest numbers it will actually be framed with.
 proc policy-frame-extents {w} {
-    list $::border $::border $::decotop $::border
+    lassign [chrome-of $w] B top
+    list $B $B $top $B
 }
 
 proc policy-detach {w} {
@@ -505,11 +692,13 @@ proc policy-detach {w} {
         grab-keys-to {}
         puts "WM: keyboard mode dropped — 0x[format %x $w] is gone"
     }
-    unset -nocomplain ::btn($::frameof($w)) ::fullframe($::frameof($w))
+    unset -nocomplain ::btn($::frameof($w)) ::fullframe($::frameof($w)) \
+        ::chromeof($::frameof($w))
     destroy $::frameof($w)
     unset ::frameof($w)
     unset -nocomplain ::titleof($w)
     unset -nocomplain ::leaderof($w)
+    unset -nocomplain ::placeof($w)
     unset -nocomplain ::maxsaved($w) ::fssaved($w)
     unset -nocomplain ::styleof($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
@@ -534,7 +723,7 @@ proc policy-origin {w} {
 # change under a live frame (set-title-font). Position defaults to
 # "stay where you are".
 proc frame-layout {t cw ch {X ""} {Y ""}} {
-    set B $::border
+    lassign [frame-chrome $t] B top titleh
     # Fullscreen is a LAYOUT and nothing more, which is why it lives
     # here rather than as a second geometry path elsewhere: the client
     # takes the whole frame, the frame takes the whole screen at the
@@ -550,14 +739,21 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
         return
     }
     if {$X eq ""} { regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y }
-    $t.title configure -itemheight $::titleh
-    $t.title column configure Cmenu -width $::btnw
-    $t.title column configure Cmax -width $::btnw
-    $t.title column configure Cclose -width $::btnw
-    place $t.title -x $B -y $B -width $cw -height $::titleh
+    # A frame the style stripped of its title strip simply never places
+    # it — the widget stays built (the title is still tracked, and the
+    # window list wants it), it just has nowhere on screen to appear.
+    if {$titleh > 0} {
+        $t.title configure -itemheight $titleh
+        $t.title column configure Cmenu -width $::btnw
+        $t.title column configure Cmax -width $::btnw
+        $t.title column configure Cclose -width $::btnw
+        place $t.title -x $B -y $B -width $cw -height $titleh
+    } else {
+        place forget $t.title
+    }
     $t.slot configure -width $cw -height $ch
-    place $t.slot -x $B -y $::decotop
-    wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + $::decotop + $B}]+$X+$Y
+    place $t.slot -x $B -y $top
+    wm geometry $t [expr {$cw + 2*$B}]x[expr {$ch + $top + $B}]+$X+$Y
 }
 
 # The decoration follows the client's new size (position stays put).
@@ -576,7 +772,7 @@ proc policy-move-request {w x y vmask grav} {
     if {![info exists ::frameof($w)]} return
     set t $::frameof($w)
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
-    lassign [gravity-frame-xy $x $y $grav] x y
+    lassign [gravity-frame-xy $w $x $y $grav] x y
     if {!($vmask & 1)} { set x $fx }
     if {!($vmask & 2)} { set y $fy }
     if {$x == $fx && $y == $fy} return
@@ -598,7 +794,12 @@ proc policy-move-request {w x y vmask grav} {
 # paint-focus.
 proc deco-draw {c W H} {
     $c delete all
-    set B $::border; set CZ $::gripz
+    lassign [frame-chrome [winfo parent $c]] B
+    set CZ $::gripz
+    # No border, nothing to draw — and nothing that MAY be drawn: the
+    # client covers the whole frame, so even the 1px outline would be a
+    # line under a window nobody sees.
+    if {$B == 0} return
     set bg [$c cget -background]
     set grip [expr {[info exists ::gripof($bg)] ? $::gripof($bg) : $bg}]
     foreach {x0 y0 x1 y1} [list \
@@ -629,7 +830,9 @@ proc deco-draw {c W H} {
 # deco-draw advertises.
 proc rz-edge {t x y} {
     set W [winfo width $t]; set H [winfo height $t]
-    set B $::border; set CZ $::gripz
+    lassign [frame-chrome $t] B
+    set CZ $::gripz
+    if {$B == 0} { return "" }   ;# no border, no grip: nothing to grab
     if {($y < $B && $x < $CZ) || ($x < $B && $y < $CZ)} { return nw }
     if {($y < $B && $x >= $W - $CZ) || ($x >= $W - $B && $y < $CZ)} { return ne }
     if {$y < $B} { return n }
@@ -1093,7 +1296,7 @@ proc maximize-toggle {w} {
         return
     }
     set t $::frameof($w)
-    set B $::border
+    lassign [frame-chrome $t] B top
     if {[info exists ::maxsaved($w)]} {
         lassign $::maxsaved($w) cw ch X Y
         unset ::maxsaved($w)
@@ -1108,7 +1311,7 @@ proc maximize-toggle {w} {
         # increments bind maximize too (an xterm fills to whole cells,
         # slack stays at the workarea edge) — unless styled away
         wm-resize-client $w {*}[apply-size-hints $w \
-            [expr {$ww - 2*$B}] [expr {$wh - $::decotop - $B}]]
+            [expr {$ww - 2*$B}] [expr {$wh - $top - $B}]]
     }
     # wm-resize-client skips a no-op resize and tells the client nothing
     # then — but the frame MOVED either way, so state the origin once
@@ -1616,10 +1819,11 @@ proc winops {{w 0}} {
     $T selection add 1
     bind $T <ButtonPress-1> {winops-click %x %y}
     set t $::frameof($w)
+    lassign [frame-chrome $t] B top
     popup-show .winops [expr {max($maxw + $ih + 40, 160)}] \
         [expr {$n * $ih + 2}] \
-        [expr {[winfo rootx $t] + $::border}] \
-        [expr {[winfo rooty $t] + $::decotop}]
+        [expr {[winfo rootx $t] + $B}] \
+        [expr {[winfo rooty $t] + $top}]
     if {![grab-keys-to winops-key]} {
         puts "WM: winops: keyboard not grabbed — mouse only"
     }
@@ -1889,6 +2093,19 @@ proc panel-button {label settings} {
     if {[dict exists $settings key]} {
         wm-bind [dict get $settings key] \
             [list panel-fire [expr {[llength $::panel_buttons] - 1}]]
+    }
+    # `style` is a shorthand and nothing more: the button's own match
+    # predicate, handed to wm-style with these settings. It exists
+    # because a button and the windows it finds are usually described by
+    # the SAME filter, and writing it twice (or hoisting it into a proc
+    # to write it once) is bookkeeping the config should not have to do.
+    # The rule lands in the list AT THIS POINT, so precedence still
+    # reads straight down the config file.
+    if {[dict exists $settings style]} {
+        if {![dict exists $settings match]} {
+            error "panel-button $label: style needs a match to apply to"
+        }
+        wm-style [dict get $settings match] [dict get $settings style]
     }
     panel-rebuild-soon
 }

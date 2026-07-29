@@ -27,8 +27,11 @@
 #                           cw x ch), decide placement, and return the X
 #                           window id of the slot to reparent w into; must
 #                           return only after the slot exists server-side
-#   policy-max-client-size  {maxw maxh} a frame on this screen can hold —
-#                           an oversized newcomer is shrunk to it at manage
+#   policy-initial-size w cw ch
+#                           the client size w OPENS at, given the size it
+#                           asked for: the policy clamps an oversized
+#                           newcomer to what the screen holds, and a style
+#                           may name a size (and a place) of its own
 #   policy-detach w         destroy w's decoration
 #   policy-origin w         root {x y} of w's client area (for synthetic
 #                           ConfigureNotify and for parking a withdrawn
@@ -1531,14 +1534,14 @@ proc manage {w} {
         set ::mapxyof($w) [list $gx $gy]
     }
     read-normal-hints $w
-    # A window wider/taller than the screen leaves its far edge (emacs:
-    # the right one) unreachable — shrink it to what fits, but never
-    # below its declared minimum: a window that says "no smaller than
-    # this" keeps its size and placement pins it at the top-left instead.
-    lassign [client-min-size $w] minw minh
-    lassign [policy-max-client-size] maxw maxh
-    set cw [expr {max(min($cw, $maxw), $minw, 1)}]
-    set ch [expr {max(min($ch, $maxh), $minh, 1)}]
+    # What size this window OPENS at is the policy's answer and not
+    # ours. The substrate used to do the arithmetic itself and ask the
+    # policy only for the ceiling — but a style that opens a window
+    # maximized (or in the right half of the workarea) needs an exact
+    # size rather than a maximum, and the ceiling itself depends on how
+    # much decoration that same style gave the window. Both are
+    # look-and-feel; what stays here is the client's REQUEST.
+    lassign [policy-initial-size $w $cw $ch] cw ch
     set ::geomof($w) [list $cw $ch]
     set slot [policy-attach $w $cw $ch]
     set ::managed($w) 1

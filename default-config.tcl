@@ -71,6 +71,16 @@
 #     default respect (xterm resizes land on whole cells).
 #   minimize iconify|refuse — this client's answer to an iconify
 #     request, overriding the desk-wide set-minimize (above).
+#   decor full|border|none — how much frame this window wears. full
+#     (default) is the titlebar and the border; border keeps the border
+#     and its resize grips but drops the title strip — no name, no
+#     buttons, and no bar to drag; none is nothing at all, the frame
+#     exactly the size of the client. Mind what `none` costs: with no
+#     border and no titlebar, the mouse has nothing to grab — move and
+#     resize such a window from the keyboard (winops, <Alt>space).
+#     A config RELOAD re-decides this for windows already on screen.
+#   place TERMS — the geometry the window is BORN with; see the
+#     placement section below.
 #   icon IMAGE — a Tk image (create it right here in the config) shown
 #     for the window in the window list; overrides the client's own
 #     _NET_WM_ICON. Windows offering neither get a generated badge:
@@ -105,6 +115,50 @@
 # line and shows the usual no-icon look:
 #   wm-style my-xterm {icon terminal}
 #   wm-style my-xterm {icon ~/icons/terminal.png}
+#
+# ---- where a window opens: the `place` key ----
+#
+# A list of terms, comma or whitespace separated — "30%bottom,50%right"
+# and {30%bottom 50%right} are the same thing.
+#
+#   term = [SIZE]EDGE
+#   SIZE = N%   — of the WORKAREA (the panel and the tray are never
+#          covered), and of the FRAME: what you see is the half you
+#          asked for, decoration included
+#   EDGE = left|right|hcenter  (horizontal)
+#          top|bottom|vcenter  (vertical)
+#          center              = hcenter vcenter
+#
+# The edge picks the axis as well as the alignment. A term WITH a size
+# sets both the size and the alignment on its axis; a term WITHOUT one
+# keeps the window's own size and only pins it. Two terms on one axis:
+# the later wins.
+#
+# An axis NO term claims is FILLED. That is what makes 50%right the
+# right half at full height — and its flip side is worth knowing before
+# it surprises: a lone `place right` is full height at the right edge,
+# while "pin it, leave the size alone" takes a term per axis.
+#
+#   wm-style {filter -class Emacs}   {place max}
+#   wm-style {filter -title "*mutt*"} {place 50%right}
+#   wm-style my-monitor {place {30%bottom 50%right}}   ;# lower right
+#   wm-style {filter -class {* XClock}} {place {right bottom}}
+#
+# `max` is the whole workarea, spelled the way one thinks of it (the
+# same grammar's {100%left 100%top}). It also behaves like the
+# maximized STATE and not just a size: the titlebar's maximize button
+# restores such a window to the size it asked for, at the place the
+# ordinary cascade would have put it.
+#
+# Size increments bind a placement the way they bind maximize: an xterm
+# placed 50%right keeps its right edge flush and eats the leftover on
+# the left. Percentages are of the whole X screen's workarea — on two
+# monitors, 50%right is half of the JOINED desktop.
+#
+# A `place` beats every position the client claims for itself, its own
+# -geometry included: the config is the same user saying it once and
+# for all. A term that cannot be read is logged and dropped, and the
+# window opens where it otherwise would have.
 #
 # ---- the panel ----
 #
