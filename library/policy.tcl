@@ -310,6 +310,12 @@ proc frame-chrome {t} {
     if {[info exists ::chromeof($t)]} { return $::chromeof($t) }
     list $::border $::decotop $::titleh
 }
+# The titlebar buttons a frame carries, in column order. A client's
+# frame carries all three; the WM's own windows say what they want.
+proc frame-buttons {t} {
+    if {[info exists ::btncols($t)]} { return $::btncols($t) }
+    list Cmenu Cmax Cclose
+}
 
 # ---- place: the geometry a client is born with ----
 # The style key `place` — a list of terms, comma OR whitespace
@@ -753,9 +759,12 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
     # window list wants it), it just has nowhere on screen to appear.
     if {$titleh > 0} {
         $t.title configure -itemheight $titleh
-        $t.title column configure Cmenu -width $::btnw
-        $t.title column configure Cmax -width $::btnw
-        $t.title column configure Cclose -width $::btnw
+        # Which buttons this frame has is the frame's own business — a
+        # client wears all three, a window the WM put up for itself
+        # wears whatever it asked for. Same layout code either way.
+        foreach col [frame-buttons $t] {
+            $t.title column configure $col -width $::btnw
+        }
         place $t.title -x $B -y $B -width $cw -height $titleh
     } else {
         place forget $t.title
@@ -1270,6 +1279,12 @@ proc title-release {t w x y} {
     unset ::btn($t)
     $t.title item state forcolumn 1 $b !pressed
     if {[title-button $t.title $x $y] eq $b} {
+        if {$w == 0} {
+            # A window of the WM's own: the only button it wears is
+            # close, and closing it is whatever it said closing means.
+            if {$b eq "Cclose"} { wm-window-close $t }
+            return
+        }
         switch -- $b {
             Cclose { close-client $w }
             Cmax   { maximize-toggle $w }
@@ -1456,13 +1471,167 @@ proc popup-show {m W H X Y} {
     raise $m
     update idletasks
 }
+# ---- the WM's own windows -------------------------------------------
+#
+# A window this window manager puts up FOR ITSELF, wearing the same
+# decoration every client wears — same border and grips, same titlebar
+# font and colors, restyled by the same config knobs.
+#
+# It has to be override-redirect, and that is not a shortcut. Our own
+# windows are the one kind our redirect cannot catch: SubstructureRedirect
+# turns a child's map into a MapRequest for whoever selected it, EXCEPT
+# when the window is override-redirect or the client asking is the one
+# that selected the redirect — and we are always that client. Measured
+# rather than assumed (tools/probe-selftoplevel.tcl): a plain toplevel
+# from this process maps straight to the root, bare, and no MapRequest
+# ever arrives. We could reparent our own window into a frame by hand,
+# but then the WM's dialog would be one of the WM's clients — listed in
+# the window list, published in _NET_CLIENT_LIST, and swept up by
+# `Apply-To-Matching always Minimize` along with everything else.
+#
+# So instead the decoration is drawn around an override-redirect
+# toplevel, which is exactly what the decoration always was: deco-draw,
+# frame-layout and the titlebar drag are client-free already, and the
+# slot they wrap is an ordinary Tk frame — for a client it is what the
+# client's window gets reparented into, and here it is simply where our
+# own widgets go. Returns that frame; pack into it.
+#
+# Keyboard comes from grab-keys-to, the same router the menus use. An
+# override-redirect window gets no X focus of its own and wants none.
+proc wm-window {t title cw ch closescript} {
+    lassign [list $::border $::decotop $::titleh] B top titleh
+    toplevel $t -background #3465a4
+    wm overrideredirect $t 1
+    set ::btncols($t) {Cclose}        ;# no menu, no maximize on ours
+    set ::closeof($t) $closescript
+    canvas $t.deco -highlightthickness 0 -borderwidth 0 -background #3465a4
+    place $t.deco -x 0 -y 0 -relwidth 1 -relheight 1
+    bind $t.deco <Configure> {deco-draw %W %w %h}
+    treectrl $t.title -showheader no -showroot no -showbuttons no \
+        -showlines no -borderwidth 0 -highlightthickness 0 \
+        -background #3465a4 -itemheight $titleh
+    bindtags $t.title [list $t.title $t all]
+    $t.title state define pressed
+    $t.title column create -squeeze yes -expand yes -tags C0
+    $t.title column create -width $::btnw -tags Cclose
+    $t.title configure -treecolumn C0
+    $t.title element create eTxt text -fill white -lines 1 -font TitleFont
+    $t.title element create eBox rect -outline white -outlinewidth 1 \
+        -fill [list #2e3436 pressed {} {}]
+    $t.title element create eClose image -image imgClose
+    $t.title style create sTitle
+    $t.title style elements sTitle eTxt
+    $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
+        -padx 4 -squeeze x
+    $t.title style create sClose
+    $t.title style elements sClose {eBox eClose}
+    $t.title style layout sClose eBox -union eClose -ipadx 3 -ipady 3 -expand s
+    $t.title style layout sClose eClose -expand s
+    set item [$t.title item create]
+    $t.title item style set $item C0 sTitle Cclose sClose
+    $t.title item element configure $item C0 eTxt -text $title
+    $t.title item lastchild root $item
+    frame $t.slot -width $cw -height $ch -background #202020
+    # Dragged by its titlebar like anything else on this desk; 0 says
+    # "no client behind this frame" to the shared handlers.
+    bind $t.title <ButtonPress-1>   [list title-press   $t 0 %x %y %X %Y]
+    bind $t.title <B1-Motion>       [list title-motion  $t 0 %x %y %X %Y]
+    bind $t.title <ButtonRelease-1> [list title-release $t 0 %x %y]
+    lassign [screen-size] sw sh
+    set W [expr {$cw + 2*$B}]
+    set H [expr {$ch + $top + $B}]
+    frame-layout $t $cw $ch [expr {($sw - $W) / 2}] [expr {($sh - $H) / 3}]
+    raise $t
+    update idletasks
+    return $t.slot
+}
+# The first thing built on it: a confirmation for a command that cannot
+# be taken back. Keyboard-first, because the command it guards is bound
+# to a chord and reaching for the mouse to answer a question the
+# keyboard asked is a poor joke: Left/Right/Tab move, y and n answer
+# outright, Return takes the highlighted one and Escape leaves. The
+# safe answer starts selected, so a stray Return costs nothing.
+proc confirm {title question yeslabel script} {
+    popups-close
+    set pad 14
+    set lh [font metrics TitleFont -linespace]
+    set bh [expr {$lh + 10}]
+    set bw [expr {max([font measure TitleFont "  Cancel  "],
+                      [font measure TitleFont "  $yeslabel  "]) + 8}]
+    set cw [expr {max([font measure TitleFont $question] + 2*$pad,
+                      2*$bw + 3*$pad)}]
+    set ch [expr {$pad + $lh + $pad + $bh + $pad}]
+    set slot [wm-window .confirm $title $cw $ch {}]
+    set ::confirm_script $script
+    set ::confirm_choice 0        ;# the safe one
+    label $slot.q -text $question -font TitleFont \
+        -background #202020 -foreground white
+    place $slot.q -x $pad -y $pad
+    set by [expr {$ch - $pad - $bh}]
+    foreach {which text x} [list \
+            no  Cancel    [expr {$cw - 2*$pad - 2*$bw}] \
+            yes $yeslabel [expr {$cw - $pad - $bw}]] {
+        label $slot.$which -text $text -font TitleFont -foreground white
+        place $slot.$which -x $x -y $by -width $bw -height $bh
+        bind $slot.$which <ButtonPress-1> [list confirm-fire $which]
+    }
+    confirm-paint
+    update idletasks
+    if {![grab-keys-to confirm-key]} {
+        puts "WM: confirm: keyboard not grabbed — mouse only"
+    }
+    puts "WM: confirm «$question»"
+}
+proc confirm-paint {} {
+    foreach {which on} [list no [expr {!$::confirm_choice}] \
+                             yes $::confirm_choice] {
+        .confirm.slot.$which configure \
+            -background [expr {$on ? "#3465a4" : "#2e3436"}]
+    }
+}
+proc confirm-key {kind name mods} {
+    if {$kind eq "release" || $mods != 0} return
+    switch -- $name {
+        y - Y { confirm-fire yes }
+        n - N - Escape { confirm-fire no }
+        Left - Right - Tab - h - l {
+            set ::confirm_choice [expr {!$::confirm_choice}]
+            confirm-paint
+        }
+        Return - KP_Enter - space {
+            confirm-fire [expr {$::confirm_choice ? "yes" : "no"}]
+        }
+    }
+}
+proc confirm-fire {which} {
+    set script $::confirm_script
+    set ::confirm_script {}
+    popups-close
+    if {$which ne "yes"} { puts "WM: confirm: no"; return }
+    puts "WM: confirm: yes"
+    uplevel #0 $script
+}
+
+proc wm-window-close {t} {
+    set script {}
+    if {[info exists ::closeof($t)]} { set script $::closeof($t) }
+    unset -nocomplain ::closeof($t) ::btncols($t) ::drag($t) ::btn($t)
+    grab-keys-to {}
+    destroy $t
+    if {$script ne ""} { uplevel #0 $script }
+}
+
 # Close whatever popup is open. Every click path calls this as "close
 # if open"; the router is released only when a popup actually owns it —
 # a bare grab-keys-to {} here would abort an unrelated key sequence.
 proc popups-close {} {
-    foreach m {.winlist .winops} {
+    foreach m {.winlist .winops .confirm} {
         if {[winfo exists $m]} {
             grab-keys-to {}
+            # A dismissed wm-window leaves no bookkeeping behind. Its
+            # close SCRIPT is deliberately not run: dismissing IS the
+            # cancel, and cancel does nothing by definition.
+            unset -nocomplain ::closeof($m) ::btncols($m) ::drag($m) ::btn($m)
             destroy $m
         }
     }
@@ -1933,10 +2102,17 @@ foreach {_name _impl} $window_commands {
 # (as close-client is the implementation behind Close), the substrate
 # and this file call them by those names, and a config written before
 # the vocabulary existed keeps working.
+# Quit asks first — but only when a PERSON asked. The same rule as
+# Maximize: a program that says Quit means it, and a modal question put
+# to a script is a hang rather than a safeguard.
+proc quit-command {} {
+    if {![interactive-p]} { quit-wm; return }
+    confirm "tk9wm" "Leave the desk? Windows stay open." Quit quit-wm
+}
 set desk_commands {
     Restart restart-wm
     Reload  reload-config
-    Quit    quit-wm
+    Quit    quit-command
 }
 foreach {_name _impl} $desk_commands {
     if {[llength [info commands ::$_name]]} {
@@ -3216,8 +3392,13 @@ proc policy-apply {} {
 # release (press-end).
 proc drag-start {t w X Y} {
     popups-close
-    raise-group $w
-    focus-to $w
+    # w == 0 is a window of the WM's OWN (see wm-window): there is no
+    # client to raise and nothing to give the X focus to — it is
+    # override-redirect and takes the keyboard through grab-keys-to.
+    if {$w != 0} {
+        raise-group $w
+        focus-to $w
+    }
     $t.title configure -cursor fleur
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> wx wy
     set ::drag($t) [list $X $Y $wx $wy]
@@ -3228,6 +3409,7 @@ proc drag-move {t w X Y} {
     if {![info exists ::drag($t)]} return
     lassign $::drag($t) x0 y0 wx wy
     wm geometry $t +[expr {$wx + $X - $x0}]+[expr {$wy + $Y - $y0}]
+    if {$w == 0} return   ;# our own window: nobody to tell but ourselves
     send-synthetic-configure $w
 }
 

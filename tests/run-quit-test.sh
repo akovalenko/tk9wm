@@ -32,8 +32,23 @@ FRAMED=$(xwininfo -id "$WID" -children 2>/dev/null \
 ROOTID=$(xwininfo -root 2>/dev/null | sed -n 's/^xwininfo: Window id: \(0x[0-9a-f]*\).*/\1/p')
 echo "--- client $WID, framed by $FRAMED (root is $ROOTID)"
 
-# the default way out: Super+t q
+# ---- the guard: Super+t q asks, and Escape means no ----
 xdotool key super+t; sleep 0.3; xdotool key q
+sleep 1
+CONFIRMED=$(grep -c 'confirm «' "$HERE/wm-quit.log")
+import -window root "$HERE/quit-confirm.png" 2>/dev/null \
+    && echo "DRIVER: screenshot (confirm up) -> $HERE/quit-confirm.png"
+ALIVE_ASKED=1; kill -0 $WM 2>/dev/null || ALIVE_ASKED=0
+xdotool key Escape
+sleep 1
+ALIVE_NO=1; kill -0 $WM 2>/dev/null || ALIVE_NO=0
+STATE_NO=$(xwininfo -id "$WID" 2>/dev/null | sed -n 's/.*Map State: //p')
+echo "--- after asking and answering no: asked=$CONFIRMED wm alive=$ALIVE_NO client=$STATE_NO"
+
+# ---- and yes, from the keyboard ----
+xdotool key super+t; sleep 0.3; xdotool key q
+sleep 1
+xdotool key y
 sleep 2
 
 ALIVE=1; kill -0 $WM 2>/dev/null || ALIVE=0
@@ -45,7 +60,7 @@ echo "--- after Super+t q: wm alive=$ALIVE client alive=$CLIENT_ALIVE state=$STA
 kill $WM $CL 2>/dev/null
 
 echo "--- WM saw:"
-grep -E 'quit|bye|release|unmanaged' "$HERE/wm-quit.log" | tail -8
+grep -E 'quit|bye|release|unmanaged|confirm' "$HERE/wm-quit.log" | tail -10
 
 echo "--- verdict"
 BAD=0
@@ -57,10 +72,24 @@ if [ "$FRAMED" != "$ROOTID" ] && [ -n "$FRAMED" ]; then
 else
     echo "FAIL: the client was never framed — the quit proves nothing"; BAD=1
 fi
-if [ "$ALIVE" = "0" ] && grep -q 'quit requested' "$HERE/wm-quit.log"; then
-    echo "OK: Super+t q ended the window manager, and it said so"
+if [ "$CONFIRMED" -ge 1 ] && [ "$ALIVE_ASKED" = "1" ]; then
+    echo "OK: Super+t q asked first, and did not act on its own"
 else
-    echo "FAIL: WM alive=$ALIVE, or no quit line in the log"; BAD=1
+    echo "FAIL: no confirmation put up (asked=$CONFIRMED, wm alive=$ALIVE_ASKED)"
+    BAD=1
+fi
+if [ "$ALIVE_NO" = "1" ] && [ "$STATE_NO" = "IsViewable" ] \
+        && grep -q 'confirm: no' "$HERE/wm-quit.log"; then
+    echo "OK: answering no left the desk exactly as it was"
+else
+    echo "FAIL: after answering no the WM is alive=$ALIVE_NO, client=$STATE_NO"
+    BAD=1
+fi
+if [ "$ALIVE" = "0" ] && grep -q 'confirm: yes' "$HERE/wm-quit.log" \
+        && grep -q 'quit requested' "$HERE/wm-quit.log"; then
+    echo "OK: confirming from the keyboard ended the window manager"
+else
+    echo "FAIL: WM alive=$ALIVE, or it never got a yes"; BAD=1
 fi
 if [ "$CLIENT_ALIVE" = "1" ] && [ "$STATE" = "IsViewable" ]; then
     echo "OK: the client outlived the window manager, still on screen"

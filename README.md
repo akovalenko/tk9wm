@@ -408,6 +408,27 @@ install — `package require tk9wm` answers out of the image.
   that dies mid-sweep is skipped. Nothing is bound to it by default — a
   desk-wide sweep is not something to discover by accident.
 
+  **The WM's own windows** (`wm-window`) wear the same decoration every
+  client wears — the same border and grips, the same titlebar font and
+  colors, restyled by the same config knobs — and the confirmation on
+  `Quit` is the first one built on it. They are override-redirect, and
+  that is forced rather than chosen: our own windows are the one kind
+  our redirect cannot catch, since SubstructureRedirect turns a child's
+  map into a MapRequest for whoever selected it EXCEPT when the window
+  is override-redirect or the client asking is the one that selected
+  the redirect — and we are always that client. Measured, not assumed
+  (`tools/probe-selftoplevel.tcl`): a plain toplevel from this process
+  maps straight to the root, bare, and no MapRequest ever arrives. The
+  WM could reparent its own window into a frame by hand, but then its
+  dialog would be one of its own clients — listed in the window list,
+  published in `_NET_CLIENT_LIST`, and swept up by `Apply-To-Matching
+  always Minimize` with everything else. Drawing the decoration around
+  an override-redirect toplevel costs nothing instead: `deco-draw`,
+  `frame-layout` and the titlebar drag never needed a client, and the
+  slot they wrap is an ordinary Tk frame — for a client it is what gets
+  reparented into, and here it is simply where our widgets go.
+  Keyboard comes from `grab-keys-to`, the router the menus use.
+
   **A user toggles, a program does not** — Emacs's
   `called-interactively-p`, and here for the same reason: one name
   should mean the obvious thing in both mouths, and the obvious thing

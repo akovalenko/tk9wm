@@ -348,7 +348,11 @@
 #   Restart   restart in place — same pid, fresh code off the disk,
 #             clients released and adopted back
 #   Reload    re-read this file on the live desk (also <Super>t w r)
-#   Quit      leave: every client released back to the root alive, then
+#   Quit      leave: it ASKS FIRST (a decorated confirmation of the
+#             WM's own, keyboard-first — y/n, Left/Right or Tab to
+#             move, Return for the highlighted one, Escape to stay;
+#             Cancel starts selected). Confirmed, every client is
+#             released back to the root alive, then
 #             the WM stops. With .Xsession exec'ing it, that ends the
 #             session. Bound by default to <Super>t q — a desk you can
 #             only leave by finding another terminal and killing
