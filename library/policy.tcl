@@ -918,15 +918,25 @@ proc rz-move {t w X Y} {
         ne { incr cw $dx; incr ch [expr {-$dy}] }
         nw { incr cw [expr {-$dx}]; incr ch [expr {-$dy}] }
     }
-    # The client's size hints bind HERE, not only in wm-resize-client:
-    # the left/top anchoring below moves the frame by the size delta,
-    # and a size clamped (or snapped to increments) later than the move
-    # would tear the dragged edge off the pointer. 40x30 is our own
-    # floor — a frame must stay big enough to grab.
+    resize-by-edge $w $e $cw $ch $cw0 $ch0 $fx $fy
+}
+# A resize BY ONE EDGE, which is what both resizes are: the pointer
+# drag above and the keyboard mode's arrows once the compass gave them
+# a handle. cw0/ch0/fx/fy are what the far edge is measured from — the
+# geometry the gesture started on for the mouse, the current one for a
+# keyboard step, since each step is its own little drag.
+#
+# The client's size hints bind HERE, not only in wm-resize-client: the
+# west/north anchoring moves the frame by the size delta, and a size
+# clamped (or snapped to increments) later than the move would tear the
+# dragged edge off the pointer. 40x30 is our own floor — a frame must
+# stay big enough to grab.
+proc resize-by-edge {w e cw ch cw0 ch0 fx fy} {
+    set t $::frameof($w)
     lassign [apply-size-hints $w $cw $ch] cw ch
     set cw [expr {max($cw, 40)}]; set ch [expr {max($ch, 30)}]
-    # dragging the left/top edge: the frame moves so the opposite edge
-    # stays put
+    # dragging the west/north edge: the frame moves so the opposite
+    # edge stays put
     set nx $fx; set ny $fy
     if {$e in {w sw nw}} { set nx [expr {$fx + $cw0 - $cw}] }
     if {$e in {n ne nw}} { set ny [expr {$fy + $ch0 - $ch}] }
@@ -2530,19 +2540,24 @@ proc kbmr-unpaint {w} {
 # ---- the compass ----
 # Nine digits laid out the way they sit on a numpad, each one drawn AT
 # THE POINT IT NAMES — so the compass is not a picture of a keyboard
-# but a map of destinations: press 7 and the window goes where the 7
-# is. In keyboard MOVE it anchors to the workarea and a press sticks
-# the frame to that edge, corner or center, size untouched.
+# but a map: press 7 and the thing 7 stands for happens at the 7.
 #
-# The placement itself is the `place` grammar's, sizeless: cell 7 is
-# {left top}, cell 5 is {center}, and place-axis does the arithmetic
-# for both — the same proc the config's `place` style goes through, so
-# a compass jump and a configured placement land in the same pixel.
+# It stands for two things, over two different rectangles.
 #
-# The RECTANGLE is a parameter and the cell list with it, because the
-# same nine digits will mean something else over a window than over
-# the desk: "which corner do we drag by" wants them drawn on the frame
-# (the owner, 2026-07-29 — not built yet).
+# In keyboard MOVE it maps DESTINATIONS over the workarea: a press
+# sticks the frame to that edge, corner or center, size untouched. The
+# placement is the `place` grammar's, sizeless — cell 7 is {left top},
+# cell 5 is {center} — and place-axis does the arithmetic, the same
+# proc the config's `place` style goes through, so a compass jump and a
+# configured placement land in the same pixel.
+#
+# In keyboard RESIZE it maps HANDLES over the frame itself: which side
+# or corner the arrows drag, drawn where that handle is (the owner's
+# ask, 2026-07-29). One cell falls out of that: a cell aligned center
+# on BOTH axes owns no edge, so 5 is not a handle and the compass has
+# the hole in the middle every eight-handle selection box has ever had.
+# The hole is derived and not stipulated — it comes out of the same
+# table the destinations do.
 array set compass_cells {
     7 {start start}   8 {center start}   9 {end start}
     4 {start center}  5 {center center}  6 {end center}
@@ -2563,8 +2578,35 @@ array set compass_key {
     KP_1 1     KP_2 2      KP_3 3
     7 7  8 8  9 9   4 4  5 5  6 6   1 1  2 2  3 3
 }
-set compass {}    ;# the live digit toplevels, {} = no compass up
+set compass {}      ;# the cells currently up, {} = no compass
+set compass_s 0     ;# their side, in pixels
+set compass_on {}   ;# the highlighted cell, {} = none
 font create CompassFont -weight bold
+
+# The edge a cell names, in the compass-point vocabulary the MOUSE
+# resize already speaks (rz-edge, rzcursor): aligned to the start of an
+# axis is that axis's near edge, to the end its far one, centered is
+# neither. Empty for cell 5, which is what makes it not a handle.
+proc compass-edge {cell} {
+    lassign $::compass_cells($cell) halign valign
+    set e ""
+    switch -- $valign { start {append e n} end {append e s} }
+    switch -- $halign { start {append e w} end {append e e} }
+    return $e
+}
+proc compass-handles {} {
+    set cells {}
+    foreach cell {7 8 9 4 5 6 1 2 3} {
+        if {[compass-edge $cell] ne ""} { lappend cells $cell }
+    }
+    return $cells
+}
+proc compass-cell-of {edge} {
+    foreach cell [compass-handles] {
+        if {[compass-edge $cell] eq $edge} { return $cell }
+    }
+    return {}
+}
 
 # Which cells a frame of fw x fh has anything DISTINCT to offer within
 # a rect — the whole answer to "what about a maximized window", and it
@@ -2586,53 +2628,126 @@ proc compass-offer {rect fw fh} {
     if {!$vfree} { return {4 5 6} }
     return {7 8 9 4 5 6 1 2 3}
 }
-# One override-redirect toplevel per cell, in the mode's own amber with
-# the dark outline every piece of our furniture wears, raised over the
-# desk (the window being placed will pass under them). Sized and
-# lettered from TitleFont, so the compass grows with the user's font
-# and its dpi like the rest of the decoration.
-proc compass-show {rect cells} {
-    compass-hide
-    if {![llength $cells]} return
+# How big a cell may be over a given box. The lettering wants to scale
+# with the user's font and its dpi like the rest of the decoration, but
+# it also has to FIT: nine cells sized for the desk, drawn on a 300x200
+# window, would be a solid block of digits. So the font's own measure
+# is the ceiling and a quarter of the box's short side is the cap, and
+# when the cap bites the lettering is scaled down to it.
+proc compass-size {rect} {
+    lassign $rect - - rw rh
     font configure CompassFont -family [font actual TitleFont -family] \
         -size [expr {-2 * $::titleh}]
     set s [expr {[font metrics CompassFont -linespace] + 12}]
-    lassign $rect rx ry rw rh
+    set cap [expr {max(min($rw, $rh) / 4, 18)}]
+    if {$s > $cap} {
+        set px [expr {[font configure CompassFont -size] * $cap / $s}]
+        font configure CompassFont -size [expr {min($px, -6)}]
+        set s [expr {[font metrics CompassFont -linespace] + 12}]
+    }
+    return $s
+}
+# One override-redirect toplevel per cell, in the mode's own amber with
+# the dark outline every piece of our furniture wears, raised over the
+# desk (whatever the compass is about passes under it). `active` marks
+# one cell as the one in force — the resize handle — in the lighter
+# shade the frame's grips wear against that same amber.
+proc compass-show {rect cells {active {}}} {
+    compass-hide
+    if {![llength $cells]} return
+    set ::compass_s [compass-size $rect]
     foreach cell $cells {
-        lassign $::compass_cells($cell) halign valign
         set c .compass$cell
         toplevel $c -background $::OUTLINE
         wm overrideredirect $c 1
-        label $c.d -text $cell -font CompassFont -foreground white \
-            -background $::KBMR_BG
-        place $c.d -x 1 -y 1 -width [expr {$s - 2}] -height [expr {$s - 2}]
-        wm geometry $c ${s}x${s}+[place-axis $rx $rw $s $halign]+[place-axis \
-            $ry $rh $s $valign]
-        raise $c
-        lappend ::compass $c
+        label $c.d -text $cell -font CompassFont
+        place $c.d -x 1 -y 1 -width [expr {$::compass_s - 2}] \
+                             -height [expr {$::compass_s - 2}]
     }
+    set ::compass $cells
+    compass-highlight $active
+    compass-place $rect
     update idletasks
 }
+# Where the cells sit, called again whenever the box moves under them:
+# a resize compass is drawn on the frame, and the frame is the thing
+# being resized, so its handles have to keep up with their own corners.
+proc compass-place {rect} {
+    lassign $rect rx ry rw rh
+    set s $::compass_s
+    foreach cell $::compass {
+        lassign $::compass_cells($cell) halign valign
+        set X [place-axis $rx $rw $s $halign]
+        set Y [place-axis $ry $rh $s $valign]
+        wm geometry .compass$cell ${s}x${s}+$X+$Y
+        raise .compass$cell
+    }
+}
+proc compass-highlight {cell} {
+    set ::compass_on $cell
+    foreach c $::compass {
+        if {$c eq $cell} {
+            .compass$c.d configure -background $::gripof($::KBMR_BG) \
+                -foreground $::OUTLINE
+        } else {
+            .compass$c.d configure -background $::KBMR_BG -foreground white
+        }
+    }
+}
 proc compass-hide {} {
-    foreach c $::compass { destroy $c }
+    foreach cell $::compass { destroy .compass$cell }
     set ::compass {}
+    set ::compass_on {}
+}
+# Where a frame is, as a rectangle: {X Y W H} in root coordinates.
+proc frame-rect {w} {
+    if {![info exists ::frameof($w)]} { return {} }
+    if {![regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
+              [wm geometry $::frameof($w)] -> fw fh fx fy]} { return {} }
+    list $fx $fy $fw $fh
 }
 # The compass keyboard MOVE puts up: over the workarea, for a frame of
 # the size this window has right now (which the mode never changes, so
 # it is built once at entry and stands unchanged to the end).
 proc compass-for-move {w} {
-    if {![regexp {^(\d+)x(\d+)} [wm geometry $::frameof($w)] -> fw fh]} return
+    set fr [frame-rect $w]
+    if {![llength $fr]} return
     set wa [workarea]
-    set cells [compass-offer $wa $fw $fh]
+    set cells [compass-offer $wa [lindex $fr 2] [lindex $fr 3]]
     # A compass short of its nine cells reads as a bug unless it says
     # why, so the short answers are the ones worth a line.
     if {[llength $cells] < 9} {
         lassign $wa - - ww wh
         puts "WM: compass 0x[format %x $w]:\
 [expr {[llength $cells] ? "cells $cells" : "nothing to offer"}] —\
- a ${fw}x${fh} frame in a ${ww}x${wh} workarea"
+ a [lindex $fr 2]x[lindex $fr 3] frame in a ${ww}x${wh} workarea"
     }
     compass-show $wa $cells
+}
+# The rectangle the RESIZE compass is drawn on: the client area, not
+# the whole frame. The handles mark the window's corners either way —
+# the border between the two is a few pixels — and staying off the
+# decoration keeps them off the TITLEBAR, which in this mode is
+# carrying the size readout and has to stay legible. It also leaves the
+# frame's own border unpainted, which is the other thing this mode
+# shows about itself.
+proc client-rect {w} {
+    set fr [frame-rect $w]
+    if {![llength $fr]} { return {} }
+    lassign $fr fx fy fw fh
+    lassign [chrome-of $w] B top
+    list [expr {$fx + $B}] [expr {$fy + $top}] \
+         [expr {$fw - 2*$B}] [expr {$fh - $top - $B}]
+}
+# ...and the compass keyboard RESIZE puts up: the eight handles, with
+# the one in force lit. There is no degenerate case to think about
+# here — a window can always be pulled by any of its sides, whatever
+# size it happens to be — which is the whole difference from the move
+# compass, where a cell can have nowhere to go.
+proc compass-for-resize {w cell} {
+    set cr [client-rect $w]
+    if {![llength $cr]} return
+    compass-show $cr [compass-handles] $cell
 }
 
 proc move-keyboard {{w 0}} {
@@ -2641,11 +2756,23 @@ proc move-keyboard {{w 0}} {
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $::frameof($w)] -> fx fy
     kbmr-enter move $w [list $fx $fy]
 }
+# The handle keyboard resize starts on is the SOUTH-EAST one, which is
+# what the mode always did before it could be told otherwise: the arrows
+# grew the window down and to the right and the top-left corner stayed
+# put. The compass does not change that, it says it out loud.
+set kbmr_edge se
 proc resize-keyboard {{w 0}} {
     if {$w == 0} { set w $::focused }
     if {$w == 0 || ![info exists ::frameof($w)]} return
     set t $::frameof($w)
-    kbmr-enter resize $w [list [$t.slot cget -width] [$t.slot cget -height]]
+    set ::kbmr_edge se
+    # The saved geometry is the POSITION as well now: a handle on the
+    # west or north side moves the frame while it resizes, so an Escape
+    # that only put the size back would leave the window somewhere it
+    # never was.
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
+    kbmr-enter resize $w [list [$t.slot cget -width] [$t.slot cget -height] \
+                               $fx $fy]
 }
 proc kbmr-enter {mode w orig} {
     set ::kbmr [list $mode $w $orig]
@@ -2658,8 +2785,14 @@ proc kbmr-enter {mode w orig} {
     # The compass stands for exactly as long as its digits are live —
     # the mode's own lesson, one size down: live keys with no sign of
     # themselves read as a desk that has stopped answering.
-    if {$mode eq "move"} { compass-for-move $w }
-    puts "WM: keyboard $mode 0x[format %x $w] — [kbmr-text]"
+    if {$mode eq "move"} {
+        compass-for-move $w
+        puts "WM: keyboard move 0x[format %x $w] — [kbmr-text]"
+    } else {
+        compass-for-resize $w [compass-cell-of $::kbmr_edge]
+        puts "WM: keyboard resize 0x[format %x $w] — [kbmr-text]\
+ by the $::kbmr_edge handle"
+    }
 }
 proc kbmr-end {commit} {
     lassign $::kbmr mode w orig
@@ -2671,7 +2804,12 @@ proc kbmr-end {commit} {
         if {$mode eq "move"} {
             frame-moveto $w {*}$orig
         } else {
-            wm-resize-client $w {*}$orig
+            # size first, then position: a west or north handle moved
+            # the frame on the way out, and putting the size back does
+            # not put the frame back
+            lassign $orig cw ch X Y
+            wm-resize-client $w $cw $ch
+            frame-moveto $w $X $Y
         }
     }
     kbmr-unpaint $w
@@ -2686,8 +2824,18 @@ proc frame-moveto {w X Y} {
     update idletasks
     send-synthetic-configure $w
 }
-# One compass cell: the frame keeps its size and takes the position
-# that cell names within the workarea.
+# One compass cell in RESIZE: it picks the handle and moves nothing.
+# Cell 5 names no edge and is not drawn, so it is not a handle either —
+# pressing it is not an error, just nothing to do.
+proc kbmr-handle {w cell} {
+    set e [compass-edge $cell]
+    if {$e eq "" || $e eq $::kbmr_edge} return
+    set ::kbmr_edge $e
+    compass-highlight $cell
+    puts "WM: compass 0x[format %x $w]: by the $e handle"
+}
+# One compass cell in MOVE: the frame keeps its size and takes the
+# position that cell names within the workarea.
 proc kbmr-jump {w cell} {
     if {![regexp {^(\d+)x(\d+)} [wm geometry $::frameof($w)] -> fw fh]} return
     lassign [workarea] wax way ww wh
@@ -2699,24 +2847,30 @@ proc kbmr-key {kind name mods} {
     if {$kind eq "release"} return
     lassign $::kbmr mode w orig
     if {$mode eq "" || ![info exists ::frameof($w)]} { kbmr-end 1; return }
-    # A compass jump is a STEP and not a verdict: it does not commit,
-    # which is what keeps Escape's promise (the geometry the mode
-    # started on) alive after one — and makes the compass worth
-    # looking at twice. 7, then 3, then 5, then Enter.
-    if {$mode eq "move"} {
-        if {[llength $::compass] && [info exists ::compass_key($name)]} {
-            kbmr-jump $w $::compass_key($name)
+    # The compass, which means one thing per mode. In MOVE a digit is a
+    # destination, and the jump is a STEP AND NOT A VERDICT: it does not
+    # commit, which is what keeps Escape's promise (the geometry the
+    # mode started on) alive after one — and makes the compass worth
+    # looking at twice. 7, then 3, then 5, then Enter. In RESIZE a digit
+    # picks the HANDLE the arrows drag, and changes no geometry at all.
+    if {[llength $::compass] && [info exists ::compass_key($name)]} {
+        set cell $::compass_key($name)
+        if {$mode eq "move"} {
+            kbmr-jump $w $cell
             kbmr-readout
-            return
+        } else {
+            kbmr-handle $w $cell
         }
-        # ...and the way back, which belongs to the MODE and not to the
-        # compass: 0 is offered even when the window fills the desk and
-        # the compass has nothing to draw.
-        if {$name in {0 KP_0 KP_Insert}} {
-            frame-moveto $w {*}$orig
-            kbmr-readout
-            return
-        }
+        return
+    }
+    # ...and the way back, which belongs to the MODE and not to the
+    # compass: 0 is offered even when the window fills the desk and the
+    # compass has nothing to draw. Resize has no such key — its origin
+    # is a size, and shrinking back to one is what the arrows are for.
+    if {$mode eq "move" && $name in {0 KP_0 KP_Insert}} {
+        frame-moveto $w {*}$orig
+        kbmr-readout
+        return
     }
     set dx 0; set dy 0
     switch -- $name {
@@ -2744,10 +2898,26 @@ proc kbmr-key {kind name mods} {
             if {$incw > 1} { set xstep $incw }
             if {$inch > 1} { set ystep $inch }
         }
-        set cw [expr {[$t.slot cget -width]  + $dx*$xstep}]
-        set ch [expr {[$t.slot cget -height] + $dy*$ystep}]
-        lassign [apply-size-hints $w $cw $ch] cw ch
-        wm-resize-client $w [expr {max($cw, 40)}] [expr {max($ch, 30)}]
+        # The arrow moves THE HANDLE, so what it does to the size
+        # depends on which edge that handle owns: an east edge grows the
+        # window as it travels right, a west edge shrinks it (and the
+        # frame follows, so the east edge stays put), and a handle with
+        # no freedom on this axis — a bare n or s against a horizontal
+        # arrow — does not answer at all.
+        set e $::kbmr_edge
+        set cw0 [$t.slot cget -width]; set ch0 [$t.slot cget -height]
+        set cw $cw0; set ch $ch0
+        if {$e in {e ne se}} { incr cw [expr { $dx*$xstep}] }
+        if {$e in {w nw sw}} { incr cw [expr {-$dx*$xstep}] }
+        if {$e in {s se sw}} { incr ch [expr { $dy*$ystep}] }
+        if {$e in {n ne nw}} { incr ch [expr {-$dy*$ystep}] }
+        regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
+        resize-by-edge $w $e $cw $ch $cw0 $ch0 $fx $fy
+        # the handles are drawn on the window, and the window is the
+        # thing that just changed — they have to keep up with their own
+        # corners
+        update idletasks
+        compass-place [client-rect $w]
     }
     kbmr-readout
 }

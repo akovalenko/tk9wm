@@ -518,24 +518,50 @@ frames a client and shows a panel has proved both libraries loaded.
   mid-mode does not disturb the readout, it only changes what will be
   restored.
 
-  **The compass** — keyboard move also puts up nine digits laid out the
+  **The compass** — both keyboard modes put up nine digits laid out the
   way they sit on a numpad, each one drawn **at the point it names**, so
-  it is a map of destinations rather than a picture of a keyboard: press
-  7 and the frame sticks to the top-left corner of the workarea, 5
-  centers it, 3 takes the bottom-right. The size is never touched — this
-  is a move — and the placement goes through the same `place-axis` the
-  config's `place` style does, so a jump and a configured placement land
-  in the same pixel. A jump is a **step and not a verdict**: it does not
-  commit, so Esc still reverts to the geometry the mode was entered at
-  and one can try 7, then 3, then 5 before pressing Enter; **0** goes
-  back to that entry geometry without leaving the mode. The numpad works
-  whatever NumLock is doing (the key router reads keysym level 0, where
-  the numpad carries `KP_Home`/`KP_Up`/… — the digits of the top row
-  work too). The compass stands for exactly as long as its digits are
-  live, for the reason the amber frame exists at all.
+  it is a map rather than a picture of a keyboard: whatever a digit
+  stands for happens where that digit is. It stands for two things, over
+  two different rectangles.
 
-  What it does about a **maximized** window is arithmetic and not a
-  state flag: a frame as wide as the workarea lands in the same X
+  In **move** it maps destinations over the workarea: press 7 and the
+  frame sticks to the top-left corner, 5 centers it, 3 takes the
+  bottom-right. The size is never touched — this is a move — and the
+  placement goes through the same `place-axis` the config's `place`
+  style does, so a jump and a configured placement land in the same
+  pixel. A jump is a **step and not a verdict**: it does not commit, so
+  Esc still reverts to the geometry the mode was entered at and one can
+  try 7, then 3, then 5 before pressing Enter; **0** goes back to that
+  entry geometry without leaving the mode.
+
+  In **resize** it maps handles over the window itself — which side or
+  corner the arrows drag, drawn where that handle is, the one in force
+  lit in the lighter shade the frame's grips wear. The arrow moves *the
+  handle*: an east edge grows the window as it travels right, a west
+  edge shrinks it and the frame follows so the east edge stays put, and
+  a handle with no freedom on an axis (a bare north against a horizontal
+  arrow) does not answer at all. The mode starts on the **south-east**
+  handle, which is what it always did before it could be told otherwise;
+  the compass only says so out loud. Both resizes now do the same
+  arithmetic — the pointer drag and the arrows share one
+  `resize-by-edge` — and since a west or north handle moves the frame,
+  Esc puts the **position** back as well as the size. One cell falls out
+  of the mapping: a cell centered on both axes owns no edge, so **5 is
+  not a handle**, and the compass has the hole in the middle every
+  eight-handle selection box has ever had. The hole is derived from the
+  same table the destinations are, not stipulated.
+
+  The digits scale to the box they are drawn on (a cell is at most a
+  quarter of its short side), and the resize handles are anchored to the
+  **client area** rather than the frame, which keeps them off the
+  titlebar the mode is using for its readout. The numpad works whatever
+  NumLock is doing (the key router reads keysym level 0, where the
+  numpad carries `KP_Home`/`KP_Up`/… — the digits of the top row work
+  too). The compass stands for exactly as long as its digits are live,
+  for the reason the amber frame exists at all.
+
+  What the **move** compass does about a **maximized** window is
+  arithmetic and not a state flag: a frame as wide as the workarea lands in the same X
   whether it is asked for left, center or right, so that column of the
   compass is degenerate and drawing three digits on one point would be a
   lie. No slack on either axis — a maximized window, a fullscreen-sized
@@ -544,7 +570,9 @@ frames a client and shows a panel has proved both libraries loaded.
   digits down the middle of the other. Either short answer is logged
   with the measurements behind it, because a compass missing its cells
   reads as a bug otherwise. The keys of a degenerate axis stay accepted:
-  7 and 9 are then honest synonyms of 8.
+  7 and 9 are then honest synonyms of 8. The resize compass has no such
+  case — a window can be pulled by any of its sides whatever size it
+  happens to be.
 
   **winlist** — the window list in MRU order, the initial selection on
   the second entry, entries **numbered 1-9/A-Z with the number as a
@@ -906,7 +934,13 @@ runs as a single shell call:
   WM's own metrics line declares — a jump does not commit (Esc still
   reverts) and 0 returns without leaving the mode; then the degenerate
   cases, a maximized window offered no compass at all and a full-width
-  one offered 8/5/2 and not the cells that would sit on top of them).
+  one offered 8/5/2 and not the cells that would sit on top of them;
+  then the same digits as resize HANDLES — the mode starting on se, 7
+  taking the nw corner so that dragging it right and down shrinks the
+  window while its far corner stays put, 8 taking the north edge which
+  ignores a horizontal arrow, the Esc that puts back the position a
+  west/north handle moved, and the middle of the window sampled to show
+  that 5 is no handle).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second

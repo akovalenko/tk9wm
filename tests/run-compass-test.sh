@@ -62,6 +62,16 @@ frame_at() {
     cy=$(xwininfo -id "$VID" | awk '/Absolute upper-left Y/ {print $NF}')
     echo "+$((cx - B))+$((cy - TOP))"
 }
+client_size() {
+    xwininfo -id "$VID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}'
+}
+client_center() {   # in root coordinates
+    cx=$(xwininfo -id "$VID" | awk '/Absolute upper-left X/ {print $NF}')
+    cy=$(xwininfo -id "$VID" | awk '/Absolute upper-left Y/ {print $NF}')
+    cw=$(xwininfo -id "$VID" | awk '/Width:/ {print $2; exit}')
+    ch=$(xwininfo -id "$VID" | awk '/Height:/ {print $2; exit}')
+    echo "$((cx + cw / 2)) $((cy + ch / 2))"
+}
 
 key alt+space; key m          # keyboard MOVE on A
 import -window root "$HERE/compass-mode.png" 2>/dev/null \
@@ -76,6 +86,22 @@ key KP_End                        # numpad 1 — bottom-left
 key 0;        AT0=$(frame_at)     # the way back, mode still running
 key KP_Prior                      # numpad 9 — top-right
 key Return;   ATDONE=$(frame_at)  # committed where the jump put it
+
+# ---- the same nine digits in RESIZE, where they name HANDLES ----
+key alt+space; key s              # keyboard RESIZE; the default handle is se
+G0=$(frame_at); S0=$(client_size)
+set -- $(client_center); CPIX=$(pixel "$1" "$2")   # cell 5 is not a handle
+import -window root "$HERE/compass-handles.png" 2>/dev/null \
+    && echo "DRIVER: screenshot (the handles) -> $HERE/compass-handles.png"
+key KP_Home                       # numpad 7 — drag by the nw corner now
+key Right; key Right; key Down    # ...which SHRINKS, and the frame follows
+G1=$(frame_at); S1=$(client_size)
+key Up                            # the north edge back up 10: 190 -> 200
+key KP_Up                         # numpad 8 — the north edge alone
+key Right; key Right              # ...which has no horizontal freedom
+G2=$(frame_at); S2=$(client_size)
+key Escape                        # both the size AND the position come back
+G3=$(frame_at); S3=$(client_size)
 
 key alt+space; key x              # Maximize
 sleep 0.5
@@ -121,6 +147,27 @@ expect "5 centered it" \
 expect "Escape after the jumps restored the entry geometry" "+110+80" "$ATESC"
 expect "0 went back to the entry geometry, mode still running" "+110+80" "$AT0"
 expect "Enter committed where 9 put it" "+$((800 - FW))+0" "$ATDONE"
+
+gx() { echo "$1" | sed 's/^+\([-0-9]*\)+.*/\1/'; }
+gy() { echo "$1" | sed 's/^+[-0-9]*+\([-0-9]*\)$/\1/'; }
+X0=$(gx "$G0"); Y0=$(gy "$G0")
+expect "the mode starts on the se handle, as it always did" \
+    "1" "$(grep -c 'resize .* by the se handle' "$HERE/wm-compass.log")"
+expect "7 took the nw handle" \
+    "1" "$(grep -c 'compass .*: by the nw handle' "$HERE/wm-compass.log")"
+expect "...and dragging it right and down shrank the window" "280x190" "$S1"
+expect "...with the frame following, so the far corner stayed put" \
+    "+$((X0 + 20))+$((Y0 + 10))" "$G1"
+expect "8 took the north edge, which has no horizontal freedom" \
+    "280x200" "$S2"
+expect "...so a horizontal arrow moved nothing" "+$((X0 + 20))+$Y0" "$G2"
+expect "Escape put the size back" "$S0" "$S3"
+expect "...and the position a west/north handle had moved" "$G0" "$G3"
+if [ "$CPIX" != "$AMBER" ] && [ "$CPIX" != "srgb(224,169,74)" ]; then
+    echo "OK: 5 names no edge, so it is no handle and is not drawn ($CPIX)"
+else
+    echo "FAIL: a cell was drawn in the middle of the resize compass ($CPIX)"
+fi
 
 if [ "$MAXPIX" = "$AMBER" ]; then
     echo "FAIL: a maximized window got a compass — every cell the same point"
