@@ -84,6 +84,10 @@ proc reload-config {} {
 # Demo mode (argument "demo"): the timed self-test tests/run-demo.sh
 # drives. Without it the WM runs indefinitely — the live/Xephyr mode.
 proc tk9wm-main {args} {
+    # -replace was read (and acted on) by the substrate when the package
+    # was required — the desk is taken before anything here runs. Drop
+    # it so it cannot be mistaken for a mode below.
+    set args [lsearch -all -inline -not -exact $args -replace]
     load-config
     substrate-start
 

@@ -18,9 +18,17 @@
 # on one connection says nothing about the other.
 #
 # Sourcing this file loads Tk and the shim, installs the X error sink,
-# arms the redirect and the dispatcher.  Call substrate-start AFTER the
-# policy layer is loaded: it starts dispatching events (whatever
+# TAKES THE DESK and arms the dispatcher.  Call substrate-start AFTER
+# the policy layer is loaded: it starts dispatching events (whatever
 # arrived before is replayed, not lost) and adopts pre-existing windows.
+#
+# Taking the desk means both halves of it (see "becoming the window
+# manager"): the redirect, and the ICCCM manager selection WM_S<screen>
+# that makes a manager REPLACEABLE. `-replace` on the command line (or
+# ::tk9wm_replace set before the require) asks whoever holds the desk
+# to stand down and waits for it; without it, a desk that is taken is a
+# refusal. The other direction needs no flag at all — asked to stand
+# down, we exit, and exit already hands every client back alive.
 #
 # The policy layer must implement these hooks (called by the substrate):
 #   policy-attach w cw ch   build a decoration for client w (client area
@@ -159,6 +167,14 @@ package require Tk
 # `package require` — see pkgIndex.tcl at the tree root.
 package require tkwmx
 wm withdraw .   ;# our own real toplevel is no client of ours
+
+# Line buffering FIRST, before anything can have something to say. It
+# used to be set where the redirect was armed, which was fine while
+# every message before that point was a fatal one on its way to a
+# terminal — and wrong the moment a manager could refuse to start with
+# stdout redirected to a file: the explanation sat in an unflushed
+# buffer and died with the process (measured, run-replace-test.sh).
+chan configure stdout -buffering line
 
 # ---------------- soft failures: survived, but never silent ----------------
 # A WM has to outlive the errors its clients hand it — a window dies
@@ -377,17 +393,138 @@ set root [lindex [x-query-tree .] 0]
 # StructureNotify for the root's OWN ConfigureNotify: a RandR resize
 # (Xephyr's -resizeable, a mode switch) announces itself there.
 #
-# Taking substructure-redirect IS becoming the window manager, and the
-# server refuses a second one: an error here means somebody else has
-# the desk, which is a thing to say plainly and leave, not to survive.
-if {[catch {x-select-input $root {substructure-redirect substructure-notify
-                                  focus-change structure-notify}} err]} {
-    puts "WM: cannot take the redirect on root [format 0x%x $root]: $err"
-    exit 1
+# ---------------- becoming the window manager ----------------
+# Two things make one, and this file used to do only the first.
+#
+# SUBSTRUCTURE-REDIRECT on the root is the ENFORCED half: the server
+# hands it to one client and refuses the next, so an error here means
+# somebody else has the desk. That is a fact of the server's, not a
+# negotiation, and there is no polite way to ask for it.
+#
+# The MANAGER SELECTION WM_S<screen> (ICCCM 2.8) is the negotiated
+# half, and the negotiation is the whole point: a manager that owns it
+# can be ASKED to stand down — the asker takes the selection, the owner
+# gets a SelectionClear, releases its clients and leaves, and the asker
+# then finds the redirect free. A manager that does not own it cannot be
+# replaced at all except by killing it, which loses every client on the
+# desk. So we own it, and we honor it in both directions: with -replace
+# we take the desk from whoever holds it, and without one we hand it
+# over when somebody else asks (see the selection-clear branch of
+# handle-event, which just calls exit — and exit already means "release
+# every client back to the root alive").
+#
+# Which screen the selections name. Tk knows ours by name (":0.0"); a
+# display spelled without a screen means screen 0.
+proc screen-number {} {
+    if {[regexp {\.(\d+)$} [winfo screen .] -> n]} { return $n }
+    return 0
 }
-x-sync 0
-chan configure stdout -buffering line
-puts "WM: redirect armed on root [format 0x%x $root]"
+set WM_SELECTION  [x-intern WM_S[screen-number]]
+set MANAGER       [x-intern MANAGER]
+set TK9WM_TIME    [x-intern TK9WM_TIME]
+set wm_owner_win  0     ;# the window that holds WM_S<n>, 0 = we do not
+set wm_claim_time 0     ;# when we took it (see selection-clear)
+# How long to wait for a manager we asked to stand down. Generous on
+# purpose: the old manager is releasing every client on the desk back to
+# the root, and a desk full of windows takes a moment.
+set replace_timeout 10000
+
+# The timestamp a claim carries, fetched rather than guessed — the same
+# zero-length property append server-time uses, spelled out here because
+# this runs long before server-time's own window exists.
+proc claim-time {w} {
+    if {[catch {x-server-time $w $::TK9WM_TIME} t]} { return 0 }
+    return $t
+}
+
+# Wait for the manager we just asked to stand down. ICCCM's own signal
+# is its owner window going away — the old manager destroys it (or,
+# just as final, dies and lets the server do it) only after it has let
+# the desk go. Polled rather than awaited on an event: no dispatcher is
+# armed yet, and a blocking `after` here disturbs nothing, since there
+# is nothing of ours to service.
+proc desk-wait {old} {
+    set deadline [expr {[clock milliseconds] + $::replace_timeout}]
+    while {[clock milliseconds] < $deadline} {
+        if {[x-geometry $old] eq ""} { return 1 }
+        after 100
+    }
+    return 0
+}
+
+# Arm the redirect, retrying while the outgoing manager lets go: the
+# window vanishing and the redirect coming free are two events, in that
+# order, and the second is the one we actually need.
+proc desk-redirect {{tries 1}} {
+    for {set i 0} {$i < $tries} {incr i} {
+        if {![catch {x-select-input $::root {substructure-redirect
+            substructure-notify focus-change structure-notify}} err]} {
+            return ""
+        }
+        after 100
+    }
+    return $err
+}
+
+# Take the desk, or say why not and leave. `replace` = the -replace
+# flag: without it a held selection is a refusal (and a plain one — the
+# old message said "another window manager holds it?" with a question
+# mark, because a bare BadAccess cannot know), with it a request.
+proc desk-take {replace} {
+    global root WM_SELECTION MANAGER
+    set ::wm_owner_win [x-create-window $root -200 -200 1 1 -override]
+    # property-change BEFORE the first timestamp is asked for: the
+    # recipe is a zero-length property append and the ANSWER is a
+    # PropertyNotify on this very window, so a window with no mask
+    # waits for an event the server will never send it (measured — the
+    # manager hung before its first line of log).
+    x-select-input $::wm_owner_win {property-change}
+    set held [x-selection-get $WM_SELECTION]
+    if {$held != 0} {
+        if {!$replace} {
+            puts "WM: 0x[format %x $held] already owns WM_S[screen-number]\
+ — another window manager has the desk. Start with -replace to take it."
+            exit 1
+        }
+        puts "WM: asking 0x[format %x $held] to stand down\
+ (WM_S[screen-number])"
+    }
+    set t [claim-time $::wm_owner_win]
+    if {![x-selection-own $WM_SELECTION $::wm_owner_win $t]} {
+        puts "WM: the server refused WM_S[screen-number] — cannot take the desk"
+        exit 1
+    }
+    set ::wm_claim_time $t
+    if {$held != 0 && ![desk-wait $held]} {
+        puts "WM: 0x[format %x $held] is still there after\
+ [expr {$::replace_timeout / 1000}]s — trying the redirect anyway"
+    }
+    # One try when the desk was free (the answer is immediate and an
+    # error is final); many while somebody is walking off it.
+    set err [desk-redirect [expr {$held != 0 ? 30 : 1}]]
+    if {$err ne ""} {
+        puts "WM: cannot take the redirect on root [format 0x%x $root]: $err"
+        if {$held == 0} {
+            puts "WM: ...and nobody owns WM_S[screen-number], so there is\
+ nobody to ask: a window manager that does not use the manager selection\
+ can only be stopped by hand."
+        }
+        exit 1
+    }
+    # ICCCM 2.8: a new manager announces itself to the root.
+    x-send-client $root $MANAGER \
+        [list $t $WM_SELECTION $::wm_owner_win 0 0] 32 {structure-notify}
+    x-sync 0
+    puts "WM: redirect armed on root [format 0x%x $root]\
+ (WM_S[screen-number] owner 0x[format %x $::wm_owner_win])"
+}
+
+# The flag has to be readable HERE, when the desk is taken — which is
+# `package require tk9wm` time, long before tk9wm-main sees an argument
+# list. So: the command line if there is one, and ::tk9wm_replace for an
+# embedder that builds its own.
+desk-take [expr {[info exists ::tk9wm_replace] ? $::tk9wm_replace
+    : [expr {[info exists ::argv] && "-replace" in $::argv}]}]
 
 set WM_PROTOCOLS      [x-intern WM_PROTOCOLS]
 set WM_DELETE_WINDOW  [x-intern WM_DELETE_WINDOW]
@@ -396,7 +533,6 @@ set WM_STATE          [x-intern WM_STATE]
 set WM_CHANGE_STATE   [x-intern WM_CHANGE_STATE]  ;# iconify request
 set TK9WM_RESTART     [x-intern TK9WM_RESTART]
 set TK9WM_RELOAD      [x-intern TK9WM_RELOAD]   ;# re-read the config in place
-set TK9WM_TIME        [x-intern TK9WM_TIME]  ;# server-time poke
 # Our own record of which windows are tray icons, kept ON THE ROOT so
 # it outlives us — see tray-adopt-orphans for why guessing instead of
 # recording was a bug and not a shortcut.
@@ -678,6 +814,20 @@ proc dispatch-event {ev} {
                     && [dict get $ev selection] == $::TRAY_SELECTION
                     && [dict get $ev time] >= $::tray_claim_time} {
                 tray-stop "another system tray took the selection"
+            }
+            # ...and the DESK's own selection, which is the whole of our
+            # side of a replacement: somebody else asked for the desk,
+            # and standing down is the answer the protocol promises on
+            # our behalf. exit is the entire implementation — it already
+            # means "release the tray, hand every client back to the
+            # root alive, then go" — and our windows dying with the
+            # process is what tells the newcomer the desk is free.
+            if {$::wm_owner_win != 0
+                    && [dict get $ev selection] == $::WM_SELECTION
+                    && [dict get $ev time] >= $::wm_claim_time} {
+                puts "WM: another window manager took WM_S[screen-number]\
+ — standing down"
+                exit 0
             }
         }
         map-notify { # MapNotify (self-report): the client is now really
@@ -2110,12 +2260,6 @@ proc publish-tray-icons {} {
         { set-prop-longs $::root $::TK9WM_TRAY_ICONS 33 $::trayseq }  ;# XA_WINDOW
 }
 
-# Which screen the selection names. Tk knows ours by name (":0.0"); a
-# display spelled without a screen means screen 0.
-proc tray-screen {} {
-    if {[regexp {\.(\d+)$} [winfo screen .] -> n]} { return $n }
-    return 0
-}
 
 # Claim the tray for this display. 0 = there already is one (we do not
 # fight for it: two managers on one selection is how icons end up
@@ -2123,13 +2267,12 @@ proc tray-screen {} {
 proc tray-start {{orient horizontal} {visual 0}} {
     if {$::tray_owner != 0} { return 1 }
     if {[catch {
-        set ::TRAY_SELECTION [x-intern _NET_SYSTEM_TRAY_S[tray-screen]]
+        set ::TRAY_SELECTION [x-intern _NET_SYSTEM_TRAY_S[screen-number]]
         set ::TRAY_OPCODE    [x-intern _NET_SYSTEM_TRAY_OPCODE]
         set ::TRAY_ORIENT    [x-intern _NET_SYSTEM_TRAY_ORIENTATION]
         set ::TRAY_VISUAL    [x-intern _NET_SYSTEM_TRAY_VISUAL]
         set ::XEMBED         [x-intern _XEMBED]
         set ::XEMBED_INFO    [x-intern _XEMBED_INFO]
-        set ::MANAGER        [x-intern MANAGER]
     } err]} {
         puts "WM: tray: cannot intern the atoms: $err"
         return 0
@@ -2146,7 +2289,7 @@ proc tray-start {{orient horizontal} {visual 0}} {
     set held [soft "read the tray selection" { x-selection-get $::TRAY_SELECTION } 0]
     if {$held != 0 && $held != $owner} {
         puts "WM: tray: 0x[format %x $held] already owns\
- _NET_SYSTEM_TRAY_S[tray-screen] — leaving it alone"
+ _NET_SYSTEM_TRAY_S[screen-number] — leaving it alone"
         return 0
     }
     # Selecting here is what makes the dock requests ARRIVE, and the
@@ -2197,7 +2340,7 @@ proc tray-start {{orient horizontal} {visual 0}} {
     set vs default
     if {$visual != 0} { set vs [format 0x%x $visual] }
     puts "WM: tray up (owner 0x[format %x $owner],\
- _NET_SYSTEM_TRAY_S[tray-screen], $orient, visual $vs)"
+ _NET_SYSTEM_TRAY_S[screen-number], $orient, visual $vs)"
     return 1
 }
 
@@ -2850,8 +2993,18 @@ proc restart-wm {} {
     soft "release clients on restart" \
         { foreach w [array names ::managed] { unmanage $w } }
     soft "sync before exec" { x-sync 0 }
+    # -replace, even when we were not started with it, and for a reason
+    # that only appeared once we owned WM_S<n>: execv keeps the PID but
+    # drops the X connection, and the server destroys our windows when
+    # it notices — which it may not have done yet when the fresh
+    # instance looks at the selection. It would then see the owner
+    # window of the manager it IS, and refuse to start. Asking a corpse
+    # to stand down costs one poll; the alternative is a restart that
+    # sometimes ends the session.
+    set av $::argv
+    if {"-replace" ni $av} { lappend av -replace }
     if {[catch {
-        x-exec-self [info nameofexecutable] [list $::argv0 {*}$::argv]
+        x-exec-self [info nameofexecutable] [list $::argv0 {*}$av]
     } err]} { puts "WM: restart FAILED: $err" }
 }
 

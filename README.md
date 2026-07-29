@@ -695,6 +695,27 @@ Any Tcl/Tk 9 interpreter with treectrl, plus the shim (built here, or
 compiled into the interpreter — see Building).
 
 ```sh
+wish9 tk9wm.tcl                     # take an empty desk
+wish9 tk9wm.tcl -replace            # ...or take it from whoever has it
+```
+
+**Replacing a running window manager** is ICCCM 2.8, and both
+directions of it work. We own the manager selection `WM_S<screen>`, so
+somebody else's `--replace` reaches us: the answer is to release every
+client back to the root alive and exit, which is what our own `exit`
+has always done. `-replace` is the same request the other way — it asks
+the current owner to stand down, waits for its owner window to go
+(10 s, `::replace_timeout`), then takes the redirect. The clients live
+through it and are adopted by the newcomer; that is the whole point, a
+handover that costs the desk its windows being a reboot with extra
+steps. Verified against fvwm3 in both directions (run-replace-test.sh).
+
+Without `-replace`, a desk that is already taken is a refusal that
+names the owner instead of a bare `BadAccess`. A manager that owns no
+selection cannot be asked at all — the refusal says that too, since
+nothing but killing it will do.
+
+```sh
 tests/run-xephyr.sh [display] [WxH]
 ```
 
@@ -853,6 +874,14 @@ runs as a single shell call:
   and maximize fills it corner and all; a list anchored by the left
   dock opens beside it; the tray follows the panel it is told to ride;
   and a panel moved to another edge re-carves every band).
+- `run-replace-test.sh` (ICCCM manager replacement, both directions: a
+  plain start owns `WM_S<n>`; a newcomer without `-replace` refuses and
+  names the owner, leaving the running desk alone; one with `-replace`
+  takes the desk, the first stands down and its client survives to be
+  adopted; a restart in place still comes back up through its own
+  selection; and — where fvwm3 is installed — the foreign half, its
+  `--replace` taking the desk from us and ours taking it back, with the
+  client living through both handovers).
 - `run-tray-test.sh` (the system tray: the selection is taken, two
   clients (`tray-client.tcl` on `tk systray` — the control client is in
   the kit itself, zero external dependencies) dock by icon, both really
