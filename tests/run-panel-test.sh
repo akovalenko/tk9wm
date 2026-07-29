@@ -30,7 +30,7 @@ sleep 1.5
 
 key() { xdotool key "$@"; sleep 0.5; }
 
-PH=$(sed -n 's/^WM: panel up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-panel.log" | head -1)
+PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-panel.log" | head -1)
 TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-panel.log" | head -1)
 echo "--- panel h=$PH, deco top=$TOP"
 

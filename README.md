@@ -504,12 +504,17 @@ install — `package require tk9wm` answers out of the image.
   `<Super>t w m`, winlist on `<Alt>Tab` and `<Super>t w w` (the static
   one — a sequence that ends with the keys released).
 
-  **The panel** — a treectrl strip of our own at the bottom or the
-  right edge (`set-panel-side bottom|right`: only the orientation, the
-  workarea cutout edge and the geometry corner change — the button
-  logic does not see the side). It exists only when the config declares
-  buttons (`panel-button LABEL {match … launch … icon … key … style
-  …}`). **`style` is a shortcut**: the same settings go into `wm-style`
+  **The panel** — a treectrl strip of our own along any of the four
+  edges (`set-panel-side top|bottom|left|right`: only the orientation
+  and the band's geometry change — the button logic does not see the
+  side). It exists only when the config declares buttons
+  (`panel-button LABEL {match … launch … icon … key … style …}`), and
+  there can be **more than one**: `panel NAME BODY` declares a named
+  instance, and everything said outside such a block belongs to the
+  one named `default`, so a config that never heard of the plural
+  keeps working. Each panel carries its own side, preset, icon size
+  and buttons — a dock down the left edge beside a bar along the
+  bottom is two declarations and no coordination. **`style` is a shortcut**: the same settings go into `wm-style`
   under this button's own `match` predicate, so one filter need not be
   written twice nor hoisted into a proc for the sake of a single
   repeat; the rule takes its place in the list at the button's point of
@@ -540,7 +545,7 @@ install — `package require tk9wm` answers out of the image.
   pseudo-icons), so a mixed panel keeps one height. An icon button's
   layout is the `set-panel-preset row|stack` preset (`row` is "icon
   text", `stack` puts the caption under the icon — the look for a thick
-  bottom strip or a narrow right one).
+  bottom strip or a narrow side one).
 
   A button with a **live matched window** says so continuously: an
   indicator bar along its bottom edge plus a light tint on the face
@@ -556,17 +561,31 @@ install — `package require tk9wm` answers out of the image.
   pick focuses. A click on the body is the old idempotent shot at the
   most recent one. Matches are re-evaluated on manage/unmanage and on
   every title change (a change can flip a `-title` matcher), debounced
-  as the RandR rebuild is. The workarea gives up the panel's strip
-  (maximize and the placement of new windows do not cover it), and
-  every raise-group ends by raising the panel to the top — StaysOnTop
-  for the poor, until there are layers.
+  as the RandR rebuild is. Every raise-group ends by raising the
+  panels to the top — StaysOnTop for the poor, until there are layers.
+
+  **Strips and the workarea.** Everything glued to an edge — a panel,
+  the tray riding on one — reserves a BAND across that edge, and the
+  bands are carved out of the screen **in declaration order**: each
+  strip takes its band from what the strips before it left, and what
+  survives the last carve is the workarea (maximize and the placement
+  of new windows stop there). So the corner between two edges belongs
+  to whichever panel was declared first — a config steers the corners
+  by the order it writes its panels in, and nothing has to negotiate
+  at run time. The workarea is a RECTANGLE and not a size: a panel on
+  the left or the top moves its ORIGIN, which is why placement clamps
+  and the cascade count from that corner rather than from the
+  screen's.
 
   **The tray strip** (`set-tray on`, off by default, as the panel is) —
-  a row of square cells at the FAR end of that same edge (the right end
-  of a bottom panel, the bottom end of a right one), in an
-  override-redirect toplevel of its own: a panel rebuild destroys
-  `.panel` whole, and somebody else's icon inside it would go down with
-  it. A cell is an ordinary frame, and its **background** is what shows
+  a row of square cells at the FAR end of its panel's band (the right
+  end of a horizontal bar, the bottom end of a vertical one), in an
+  override-redirect toplevel of its own: a panel rebuild destroys the
+  strip whole, and somebody else's icon inside it would go down with
+  it. Which panel is a knob — `set-tray-panel NAME`, default
+  `default` — and it decides the tray's edge, its orientation and the
+  band it shares; a tray on a panel nobody declared is the panel-less
+  case, and the band is then the tray's alone. A cell is an ordinary frame, and its **background** is what shows
   through the transparent parts of an icon (the whole story of "why is
   my icon on a black square": `set-tray-background` paints it,
   `set-tray-icon-size` sizes it, default 24). The workarea cutout is
@@ -782,8 +801,10 @@ runs as a single shell call:
   winlist-icon, a panel button carrying its resolved icon).
 - `run-panelgeo-test.sh` (the panel's geometry: mixed iconness grows
   the strip to the icon square and hangs an auto-badge on the icon-less
-  button; `set-panel-side right` is a vertical strip at the right edge
-  with the workarea cut there (maximize runs into it);
+  button; `set-panel-side` puts the strip on any of the four edges with
+  the workarea cut there (maximize runs into it — and a left or top
+  strip moves the workarea's origin, which `run-panels-test.sh` checks
+  against a two-panel desk);
   `set-panel-preset stack` puts the caption under the icon;
   `set-panel-icon-size` re-aims both the geometry and the resampling),
   `run-panellive-test.sh` (the live button: an empty desk is dark, one
@@ -791,7 +812,15 @@ runs as a single shell call:
   separator, a click on the edge of the arrow zone opens the filtered
   winlist in MRU order and picking the second focuses the older window,
   unmanage puts multi out, a client renaming itself flips the `-title`
-  matcher both ways).
+  matcher both ways),
+  `run-panels-test.sh` (panels in the plural: a `panel NAME BODY` dock
+  on the left declared before the stock bottom bar, so the dock owns
+  the corner and the bar starts where it ends; the workarea is what
+  both of them left; buttons, the live judgement and a fire each reach
+  their own panel and no other; a window is born inside that workarea
+  and maximize fills it corner and all; a list anchored by the left
+  dock opens beside it; the tray follows the panel it is told to ride;
+  and a panel moved to another edge re-carves every band).
 - `run-tray-test.sh` (the system tray: the selection is taken, two
   clients (`tray-client.tcl` on `tk systray` — the control client is in
   the kit itself, zero external dependencies) dock by icon, both really

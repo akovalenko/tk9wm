@@ -39,7 +39,7 @@ proc lchk {desc want got} {
     }
 }
 proc has-state {item state} {
-    expr {$state in [.panel.t item state get $item]}
+    expr {$state in [[panel-tree default] item state get $item]}
 }
 proc by-title {pat} {
     foreach w [array names ::frameof] {
@@ -53,7 +53,7 @@ proc live-empty {} {
     puts "LIVE BATTERY empty done"
 }
 proc sep-hidden {} {
-    expr {[catch {.panel.t item bbox 1 C0 eSep} bb] || $bb eq ""}
+    expr {[catch {[panel-tree default] item bbox 1 C0 eSep} bb] || $bb eq ""}
 }
 proc live-one {} {
     lchk {one match: live} 1 [has-state 1 live]
@@ -67,8 +67,8 @@ proc live-two {} {
     lchk {two matches: the separator is drawn} 0 [sep-hidden]
     # click the inner edge of the reserved strip — the whole zone is
     # the target, not the glyph
-    lassign [.panel.t item bbox 1] bx1 by1 bx2 by2
-    panel-click [expr {$bx2 - 4}] [expr {($by1 + $by2) / 2}]
+    lassign [[panel-tree default] item bbox 1] bx1 by1 bx2 by2
+    panel-click default [expr {$bx2 - 4}] [expr {($by1 + $by2) / 2}]
     lchk {a zone-edge click opens the filtered list} 1 [winfo exists .winlist]
     lchk {the list holds exactly the matches} 2 [llength $::winlist_wins]
     lchk {MRU: the fresh window leads} [by-title жилец-B] \

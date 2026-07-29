@@ -41,11 +41,11 @@ sleep 1.5
 
 CID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-reload.log" | head -1)
 ICON=$(sed -n 's/^WM: tray: docked \(0x[0-9a-f]*\) in slot .*/\1/p' "$HERE/wm-reload.log" | head -1)
-# "panel up (N buttons, H px, SIDE/PRESET, geometry)" — the count and
+# "panel NAME up (N buttons, H px, SIDE/PRESET, geometry)" — the count and
 # the SIDE are what the two configs differ in, and the side is the
 # telling one: it is a knob the second config never mentions, so it can
 # only be right if the reset put it back.
-panel() { sed -n 's/^WM: panel up (\([0-9]*\) buttons, [0-9]* px, \([a-z]*\)\/.*/\1 \2/p' "$HERE/wm-reload.log" | tail -1; }
+panel() { sed -n 's/^WM: panel [^ ]* up (\([0-9]*\) buttons, [0-9]* px, \([a-z]*\)\/.*/\1 \2/p' "$HERE/wm-reload.log" | tail -1; }
 work() { xprop -root _NET_WORKAREA 2>/dev/null | sed 's/.*= //'; }
 icon_parent() { xwininfo -id "$1" -children 2>/dev/null | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p'; }
 

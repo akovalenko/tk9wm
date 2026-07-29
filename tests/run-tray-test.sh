@@ -112,7 +112,7 @@ else
     echo "FAIL: icon A is $GEOM_A, want 24x24"
 fi
 # 2 cells: 2*3 + 2*24 + 4 = 58 wide; thickness follows the panel's strip
-PH=$(sed -n 's/^WM: panel up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-tray.log" | tail -1)
+PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-tray.log" | tail -1)
 if [ "$STRIP" = "58x${PH}+742+$((600 - PH))" ]; then
     echo "OK: the strip sits in the corner at the panel's thickness ($STRIP)"
 else

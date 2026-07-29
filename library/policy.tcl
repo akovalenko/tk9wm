@@ -49,11 +49,12 @@ if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
 }
 # The pseudo-icon lettering (see winlist-icon): TitleFont's family, but
 # bold and sized in PIXELS to the badge, not the text line — configured
-# at each winlist open, when the badge size is known. The panel keeps
-# its own instance: its badge size (panel-icon-size) is independent of
-# the winlist row, and the two would fight over one font.
+# at each winlist open, when the badge size is known. Every panel keeps
+# its OWN instance (panel-badge-font): a badge size is per panel — a
+# dock of 48px icons beside a taskbar of 24px ones is the ordinary
+# case — and panels sharing one font would each be lettered for
+# whichever was built last.
 font create IconFont -weight bold
-font create PanelIconFont -weight bold
 # 3px of air above and below the text line; the strip sits under the
 # full top border (a real grip, uniform with the bottom), a 2px gap
 # separates it from the client slot.
@@ -119,7 +120,7 @@ proc set-title-font {args} {
 }
 proc retitle-frames {} {
     title-metrics
-    panel-build   ;# the strip height follows the font too
+    panels-build  ;# the strip height follows the font too
     foreach {w t} [array get ::frameof] {
         # Re-asking the style, not just re-reading the metrics: this is
         # also the path a config RELOAD takes, and by then the `decor`
@@ -499,8 +500,11 @@ proc gravity-frame-xy {w x y grav} {
 # corner — better to lose the far edge than the near one.
 proc place-frame {w fw fh} {
     # frames are placed within the WORKAREA: a new window must not be
-    # born with its bottom edge under the panel
-    lassign [workarea] wax way sw sh
+    # born with its bottom edge under the panel. Which is a RECTANGLE
+    # and not a size — a panel on the left or the top moves the
+    # workarea's ORIGIN, and a clamp that read the extent as the far
+    # edge would put the window under exactly the strip it was meant to
+    # keep clear.
     # A `place` style beats every claim below it, the client's own
     # -geometry included (the owner's call, 2026-07-29): the config is
     # the same user saying it once and for all, and a rule that lost to
@@ -516,7 +520,7 @@ proc place-frame {w fw fh} {
         }
         if {$X != 0 || $Y != 0} {
             lassign [gravity-frame-xy $w $X $Y $grav] X Y
-            return [clamp-to-screen $X $Y $fw $fh $sw $sh]
+            return [clamp-to-workarea $X $Y $fw $fh]
         }
     }
     # The leader is READ at attach, and this proc now runs before that
@@ -529,10 +533,10 @@ proc place-frame {w fw fh} {
         if {[regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $pt] -> pw ph px py]} {
             set X [expr {$px + ($pw - $fw) / 2}]
             set Y [expr {$py + ($ph - $fh) / 2}]
-            return [clamp-to-screen $X $Y $fw $fh $sw $sh]
+            return [clamp-to-workarea $X $Y $fw $fh]
         }
     }
-    return [cascade-slot $fw $fh $sw $sh]
+    return [cascade-slot $fw $fh]
 }
 
 # The cascade used to march forever (110 + 70*n, 80 + 60*n), so on a long
@@ -540,19 +544,31 @@ proc place-frame {w fw fh} {
 # fully off-screen (live report, 2026-07-27 — and it applies to ordinary
 # windows, not just dialogs). Now the round RESTARTS with the very window
 # that would not fit, so the offender itself lands at the top-left slot.
-proc cascade-slot {fw fh sw sh} {
-    set X [expr {110 + 70*$::ncli}]; set Y [expr {80 + 60*$::ncli}]
-    if {$X + $fw > $sw || $Y + $fh > $sh} {
+#
+# The slots are counted from the workarea's own CORNER, not from the
+# screen's: with a panel on the left or the top the two are different
+# points, and a cascade that started at the screen's would deal its
+# first window out under the strip.
+proc cascade-slot {fw fh} {
+    lassign [workarea] wax way ww wh
+    set X [expr {$wax + 110 + 70*$::ncli}]
+    set Y [expr {$way + 80 + 60*$::ncli}]
+    if {$X + $fw > $wax + $ww || $Y + $fh > $way + $wh} {
         set ::ncli 0
-        set X 110; set Y 80
+        set X [expr {$wax + 110}]; set Y [expr {$way + 80}]
     }
     incr ::ncli
-    return [clamp-to-screen $X $Y $fw $fh $sw $sh]
+    return [clamp-to-workarea $X $Y $fw $fh]
 }
-proc clamp-to-screen {X Y fw fh sw sh} {
-    if {$X + $fw > $sw} { set X [expr {$sw - $fw}] }
-    if {$Y + $fh > $sh} { set Y [expr {$sh - $fh}] }
-    list [expr {max($X, 0)}] [expr {max($Y, 0)}]
+# Both edges of both axes, and the NEAR one wins a window too big to
+# fit: better to lose the far edge than the one with the title bar on
+# it. The near edge is the workarea's origin — which is the panel's
+# inner face when the panel is on the left or the top.
+proc clamp-to-workarea {X Y fw fh} {
+    lassign [workarea] wax way ww wh
+    if {$X + $fw > $wax + $ww} { set X [expr {$wax + $ww - $fw}] }
+    if {$Y + $fh > $way + $wh} { set Y [expr {$way + $wh - $fh}] }
+    list [expr {max($X, $wax)}] [expr {max($Y, $way)}]
 }
 
 # The biggest client area THIS window's frame can hold — an oversized
@@ -1293,26 +1309,89 @@ proc title-release {t w x y} {
     }
 }
 
-# ---- maximize, fvwm semantics ----
-# The workarea: where maximize expands to and where new frames are
-# placed — the screen minus the strip along the panel-side edge. Two
-# things can claim that edge, the button panel and the tray, and either
-# may be absent (both are opt-in), so the carve is the THICKER of them:
-# they share one edge and one thickness, which is what makes the pair
-# read as a single bar.
-proc workarea {} {
-    lassign [screen-size] sw sh
-    set strip [expr {max([panel-thickness], [tray-thickness])}]
-    if {$::panel_side eq "right"} {
-        list 0 0 [expr {$sw - $strip}] $sh
-    } else {
-        list 0 0 $sw [expr {$sh - $strip}]
+# ---- strips: the furniture glued to the screen's edges ----
+# A STRIP is anything the WM glues to a screen edge and reserves room
+# for: a button panel, the tray riding on one. Each claims a BAND
+# across one edge, and the bands are carved IN DECLARATION ORDER out of
+# what is left of the screen — the first panel declared spans its whole
+# edge, the next spans what that one left of its own. So the corner
+# between two edges belongs to whichever strip was declared first,
+# which is a rule the config steers by writing its panels in an order
+# and nothing has to negotiate at run time. What survives the last
+# carve is the WORKAREA: where maximize expands to and where new frames
+# are placed.
+#
+# The tray is NOT a strip of its own. It rides on the panel it is bound
+# to (set-tray-panel): the two share one band, the tray sits at its far
+# end, and the band is the THICKER of them — which is what makes the
+# pair read as a single bar. Either may be absent, both are opt-in, and
+# a panel that nothing asks for reserves nothing at all.
+proc carve-band {rect edge thick} {
+    lassign $rect x y w h
+    # a strip cannot claim more than there is: the workarea must stay a
+    # rectangle with sides, whatever a config asks for
+    set thick [expr {max(0, min($thick, ($edge in {left right}) ? $w : $h))}]
+    switch -- $edge {
+        top    { return [list [list $x $y $w $thick] \
+                              [list $x [expr {$y + $thick}] $w [expr {$h - $thick}]]] }
+        bottom { return [list [list $x [expr {$y + $h - $thick}] $w $thick] \
+                              [list $x $y $w [expr {$h - $thick}]]] }
+        left   { return [list [list $x $y $thick $h] \
+                              [list [expr {$x + $thick}] $y [expr {$w - $thick}] $h]] }
+        right  { return [list [list [expr {$x + $w - $thick}] $y $thick $h] \
+                              [list $x $y [expr {$w - $thick}] $h]] }
     }
+    error "carve-band: no such edge: $edge"
 }
+# Every band and the workarea in one pass, because they are one answer:
+# each band is what its strip took from the running rectangle, and the
+# workarea is that rectangle at the end. Returns {bands-dict workarea} —
+# a pair and not one dict, so that a panel NAMED workarea could not
+# shadow the answer.
+proc strip-bands {} {
+    set free [list 0 0 {*}[screen-size]]
+    set bands {}
+    foreach name [strip-order] {
+        set thick [panel-thickness $name]
+        if {[tray-panel] eq $name} {
+            set thick [expr {max($thick, [tray-thickness])}]
+        }
+        if {$thick <= 0} continue
+        lassign [carve-band $free [panel-cfg $name side] $thick] band free
+        dict set bands $name $band
+    }
+    list $bands $free
+}
+# Who gets to carve, in order. The declared panels — and the tray's own
+# panel even when nothing declared it: a config that asks for a tray
+# and no buttons at all still gets a bar, which is what it got when the
+# tray was the panel's lodger rather than a named panel's.
+proc strip-order {} {
+    set names [panel-names]
+    if {[tray-panel] ni $names} { lappend names [tray-panel] }
+    return $names
+}
+# The band a named panel holds, {} when it reserves nothing (no
+# buttons, no tray of its own) — the callers that place furniture.
+proc strip-band {name} {
+    lassign [strip-bands] bands -
+    if {[dict exists $bands $name]} { return [dict get $bands $name] }
+    return {}
+}
+# The band's own edge-hugging sub-strip of THICK px: a panel thinner
+# than its band (a fat tray widened it) still hugs the screen edge
+# rather than floating in the middle of what it reserved.
+proc band-strip {band edge thick} {
+    lassign [carve-band $band $edge $thick] strip -
+    return $strip
+}
+proc workarea {} { lindex [strip-bands] 1 }
 # ...and the same answer for the world: EWMH's _NET_WORKAREA. What we
 # keep for ourselves (maximize, placement) is exactly what a pager or a
 # popup-placing toolkit needs, so the hook is a rename and nothing else.
 proc policy-workarea {} { workarea }
+
+# ---- maximize, fvwm semantics ----
 
 # Maximize fills the workarea and remembers what the window was; the
 # second toggle restores it. "Maximized" is a saved-geometry flag, not
@@ -1833,7 +1912,9 @@ proc winlist {} {
 }
 # The list itself, reusable: winlist passes every window and centers;
 # a panel button's arrow zone passes its matches and anchors the
-# popup by the button. The anchor is "center" or {panel I}; only the
+# popup by the button. The anchor is "center" or {panel NAME I} — the
+# panel's name, because which strip the button is on decides which way
+# the list opens off it (see below); only the
 # centered full list may enter cycle mode and preselects the SECOND
 # entry (the toggle) — an anchored filtered list is a plain chooser,
 # most recent first.
@@ -1923,15 +2004,23 @@ proc winlist-open {wins anchor} {
         set X [expr {($sw - $W) / 2}]
         set Y [expr {($sh - $H) / 3}]
     } else {
-        # by the button: over a bottom strip, beside a right one
-        # (popup-show clamps to the screen either way)
-        lassign [.panel.t item bbox [expr {[lindex $anchor 1] + 1}]] bx by
-        if {$::panel_side eq "right"} {
-            set X [expr {[winfo x .panel] - $W}]
-            set Y [expr {[winfo rooty .panel.t] + $by}]
-        } else {
-            set X [expr {[winfo rootx .panel.t] + $bx}]
-            set Y [expr {[winfo y .panel] - $H}]
+        # By the button, and always on the strip's INNER face — the list
+        # opens over the desk, never off the screen edge the strip is
+        # glued to: over a bottom panel, under a top one, beside a
+        # vertical one. (popup-show clamps to the screen either way.)
+        lassign $anchor - pname bi
+        set P [panel-window $pname]
+        set T [panel-tree $pname]
+        lassign [$T item bbox [expr {$bi + 1}]] bx by
+        switch -- [panel-cfg $pname side] {
+            bottom { set X [expr {[winfo rootx $T] + $bx}]
+                     set Y [expr {[winfo y $P] - $H}] }
+            top    { set X [expr {[winfo rootx $T] + $bx}]
+                     set Y [expr {[winfo y $P] + [winfo height $P]}] }
+            right  { set X [expr {[winfo x $P] - $W}]
+                     set Y [expr {[winfo rooty $T] + $by}] }
+            left   { set X [expr {[winfo x $P] + [winfo width $P]}]
+                     set Y [expr {[winfo rooty $T] + $by}] }
         }
     }
     popup-show .winlist $W $H $X $Y
@@ -2510,13 +2599,25 @@ proc kbmr-key {kind name mods} {
 # raise-group ends by lifting the panel back on top: fvwm's
 # StaysOnTop for the poor, good enough until layers exist.
 #
-# Where and how, two knobs. set-panel-side bottom|right picks the
-# screen edge (a vertical treectrl on the right — only the flow
-# orientation, the workarea carve and the geometry corner change, the
-# button logic never sees the side). set-panel-preset row|stack picks
-# the button layout when any face is iconic: row is <image> Text,
-# stack puts the label under the icon — the tall-strip look for a
-# thick bottom bar or a narrow right one.
+# Where and how, two knobs. set-panel-side top|bottom|left|right picks
+# the screen edge (left and right are vertical treectrls — only the
+# flow orientation and the band's geometry change, the button logic
+# never sees the side). set-panel-preset row|stack picks the button
+# layout when any face is iconic: row is <image> Text, stack puts the
+# label under the icon — the tall-strip look for a thick bottom bar or
+# a narrow side one.
+#
+# There can be MORE THAN ONE. A panel is an instance, named, declared
+# with a block:
+#
+#   panel dock { set-panel-side left; panel-button терм {...} }
+#
+# and everything said outside a block belongs to the panel named
+# `default` — which is why a config that never heard of the plural
+# keeps working unchanged. Each panel carries its own side, preset,
+# icon size and buttons; the bands they reserve are carved in
+# declaration order (see the strips section), so two panels are a
+# taskbar and a dock without either knowing about the other.
 #
 # Geometry is precomputed per (re)build — fonts, RandR and the config
 # all funnel into panel-build. With no iconic face anywhere the strip
@@ -2538,24 +2639,86 @@ proc kbmr-key {kind name mods} {
 # most recent match. Matches are re-judged on manage, unmanage and
 # every title change (a title flip can turn a -title filter around),
 # debounced like the RandR rebuild.
-set panel_buttons {}
-set panel_side bottom    ;# which screen edge holds the strip
-set panel_preset row     ;# iconic button layout: row | stack
-set panel_icon_size 48   ;# resolve-icon target for button faces
-set panel_zone 0         ;# the reserved arrow strip, set per build
-proc set-panel-side {side} {
-    if {$side ni {bottom right}} { error "set-panel-side: bottom or right" }
-    set ::panel_side $side
+# Every panel's settings in ONE variable, keyed by name — a Tcl dict
+# keeps its insertion order, so the dict IS the declaration order the
+# bands are carved in, and the config layer's snapshot/restore machinery
+# (which knows how to put a variable back) covers panels for free.
+# Build products stay OUT of it: the live widget and the arrow zone are
+# per-panel too, but they are what a build produced, not what the user
+# asked for, and a reset has no business restoring them.
+proc panel-defaults {} {
+    dict create side bottom preset row icon_size 48 buttons {}
+}
+# Empty, and `default` is created on first mention like any other name.
+# That is what makes the dict's order the CONFIG's order: a `default`
+# present from the start would always have been the first band carved,
+# whatever the config wrote first, and the corner rule would be a rule
+# about our initialization rather than about the config.
+set panels {}
+set panel_target default   ;# whose knobs the config is turning right now
+array set panel_win {}     ;# name -> the live top-level, absent = not built
+array set panel_zone {}    ;# name -> its reserved arrow strip, set per build
+# The block form. `panel NAME BODY` points the knobs at NAME for the
+# length of BODY and puts them back afterwards — uplevel, so the body
+# is ordinary config code that can call anything, and the target is
+# restored even if it throws (a config that dies mid-block must not
+# leave every later declaration landing in a panel nobody can see).
+proc panel {name body} {
+    if {$name eq ""} { error "panel: a panel needs a name" }
+    panel-ensure $name
+    set outer $::panel_target
+    set ::panel_target $name
+    set code [catch {uplevel 1 $body} res opts]
+    set ::panel_target $outer
+    if {$code} { return -options $opts $res }
+    return $res
+}
+proc panel-ensure {name} {
+    if {![dict exists $::panels $name]} {
+        dict set ::panels $name [panel-defaults]
+    }
+}
+proc panel-names {} { dict keys $::panels }
+# A panel nobody declared answers with the CODE's defaults rather than
+# throwing: the tray can be pointed at a name that never came to exist
+# (a typo, a block that died before its first button), and the honest
+# answer to "which edge is it on then" is the default edge — not an
+# error that takes the desk's geometry down with it.
+proc panel-cfg {name key} {
+    if {[dict exists $::panels $name]} { return [dict get $::panels $name $key] }
+    return [dict get [panel-defaults] $key]
+}
+proc panel-set {name key value} {
+    panel-ensure $name
+    dict set ::panels $name $key $value
     panel-rebuild-soon
+}
+# The live widgets of a built panel: the top-level and its treectrl.
+# "" when this panel has no strip up (no buttons, or not built yet) —
+# every caller that pokes at the tree checks, because a panel can be
+# rebuilt out from under a deferred callback.
+proc panel-window {name} {
+    if {[info exists ::panel_win($name)] && [winfo exists $::panel_win($name)]} {
+        return $::panel_win($name)
+    }
+    return ""
+}
+proc panel-tree {name} {
+    set p [panel-window $name]
+    expr {$p eq "" ? "" : "$p.t"}
+}
+proc set-panel-side {side} {
+    if {$side ni {top bottom left right}} {
+        error "set-panel-side: top, bottom, left or right"
+    }
+    panel-set $::panel_target side $side
 }
 proc set-panel-preset {preset} {
     if {$preset ni {row stack}} { error "set-panel-preset: row or stack" }
-    set ::panel_preset $preset
-    panel-rebuild-soon
+    panel-set $::panel_target preset $preset
 }
 proc set-panel-icon-size {px} {
-    set ::panel_icon_size $px
-    panel-rebuild-soon
+    panel-set $::panel_target icon_size $px
 }
 set panel_live_bar  #8ae234  ;# the indicator strip
 set panel_live_face #5d6e59  ;# the face tint under a live match
@@ -2565,10 +2728,14 @@ proc set-panel-live-colors {bar face} {
     panel-rebuild-soon
 }
 proc panel-button {label settings} {
-    lappend ::panel_buttons [list $label $settings]
+    set name $::panel_target
+    panel-ensure $name
+    set buttons [panel-cfg $name buttons]
+    lappend buttons [list $label $settings]
+    dict set ::panels $name buttons $buttons
     if {[dict exists $settings key]} {
         wm-bind [dict get $settings key] \
-            [list panel-fire [expr {[llength $::panel_buttons] - 1}]]
+            [list panel-fire $name [expr {[llength $buttons] - 1}]]
     }
     # `style` is a shorthand and nothing more: the button's own match
     # predicate, handed to wm-style with these settings. It exists
@@ -2585,12 +2752,29 @@ proc panel-button {label settings} {
     }
     panel-rebuild-soon
 }
-# one rebuild per config's worth of declarations (or knob twiddles)
+# one rebuild per config's worth of declarations (or knob twiddles) —
+# and it is every panel that is rebuilt, not the one whose knob moved:
+# the bands are carved from one another, so a strip that got thicker
+# moves the one declared after it too.
 proc panel-rebuild-soon {} {
     if {![info exists ::panel_pending]} {
         set ::panel_pending 1
-        after idle {unset ::panel_pending; panel-build}
+        after idle {unset ::panel_pending; panels-build}
     }
+}
+# Every button of every panel, as {panel index label settings} — the
+# sweeps (re-judging matches, counting for a log line) say what they do
+# to a button and not which panel it is on.
+proc panel-all-buttons {} {
+    set out {}
+    dict for {name p} $::panels {
+        set i 0
+        foreach b [dict get $p buttons] {
+            lappend out [list $name $i {*}$b]
+            incr i
+        }
+    }
+    return $out
 }
 # Every managed window a button's match accepts, MRU first — the
 # winlist order, never-focused windows trailing. Feeds the fire (the
@@ -2618,57 +2802,60 @@ proc panel-matches {label settings} {
 # unmanage, title change; run straight at the end of every rebuild.
 set panel_reeval_pending ""
 proc panel-match-kick {} {
-    if {![llength $::panel_buttons]} return
+    if {![llength [panel-all-buttons]]} return
     after cancel $::panel_reeval_pending
     set ::panel_reeval_pending [after 200 panel-reeval]
 }
 proc panel-reeval {} {
-    if {![winfo exists .panel.t]} return
-    set i 0
-    foreach b $::panel_buttons {
-        lassign $b label settings
+    foreach b [panel-all-buttons] {
+        lassign $b name i label settings
+        set T [panel-tree $name]
+        if {$T eq ""} continue
         set n [llength [panel-matches $label $settings]]
-        .panel.t item state set [expr {$i + 1}] \
+        $T item state set [expr {$i + 1}] \
             [list [expr {$n >= 1 ? "live" : "!live"}] \
                   [expr {$n >= 2 ? "multi" : "!multi"}]]
-        incr i
     }
 }
 # Everything the strip's shape depends on, decided in one place: the
 # resolved face of every button ("" = no icon or a miss — one case,
 # the badge), whether anything is iconic at all, the item height for
-# the preset, and the strip thickness (bottom: the item height;
-# right: the widest button). The builder and the workarea's thickness
+# the preset, and the strip thickness (horizontal: the item height;
+# vertical: the widest button). The builder and the band's thickness
 # question both come here; resolution is cached, so asking is cheap.
-proc panel-geometry {} {
+proc panel-geometry {name} {
+    set buttons [panel-cfg $name buttons]
+    set preset [panel-cfg $name preset]
+    set isz [panel-cfg $name icon_size]
+    set vert [expr {[panel-cfg $name side] in {left right}}]
     set faces {}
     set iconic 0
-    foreach b $::panel_buttons {
+    foreach b $buttons {
         lassign $b label settings
         set img ""
         if {[dict exists $settings icon]} {
-            set img [resolve-icon [dict get $settings icon] $::panel_icon_size]
+            set img [resolve-icon [dict get $settings icon] $isz]
         }
         if {$img ne ""} { set iconic 1 }
         lappend faces $img
     }
-    set isz $::panel_icon_size
     set line [font metrics TitleFont -linespace]
     # badge lettering follows the badge size (the winlist formula)
-    font configure PanelIconFont -family [font actual TitleFont -family] \
+    set bfont [panel-badge-font $name]
+    font configure $bfont -family [font actual TitleFont -family] \
         -size -[expr {max(7, $isz * 5 / 8)}]
     # the arrow zone: once ANY button can match, every button
     # reserves an east strip for the multi arrow — the row reads
     # uniformly, an unarmed button just shows calm space there
     set aw [font measure TitleFont ▾]
     set zoned 0
-    foreach b $::panel_buttons {
+    foreach b $buttons {
         if {[dict exists [lindex $b 1] match]} { set zoned 1; break }
     }
     set zone [expr {$zoned ? $aw + 12 : 0}]
     if {!$iconic} {
         set content $line
-    } elseif {$::panel_preset eq "stack"} {
+    } elseif {$preset eq "stack"} {
         set content [expr {$isz + 2 + $line}]
     } else {
         set content [expr {max($isz, $line)}]
@@ -2680,11 +2867,11 @@ proc panel-geometry {} {
     set FPAD 3
     set FGAP 5
     set itemh [expr {$content + 2*$FPAD + 2*$FGAP}]
-    if {![llength $::panel_buttons]} {
+    if {![llength $buttons]} {
         set thick 0
-    } elseif {$::panel_side eq "right"} {
+    } elseif {$vert} {
         set maxw 0
-        foreach b $::panel_buttons f $faces {
+        foreach b $buttons f $faces {
             lassign $b label settings
             set tw [font measure TitleFont $label]
             if {!$iconic} {
@@ -2693,10 +2880,10 @@ proc panel-geometry {} {
                 set iw $isz
                 if {$f eq ""} {
                     # the badge: at least the square, wide letters grow it
-                    set iw [expr {max($isz, [font measure PanelIconFont \
+                    set iw [expr {max($isz, [font measure $bfont \
                         [lindex [pseudo-badge $label] 0]])}]
                 }
-                if {$::panel_preset eq "stack"} {
+                if {$preset eq "stack"} {
                     set cw [expr {max($iw, $tw)}]
                 } else {
                     set cw [expr {$iw + 4 + $tw}]
@@ -2709,24 +2896,71 @@ proc panel-geometry {} {
         set thick [expr {$itemh + 2}]
     }
     dict create faces $faces iconic $iconic itemh $itemh thick $thick \
-        zone $zone aw $aw fpad $FPAD fgap $FGAP
+        zone $zone aw $aw fpad $FPAD fgap $FGAP vert $vert \
+        preset $preset icon_size $isz badge_font $bfont
 }
-proc panel-thickness {} { dict get [panel-geometry] thick }
-proc panel-build {} {
-    destroy .panel
-    if {![llength $::panel_buttons]} return
-    lassign [screen-size] sw sh
-    set g [panel-geometry]
+proc panel-thickness {name} { dict get [panel-geometry $name] thick }
+# One badge font per panel, created on demand and named after the
+# panel. Named and not indexed: a rebuild renumbers the widgets, and a
+# font that changed meaning between two builds would letter a badge
+# from somebody else's icon size.
+proc panel-badge-font {name} {
+    set f "PanelBadge-$name"
+    if {$f ni [font names]} { font create $f -weight bold }
+    return $f
+}
+# Every panel, from nothing: the live strips come down and are put
+# back up in declaration order. Wholesale and not per panel, because a
+# band is carved out of what the bands before it left — a strip that
+# grew moves every strip declared after it, and rebuilding just the one
+# whose knob moved would leave the rest overlapping it.
+#
+# The widget path is the panel's INDEX and not its name: a name comes
+# from the config and may be anything the user typed (Cyrillic, a dot,
+# a leading capital — all illegal or ambiguous in a Tk path), while an
+# index is always a legal component. The mapping is remembered in
+# ::panel_win, which is what every later poke goes through.
+proc panels-build {} {
+    foreach name [array names ::panel_win] {
+        destroy $::panel_win($name)
+        unset ::panel_win($name)
+    }
+    array unset ::panel_zone
+    # a font outlives the panel that asked for it (a reload can drop a
+    # panel entirely); collect the orphans rather than leak one per name
+    foreach f [font names] {
+        if {[string match "PanelBadge-*" $f]
+            && ![dict exists $::panels [string range $f 11 end]]} {
+            font delete $f
+        }
+    }
+    set idx 0
+    dict for {name p} $::panels {
+        incr idx
+        if {[llength [dict get $p buttons]]} { panel-build $name $idx }
+    }
+    tray-layout      ;# a panel's thickness is the tray's too — it follows
+    fullscreen-on-top ;# ...and the strips just lifted themselves over the desk
+    publish-workarea ;# they just took a bite out of the screen
+}
+proc panel-build {name idx} {
+    set g [panel-geometry $name]
     set faces [dict get $g faces]
     set iconic [dict get $g iconic]
     set itemh [dict get $g itemh]
     set thick [dict get $g thick]
     set zone [dict get $g zone]
     set aw [dict get $g aw]
-    set ::panel_zone $zone
+    set vert [dict get $g vert]
+    set preset [dict get $g preset]
+    set isz [dict get $g icon_size]
+    set bfont [dict get $g badge_font]
+    set side [panel-cfg $name side]
+    set buttons [panel-cfg $name buttons]
+    set ::panel_zone($name) $zone
     set er [expr {8 + $zone}]   ;# the face's east inner pad
-    set isz $::panel_icon_size
-    set vert [expr {$::panel_side eq "right"}]
+    set P .panel$idx
+    set ::panel_win($name) $P
     # A VERTICAL strip is one column, and a column wants one width: the
     # faces are stretched to the widest button's content so their edges
     # line up instead of every face hugging its own label (owner's
@@ -2745,9 +2979,9 @@ proc panel-build {} {
     # the pad, the item is exactly face + 2*fgap and the edge is one
     # number in both.
     set fgap [dict get $g fgap]
-    toplevel .panel -background $::OUTLINE
-    wm overrideredirect .panel 1
-    set T [treectrl .panel.t -showheader no -showroot no -showbuttons no \
+    toplevel $P -background $::OUTLINE
+    wm overrideredirect $P 1
+    set T [treectrl $P.t -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
         -background #2e3436 -itemheight $itemh \
         -orient [expr {$vert ? "vertical" : "horizontal"}]]
@@ -2764,7 +2998,7 @@ proc panel-build {} {
         -outline #888a85 -outlinewidth 1
     $T element create eBIcon image
     $T element create ePRect rect
-    $T element create ePTxt text -fill white -lines 1 -font PanelIconFont
+    $T element create ePTxt text -fill white -lines 1 -font $bfont
     $T element create eBTxt text -fill white -lines 1 -font TitleFont
     $T element create eLive rect -fill [list $::panel_live_bar live] \
         -height 3
@@ -2783,7 +3017,7 @@ proc panel-build {} {
     $T style layout sBtn eFace -union eBTxt -ipadx [list 8 $er] -ipady 3 \
         -padx 2 -pady $fgap -expand ns
     $T style layout sBtn eBTxt -expand ns
-    if {$iconic && $::panel_preset eq "stack"} {
+    if {$iconic && $preset eq "stack"} {
         $T style create sBtnI -orient vertical
         $T style elements sBtnI {eFace eBIcon eBTxt}
         $T style layout sBtnI eFace -union {eBIcon eBTxt} \
@@ -2843,10 +3077,10 @@ proc panel-build {} {
             # face is wider than the strip, which treectrl answers by
             # pushing the label against the far edge.
             set mw $memw
-            if {$::panel_preset ne "stack" && $s in {sBtnI sBtnB}} {
+            if {$preset ne "stack" && $s in {sBtnI sBtnB}} {
                 set mw [expr {max(1, $memw - $isz - 4)}]
             }
-            if {$::panel_preset eq "stack" && $s in {sBtnI sBtnB}} {
+            if {$preset eq "stack" && $s in {sBtnI sBtnB}} {
                 # under the icon, centred on it
                 $T style layout $s eBTxt -minwidth $mw
             } else {
@@ -2894,7 +3128,7 @@ proc panel-build {} {
                 -visible {yes multi no {}}
         }
     }
-    foreach b $::panel_buttons f $faces {
+    foreach b $buttons f $faces {
         lassign $b label settings
         set item [$T item create]
         if {!$iconic} {
@@ -2911,35 +3145,40 @@ proc panel-build {} {
         $T item element configure $item C0 eBTxt -text $label
         $T item lastchild root $item
     }
-    bind $T <ButtonPress-1> {panel-click %x %y}
-    # The tray strip sits at the FAR end of this same edge, in its own
+    bind $T <ButtonPress-1> [list panel-click $name %x %y]
+    # WHERE the strip goes is not this proc's arithmetic any more: it
+    # asks for its band (carved in declaration order out of what the
+    # panels before it left) and takes the edge-hugging part of it that
+    # is its own thickness — a band widened by a fat tray is not the
+    # panel's to fill.
+    #
+    # The tray strip sits at the FAR end of this same band, in its own
     # top-level above ours: the button row stops short of it so a
     # button can never end up hidden under an icon.
-    set tray [tray-extent]
+    set band [strip-band $name]
+    if {$band eq ""} { set band [list 0 0 {*}[screen-size]] }
+    lassign [band-strip $band $side $thick] X Y W H
+    set geo ${W}x${H}+${X}+${Y}
+    set tray [expr {[tray-panel] eq $name ? [tray-extent] : 0}]
     if {$vert} {
-        set geo ${thick}x${sh}+[expr {$sw - $thick}]+0
-        place $T -x 1 -y 1 -width [expr {$thick - 2}] \
-            -height [expr {$sh - 2 - $tray}]
+        place $T -x 1 -y 1 -width [expr {$W - 2}] \
+            -height [expr {$H - 2 - $tray}]
     } else {
-        set geo ${sw}x${thick}+0+[expr {$sh - $thick}]
-        place $T -x 1 -y 1 -width [expr {$sw - 2 - $tray}] \
-            -height [expr {$thick - 2}]
+        place $T -x 1 -y 1 -width [expr {$W - 2 - $tray}] \
+            -height [expr {$H - 2}]
     }
-    wm geometry .panel $geo
-    raise .panel
+    wm geometry $P $geo
+    raise $P
     panel-reeval     ;# a rebuild starts stateless — judge the matches now
-    tray-layout      ;# our thickness is the tray's too — it follows
-    fullscreen-on-top ;# ...and the strip just lifted itself over the desk
-    publish-workarea ;# the strip just took a bite out of the screen
-    puts "WM: panel up ([llength $::panel_buttons] buttons, $thick px,\
- $::panel_side/$::panel_preset, $geo)"
+    puts "WM: panel $name up ([llength $buttons] buttons, $thick px,\
+ $side/$preset, $geo)"
 }
-proc panel-fire {i} {
-    lassign [lindex $::panel_buttons $i] label settings
+proc panel-fire {name i} {
+    lassign [lindex [panel-cfg $name buttons] $i] label settings
     set hit [lindex [panel-matches $label $settings] 0]
     if {$hit ne ""} {
         puts "WM: panel $label: found 0x[format %x $hit]"
-        panel-flash $i found
+        panel-flash $name $i found
         if {[info exists ::iconic($hit)]} {
             deiconify-client $hit   ;# raises and focuses on its own
             return
@@ -2948,7 +3187,7 @@ proc panel-fire {i} {
         focus-to $hit
     } elseif {[dict exists $settings launch]} {
         puts "WM: panel $label: launch"
-        panel-flash $i firing
+        panel-flash $name $i firing
         if {[catch {uplevel #0 [dict get $settings launch]} err]} {
             puts "WM: panel $label: launch FAILED: $err"
         }
@@ -2960,39 +3199,45 @@ proc panel-fire {i} {
 # anchored by the button — picking focuses (winlist-pick). Fewer
 # than two matches means the arrow is stale (the debounce window):
 # degrade to the plain fire.
-proc panel-arrow {i} {
-    lassign [lindex $::panel_buttons $i] label settings
+proc panel-arrow {name i} {
+    lassign [lindex [panel-cfg $name buttons] $i] label settings
     set wins [panel-matches $label $settings]
-    if {[llength $wins] < 2} { panel-fire $i; return }
+    if {[llength $wins] < 2} { panel-fire $name $i; return }
     puts "WM: panel $label: arrow — [llength $wins] matches"
-    winlist-open $wins [list panel $i]
+    winlist-open $wins [list panel $name $i]
 }
-proc panel-flash {i state} {
+proc panel-flash {name i state} {
     # items are created in declaration order: button i = item i+1
     set item [expr {$i + 1}]
-    if {![winfo exists .panel.t]} return
+    set T [panel-tree $name]
+    if {$T eq ""} return
     soft "panel flash" {
-        .panel.t item state set $item $state
+        $T item state set $item $state
         # the un-flash fires 600 ms later, by which time the panel may
         # have been rebuilt out from under this item — soft, like the rest
         after 600 [list soft "panel unflash" \
-            [list .panel.t item state set $item !$state]]
+            [list $T item state set $item !$state]]
     }
 }
-proc panel-click {x y} {
-    set T .panel.t
+proc panel-click {name x y} {
+    set T [panel-tree $name]
+    if {$T eq ""} return
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     set i [expr {$A(item) - 1}]
     # the whole reserved east strip is the arrow's click target, not
     # the glyph — but only while the arrow is armed (multi)
-    if {$::panel_zone > 0 && "multi" in [$T item state get $A(item)]} {
+    set zone [expr {[info exists ::panel_zone($name)] ? $::panel_zone($name) : 0}]
+    if {$zone > 0 && "multi" in [$T item state get $A(item)]} {
         lassign [$T item bbox $A(item)] _x _y x2 _y2
-        if {$x >= $x2 - 2 - $::panel_zone} { panel-arrow $i; return }
+        if {$x >= $x2 - 2 - $zone} { panel-arrow $name $i; return }
     }
-    panel-fire $i
+    panel-fire $name $i
 }
 proc panel-on-top {} {
-    if {[winfo exists .panel]} { raise .panel }
+    foreach name [panel-names] {
+        set P [panel-window $name]
+        if {$P ne ""} { raise $P }
+    }
     if {[winfo exists .traybg]} { raise .traybg }   ;# under the strip...
     if {[winfo exists .tray]} { raise .tray }       ;# ...and over the desk
     fullscreen-on-top   ;# ...and under a fullscreen window, always
@@ -3000,10 +3245,16 @@ proc panel-on-top {} {
 
 # ---- the system tray strip ----
 # Where docked icons live: a strip of square cells at the FAR end of
-# the panel's own edge (the right end of a bottom panel, the bottom end
-# of a right one), in its own override-redirect top-level so a panel
-# rebuild — which destroys .panel outright — cannot take somebody's
+# its panel's band (the right end of a horizontal one, the bottom end
+# of a vertical one), in its own override-redirect top-level so a panel
+# rebuild — which destroys the strip outright — cannot take somebody's
 # icon down with it.
+#
+# WHICH panel is a knob (set-tray-panel, default `default`): with more
+# than one panel on the desk the tray has to be told whose bar it is
+# part of, and the answer decides its edge, its orientation and the
+# band it shares. A tray on a panel with no buttons is the panel-less
+# case of old — the band is then the tray's alone.
 #
 # Off by default, like the panel: `set-tray on` in the config claims
 # _NET_SYSTEM_TRAY_S<screen> (the substrate does the protocol; a
@@ -3029,10 +3280,21 @@ set tray_geo ""          ;# the strip geometry we last asked for
 set tray_argb 0          ;# the ARGB experiment — see set-tray-argb
 set tray_strip_argb 0    ;# ...and what the LIVE strip was built with
 set tray_laid_size 0     ;# the cell size the live cells were laid out at
+set tray_panel default   ;# whose bar the tray is part of
 proc set-tray {on} {
     set ::tray_on [expr {$on ? 1 : 0}]
     tray-reconcile-soon
 }
+proc set-tray-panel {name} {
+    set ::tray_panel $name
+    panel-rebuild-soon   ;# both bands moved: the old owner's and the new
+}
+# The panel the tray rides on. Not resolved against the declared ones:
+# a name nobody declared is still a band of its own here (that is the
+# tray-and-no-buttons case, and panel-cfg answers for the edge), so the
+# tray never loses its strip to a config that only forgot a button.
+proc tray-panel {} { return $::tray_panel }
+proc tray-side {} { panel-cfg [tray-panel] side }
 # One reconcile per config's worth of knob twiddles — the same shape as
 # panel-rebuild-soon, and for a sharper reason than saving work.
 #
@@ -3093,7 +3355,7 @@ proc tray-reconcile {} {
         if {$::tray_argb} { scan [winfo visualid .tray] %x vis }
         # a vertical panel gets a vertical tray — the orientation is
         # published for the icons, which size themselves by it
-        set ::tray_on [tray-start [expr {$::panel_side eq "right"
+        set ::tray_on [tray-start [expr {[tray-side] in {left right}
             ? "vertical" : "horizontal"}] $vis]
         if {$::tray_on} {
             set ::tray_strip_argb $::tray_argb
@@ -3244,11 +3506,11 @@ proc policy-tray-origin {w} {
     set f $::tray_slot($w)
     list [winfo rootx $f] [winfo rooty $f]
 }
-# The strip's measures: extent along the panel's edge, thickness across
+# The strip's measures: extent along its panel's edge, thickness across
 # it — zero when the tray is off or empty, so neither the workarea nor
 # the panel reserves anything for a strip that is not there. The
-# thickness matches the panel's when there is one, so the two read as
-# a single bar.
+# thickness matches its panel's when that panel has buttons, so the two
+# read as a single bar.
 proc tray-extent {} {
     set n [llength $::tray_order]
     if {!$::tray_on || $n == 0} { return 0 }
@@ -3256,7 +3518,7 @@ proc tray-extent {} {
 }
 proc tray-thickness {} {
     if {[tray-extent] == 0} { return 0 }
-    expr {max(2*$::tray_pad + $::tray_icon_size, [panel-thickness])}
+    expr {max(2*$::tray_pad + $::tray_icon_size, [panel-thickness [tray-panel]])}
 }
 proc tray-layout {} {
     if {![winfo exists .tray]} return
@@ -3272,7 +3534,8 @@ proc tray-layout {} {
     set thick [tray-thickness]
     set sz $::tray_icon_size
     set cross [expr {($thick - $sz) / 2}]   ;# centered across the strip
-    set vert [expr {$::panel_side eq "right"}]
+    set side [tray-side]
+    set vert [expr {$side in {left right}}]
     set i 0
     foreach w $::tray_order {
         set off [expr {$::tray_pad + $i*($sz + $::tray_gap)}]
@@ -3283,11 +3546,18 @@ proc tray-layout {} {
         }
         incr i
     }
-    lassign [screen-size] sw sh
+    # The FAR end of our panel's band: the end with the larger
+    # coordinate along the band's long axis — the right end of a
+    # horizontal bar, the bottom end of a vertical one. Taken from the
+    # band and not from the screen, so a tray on the second panel
+    # declared lands inside what the first one left.
+    set band [strip-band [tray-panel]]
+    if {$band eq ""} { set band [list 0 0 {*}[screen-size]] }
+    lassign [band-strip $band $side $thick] bx by bw bh
     if {$vert} {
-        set geo ${thick}x${len}+[expr {$sw - $thick}]+[expr {$sh - $len}]
+        set geo ${thick}x${len}+${bx}+[expr {$by + $bh - $len}]
     } else {
-        set geo ${len}x${thick}+[expr {$sw - $len}]+[expr {$sh - $thick}]
+        set geo ${len}x${thick}+[expr {$bx + $bw - $len}]+${by}
     }
     wm geometry .tray $geo
     tray-backdrop $geo       ;# the opaque floor under an ARGB strip
@@ -3307,7 +3577,7 @@ proc tray-layout {} {
     tray-tell-panel
 }
 # The panel shortens its row by our length — but only a CHANGED length
-# is worth a rebuild: panel-build calls tray-layout at its end, so an
+# is worth a rebuild: panels-build calls tray-layout at its end, so an
 # unconditional kick would be an idle loop between the two.
 proc tray-tell-panel {} {
     if {$::tray_seen_extent == [tray-extent]} return
@@ -3322,10 +3592,10 @@ proc tray-tell-panel {} {
 set panel_resize_pending ""
 proc policy-screen-changed {} {
     after cancel $::panel_resize_pending
-    # the tray is glued to a corner of the same edge; panel-build ends
+    # the tray is glued to a corner of the same band; panels-build ends
     # by re-laying it out, and tray-layout covers the panel-less case
     set ::panel_resize_pending \
-        [after 200 {panel-build; tray-layout; fullscreen-refit}]
+        [after 200 {panels-build; fullscreen-refit}]
 }
 # A fullscreen window is glued to the screen the same way the strips
 # are glued to its edge, so the same notify has to re-fit it — a screen
@@ -3391,9 +3661,9 @@ policy-default-bindings
 # so a default and its copy cannot drift apart: there is no copy.
 set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
-    style_rules minimize panel_buttons panel_side panel_preset
-    panel_icon_size panel_live_bar panel_live_face drag_mods root_cursor
-    tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb
+    style_rules minimize panels panel_target
+    panel_live_bar panel_live_face drag_mods root_cursor
+    tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
 proc policy-snapshot-defaults {} {
     foreach v $::config_vars { set ::config_default($v) [set ::$v] }
@@ -3424,14 +3694,15 @@ proc policy-reset {} {
     policy-default-bindings
 }
 proc policy-apply {} {
-    panel-build         ;# no buttons declared -> the strip goes away
+    panels-build        ;# no buttons declared -> the strip goes away
     tray-reconcile      ;# start, stop or leave the tray exactly alone
     retitle-frames      ;# live frames follow the metrics and the font
     root-cursor-apply   ;# ...and the desk stops wearing the server's X
     publish-workarea
     panel-match-kick
-    puts "WM: config applied ([llength $::panel_buttons] panel buttons,\
- [llength $::style_rules] style rules, tray [expr {$::tray_on ? {on} : {off}}])"
+    puts "WM: config applied ([llength [panel-all-buttons]] buttons on\
+ [llength [panel-names]] panel(s), [llength $::style_rules] style rules,\
+ tray [expr {$::tray_on ? {on} : {off}}])"
 }
 
 # Move policy is plain Tk: drag the title bar, the client rides along.

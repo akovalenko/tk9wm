@@ -40,10 +40,10 @@ DISPLAY=:96 import -window root "$HERE/randr-test.png" 2>/dev/null \
 
 kill $WM $CA $XEPHYR 2>/dev/null
 
-PH=$(sed -n 's/^WM: panel up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-randr.log" | head -1)
+PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-randr.log" | head -1)
 echo "--- panel h=$PH"
 echo "--- screen/panel lines:"
-grep -E 'screen ->|panel up' "$HERE/wm-randr.log"
+grep -E 'screen ->|panel .* up' "$HERE/wm-randr.log"
 
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-randr.log"; then
@@ -57,12 +57,12 @@ if grep -q 'screen -> 700x500' "$HERE/wm-randr.log"; then
 else
     echo "FAIL: no «screen -> 700x500» line"
 fi
-if grep -q "panel up (1 buttons, $PH px, bottom/row, 800x${PH}+0+$((600 - PH)))" "$HERE/wm-randr.log"; then
+if grep -q "panel default up (1 buttons, $PH px, bottom/row, 800x${PH}+0+$((600 - PH)))" "$HERE/wm-randr.log"; then
     echo "OK: the panel started glued to the 600-tall bottom"
 else
     echo "FAIL: no initial panel geometry line"
 fi
-if grep -q "panel up (1 buttons, $PH px, bottom/row, 700x${PH}+0+$((500 - PH)))" "$HERE/wm-randr.log"; then
+if grep -q "panel default up (1 buttons, $PH px, bottom/row, 700x${PH}+0+$((500 - PH)))" "$HERE/wm-randr.log"; then
     echo "OK: the panel followed the screen to the 500-tall bottom"
 else
     echo "FAIL: the panel did not re-place after the resize"

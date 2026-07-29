@@ -196,19 +196,42 @@
 #       match {filter -class xterm} launch {exec xterm &} key {<Super>x}
 #   }
 #
-# The strip's shape. set-panel-side bottom|right picks the screen
-# edge (default bottom; right makes it a vertical strip). While no
-# button face resolves to an icon the strip is a thin text-chip row;
-# the moment any does, every iconless button wears an auto-badge
-# (letters of its label on a hashed color) and the strip grows to
-# set-panel-icon-size (default 48 — the hicolor stock; a foreign
-# image is resampled). set-panel-preset row|stack picks the iconic
-# button layout: row is <image> Text (default), stack puts the label
-# under the icon — the look for a thick bottom bar or a narrow right
-# strip.
-#   set-panel-side right
+# The strip's shape. set-panel-side top|bottom|left|right picks the
+# screen edge (default bottom; left and right make it a vertical
+# strip). While no button face resolves to an icon the strip is a thin
+# text-chip row; the moment any does, every iconless button wears an
+# auto-badge (letters of its label on a hashed color) and the strip
+# grows to set-panel-icon-size (default 48 — the hicolor stock; a
+# foreign image is resampled). set-panel-preset row|stack picks the
+# iconic button layout: row is <image> Text (default), stack puts the
+# label under the icon — the look for a thick bottom bar or a narrow
+# side strip.
+#   set-panel-side left
 #   set-panel-preset stack
 #   set-panel-icon-size 32
+#
+# ---- more than one panel ----
+#
+# A panel is an instance with a name, and `panel NAME BODY` declares
+# one: inside the block the commands above speak about THAT panel,
+# outside it they speak about the one named `default` — so a config
+# that never mentions a name keeps working exactly as it did.
+#
+#   panel dock {                       ;# a dock down the left edge
+#       set-panel-side left
+#       set-panel-preset stack
+#       panel-button терм {icon xterm launch {exec xterm &}}
+#   }
+#   set-panel-side bottom              ;# ...and the default one below
+#   panel-button emacs {match {filter -class Emacs}}
+#
+# Each panel keeps its own side, preset, icon size and buttons. What
+# they share is the SCREEN, and they divide it in DECLARATION ORDER:
+# each strip reserves a band across its edge out of what the strips
+# before it left over, and what survives is the workarea (maximize and
+# new windows stop there). So the corner between two edges belongs to
+# whichever panel was declared first — write them in the order you
+# want the corners to fall.
 #
 # A button whose match sees a LIVE window says so: an indicator bar
 # along its bottom edge and a light face tint (recolor with
@@ -247,12 +270,17 @@
 #
 # set-tray on makes this WM the display's tray manager (freedesktop's
 # System Tray Protocol on XEMBED): docked icons appear as square cells
-# at the FAR end of the panel's edge — the right end of a bottom
-# panel, the bottom end of a right one — and the strip carves the
+# at the FAR end of its panel's band — the right end of a horizontal
+# bar, the bottom end of a vertical one — and the strip carves the
 # workarea the way the panel does, with or without buttons. A display
 # that already has a tray keeps it: we claim the selection only when
 # nobody holds it, and hand the icons back if somebody takes it later.
 #   set-tray on
+#
+# With more than one panel, set-tray-panel says whose bar the tray is
+# part of (default: `default`) — that decides its edge, its
+# orientation and the band it shares.
+#   set-tray-panel dock
 #
 # The cell's BACKGROUND is what shows through the transparent parts of
 # an icon (we do not advertise an ARGB visual — see the README for

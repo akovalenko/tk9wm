@@ -66,7 +66,7 @@ LIST3=$(prop _NET_CLIENT_LIST)
 kill $WM 2>/dev/null
 sleep 0.5
 
-PH=$(sed -n 's/^WM: panel up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-ewmh.log" | tail -1)
+PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-ewmh.log" | tail -1)
 echo "--- A=$AID B=$BID panel=${PH}px"
 echo "--- list=«$LIST» stacking=«$STACK» -> after raise «$STACK2»"
 echo "--- workarea=«$WORK» geometry=«$GEOM» viewport=«$VIEW» desktops=$NDESK"

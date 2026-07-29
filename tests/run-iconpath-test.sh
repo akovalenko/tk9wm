@@ -56,7 +56,7 @@ proc icon-battery {} {
         {bare name never picks svg}                 {} {resolve-icon svgonly 48}
         {winlist style icon resolves to row size}   1  {expr {[lindex [winlist-icon $tk 22] 0] eq "image"
             && [image width [lindex [winlist-icon $tk 22] 1]] <= 22}}
-        {panel face carries the resolved image}     1  {expr {[.panel.t item element cget 1 C0 eBIcon -image] ne ""}}
+        {panel face carries the resolved image}     1  {expr {[[panel-tree default] item element cget 1 C0 eBIcon -image] ne ""}}
     } {
         if {[catch {eval $script} got]} { set got "ERR: $got" }
         if {$got eq $want} {
