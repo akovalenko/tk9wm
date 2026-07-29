@@ -104,4 +104,71 @@ else
     echo "FAIL: client state=$STATE2 parent=«$PARENT2» root=«$ROOTID»"; FAIL=1
 fi
 
+# --- phase 3: a MINIMIZED window survives the restart minimized ------
+# WM_STATE is the only place "somebody minimized this" survives an
+# execv, so the outgoing instance must leave IconicState on it (not
+# Withdrawn) and the incoming one must read it back. Getting this wrong
+# does not look like a WM bug from the outside: the window returns
+# mapped but BLANK, because gtk/gecko/electron still believe themselves
+# iconic and will not paint into a window the save-set remapped behind
+# their backs. xterm and emacs paint anyway, which is what made it look
+# application-specific.
+echo "--- phase 3: minimized across a restart"
+CONF="$HERE/restart-config"
+rm -rf "$CONF"; mkdir -p "$CONF"
+echo 'wm-bind {<Super>d} {Apply-To-Matching always Minimize}' \
+    > "$CONF/tk9wm.tcl"
+XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
+    > "$HERE/wm-reicon.log" 2>&1 &
+WM3=$!
+sleep 1.5
+"$LINUX/whale" "$HERE/client.tcl" "свернусь и переживу" 260x150 "#ad7fa8" \
+    "" "" 40 > "$HERE/reicon-client.log" 2>&1 &
+CC=$!
+sleep 2
+RID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-reicon.log" | head -1)
+xdotool key super+d
+sleep 1.5
+ST_MIN=$(xprop -id "$RID" WM_STATE 2>/dev/null | sed -n 's/.*window state: //p')
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :90
+sleep 3
+ST_AFTER=$(xprop -id "$RID" WM_STATE 2>/dev/null | sed -n 's/.*window state: //p')
+MAP_AFTER=$(xwininfo -id "$RID" 2>/dev/null | sed -n 's/.*Map State: //p')
+PAR_AFTER=$(xwininfo -id "$RID" -children 2>/dev/null \
+    | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')
+ROOT3=$(xwininfo -root 2>/dev/null | sed -n 's/^xwininfo: Window id: \(0x[0-9a-f]*\).*/\1/p')
+# ...and the way back still works: the static window list, entry 1
+xdotool key super+t; sleep 0.3; xdotool key w; sleep 0.3; xdotool key w
+sleep 0.5
+xdotool key 1
+sleep 1.5
+ST_BACK=$(xprop -id "$RID" WM_STATE 2>/dev/null | sed -n 's/.*window state: //p')
+MAP_BACK=$(xwininfo -id "$RID" 2>/dev/null | sed -n 's/.*Map State: //p')
+echo "    minimized=$ST_MIN  after restart=$ST_AFTER/$MAP_AFTER parent=$PAR_AFTER  restored=$ST_BACK/$MAP_BACK"
+kill $WM3 $CC 2>/dev/null
+
+if [ "$ST_MIN" = "Iconic" ] && [ "$ST_AFTER" = "Iconic" ] \
+        && [ "$MAP_AFTER" = "IsUnMapped" ]; then
+    echo "OK: it came back minimized, not silently restored"
+else
+    echo "FAIL: minimized=$ST_MIN, after the restart $ST_AFTER/$MAP_AFTER"; FAIL=1
+fi
+if [ -n "$PAR_AFTER" ] && [ "$PAR_AFTER" != "$ROOT3" ]; then
+    echo "OK: ...and it is MANAGED while minimized (framed, so the list has it)"
+else
+    echo "FAIL: after the restart its parent is «$PAR_AFTER» (root is $ROOT3) —"
+    echo "      adopted and then dropped, or never adopted"; FAIL=1
+fi
+if [ "$ST_BACK" = "Normal" ] && [ "$MAP_BACK" = "IsViewable" ]; then
+    echo "OK: ...and the window list still brings it back"
+else
+    echo "FAIL: after the pick it is $ST_BACK/$MAP_BACK"; FAIL=1
+fi
+if grep -q 'withdrew itself' "$HERE/wm-reicon.log"; then
+    echo "FAIL: an unmap of OURS was read as the client withdrawing:"
+    grep 'withdrew itself' "$HERE/wm-reicon.log"; FAIL=1
+else
+    echo "OK: none of our own unmaps was mistaken for a withdrawal"
+fi
+
 exit $FAIL
