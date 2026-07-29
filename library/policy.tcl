@@ -3029,9 +3029,25 @@ proc set-root-cursor {name} {
 }
 proc root-cursor-apply {} {
     if {$::root_cursor eq ""} return
-    soft "root cursor «$::root_cursor»" \
-        { x-attrs $::root [list cursor $::root_cursor] }
+    soft "root cursor «$::root_cursor»" {
+        x-attrs $::root [list cursor $::root_cursor]
+        puts "WM: root cursor $::root_cursor"
+    }
 }
+# A default has to be APPLIED, not merely declared — and nothing was
+# applying this one. Every other knob on this layer reaches the screen
+# either through its own setter (the config calls it) or through
+# policy-apply, and policy-apply runs on a config RELOAD and nowhere
+# else. So a config that never mentions the cursor — the ordinary case,
+# it being a default — left the root wearing the server's ancient
+# X_cursor until the first reload, and the feature looked forgotten
+# (owner's desk, 2026-07-29; it was written, just never reached).
+#
+# Deferred to idle for the same reason the panel and the tray are: the
+# config gets to speak first, so `set-root-cursor {}` still correctly
+# keeps our hands off, and a config naming another cursor is not
+# overwritten by the default a moment later.
+after idle root-cursor-apply
 
 # The substrate's first-refusal hook on a press inside a client: 1 =
 # taken (the click never reaches the client), 0 = not ours. The

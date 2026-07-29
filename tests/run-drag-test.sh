@@ -108,10 +108,18 @@ fi
 check "an undecorated window has a handle after all" "$BARE_WANT" "$BARE_AFTER"
 check "super+button3 pulled the nearest corner" "$BARE_SIZE_WANT" "$BARE_SIZE2"
 if xprop -root | grep -q .; then :; fi
+# X gives no way to ask a window what cursor it wears, so the check is
+# on the log — and it has to be a POSITIVE one. This used to assert
+# only the absence of a soft failure, which passed for weeks while the
+# call was not being made at all: the default reached the screen from
+# policy-apply, and policy-apply runs on a config reload only. An
+# assertion that cannot fail is not an assertion.
 if grep -q 'soft failure — root cursor' "$LOG"; then
     echo "FAIL: the root cursor was refused: $(grep 'root cursor' "$LOG")"
+elif grep -q '^WM: root cursor left_ptr' "$LOG"; then
+    echo "OK: the root cursor was set at startup, with no config asking"
 else
-    echo "OK: the root cursor was accepted"
+    echo "FAIL: nothing set the root cursor — the default never reached the screen"
 fi
 if grep -q 'handler error\|pointer router error' "$LOG"; then
     echo "FAIL: handler errors present:"
