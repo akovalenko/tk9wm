@@ -297,3 +297,38 @@
 # bare in the static menu, together with the held modifier (Alt+3) in
 # cycle mode. In every popup menu k/j and p/n move the selection when
 # no item hotkey claims the letter; Ctrl+P/Ctrl+N move unconditionally.
+
+# ---- window commands ----
+#
+# Everything else in this file is lowercase and DESCRIBES a desk. A
+# command is Capitalized, and DOES something the moment it runs:
+#
+#   Minimize  Maximize  Fullscreen  Move  Resize
+#   Raise     Lower     Bury        Close Destroy
+#
+# These are the winops menu's entries, available by name. Bind one and
+# it acts on the ACTIVE window — it works out from context which window
+# is meant, so the binding never has to name one:
+#
+#   wm-bind {<Ctrl><Shift>z} Minimize
+#   wm-bind {<Super>Up}      Maximize
+#
+# (The case is not decoration: `raise`, `lower`, `close` and `destroy`
+# belong to Tcl and Tk, and taking those names would break the toolkit
+# this window manager is drawn with. Raise is ours; raise is still
+# Tk's.)
+#
+# Apply-To-Matching PREDICATE COMMAND runs one over every window the
+# predicate accepts — the same predicates the style rules and a panel
+# button's `match` take. This is "minimize everything", and it is not
+# bound by default because a desk-wide sweep is not something to
+# discover by accident:
+#
+#   wm-bind {<Super>d} {Apply-To-Matching always Minimize}
+#
+# It takes as many windows as will go: a client whose style refuses
+# minimization stays up and does not stop the sweep, and a window that
+# closes underneath it is simply skipped. Any predicate works, so the
+# sweep can be narrow:
+#
+#   wm-bind {<Super>c} {Apply-To-Matching {filter -class Chromium} Close}

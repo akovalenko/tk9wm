@@ -359,9 +359,9 @@ install — `package require tk9wm` answers out of the image.
   **Popup menus on treectrl** (keyboard through `grab-keys-to`, the
   mouse left free; navigation with Up/Down, k/j and p/n — where an
   entry's hotkey has not taken the letter — and Ctrl+P/Ctrl+N
-  unconditionally): **winops** — the window action menu
-  (maximize/fullscreen/close/destroy/raise/lower/bury/move/resize/
-  minimize with hotkey letters). **bury** is lower, except the focus
+  unconditionally): **winops** — the window action menu, which is the
+  **window commands** below with a hotkey letter apiece rather than a
+  list of its own. **bury** is lower, except the focus
   does not stay on the lowered window: it goes to whatever that
   uncovered. The candidates are read TOP-DOWN in the server's stacking
   order, and the first one whose frame genuinely intersects the buried
@@ -370,6 +370,35 @@ install — `package require tk9wm` answers out of the image.
   the topmost is taken; if there is nobody at all, focus stays where it
   was. The menu drops from the top-left corner, and the titlebar has a
   menu button of its own on the left.
+
+  **Window commands** are those actions as a vocabulary — `Minimize`,
+  `Maximize`, `Fullscreen`, `Move`, `Resize`, `Raise`, `Lower`, `Bury`,
+  `Close`, `Destroy`. They are Capitalized against the rest of the
+  config language, which is lowercase and declarative: a capital says
+  this one *acts*, now. It also buys the names outright — `raise`,
+  `lower`, `close` and `destroy` are Tcl's and Tk's, and a lowercase
+  vocabulary would have had to spell four of the ten differently.
+
+  Each takes its window as an optional argument and, without one, asks
+  the context — so one definition serves a key binding, the menu, and a
+  sweep alike:
+
+  ```tcl
+  wm-bind {<Ctrl><Shift>z} Minimize                    ;# the active window
+  wm-bind {<Super>d} {Apply-To-Matching always Minimize}
+  wm-bind {<Super>c} {Apply-To-Matching {filter -class Chromium} Close}
+  ```
+
+  `Apply-To-Matching PREDICATE COMMAND` runs one over every window a
+  predicate accepts — the same predicates style rules and a panel
+  button's `match` take, so there is one matching language and not two.
+  It takes a **snapshot** first (these commands unmap and close
+  windows, so the live set is a list the body would be editing), walks
+  it most-recently-focused first (a hash order would land differently
+  every run), and lets nothing abort it: a client whose style refuses
+  minimization stays up without costing the windows after it, and one
+  that dies mid-sweep is skipped. Nothing is bound to it by default — a
+  desk-wide sweep is not something to discover by accident.
 
   **minimize** takes the same path as a client's own request
   (`set-minimize iconify|refuse` — default iconify, overridden
@@ -625,7 +654,12 @@ runs as a single shell call:
   resolution XDG → default-config; the default snaps a wm-grid client's
   drag to its increments, the dev preset — ignore plus a bold centered
   title — gives back the raw size).
-- `run-key-test.sh` (winops on Alt+Space: the hotkey x toggles maximize
+- `run-sweep-test.sh` (window commands and the sweep, from one config:
+  a bare `Minimize` bound to a chord takes the ACTIVE window out of
+  context and touches nothing else, then `Apply-To-Matching always
+  Minimize` takes the rest — while the one client whose style refuses
+  stays up, says so, and does not cost the windows after it), and
+  `run-key-test.sh` (winops on Alt+Space: the hotkey x toggles maximize
   twice, navigation Ctrl+N/n/p/k/j + Enter fires raise; fvwm alt-tab: a
   quick Alt+Tab toggles to the previous window, a second Tab with Alt
   held wraps the selection, Alt+2 picks an entry by number without

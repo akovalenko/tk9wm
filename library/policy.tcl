@@ -1776,6 +1776,136 @@ proc winlist-cancel {} {
     if {$prev != 0 && [info exists ::frameof($prev)]} { focus-to $prev }
 }
 
+# ---- window commands ------------------------------------------------
+#
+# An imperative over ONE window, named with a Capital. The rest of the
+# config vocabulary is lowercase and DECLARATIVE — set-* knobs,
+# wm-style, panel-button, filter, always: they describe a desk and say
+# nothing about when. A Capital says the opposite, that this one acts
+# the moment it is called; the case is the whole distinction, and it
+# costs nothing to see.
+#
+# It also buys the names outright. Tcl and Tk already own `raise`,
+# `lower`, `close` and `destroy`, so a lowercase vocabulary would have
+# had to spell four of its ten verbs differently — `close-window` next
+# to `minimize` — and a config author would have to remember which four.
+# Raise and Close are ours; raise and close are still Tk's.
+#
+# Each takes the window as an OPTIONAL argument, and without one asks
+# the context. That is what makes one definition serve two callers:
+#
+#   wm-bind {<Ctrl><Shift>z} Minimize          the active window
+#   Apply-To-Matching always Minimize          each in turn
+#
+# and the winops menu, which acts on the window it was opened over. The
+# context is a bound subject where there is one, and the focused client
+# everywhere else.
+set subject_window 0
+proc current-window {} {
+    expr {$::subject_window != 0 ? $::subject_window : $::focused}
+}
+# Run a script with the subject bound. Restores on the way out however
+# the script leaves — a window command can throw, and a subject left
+# standing would silently retarget every later bare command.
+proc with-window {w script} {
+    set save $::subject_window
+    set ::subject_window $w
+    try {
+        uplevel 1 $script
+    } finally {
+        set ::subject_window $save
+    }
+}
+
+# name -> the proc that does the work; every one of them takes a window.
+set window_commands {
+    Maximize   maximize-toggle
+    Fullscreen fullscreen-toggle
+    Close      close-client
+    Destroy    kill-client
+    Raise      raise-group
+    Lower      lower-group
+    Bury       bury-group
+    Move       move-keyboard
+    Resize     resize-keyboard
+    Minimize   policy-minimize-request
+}
+proc window-do {name {w 0}} {
+    if {$w == 0} { set w [current-window] }
+    if {$w == 0 || ![info exists ::frameof($w)]} {
+        puts "WM: $name: no window"
+        return 0
+    }
+    with-window $w [list [dict get $::window_commands $name] $w]
+    return 1
+}
+# An alias apiece, so the name IS the command. The shadow check is not
+# ceremony: a table entry that collided with a Tk command would replace
+# it for the whole interpreter — `destroy` is how every decoration in
+# this file is torn down — and the damage would show up somewhere else
+# entirely. Failing here, at load, is the cheap end of that.
+foreach {_name _impl} $window_commands {
+    if {[llength [info commands ::$_name]]} {
+        error "window command $_name would shadow the existing command ::$_name"
+    }
+    interp alias {} ::$_name {} window-do $_name
+}
+unset _name _impl
+
+# Run a window command over every window a predicate accepts — the
+# sweep behind "minimize everything", and behind anything else worth
+# doing to a whole desk at once:
+#
+#   wm-bind {<Super>d} {Apply-To-Matching always Minimize}
+#
+# The predicate is the one wm-style and a panel button's match already
+# take (`always`, `{filter -class ...}`, a proc of your own), so there
+# is one matching language here, not two.
+#
+# The target list is a SNAPSHOT taken before anything runs. These
+# commands unmap, close and unmanage windows — iterating the live set
+# would be iterating a list the body is editing — and a window that
+# dies mid-sweep is skipped rather than mourned. Order is
+# most-recently-focused first, the window list's order: a hash order
+# would land differently on every run, which is no way to write a
+# regression, and MRU means the focus walks down the history as each
+# window leaves rather than jumping about.
+#
+# Nothing here is allowed to abort the sweep. A predicate that throws
+# on one window, or a command that does, costs that window and no
+# other: "as many as possible" is the contract, and a desk half swept
+# because window three had a bad style rule is not it.
+proc Apply-To-Matching {pred command} {
+    set targets {}
+    foreach w $::focus_hist {
+        if {[info exists ::managed($w)]} { lappend targets $w }
+    }
+    foreach w [array names ::managed] {
+        if {$w ni $targets} { lappend targets $w }
+    }
+    set matched 0
+    foreach w $targets {
+        if {![info exists ::managed($w)]} continue   ;# gone since the snapshot
+        if {[catch {uplevel #0 [list {*}$pred $w]} verdict]} {
+            puts "WM: Apply-To-Matching: predicate error on 0x[format %x $w]: $verdict"
+            continue
+        }
+        if {!$verdict} continue
+        incr matched
+        if {[catch {$command $w} err]} {
+            puts "WM: Apply-To-Matching: $command failed on\
+                  0x[format %x $w]: $err"
+        }
+    }
+    # Counted as MATCHED and tried, not as succeeded — a window command
+    # does not report back, and it should not have to: whether this
+    # particular window took the operation is between it and the
+    # command (a style that refuses minimization says so in its own
+    # line). Claiming a success count here would be inventing one.
+    puts "WM: Apply-To-Matching $command: $matched of [llength $targets] matched"
+    return $matched
+}
+
 # ---- the window ops menu ----
 # Actions on ONE window — the fvwm-style dropdown: from the titlebar's
 # left button, or on the focused window by key. Anchored at the
@@ -1790,17 +1920,21 @@ proc winlist-cancel {} {
 # if the client that asked for the state will not take it back — or
 # never had a key for it — this menu is the only way out. Alt+Space
 # reaches it through the WM's own grab, over the fullscreen window.
+# The menu is a SELECTION from the window commands plus a hotkey letter
+# apiece — it does not carry its own copy of what each one does. It used
+# to, and two lists meaning the same thing is how a menu entry and a key
+# binding drift into doing different things.
 set winops_actions {
-    maximize x {maximize-toggle $w}
-    fullscreen f {fullscreen-toggle $w}
-    close    c {close-client $w}
-    destroy  d {kill-client $w}
-    raise    r {raise-group $w}
-    lower    l {lower-group $w}
-    bury     b {bury-group $w}
-    move     m {move-keyboard $w}
-    resize   s {resize-keyboard $w}
-    minimize i {policy-minimize-request $w}
+    Maximize   x
+    Fullscreen f
+    Close      c
+    Destroy    d
+    Raise      r
+    Lower      l
+    Bury       b
+    Move       m
+    Resize     s
+    Minimize   i
 }
 proc winops {{w 0}} {
     if {$w == 0} { set w $::focused }
@@ -1810,7 +1944,7 @@ proc winops {{w 0}} {
         return
     }
     set ::winops_win $w
-    set n [expr {[llength $::winops_actions] / 3}]
+    set n [expr {[llength $::winops_actions] / 2}]
     set ih [expr {[font metrics TitleFont -linespace] + 6}]
     set T [popup-shell .winops $ih]
     $T column create -squeeze yes -expand yes -tags C0
@@ -1826,7 +1960,7 @@ proc winops {{w 0}} {
     $T style layout sKey eSel -detach yes -iexpand xy
     $T style layout sKey eKey -expand wns -padx 6
     set maxw 0
-    foreach {label key script} $::winops_actions {
+    foreach {label key} $::winops_actions {
         set maxw [expr {max($maxw, [font measure TitleFont $label])}]
         set item [$T item create]
         $T item style set $item C0 sAct Ckey sKey
@@ -1851,14 +1985,14 @@ proc winops-key {kind name mods} {
     if {$kind eq "release"} return
     if {$mods == 0} {
         set i 0
-        foreach {label key script} $::winops_actions {
+        foreach {label key} $::winops_actions {
             incr i
             if {$name eq $key} { winops-fire $i; return }
         }
     }
     set d [popup-nav $name $mods]
     if {$d != 0} {
-        popup-move .winops.t [expr {[llength $::winops_actions] / 3}] $d
+        popup-move .winops.t [expr {[llength $::winops_actions] / 2}] $d
         return
     }
     switch -- $name {
@@ -1869,12 +2003,12 @@ proc winops-key {kind name mods} {
 proc winops-fire {i} {
     if {$i eq "" || $i < 1} { popups-close; return }
     set w $::winops_win
-    lassign [lrange $::winops_actions [expr {($i - 1) * 3}] [expr {$i * 3 - 1}]] \
-        label key script
+    lassign [lrange $::winops_actions [expr {($i - 1) * 2}] [expr {$i * 2 - 1}]] \
+        command key
     popups-close
     if {![info exists ::frameof($w)]} return
-    puts "WM: winops 0x[format %x $w] $label"
-    apply [list w $script] $w
+    puts "WM: winops 0x[format %x $w] $command"
+    $command $w
 }
 proc winops-click {x y} {
     set T .winops.t

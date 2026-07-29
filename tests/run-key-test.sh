@@ -110,10 +110,10 @@ else
     echo "FAIL: winops opened $OPENS times, want 6"
 fi
 ACTS=$(sed -n 's/^WM: winops 0x[0-9a-f]* //p' "$HERE/wm-key.log" | tr '\n' ' ')
-if [ "$ACTS" = "maximize maximize raise " ]; then
+if [ "$ACTS" = "Maximize Maximize Raise " ]; then
     echo "OK: hotkey x toggled maximize twice, nav+Enter fired raise"
 else
-    echo "FAIL: winops actions were «$ACTS», want «maximize maximize raise »"
+    echo "FAIL: winops actions were «$ACTS», want «Maximize Maximize Raise »"
 fi
 CYCLES=$(grep -c 'winlist open (2 windows, cycle)' "$HERE/wm-key.log")
 if [ "$CYCLES" = 3 ]; then
