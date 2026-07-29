@@ -528,6 +528,31 @@ proc gravity-frame-xy {w x y grav} {
 # its buttons ended up below the bottom edge, unclickable (live report,
 # 2026-07-27). A window bigger than the screen is pinned at the top-left
 # corner — better to lose the far edge than the near one.
+# What a newcomer CLAIMED about where it goes, for the log. This is the
+# input to every placement decision below and it is not observable from
+# outside afterwards, which made a live question ("does this app set
+# USPosition or not?") a matter of xprop-ing the right window at the
+# right moment — and xprop on a tk9wm frame answers about the FRAME,
+# which is a Tk toplevel and carries hints Tk put there (owner's desk,
+# 2026-07-30). The WM knows; it should say.
+#
+# Gravity is part of the claim and not a footnote: Static means the
+# point is where the CLIENT goes, so the frame backs off by its
+# decoration, and NorthWest means it is the frame's own corner. Qt
+# declares Static (measured on Qt Creator under fvwm3, 2026-07-30).
+# Its own line, and only when there IS a claim: no claim is the
+# ordinary case and would be noise, while a line of its own leaves
+# every reader of the frame line (the regressions included) alone.
+proc log-claim {w} {
+    lassign [client-position-hint $w] kind grav
+    if {$kind eq "none"} return
+    set ipos [client-initial-position $w]
+    set where [expr {[llength $ipos] == 2 \
+        ? "+[lindex $ipos 0]+[lindex $ipos 1]" : "(position unread)"}]
+    puts "WM: 0x[format %x $w] claims $where —\
+[expr {$kind eq {user} ? {USPosition} : {PPosition}}],\
+ gravity [expr {$grav == 10 ? {Static (the CLIENT's corner)} : $grav}]"
+}
 proc place-frame {w fw fh} {
     # frames are placed within the WORKAREA: a new window must not be
     # born with its bottom edge under the panel. Which is a RECTANGLE
@@ -721,6 +746,7 @@ proc policy-attach {w cw ch} {
     # the slot window exists server-side before the raw connection uses it.
     winfo pointerxy $t
     set ::frameof($w) $t
+    log-claim $w
     puts "WM: frame $t for 0x[format %x $w] at +$X+$Y"
     return [winfo id $t.slot]
 }
