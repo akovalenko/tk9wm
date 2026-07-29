@@ -369,8 +369,20 @@ frames a client and shows a panel has proved both libraries loaded.
   server leaves the ancient X_cursor on the root, and by tradition it
   is the WM that sets a normal one, not xsetroot by hand.
 
-  Maximize with fvwm semantics (a workarea proc; resize and move do not
-  clear it, a second toggle restores what was saved). **Fullscreen** on
+  Maximize with fvwm semantics by default (a workarea proc; the mark is
+  a saved geometry rather than a straitjacket, so the window can be
+  moved and resized by hand meanwhile and a second toggle still restores
+  what was saved). What a **hand resize** does to that mark is the one
+  part with two honest answers, so it is an option —
+  `set-maximize keep|drop`: `keep` is the above, `drop` is the
+  Windows/GNOME reading where a hand resize means this is no longer the
+  maximized window and the next toggle maximizes instead of restoring.
+  The rule lives in `resize-by-edge`, which is where both interactive
+  resizes meet, so the border drag and the keyboard mode cannot drift
+  apart on it. Moving a maximized window changes nothing under either
+  answer — that gesture says nothing about size, and the desktops that
+  unmaximize on a title drag are resizing the window under the pointer,
+  which is a different thing nobody asked for here. **Fullscreen** on
   a client's EWMH request (`_NET_WM_STATE_FULLSCREEN`) — stronger than
   maximize, and deliberately so: it takes the whole SCREEN rather than
   the workarea, the decoration comes off, the panel and the tray go
@@ -950,7 +962,11 @@ runs as a single shell call:
   west/north handle moved, a pixel inside the east cell sampled before
   and after the east edge is pulled away from under it to show that the
   digits stay put, and the middle of the window sampled to show that 5
-  is no handle).
+  is no handle), `run-maxflag-test.sh` (`set-maximize keep|drop`: the
+  same maximize-shrink-toggle scenario under both readings and by both
+  resizes — mouse and keyboard, which the rule's placement in
+  `resize-by-edge` is what guarantees; the second config arrives by a
+  live reload).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second

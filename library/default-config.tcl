@@ -41,6 +41,21 @@
 # windows beats handing back a half-dead one:
 #   wm-style {filter -class {*.exe *.exe}} {minimize refuse}
 #
+# Maximize is a SAVED GEOMETRY and not a straitjacket: a maximized
+# window can be moved and resized by hand like any other, and the
+# toggle puts back what was saved when it was maximized. What a hand
+# resize should do to that mark has two honest answers, and this picks
+# between them:
+#   keep (default) — fvwm's. The mark survives; the toggle restores the
+#     pre-maximize geometry however the window has been pulled about.
+#   drop — the Windows/GNOME reading. A hand resize means this is no
+#     longer the maximized window, so the mark goes and the next toggle
+#     MAXIMIZES instead of restoring.
+#   set-maximize drop
+# Both interactive resizes obey it — the border/corner drag and the
+# keyboard mode alike. Moving a maximized window changes nothing under
+# either answer.
+#
 # The mouse gesture that carries a window from ANYWHERE on it: hold
 # the modifier, press, move. Button 1 carries, button 3 resizes from
 # the nearest corner — and for a window styled `decor none` (below)

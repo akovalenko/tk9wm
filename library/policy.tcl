@@ -941,6 +941,16 @@ proc resize-by-edge {w e cw ch cw0 ch0 fx fy} {
     if {$e in {w sw nw}} { set nx [expr {$fx + $cw0 - $cw}] }
     if {$e in {n ne nw}} { set ny [expr {$fy + $ch0 - $ch}] }
     if {$nx != $fx || $ny != $fy} { wm geometry $t +$nx+$ny }
+    # Both interactive resizes funnel through here — the pointer drag
+    # and the keyboard arrows — which makes it the one place the
+    # maximized mark can be shed by hand, and the only way the two can
+    # not disagree about it. A drag that changed NOTHING (pushed against
+    # the minimum, say) is not a resize and shed nothing.
+    if {$::maximize eq "drop" && ($cw != $cw0 || $ch != $ch0)
+            && [info exists ::maxsaved($w)]} {
+        unset ::maxsaved($w)
+        puts "WM: 0x[format %x $w] resized by hand — no longer maximized"
+    }
     wm-resize-client $w $cw $ch
 }
 proc rz-end {} { unset -nocomplain ::rz }
@@ -1423,6 +1433,27 @@ proc policy-workarea {} { workarea }
 # maximizing a desk, and a key bound to Maximize should leave the window
 # maximized however many times it is pressed. So the vocabulary forces
 # and the menu names the toggle (owner, 2026-07-29).
+# What a HAND resize does to the maximized mark, since there are two
+# honest readings and the owner wants both available (2026-07-29):
+#
+#   keep (default) — fvwm's. The mark is a saved geometry and nothing
+#     else; resizing a maximized window by hand is allowed and changes
+#     none of it, so the toggle still puts back what was saved AT
+#     MAXIMIZE TIME however the window has been pulled about since.
+#   drop — the Windows/GNOME reading. A hand resize means the window is
+#     no longer the maximized one, so the mark goes and the next toggle
+#     MAXIMIZES rather than restoring.
+#
+# It is about resizing only. Carrying a maximized window somewhere else
+# leaves it maximized under either reading — that gesture moves a window
+# and says nothing about its size, and the desktops that unmaximize on a
+# title drag are doing something else entirely (they resize it to the
+# saved size under the pointer, which nobody has asked for here).
+set maximize keep
+proc set-maximize {mode} {
+    if {$mode ni {keep drop}} { error "set-maximize: keep|drop" }
+    set ::maximize $mode
+}
 proc maximize-guard {w} {
     if {![info exists ::frameof($w)]} { return 0 }
     # Fullscreen already owns this window's geometry, and the two would
@@ -4041,7 +4072,7 @@ policy-default-bindings
 # so a default and its copy cannot drift apart: there is no copy.
 set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
-    style_rules minimize panels panel_target
+    style_rules minimize maximize panels panel_target
     panel_live_bar panel_live_face drag_mods root_cursor
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
