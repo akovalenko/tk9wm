@@ -23,18 +23,26 @@
 # and then a LIVE leg fires the chord through the server for real —
 # through the group switch too, where the host allows one.
 #
-# Where it does not, the reason is worth writing down, because the
-# obvious diagnosis is wrong. Xvfb honors XKB perfectly well: it runs
-# the compiler on every setxkbmap (its stderr says so) and the
-# extension is there. What fails is the WRITE — the server compiles a
-# keymap into XKM_OUTPUT_DIR, /var/lib/xkb, which is baked in at build
-# time, has no runtime override (`-xkbdir` moves the input tree only,
-# and pointing it at a writable copy changes nothing), and is READ-ONLY
-# inside the sandbox this suite was developed in. The compile
-# "succeeds" with warnings, the load never happens, the server keeps
-# the old map, and every client-side path — setxkbmap, xkbcomp of the
-# server's own dump, xmodmap — is silently a no-op (all measured,
-# 2026-07-30). On an ordinary host the live group leg runs.
+# Where it does not, what is known is worth writing down, and what is
+# not known more so. On the sandbox this suite was developed in, the
+# Xvfb here takes no keymap change at all: setxkbmap, an xkbcomp load
+# of a us,ru map, an xkbcomp load of the server's OWN dump edited by
+# one word, and xmodmap are each silently a no-op — no error from
+# either side, and the server's map unchanged after every one.
+#
+# It is NOT the obvious suspects, both of which were checked and both
+# of which were wrong guesses of mine before they were measured:
+#   - not "Xvfb ignores XKB" — the extension is there and the server
+#     runs the compiler on every setxkbmap, as its own stderr shows;
+#   - not the output directory — the server compiles into
+#     XKM_OUTPUT_DIR (/var/lib/xkb, baked in at build time, no runtime
+#     override: -xkbdir moves the input tree only), and with that
+#     directory writable the server's own invocation, reproduced by
+#     hand down to the flags, compiles the us,ru map to a 12940-byte
+#     .xkm and exits 0. The server still keeps its old map.
+#
+# So the cause is unisolated, the test does not pretend otherwise, and
+# on an ordinary host the live group leg simply runs.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:52
 rm -f /tmp/.X52-lock /tmp/.X11-unix/X52
@@ -147,8 +155,8 @@ if [ "$TWOGROUP" = yes ]; then
         echo "FAIL: the chord died on the group switch ($LIVE1 fires, want 2)"
     fi
 else
-    echo "SKIP: no second group on this host — the live group leg needs a"
-    echo "      keymap change, which a read-only /var/lib/xkb forbids (see"
-    echo "      the header). The in-process battery covers the same states."
+    echo "SKIP: no second group on this host — this server takes no keymap"
+    echo "      change at all, silently and for reasons not isolated (see the"
+    echo "      header). The in-process battery covers the same states."
 fi
 check_invariants "$LOG"

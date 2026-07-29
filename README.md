@@ -1099,11 +1099,15 @@ runs as a single shell call:
   and that the keysym it is matched on comes from group 0 — then the
   same chord fired for real through the server's own grab, and again
   after a group switch where the host allows one. Where it does not,
-  the reason is not the server: Xvfb honors XKB and runs the compiler
-  on every `setxkbmap`, but the compiled keymap is written to
-  `XKM_OUTPUT_DIR` — `/var/lib/xkb`, baked in at build time with no
-  runtime override — and a sandbox that mounts it read-only turns every
-  client-side path into a silent no-op).
+  the test says so rather than pretending: the Xvfb of the sandbox this
+  suite grew in takes no keymap change at all — `setxkbmap`, `xkbcomp`
+  of a us,ru map, `xkbcomp` of the server's own dump edited by one
+  word, `xmodmap`, each a silent no-op — and neither of the obvious
+  causes is it. The extension is there and the server runs the compiler
+  on every `setxkbmap`; and with `XKM_OUTPUT_DIR` writable, the
+  server's own invocation reproduced by hand compiles that map to a
+  12940-byte `.xkm` and exits 0, while the server keeps its old map.
+  Unisolated, and marked as such).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second
