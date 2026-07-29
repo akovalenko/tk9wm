@@ -15,3 +15,12 @@ typed.txt
 /build/
 /libtkwmx.a
 /libtkwmx.so
+
+# kit build products (kit/so.sh, kit/mkkit.sh): the shared libraries
+# pulled out of the container box, the vfs tree assembled from them,
+# the runtime copy sdx wraps onto, and the two wrappers themselves.
+/kit/so/
+/kit/tk9wm.vfs/
+/kit/runtime-tclkit
+/kit/tk9wm.kit
+/kit/tk9wm.bin

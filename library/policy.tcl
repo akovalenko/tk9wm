@@ -2757,6 +2757,7 @@ proc panel-button {label settings} {
 # the bands are carved from one another, so a strip that got thicker
 # moves the one declared after it too.
 proc panel-rebuild-soon {} {
+    array unset ::panel_geo    ;# the knob that asked may have changed the shape
     if {![info exists ::panel_pending]} {
         set ::panel_pending 1
         after idle {unset ::panel_pending; panels-build}
@@ -2823,7 +2824,32 @@ proc panel-reeval {} {
 # the preset, and the strip thickness (horizontal: the item height;
 # vertical: the widest button). The builder and the band's thickness
 # question both come here; resolution is cached, so asking is cheap.
+#
+# MEMOIZED per rebuild, and that is a correctness fix and not a saving.
+# One rebuild asks this many times — the builder once per panel, then
+# every band carve once more — and it has to be the SAME answer every
+# time: the band a panel reserves and the strip it draws are two
+# consumers of one number.
+#
+# They came apart for real. Under a stock tclkit's Tk (core X fonts,
+# helvetica) the two calls inside ONE build disagreed: 96 px for the
+# builder, 70 for the band a moment later, the labels measuring half
+# their width the second time. The strip then drew 70 inside a band
+# that had reserved 96 and left a dead stripe nothing could use — and
+# only the carve's clamp kept it from drawing outside its band
+# altogether. Which of Tk's two answers is the honest one is not this
+# code's business to adjudicate (an independent interpreter measuring
+# that font agrees with the builder's); making the disagreement
+# IMPOSSIBLE is. Every path that can change the answer goes through
+# panel-rebuild-soon or panels-build, and both drop the memo.
+array set panel_geo {}
 proc panel-geometry {name} {
+    if {![info exists ::panel_geo($name)]} {
+	set ::panel_geo($name) [panel-measure $name]
+    }
+    return $::panel_geo($name)
+}
+proc panel-measure {name} {
     set buttons [panel-cfg $name buttons]
     set preset [panel-cfg $name preset]
     set isz [panel-cfg $name icon_size]
@@ -2921,6 +2947,7 @@ proc panel-badge-font {name} {
 # index is always a legal component. The mapping is remembered in
 # ::panel_win, which is what every later poke goes through.
 proc panels-build {} {
+    array unset ::panel_geo    ;# fonts, RandR and the config all land here
     foreach name [array names ::panel_win] {
         destroy $::panel_win($name)
         unset ::panel_win($name)

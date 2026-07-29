@@ -51,9 +51,10 @@ tree whalebuild leaves *beside* the whale while building it —
 # the NATIVE build — tclConfig.sh records real host paths
 ./configure --with-tcl=$HOME/…/whalebuild/work/linux/install/lib
 
-# the CONTAINER build — do NOT use: its tclConfig.sh records the
-# paths as seen INSIDE the box (-I/w/work/linux/install/include),
-# and the compile fails on a missing tcl.h
+# the CONTAINER build — usable only INSIDE the box: its tclConfig.sh
+# records the paths as seen there (-I/w/work/linux/install/include),
+# so a host compile fails on a missing tcl.h. In the box the same
+# line is the right one — see the kit build below.
 #   …/whalebuild/work-linux/linux/install/lib
 ```
 
@@ -88,6 +89,37 @@ and the build box sets it.
 A whale can also carry tk9wm as a compiled-in battery, static archive
 and scripts both. Then there is nothing to build and nothing to
 install — `package require tk9wm` answers out of the image.
+
+## As a kit: one file on a stock tclkit
+
+The other end of that: no whale, no toolchain, nothing installed — the
+window manager, its shim and treectrl wrapped into a single file that
+runs on a stock **tclkit**. Both sdx forms are built by `kit/`:
+
+```sh
+WHALEBUILD=../whalebuild ./kit/so.sh          # the binary parts
+TCLKIT=…/tclkit-9.0.4-Linux64-intel-tk SDX=…/sdx.kit ./kit/mkkit.sh
+TCLKIT=… ./kit/smoke.sh ./kit/tk9wm.bin       # …and prove it runs
+```
+
+- `kit/tk9wm.kit` — a **starkit**: `tclkit tk9wm.kit`, ~1.7 MB.
+- `kit/tk9wm.bin` — a **starpack**: `./tk9wm.bin`, ~7 MB, needs nothing.
+
+The two shared libraries inside are built **in whalebuild's container
+box** (`kit/so.sh`), and that is not only about the old glibc floor:
+the Tcl/Tk install tree an extension links against bakes ABSOLUTE paths
+into `tclConfig.sh` at core-configure time, so an extension configured
+against the box's tree from outside the box gets a `-L` pointing at
+nothing. treectrl is built by whalebuild itself (`cbuild.sh linux so
+treectrl` — it owns the pinned source, the patches and the index); the
+shim by our own `./configure`, run in the same box against the same
+tree. Loading either out of the kit's VFS is the core's business: Tcl
+copies a shared library to a temporary file and loads that.
+
+`kit/smoke.sh` is the honest check rather than a formality — it puts up
+a real desk on a throwaway Xvfb with a panel in the config, because a
+panel is what pulls treectrl out of the kit's own `lib/`: a run that
+frames a client and shows a panel has proved both libraries loaded.
 
 ## The files
 
