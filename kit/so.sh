@@ -46,4 +46,12 @@ cp -a "$WHALEBUILD/work-linux/linux/so/treectrl" "$OUT/"
 	&& ./configure --with-tcl=/w/work/linux/install/lib --disable-static \
 	&& make clean && make libtkwmx.so && cp libtkwmx.so /out/' )
 
+# Both come out carrying DWARF: whalebuild compiles with -gdwarf-4 by
+# default, and our own build inherits the same taste. That is right for
+# a build tree and wrong for a kit, which is a thing one hands to
+# somebody — the debug info is most of its weight (treectrl 3.4M -> 545K,
+# the shim 230K -> 61K). --strip-debug and not a bare strip: the dynamic
+# symbol table is what a `load` resolves against, and it stays.
+strip --strip-debug "$OUT/libtkwmx.so" "$OUT"/treectrl/*.so
+
 ls -l "$OUT" "$OUT/treectrl"
