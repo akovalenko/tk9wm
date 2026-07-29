@@ -8,6 +8,8 @@
 #      down, its client SURVIVES the handover and is adopted by the
 #      newcomer (which is the whole point — a replacement that costs
 #      the desk its windows is a reboot with extra steps);
+#      — and says so in its exit code, which is what lets a .xsession
+#      tell "somebody took the desk" from "the user asked to leave";
 #   4. the restart chord still works while we own the selection (execv
 #      drops the X connection, so the fresh instance can find its own
 #      corpse still holding it — restart-wm passes -replace for that).
@@ -28,15 +30,29 @@ cat > "$HERE/replace-config/tk9wm.tcl" <<'EOF'
 # nothing to configure — the stock desk is what this test measures
 EOF
 
-wm_start() {   # wm_start <logfile> [args...]
-    log=$1; shift
+# wm_start <pidvar> <logfile> [args...] — started in THIS shell, so
+# `wait` can be asked for the exit code later; $(...) would put them in
+# a subshell and out of reach.
+wm_start() {
+    var=$1; log=$2; shift 2
     XDG_CONFIG_HOME="$HERE/replace-config" \
         "$LINUX/whale" "$WMTCL" "$@" > "$log" 2>&1 &
-    echo $!
+    eval "$var=$!"
+}
+
+# code_of <pid> — the exit code of a manager that should be gone by now.
+# A watchdog rather than a bare `wait`: one that did NOT leave would
+# hang this script forever, and 143 (killed) is a legible failure.
+code_of() {
+    ( sleep 15; kill "$1" 2>/dev/null ) &
+    wd=$!
+    wait "$1"; c=$?
+    kill $wd 2>/dev/null
+    return $c
 }
 
 # --- 1. the first manager, with a client on its desk
-WM1=$(wm_start "$HERE/replace-1.log")
+wm_start WM1 "$HERE/replace-1.log"
 sleep 1.5
 "$LINUX/whale" "$HERE/client.tcl" сменщик 240x120 "#729fcf" "" "" 40 \
     > "$HERE/replace-client.log" 2>&1 &
@@ -44,15 +60,15 @@ CL=$!
 sleep 1.5
 
 # --- 2. a newcomer with no -replace must refuse and change nothing
-WM2=$(wm_start "$HERE/replace-2.log")
+wm_start WM2 "$HERE/replace-2.log"
 sleep 1.5
 kill -0 $WM1 2>/dev/null && FIRST_ALIVE=yes || FIRST_ALIVE=no
-kill -0 $WM2 2>/dev/null && SECOND_ALIVE=yes || SECOND_ALIVE=no
+code_of $WM2; SECOND_CODE=$?
 
 # --- 3. ...and one with -replace must take the desk
-WM3=$(wm_start "$HERE/replace-3.log" -replace)
+wm_start WM3 "$HERE/replace-3.log" -replace
 sleep 3
-kill -0 $WM1 2>/dev/null && FIRST_STILL=yes || FIRST_STILL=no
+code_of $WM1; FIRST_CODE=$?
 kill -0 $CL  2>/dev/null && CLIENT_ALIVE=yes || CLIENT_ALIVE=no
 import -display :60 -window root "$HERE/replace-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/replace-test.png"
@@ -80,9 +96,9 @@ FVEOF
         > "$HERE/replace-fvwm.log" 2>&1 &
     FV=$!
     sleep 4
-    kill -0 $WM3 2>/dev/null && THIRD_STILL=yes || THIRD_STILL=no
+    code_of $WM3; THIRD_CODE=$?
     kill -0 $CL  2>/dev/null && CLIENT_AFTER_FVWM=yes || CLIENT_AFTER_FVWM=no
-    WM4=$(wm_start "$HERE/replace-4.log" -replace)
+    wm_start WM4 "$HERE/replace-4.log" -replace
     sleep 4
     kill -0 $FV 2>/dev/null && FVWM_STILL=yes || FVWM_STILL=no
     kill -0 $CL 2>/dev/null && CLIENT_AFTER_US=yes || CLIENT_AFTER_US=no
@@ -113,20 +129,22 @@ if grep -q 'already owns WM_S' "$HERE/replace-2.log"; then
 else
     echo "FAIL: the second manager did not refuse the way it should"
 fi
-if [ "$FIRST_ALIVE" = yes ] && [ "$SECOND_ALIVE" = no ]; then
-    echo "OK: the refusal left the running desk alone"
+if [ "$FIRST_ALIVE" = yes ] && [ "$SECOND_CODE" = 1 ]; then
+    echo "OK: the refusal exited 1 and left the running desk alone"
 else
-    echo "FAIL: after the refusal first=$FIRST_ALIVE second=$SECOND_ALIVE"
+    echo "FAIL: after the refusal first alive=$FIRST_ALIVE,\
+ refused manager exited $SECOND_CODE (want 1)"
 fi
 if grep -q 'standing down' "$HERE/replace-1.log"; then
     echo "OK: the first manager was asked and stood down"
 else
     echo "FAIL: the first manager never saw a SelectionClear"
 fi
-if [ "$FIRST_STILL" = no ]; then
-    echo "OK: ...and it is gone"
+if [ "$FIRST_CODE" = 3 ]; then
+    echo "OK: ...and left with code 3 — the one a .xsession reads as\
+ «replaced, do not end the session»"
 else
-    echo "FAIL: the replaced manager is still running"
+    echo "FAIL: the replaced manager exited $FIRST_CODE (want 3)"
 fi
 if grep -q 'redirect armed' "$HERE/replace-3.log"; then
     echo "OK: the replacement holds the desk"
@@ -148,11 +166,11 @@ fi
 if [ "$FOREIGN" = skip ]; then
     echo "SKIP: no fvwm3 — the foreign half of the protocol went untested"
 else
-    if [ "$THIRD_STILL" = no ] \
+    if [ "$THIRD_CODE" = 3 ] \
             && grep -q 'standing down' "$HERE/replace-3.log"; then
-        echo "OK: fvwm3 --replace took the desk from us, and we let it"
+        echo "OK: fvwm3 --replace took the desk from us, and we let it (code 3)"
     else
-        echo "FAIL: fvwm3 --replace did not get the desk (ours still=$THIRD_STILL)"
+        echo "FAIL: fvwm3 --replace did not get the desk (we exited $THIRD_CODE)"
     fi
     if [ "$FVWM_STILL" = no ] \
             && grep -q 'redirect armed' "$HERE/replace-4.log"; then

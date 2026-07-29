@@ -424,6 +424,21 @@ set MANAGER       [x-intern MANAGER]
 set TK9WM_TIME    [x-intern TK9WM_TIME]
 set wm_owner_win  0     ;# the window that holds WM_S<n>, 0 = we do not
 set wm_claim_time 0     ;# when we took it (see selection-clear)
+# Why we left, in the only language a session script can read. Leaving
+# because somebody TOOK the desk is a different event from leaving
+# because the user asked to (Quit), and until this code existed a
+# .xsession could not tell them apart — which matters more here than
+# anywhere, because a session that ends with `exec tk9wm` ENDS when we
+# do. That coupling is deliberate for Quit (a desk one cannot leave is
+# the joke with a login inside it) and fatal for a replacement: the
+# newcomer takes the desk, we stand down as the protocol says, and the
+# session goes with us — the owner's report, 2026-07-29, and not a bug
+# to be fixed here. ICCCM knows no "hand over and stay": the newcomer
+# waits for our owner window to be GONE, which reliably means our
+# process is. So the mechanism is one honest number, and the policy —
+# whether the session outlives us — belongs to the script that started
+# us. See the README for the two .xsession recipes.
+set EXIT_REPLACED 3
 # How long to wait for a manager we asked to stand down. Generous on
 # purpose: the old manager is releasing every client on the desk back to
 # the root, and a desk full of windows takes a moment.
@@ -827,7 +842,7 @@ proc dispatch-event {ev} {
                     && [dict get $ev time] >= $::wm_claim_time} {
                 puts "WM: another window manager took WM_S[screen-number]\
  — standing down"
-                exit 0
+                exit $::EXIT_REPLACED
             }
         }
         map-notify { # MapNotify (self-report): the client is now really

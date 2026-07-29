@@ -715,6 +715,43 @@ names the owner instead of a bare `BadAccess`. A manager that owns no
 selection cannot be asked at all — the refusal says that too, since
 nothing but killing it will do.
 
+### …and what that does to your session
+
+ICCCM knows no "hand over and stay": the newcomer waits for the old
+manager's owner window to be GONE, which reliably means its process is.
+So **a session held by the window manager ends when the manager is
+replaced** — `exec tk9wm` as the last line of `.xsession` makes the
+session's lifetime the manager's lifetime, and `-replace` from anywhere
+then logs you out (owner's report, 2026-07-29). This is not ours and
+not fixable here: any `--replace` against any `exec`ed manager does the
+same, and desktops where it does not (GNOME, XFCE) are the ones whose
+session is held by a session manager rather than by the WM.
+
+The same coupling is deliberate in the other direction — `Quit` ends
+the session on purpose, a desk one cannot leave from the inside being
+the "how do I exit vim" joke with a login in it. So the WM does not
+choose: it states WHY it left, and the session script decides what that
+means. **Exit codes:**
+
+| code | meaning |
+|------|---------|
+| 0 | left on purpose — `Quit`, or the display went away |
+| 1 | could not start: the desk is taken (see above), or the redirect was refused |
+| 3 | another manager took the desk and we stood down for it |
+
+Two recipes, and the difference between them is a policy, not a bug:
+
+```sh
+# .xsession — the desk IS the session: Quit logs out, and so does a
+# replacement. The simple one, and the right one if nobody replaces you.
+exec tk9wm
+
+# ...or: survive replacements, still log out on Quit. When we stand
+# down (3) the script keeps the session alive under the new manager;
+# any other exit ends it as before.
+tk9wm; [ $? = 3 ] && exec tail -f /dev/null
+```
+
 ```sh
 tests/run-xephyr.sh [display] [WxH]
 ```
