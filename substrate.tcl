@@ -61,6 +61,13 @@
 #   policy-iconified w      w just went iconic: take its decoration off
 #                           the screen (the window stays managed)
 #   policy-deiconified w    w is coming back: put the decoration up
+#   policy-fullscreen w on  w entered (1) or left (0) EWMH fullscreen:
+#                           on the way in, remember the geometry, drop
+#                           the decoration and give the client the whole
+#                           SCREEN — not the workarea, fullscreen covers
+#                           the panel by definition — and let nothing of
+#                           the policy's own stay stacked above it; on
+#                           the way out, put back what was remembered
 #   policy-screen-changed   the root changed size under us (RandR);
 #                           anything glued to a screen edge re-places
 #   policy-tray-attach w    build a slot for tray icon w and return
@@ -122,8 +129,16 @@
 #   deiconify-client w          bring an iconic w back and focus it
 #   refuse-iconify w            answer an iconify request with a NO the
 #                               client can act on (see the proc)
+#   fullscreen-client w         put w in EWMH fullscreen (the same state
+#                               a client asks for with _NET_WM_STATE):
+#                               the policy re-lays the frame, the
+#                               property is republished
+#   unfullscreen-client w       ...and take it back out
 #   $::iconic(w)                set while w is iconic (array member
 #                               absent otherwise)
+#   $::fullscreen(w)            set while w is fullscreen (likewise) —
+#                               the policy reads it to keep its own
+#                               furniture from stacking over such a window
 #   $::focused                  currently focused client (0 = none)
 
 package require Tk
@@ -203,6 +218,7 @@ proc x-save-set-add {w}         { tkwmx::window saveset add $w }
 proc x-sync {{discard 0}}       { tkwmx::server sync $discard }
 proc x-flush {}                 { tkwmx::server flush }
 proc x-intern {name}            { tkwmx::atom intern $name }
+proc x-atom-name {id}           { tkwmx::atom name $id }
 # A mask is a LIST OF NAMES here (see tkwmx::event masks). On a window
 # of OUR OWN the shim adds them to what Tk selected instead of
 # replacing it — the single-connection trap, spelled out there.
@@ -387,6 +403,14 @@ if {[catch {
     set NET_ACTIVE    [x-intern _NET_ACTIVE_WINDOW]
     set NET_WM_STATE  [x-intern _NET_WM_STATE]
     set NET_WM_STATE_HIDDEN [x-intern _NET_WM_STATE_HIDDEN]
+    # The one state a client both ASKS for and is given. Advertising it
+    # is not a formality: xterm and kitty look for this atom in
+    # _NET_SUPPORTED and, not finding it, go fullscreen by not asking at
+    # all — measured, they send NOTHING and stay their old size, while a
+    # wmctrl request on the same window lands on the root in the same
+    # breath. So the atom in the list below is what turns their menu
+    # item and their -fullscreen / --start-as flag back on.
+    set NET_WM_STATE_FULLSCREEN [x-intern _NET_WM_STATE_FULLSCREEN]
     set NET_FRAME_EXTENTS [x-intern _NET_FRAME_EXTENTS]
     set NET_REQUEST_FRAME_EXTENTS [x-intern _NET_REQUEST_FRAME_EXTENTS]
     # The KDE-era twin of the extents, still read by Qt4-vintage
@@ -430,7 +454,7 @@ if {[catch {
     set-prop-longs $root $NET_DESKTOP_VIEWPORT 6 [list 0 0]
     set-prop-longs $root $NET_SUPPORTED 4 \
         [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
-              $NET_WM_STATE $NET_WM_STATE_HIDDEN \
+              $NET_WM_STATE $NET_WM_STATE_HIDDEN $NET_WM_STATE_FULLSCREEN \
               $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS \
               $NET_CLIENT_LIST $NET_CLIENT_LIST_STACKING $NET_WORKAREA \
               $NET_NUMBER_OF_DESKTOPS $NET_CURRENT_DESKTOP \
@@ -535,8 +559,16 @@ proc dispatch-event {ev} {
                 # An icon asking for its own size — answered, not obeyed
                 tray-hold-size $B
             } elseif {[info exists ::managed($B)]} {
-                if {$vmask & 3} { move-client-request $B $x $y $vmask }
-                resize-client $B $w $h $vmask
+                # A fullscreen window's geometry is not its own: the
+                # request is denied WHOLE, and the synthetic
+                # ConfigureNotify below is the answer ICCCM requires.
+                # (A terminal re-rounds its size to whole cells on every
+                # font change and asks for it; granting that mid-
+                # fullscreen leaves a strip of desk down one side.)
+                if {![info exists ::fullscreen($B)]} {
+                    if {$vmask & 3} { move-client-request $B $x $y $vmask }
+                    resize-client $B $w $h $vmask
+                }
                 # ICCCM 4.1.5: "If a client's ConfigureWindow request is
                 # denied in whole or in part, the window manager must send
                 # the client a synthetic ConfigureNotify". A position
@@ -789,6 +821,32 @@ proc dispatch-event {ev} {
                 set rt [lindex $data 1]
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
                 soft "activation request" { policy-client-click $A }
+            } elseif {[info exists ::NET_WM_STATE] && $B == $::NET_WM_STATE
+                    && [info exists ::managed($A)]} {
+                # EWMH's one write into a window's state: data.l[0] is
+                # the action (0 remove, 1 add, 2 toggle) and l[1]/l[2]
+                # name up to TWO state atoms — the pair exists so a
+                # client can ask for both maximize halves at once, and
+                # each is answered on its own. Zero means "no second
+                # atom". States we do not hold are heard and named in
+                # the log rather than silently dropped: the next one to
+                # be implemented will announce itself here.
+                set act [lindex $data 0]
+                foreach a [lrange $data 1 2] {
+                    if {$a == 0} continue
+                    if {[info exists ::NET_WM_STATE_FULLSCREEN]
+                            && $a == $::NET_WM_STATE_FULLSCREEN} {
+                        set on [expr {$act == 2
+                            ? ![info exists ::fullscreen($A)] : $act == 1}]
+                        if {$on} { fullscreen-client $A } else {
+                            unfullscreen-client $A
+                        }
+                    } else {
+                        puts "WM: _NET_WM_STATE action $act on\
+ [soft "name an atom" { x-atom-name $a } $a] ignored\
+ (0x[format %x $A])"
+                    }
+                }
             } elseif {[info exists ::NET_REQUEST_FRAME_EXTENTS]
                     && $B == $::NET_REQUEST_FRAME_EXTENTS} {
                 # EWMH: a client asking how big its decoration WILL be,
@@ -1263,10 +1321,26 @@ proc publish-workarea {} {
         [list set-prop-longs $::root $::NET_DESKTOP_GEOMETRY 6 [screen-size]]
 }
 
-# _NET_WM_STATE — the EWMH state list. We publish exactly one member,
-# _NET_WM_STATE_HIDDEN, and only while a window is iconic: it is the
-# property EWMH-aware clients read to learn they are minimized (wine's
-# X11 driver among them), and pagers use it to grey an entry out.
+# _NET_WM_STATE — the EWMH state LIST. Two members are ours:
+# _NET_WM_STATE_HIDDEN while a window is iconic (the property EWMH-aware
+# clients read to learn they are minimized — wine's X11 driver among
+# them — and pagers use to grey an entry out), and
+# _NET_WM_STATE_FULLSCREEN while it is fullscreen.
+#
+# It is a list, and that is the whole reason this is a BUILDER and not a
+# literal at each call site. The states are not each other's business: a
+# fullscreen window that gets iconified would, published literally as
+# "hidden", have its fullscreen quietly un-published — and a client that
+# reads the property on the way back would learn it had been taken out
+# of a state we are still holding it in. So every publisher says "what
+# is true of w now" and nothing else has to remember the rest.
+proc net-wm-state-atoms {w} {
+    set atoms {}
+    if {[info exists ::iconic($w)]} { lappend atoms $::NET_WM_STATE_HIDDEN }
+    if {[info exists ::fullscreen($w)]} { lappend atoms $::NET_WM_STATE_FULLSCREEN }
+    return $atoms
+}
+proc publish-net-wm-state {w} { set-net-wm-state $w [net-wm-state-atoms $w] }
 proc set-net-wm-state {w atoms} {
     if {![info exists ::NET_WM_STATE]} return
     soft "publish _NET_WM_STATE" \
@@ -1319,7 +1393,7 @@ proc iconify-client {w} {
     x-unmap $w
     x-sync 0
     set-wm-state $w 3          ;# IconicState
-    set-net-wm-state $w [list $::NET_WM_STATE_HIDDEN]
+    publish-net-wm-state $w
     policy-iconified $w        ;# the decoration goes with it
     x-sync 0
     puts "WM: iconified 0x[format %x $w]"
@@ -1335,10 +1409,59 @@ proc deiconify-client {w} {
     policy-deiconified $w
     x-map $w
     set-wm-state $w 1          ;# NormalState
-    set-net-wm-state $w {}
+    publish-net-wm-state $w
     x-sync 0
     puts "WM: deiconified 0x[format %x $w]"
     focus-to $w
+}
+
+# ---------------- fullscreen ----------------
+# EWMH _NET_WM_STATE_FULLSCREEN. What it means is stronger than
+# maximize and deliberately so: the window gets the whole SCREEN, not
+# the workarea, so the panel and the tray go UNDER it — a fullscreen
+# video or terminal that stopped at a strip would be neither. The
+# decoration goes away with them; the client IS the frame while this
+# lasts.
+#
+# The geometry is the policy's (it owns every measurement of a frame),
+# and so is remembering what to put back. This layer holds the STATE,
+# answers for it in the property, and stops honoring the client's own
+# geometry requests while it lasts — a terminal rounds its size to
+# whole cells on every font change, and obeying that mid-fullscreen is
+# how a fullscreen window ends up with a strip of desk down its side.
+proc fullscreen-client {w} {
+    if {![info exists ::managed($w)] || [info exists ::fullscreen($w)]} return
+    set ::fullscreen($w) 1
+    policy-fullscreen $w 1
+    publish-net-wm-state $w
+    x-sync 0
+    puts "WM: fullscreen 0x[format %x $w]"
+}
+proc unfullscreen-client {w} {
+    if {![info exists ::fullscreen($w)]} return
+    unset ::fullscreen($w)
+    policy-fullscreen $w 0
+    publish-net-wm-state $w
+    x-sync 0
+    puts "WM: fullscreen off 0x[format %x $w]"
+}
+# The state a window arrives ALREADY in. EWMH lets a client set
+# _NET_WM_STATE on the window BEFORE mapping it, precisely so a WM can
+# frame it right the first time instead of building an ordinary frame
+# and throwing it away; Tk's own `wm attributes -fullscreen` on an
+# unmapped toplevel takes that road (fs-client.tcl).
+#
+# Which road a client takes is not a thing to assume: `xterm
+# -fullscreen` and `kitty --start-as fullscreen` were measured taking
+# the OTHER one — they map at their ordinary size and send the
+# ClientMessage immediately after, so their startup flag arrives as a
+# runtime toggle. Both paths are real and both are tested.
+proc client-initial-fullscreen {w} {
+    if {![info exists ::NET_WM_STATE_FULLSCREEN]} { return 0 }
+    lassign [soft "read _NET_WM_STATE" { x-prop-get $w $::NET_WM_STATE }] \
+        type fmt value
+    if {$fmt ne "32"} { return 0 }
+    expr {$::NET_WM_STATE_FULLSCREEN in $value}
 }
 # The refusal, and why it can be made to stick: ICCCM gives a WM no way
 # to reply "no" to WM_CHANGE_STATE — but WM_STATE is the channel every
@@ -1482,6 +1605,13 @@ proc manage {w} {
         puts "WM: 0x[format %x $w] asked to start iconic"
         policy-minimize-request $w
     }
+    # ...and "start me fullscreen", the EWMH spelling of the same idea.
+    # After the frame, for the same reason: there has to be a frame for
+    # the state to re-lay out, and one to come back to.
+    if {[client-initial-fullscreen $w]} {
+        puts "WM: 0x[format %x $w] asked to start fullscreen"
+        fullscreen-client $w
+    }
 }
 
 # WM_HINTS initial_state == IconicState. The shim's dict carries the
@@ -1535,7 +1665,7 @@ proc unmanage {w {dead 0}} {
     unset -nocomplain ::wrapof($w)
     publish-client-list
     icon-invalidate $w
-    unset -nocomplain ::iconic($w) ::skip_unmap($w)
+    unset -nocomplain ::iconic($w) ::fullscreen($w) ::skip_unmap($w)
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
     unset -nocomplain ::poshintof($w) ::gravof($w) ::mapxyof($w)
     # The decoration is gone: stop treating its windows as ours, and

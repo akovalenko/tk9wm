@@ -505,12 +505,12 @@ proc policy-detach {w} {
         grab-keys-to {}
         puts "WM: keyboard mode dropped — 0x[format %x $w] is gone"
     }
-    unset -nocomplain ::btn($::frameof($w))
+    unset -nocomplain ::btn($::frameof($w)) ::fullframe($::frameof($w))
     destroy $::frameof($w)
     unset ::frameof($w)
     unset -nocomplain ::titleof($w)
     unset -nocomplain ::leaderof($w)
-    unset -nocomplain ::maxsaved($w)
+    unset -nocomplain ::maxsaved($w) ::fssaved($w)
     unset -nocomplain ::styleof($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
     panel-match-kick
@@ -535,6 +535,20 @@ proc policy-origin {w} {
 # "stay where you are".
 proc frame-layout {t cw ch {X ""} {Y ""}} {
     set B $::border
+    # Fullscreen is a LAYOUT and nothing more, which is why it lives
+    # here rather than as a second geometry path elsewhere: the client
+    # takes the whole frame, the frame takes the whole screen at the
+    # origin, and the title strip is un-placed so no expose can paint a
+    # bar over the client's top row. Everything that re-lays a frame —
+    # a resize, a font change, a config reload — then keeps the window
+    # fullscreen without knowing that it is.
+    if {[info exists ::fullframe($t)]} {
+        place forget $t.title
+        $t.slot configure -width $cw -height $ch
+        place $t.slot -x 0 -y 0
+        wm geometry $t ${cw}x${ch}+0+0
+        return
+    }
     if {$X eq ""} { regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y }
     $t.title configure -itemheight $::titleh
     $t.title column configure Cmenu -width $::btnw
@@ -1006,6 +1020,13 @@ proc policy-workarea {} { workarea }
 # geometry saved at maximize time.
 proc maximize-toggle {w} {
     if {![info exists ::frameof($w)]} return
+    # Fullscreen already owns this window's geometry, and the two would
+    # fight over the same saved copy. Refused audibly rather than
+    # silently: the request came from a menu the user just used.
+    if {[info exists ::fullscreen($w)]} {
+        puts "WM: maximize ignored — 0x[format %x $w] is fullscreen"
+        return
+    }
     set t $::frameof($w)
     set B $::border
     if {[info exists ::maxsaved($w)]} {
@@ -1029,6 +1050,64 @@ proc maximize-toggle {w} {
     # more, from settled Tk geometry.
     update idletasks
     send-synthetic-configure $w
+}
+
+# ---- fullscreen, the substrate's policy-fullscreen hook ----
+# Maximize's stronger cousin, and the differences are all deliberate.
+# It takes the SCREEN and not the workarea (a fullscreen window that
+# stopped at the panel would be no such thing); the decoration goes
+# away with the strips rather than staying around the edge; and the
+# size hints do NOT bind it — EWMH says a fullscreen window fills the
+# screen, so a terminal shows a few pixels of slack at one edge
+# instead of leaving a decorated band there. The saved geometry is its
+# own (::fssaved), separate from maximize's: a window can be
+# maximized, go fullscreen and come back to being maximized, and each
+# toggle still restores what IT remembered.
+proc policy-fullscreen {w on} {
+    if {![info exists ::frameof($w)]} return
+    set t $::frameof($w)
+    if {$on} {
+        regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
+        set ::fssaved($w) \
+            [list [$t.slot cget -width] [$t.slot cget -height] $X $Y]
+        set ::fullframe($t) 1
+        lassign [screen-size] cw ch
+    } else {
+        if {![info exists ::fssaved($w)]} return
+        lassign $::fssaved($w) cw ch X Y
+        unset ::fssaved($w)
+        unset -nocomplain ::fullframe($t)
+    }
+    # The furniture FIRST and the client second, and the frame-layout
+    # call is not left to wm-resize-client's: that one skips a resize
+    # whose numbers did not move (a window already the size of the
+    # screen going fullscreen is exactly that case) and would leave the
+    # decoration standing around a window that has none.
+    frame-layout $t $cw $ch $X $Y
+    wm-resize-client $w $cw $ch
+    if {$on} { raise $t } else { panel-on-top }
+    update idletasks
+    send-synthetic-configure $w
+}
+# Nothing of ours stays above a fullscreen window — that is what the
+# state MEANS, and the panel and the tray are the two that would. Both
+# strips lift themselves for their own reasons (a rebuild, an icon
+# docking), so the rule cannot live at the moment of going fullscreen:
+# it has to run after every one of those lifts.
+proc fullscreen-on-top {} {
+    foreach w [array names ::fullscreen] {
+        if {[info exists ::frameof($w)]} { raise $::frameof($w) }
+    }
+}
+# The user's own toggle (the ops menu, or a config's chord), as opposed
+# to the client asking through EWMH. Both end in the substrate's pair,
+# which is where the state and the property live.
+proc fullscreen-toggle {w} {
+    if {[info exists ::fullscreen($w)]} {
+        unfullscreen-client $w
+    } else {
+        fullscreen-client $w
+    }
 }
 
 # ---- popup menus: the shared shell ----
@@ -1419,8 +1498,15 @@ proc winlist-cancel {} {
 # theirs — a column reads better in a treectrl); a bare letter press
 # fires it, and the navigation letters yield to hotkeys while
 # Ctrl+P/Ctrl+N always navigate (popup-nav).
+#
+# fullscreen is on the list and not only on the clients' own keys for a
+# plain reason: a fullscreen window has no titlebar and no border, so
+# if the client that asked for the state will not take it back — or
+# never had a key for it — this menu is the only way out. Alt+Space
+# reaches it through the WM's own grab, over the fullscreen window.
 set winops_actions {
     maximize x {maximize-toggle $w}
+    fullscreen f {fullscreen-toggle $w}
     close    c {close-client $w}
     destroy  d {kill-client $w}
     raise    r {raise-group $w}
@@ -2084,6 +2170,7 @@ proc panel-build {} {
     raise .panel
     panel-reeval     ;# a rebuild starts stateless — judge the matches now
     tray-layout      ;# our thickness is the tray's too — it follows
+    fullscreen-on-top ;# ...and the strip just lifted itself over the desk
     publish-workarea ;# the strip just took a bite out of the screen
     puts "WM: panel up ([llength $::panel_buttons] buttons, $thick px,\
  $::panel_side/$::panel_preset, $geo)"
@@ -2149,6 +2236,7 @@ proc panel-on-top {} {
     if {[winfo exists .panel]} { raise .panel }
     if {[winfo exists .traybg]} { raise .traybg }   ;# under the strip...
     if {[winfo exists .tray]} { raise .tray }       ;# ...and over the desk
+    fullscreen-on-top   ;# ...and under a fullscreen window, always
 }
 
 # ---- the system tray strip ----
@@ -2446,6 +2534,7 @@ proc tray-layout {} {
     tray-backdrop $geo       ;# the opaque floor under an ARGB strip
     wm deiconify .tray
     raise .tray
+    fullscreen-on-top        ;# ...but never over a fullscreen window
     # The COMPUTED string, not [wm geometry .tray]: that answers with
     # the geometry Tk has processed so far, which right after the
     # request is still the previous one — and a re-layout runs twice per
@@ -2476,7 +2565,22 @@ proc policy-screen-changed {} {
     after cancel $::panel_resize_pending
     # the tray is glued to a corner of the same edge; panel-build ends
     # by re-laying it out, and tray-layout covers the panel-less case
-    set ::panel_resize_pending [after 200 {panel-build; tray-layout}]
+    set ::panel_resize_pending \
+        [after 200 {panel-build; tray-layout; fullscreen-refit}]
+}
+# A fullscreen window is glued to the screen the same way the strips
+# are glued to its edge, so the same notify has to re-fit it — a screen
+# that grew would otherwise leave the window at the old size with a
+# band of desk around it, and one that shrank would leave it hanging
+# off the edge.
+proc fullscreen-refit {} {
+    lassign [screen-size] sw sh
+    foreach w [array names ::fullscreen] {
+        if {![info exists ::frameof($w)]} continue
+        frame-layout $::frameof($w) $sw $sh
+        wm-resize-client $w $sw $sh
+        send-synthetic-configure $w
+    }
 }
 
 # ---- default key bindings ----
