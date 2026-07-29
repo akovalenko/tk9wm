@@ -518,6 +518,34 @@ frames a client and shows a panel has proved both libraries loaded.
   mid-mode does not disturb the readout, it only changes what will be
   restored.
 
+  **The compass** — keyboard move also puts up nine digits laid out the
+  way they sit on a numpad, each one drawn **at the point it names**, so
+  it is a map of destinations rather than a picture of a keyboard: press
+  7 and the frame sticks to the top-left corner of the workarea, 5
+  centers it, 3 takes the bottom-right. The size is never touched — this
+  is a move — and the placement goes through the same `place-axis` the
+  config's `place` style does, so a jump and a configured placement land
+  in the same pixel. A jump is a **step and not a verdict**: it does not
+  commit, so Esc still reverts to the geometry the mode was entered at
+  and one can try 7, then 3, then 5 before pressing Enter; **0** goes
+  back to that entry geometry without leaving the mode. The numpad works
+  whatever NumLock is doing (the key router reads keysym level 0, where
+  the numpad carries `KP_Home`/`KP_Up`/… — the digits of the top row
+  work too). The compass stands for exactly as long as its digits are
+  live, for the reason the amber frame exists at all.
+
+  What it does about a **maximized** window is arithmetic and not a
+  state flag: a frame as wide as the workarea lands in the same X
+  whether it is asked for left, center or right, so that column of the
+  compass is degenerate and drawing three digits on one point would be a
+  lie. No slack on either axis — a maximized window, a fullscreen-sized
+  one, one grown by hand — and there is no compass at all, nothing to
+  offer; no slack on one axis and only the free one is drawn, three
+  digits down the middle of the other. Either short answer is logged
+  with the measurements behind it, because a compass missing its cells
+  reads as a bug otherwise. The keys of a degenerate axis stay accepted:
+  7 and 9 are then honest synonyms of 8.
+
   **winlist** — the window list in MRU order, the initial selection on
   the second entry, entries **numbered 1-9/A-Z with the number as a
   hotkey** (instant pick; in cycle mode a held modifier is transparent:
@@ -872,7 +900,13 @@ runs as a single shell call:
   move/resize from winops: arrow steps with Shift precision, the Enter
   commit, the Esc revert; the frame color is sampled by a pixel on the
   boundary during the mode and after it, the readout in client units on
-  an xterm).
+  an xterm), `run-compass-test.sh` (the numpad compass in that mode:
+  7/3/5 stick the frame to the corner, the opposite corner and the
+  center of an 800x600 workarea — measured against the decoration the
+  WM's own metrics line declares — a jump does not commit (Esc still
+  reverts) and 0 returns without leaving the mode; then the degenerate
+  cases, a maximized window offered no compass at all and a full-width
+  one offered 8/5/2 and not the cells that would sit on top of them).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second

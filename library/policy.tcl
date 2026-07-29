@@ -712,6 +712,7 @@ proc policy-detach {w} {
     if {[kbmr-owns $w]} {
         set ::kbmr {}
         grab-keys-to {}
+        compass-hide
         puts "WM: keyboard mode dropped — 0x[format %x $w] is gone"
     }
     # ...and the same for a mouse gesture in flight, for a sharper
@@ -2525,6 +2526,115 @@ proc kbmr-unpaint {w} {
     frame-recolor $::frameof($w) [frame-focus-color $w]
     policy-title $w [expr {[info exists ::titleof($w)] ? $::titleof($w) : ""}]
 }
+
+# ---- the compass ----
+# Nine digits laid out the way they sit on a numpad, each one drawn AT
+# THE POINT IT NAMES — so the compass is not a picture of a keyboard
+# but a map of destinations: press 7 and the window goes where the 7
+# is. In keyboard MOVE it anchors to the workarea and a press sticks
+# the frame to that edge, corner or center, size untouched.
+#
+# The placement itself is the `place` grammar's, sizeless: cell 7 is
+# {left top}, cell 5 is {center}, and place-axis does the arithmetic
+# for both — the same proc the config's `place` style goes through, so
+# a compass jump and a configured placement land in the same pixel.
+#
+# The RECTANGLE is a parameter and the cell list with it, because the
+# same nine digits will mean something else over a window than over
+# the desk: "which corner do we drag by" wants them drawn on the frame
+# (the owner, 2026-07-29 — not built yet).
+array set compass_cells {
+    7 {start start}   8 {center start}   9 {end start}
+    4 {start center}  5 {center center}  6 {end center}
+    1 {start end}     2 {center end}     3 {end end}
+}
+# Which keysym names name a cell. The numpad arrives by its LEVEL-0
+# names and not as digits at all — the key router reads keysym level 0
+# (handle-key), where an ordinary pc105 keymap has KP_Home/KP_Up/…
+# whatever NumLock is doing, which is why the mode does not care about
+# NumLock. KP_1..KP_9 are listed too, for the layouts that do put the
+# digit on level 0; on a normal one they simply never arrive.
+array set compass_key {
+    KP_Home 7  KP_Up 8     KP_Prior 9
+    KP_Left 4  KP_Begin 5  KP_Right 6
+    KP_End 1   KP_Down 2   KP_Next 3
+    KP_7 7     KP_8 8      KP_9 9
+    KP_4 4     KP_5 5      KP_6 6
+    KP_1 1     KP_2 2      KP_3 3
+    7 7  8 8  9 9   4 4  5 5  6 6   1 1  2 2  3 3
+}
+set compass {}    ;# the live digit toplevels, {} = no compass up
+font create CompassFont -weight bold
+
+# Which cells a frame of fw x fh has anything DISTINCT to offer within
+# a rect — the whole answer to "what about a maximized window", and it
+# is arithmetic rather than a state flag (a maximized window is not
+# frozen here: fvwm semantics, see maximize-client). A frame as wide as
+# the workarea lands in the same X whether it is asked for left, center
+# or right — that column of the compass is degenerate, and drawing
+# three digits on one point would be a lie. So: no slack on either axis
+# and there is no compass at all, nothing to offer; no slack on one and
+# only the free axis is drawn, three digits down the middle of the
+# other. The keys of a degenerate axis stay ACCEPTED — 7 and 9 are then
+# honest synonyms of 8 — they are just not worth ink.
+proc compass-offer {rect fw fh} {
+    lassign $rect - - ww wh
+    set hfree [expr {$fw < $ww}]
+    set vfree [expr {$fh < $wh}]
+    if {!$hfree && !$vfree} { return {} }
+    if {!$hfree} { return {8 5 2} }
+    if {!$vfree} { return {4 5 6} }
+    return {7 8 9 4 5 6 1 2 3}
+}
+# One override-redirect toplevel per cell, in the mode's own amber with
+# the dark outline every piece of our furniture wears, raised over the
+# desk (the window being placed will pass under them). Sized and
+# lettered from TitleFont, so the compass grows with the user's font
+# and its dpi like the rest of the decoration.
+proc compass-show {rect cells} {
+    compass-hide
+    if {![llength $cells]} return
+    font configure CompassFont -family [font actual TitleFont -family] \
+        -size [expr {-2 * $::titleh}]
+    set s [expr {[font metrics CompassFont -linespace] + 12}]
+    lassign $rect rx ry rw rh
+    foreach cell $cells {
+        lassign $::compass_cells($cell) halign valign
+        set c .compass$cell
+        toplevel $c -background $::OUTLINE
+        wm overrideredirect $c 1
+        label $c.d -text $cell -font CompassFont -foreground white \
+            -background $::KBMR_BG
+        place $c.d -x 1 -y 1 -width [expr {$s - 2}] -height [expr {$s - 2}]
+        wm geometry $c ${s}x${s}+[place-axis $rx $rw $s $halign]+[place-axis \
+            $ry $rh $s $valign]
+        raise $c
+        lappend ::compass $c
+    }
+    update idletasks
+}
+proc compass-hide {} {
+    foreach c $::compass { destroy $c }
+    set ::compass {}
+}
+# The compass keyboard MOVE puts up: over the workarea, for a frame of
+# the size this window has right now (which the mode never changes, so
+# it is built once at entry and stands unchanged to the end).
+proc compass-for-move {w} {
+    if {![regexp {^(\d+)x(\d+)} [wm geometry $::frameof($w)] -> fw fh]} return
+    set wa [workarea]
+    set cells [compass-offer $wa $fw $fh]
+    # A compass short of its nine cells reads as a bug unless it says
+    # why, so the short answers are the ones worth a line.
+    if {[llength $cells] < 9} {
+        lassign $wa - - ww wh
+        puts "WM: compass 0x[format %x $w]:\
+[expr {[llength $cells] ? "cells $cells" : "nothing to offer"}] —\
+ a ${fw}x${fh} frame in a ${ww}x${wh} workarea"
+    }
+    compass-show $wa $cells
+}
+
 proc move-keyboard {{w 0}} {
     if {$w == 0} { set w $::focused }
     if {$w == 0 || ![info exists ::frameof($w)]} return
@@ -2545,18 +2655,21 @@ proc kbmr-enter {mode w orig} {
         return
     }
     kbmr-paint
+    # The compass stands for exactly as long as its digits are live —
+    # the mode's own lesson, one size down: live keys with no sign of
+    # themselves read as a desk that has stopped answering.
+    if {$mode eq "move"} { compass-for-move $w }
     puts "WM: keyboard $mode 0x[format %x $w] — [kbmr-text]"
 }
 proc kbmr-end {commit} {
     lassign $::kbmr mode w orig
     set ::kbmr {}
     grab-keys-to {}
+    compass-hide
     if {$mode eq ""} return
     if {!$commit && [info exists ::frameof($w)]} {
         if {$mode eq "move"} {
-            wm geometry $::frameof($w) +[lindex $orig 0]+[lindex $orig 1]
-            update idletasks
-            send-synthetic-configure $w
+            frame-moveto $w {*}$orig
         } else {
             wm-resize-client $w {*}$orig
         }
@@ -2565,10 +2678,46 @@ proc kbmr-end {commit} {
     set said [expr {$commit ? "done" : "cancelled"}]
     puts "WM: keyboard $mode 0x[format %x $w] $said"
 }
+# Move a frame and tell its client where it now is — the keyboard
+# arrows, the compass and Escape's restore all end up here.
+proc frame-moveto {w X Y} {
+    if {![info exists ::frameof($w)]} return
+    wm geometry $::frameof($w) +$X+$Y
+    update idletasks
+    send-synthetic-configure $w
+}
+# One compass cell: the frame keeps its size and takes the position
+# that cell names within the workarea.
+proc kbmr-jump {w cell} {
+    if {![regexp {^(\d+)x(\d+)} [wm geometry $::frameof($w)] -> fw fh]} return
+    lassign [workarea] wax way ww wh
+    lassign $::compass_cells($cell) halign valign
+    frame-moveto $w [place-axis $wax $ww $fw $halign] \
+                    [place-axis $way $wh $fh $valign]
+}
 proc kbmr-key {kind name mods} {
     if {$kind eq "release"} return
     lassign $::kbmr mode w orig
     if {$mode eq "" || ![info exists ::frameof($w)]} { kbmr-end 1; return }
+    # A compass jump is a STEP and not a verdict: it does not commit,
+    # which is what keeps Escape's promise (the geometry the mode
+    # started on) alive after one — and makes the compass worth
+    # looking at twice. 7, then 3, then 5, then Enter.
+    if {$mode eq "move"} {
+        if {[llength $::compass] && [info exists ::compass_key($name)]} {
+            kbmr-jump $w $::compass_key($name)
+            kbmr-readout
+            return
+        }
+        # ...and the way back, which belongs to the MODE and not to the
+        # compass: 0 is offered even when the window fills the desk and
+        # the compass has nothing to draw.
+        if {$name in {0 KP_0 KP_Insert}} {
+            frame-moveto $w {*}$orig
+            kbmr-readout
+            return
+        }
+    }
     set dx 0; set dy 0
     switch -- $name {
         Left - h  { set dx -1 }
@@ -2585,9 +2734,7 @@ proc kbmr-key {kind name mods} {
         if {$mods & 1} { set step 1 }
         if {$mods & 4} { set step 50 }
         regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
-        wm geometry $t +[expr {$fx + $dx*$step}]+[expr {$fy + $dy*$step}]
-        update idletasks
-        send-synthetic-configure $w
+        frame-moveto $w [expr {$fx + $dx*$step}] [expr {$fy + $dy*$step}]
     } else {
         lassign [client-size-hints $w] minw minh incw inch basew baseh
         set xstep 10; set ystep 10
