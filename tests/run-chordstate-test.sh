@@ -23,30 +23,42 @@
 # and then a LIVE leg fires the chord through the server for real —
 # through the group switch too, where the host allows one.
 #
-# Where it does not, what is known is worth writing down, and what is
-# not known more so. On the sandbox this suite was developed in, the
-# Xvfb here takes no keymap change at all: setxkbmap, an xkbcomp load
-# of a us,ru map, an xkbcomp load of the server's OWN dump edited by
-# one word, and xmodmap are each silently a no-op — no error from
-# either side, and the server's map unchanged after every one.
+# The keymap arrives here; the GROUP still will not come into force,
+# and the leg says so rather than passing on an assumption. What was
+# measured on the way (2026-07-30), since two of the three explanations
+# were wrong guesses of mine before they were checked:
 #
-# It is NOT the obvious suspects, both of which were checked and both
-# of which were wrong guesses of mine before they were measured:
-#   - not "Xvfb ignores XKB" — the extension is there and the server
-#     runs the compiler on every setxkbmap, as its own stderr shows;
-#   - not the output directory — the server compiles into
-#     XKM_OUTPUT_DIR (/var/lib/xkb, baked in at build time, no runtime
-#     override: -xkbdir moves the input tree only), and with that
-#     directory writable the server's own invocation, reproduced by
-#     hand down to the flags, compiles the us,ru map to a 12940-byte
-#     .xkm and exits 0. The server still keeps its old map.
+#   - "Xvfb ignores XKB" — no. The extension is there and the server
+#     runs the compiler on every setxkbmap, as its own stderr shows.
+#   - the output directory — no. With XKM_OUTPUT_DIR writable, the
+#     server's own invocation reproduced by hand compiles the us,ru map
+#     to a 12940-byte .xkm and exits 0.
+#   - the SERVER RESET — yes, this was it, and it was the owner's
+#     diagnosis: an X server resets when its last client disconnects,
+#     and a reset restores the default keymap. setxkbmap set the
+#     layout, disconnected, and the reset undid it before anything
+#     could look. Nothing failed and nothing complained. Hence
+#     -noreset above, after which the layout sticks and keycode 46
+#     really does carry Cyrillic_de in its second group.
 #
-# So the cause is unisolated, the test does not pretend otherwise, and
-# on an ordinary host the live group leg simply runs.
+# What remains unexplained is narrower: the group will not SWITCH. The
+# toggle key is bound (ISO_Next_Group on <CAPS> via grp:caps_toggle),
+# the compat map carries `interpret ISO_Next_Group -> LockGroup(+1)`,
+# both groups are in the map — and after the press a plain key still
+# resolves in group 0. So the live group leg skips, honestly, and the
+# in-process battery is what covers those states here.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:52
 rm -f /tmp/.X52-lock /tmp/.X11-unix/X52
-Xvfb :52 -screen 0 400x300x24 >/dev/null 2>&1 &
+# -noreset, and it is the whole reason this test can do its job. An X
+# server RESETS when its last client disconnects, and a reset restores
+# the default keymap — so setxkbmap would set the layout, disconnect,
+# and the reset would undo it before anything else could look. Nothing
+# fails and nothing complains; the map is simply always the default
+# again. (The owner's diagnosis, 2026-07-30, after two wrong ones of
+# mine — measured by holding an xterm open across the call, which makes
+# the same setxkbmap stick.)
+Xvfb :52 -screen 0 400x300x24 -noreset >/dev/null 2>&1 &
 XVFB=$!
 CONF=$(mktemp -d)
 trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
@@ -116,10 +128,26 @@ fires_since_done() {
 }
 xdotool key super+l; sleep 0.5
 LIVE0=$(fires_since_done)
+
+# A client to say which group is actually in force. The switch is NOT
+# assumed: a toggle key can be bound, the compat map can carry the
+# LockGroup interpretation, the map can have both groups — and the
+# group can still not move (measured here, 2026-07-30). A leg that
+# assumed it would pass whether or not the thing it names happened,
+# which is worse than not having the leg.
+GROUPMOVED=no
 if [ "$TWOGROUP" = yes ]; then
-    xdotool keydown alt keydown shift keyup shift keyup alt; sleep 0.6
-    xdotool key super+l; sleep 0.5
-    LIVE1=$(fires_since_done)
+    "$LINUX/whale" "$HERE/xkb-probe.tcl" > "$HERE/xkb-probe.log" 2>&1 &
+    PROBE=$!
+    sleep 2
+    xdotool key ISO_Next_Group; sleep 0.6
+    xdotool key l; sleep 0.4          # ...and what does the group make of it?
+    if grep -q 'keysym=Cyrillic' "$HERE/xkb-probe.log"; then
+        GROUPMOVED=yes
+        xdotool key super+l; sleep 0.5
+        LIVE1=$(fires_since_done)
+    fi
+    kill $PROBE 2>/dev/null
 fi
 kill $WM 2>/dev/null
 sleep 0.3
@@ -148,15 +176,19 @@ if [ "$LIVE0" = 1 ]; then
 else
     echo "FAIL: the live chord did not fire in group 0 ($LIVE0 fires)"
 fi
-if [ "$TWOGROUP" = yes ]; then
+if [ "$GROUPMOVED" = yes ]; then
     if [ "$LIVE1" = 2 ]; then
         echo "OK: ...and again with the group switched, which is the question"
     else
         echo "FAIL: the chord died on the group switch ($LIVE1 fires, want 2)"
     fi
+elif [ "$TWOGROUP" = yes ]; then
+    echo "SKIP: the second group is loaded but will not come into force here —"
+    echo "      the toggle key is bound, the compat map carries the LockGroup"
+    echo "      interpretation, and a plain key still resolves in group 0."
+    echo "      The in-process battery covers the same states by hand."
 else
-    echo "SKIP: no second group on this host — this server takes no keymap"
-    echo "      change at all, silently and for reasons not isolated (see the"
-    echo "      header). The in-process battery covers the same states."
+    echo "SKIP: no second group on this host — a keymap could not be set."
+    echo "      The in-process battery covers the same states by hand."
 fi
 check_invariants "$LOG"

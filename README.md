@@ -1097,17 +1097,16 @@ runs as a single shell call:
   combination of Caps, Num and the two xkb group bits, plus the
   negative controls — Shift and Control still make a chord distinct —
   and that the keysym it is matched on comes from group 0 — then the
-  same chord fired for real through the server's own grab, and again
-  after a group switch where the host allows one. Where it does not,
-  the test says so rather than pretending: the Xvfb of the sandbox this
-  suite grew in takes no keymap change at all — `setxkbmap`, `xkbcomp`
-  of a us,ru map, `xkbcomp` of the server's own dump edited by one
-  word, `xmodmap`, each a silent no-op — and neither of the obvious
-  causes is it. The extension is there and the server runs the compiler
-  on every `setxkbmap`; and with `XKM_OUTPUT_DIR` writable, the
-  server's own invocation reproduced by hand compiles that map to a
-  12940-byte `.xkm` and exits 0, while the server keeps its old map.
-  Unisolated, and marked as such).
+  same chord fired for real through the server's own grab, and — where
+  the host lets the group actually move — again after a switch. The leg
+  **verifies the switch happened** instead of assuming it, by asking a
+  client what keysym a plain key now produces; a leg that assumed would
+  pass whether or not the thing it names occurred. The suite's own Xvfb
+  needs **`-noreset`** for any of this: an X server resets when its
+  last client disconnects and a reset restores the default keymap, so
+  `setxkbmap` set the layout, disconnected, and the reset undid it
+  before anything could look — nothing failing and nothing complaining
+  the whole way).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second
