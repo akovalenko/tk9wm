@@ -164,6 +164,21 @@ if [ "$ST_BACK" = "Normal" ] && [ "$MAP_BACK" = "IsViewable" ]; then
 else
     echo "FAIL: after the pick it is $ST_BACK/$MAP_BACK"; FAIL=1
 fi
+# The window must not be offered the focus on the way in. It is about
+# to be unmapped, and a client that answers a WM_TAKE_FOCUS invitation
+# for a window that vanishes half a breath later is left believing it
+# holds a focus the server has already moved on from — keyboard-dead
+# until something makes it re-decide, which is what clicking it does.
+if awk -v id="$RID" '
+        /adopted minimized/ && index($0, id) { seen = 1 }
+        seen && /deiconified/ && index($0, id) { exit }
+        seen && /focus ->/ && index($0, id) { bad = 1 }
+        END { exit !bad }' "$HERE/wm-reicon.log"; then
+    echo "FAIL: the focus was offered to a window on its way to minimized:"
+    grep -n 'focus ->' "$HERE/wm-reicon.log" | head -4; FAIL=1
+else
+    echo "OK: adopted minimized without being offered the focus first"
+fi
 if grep -q 'withdrew itself' "$HERE/wm-reicon.log"; then
     echo "FAIL: an unmap of OURS was read as the client withdrawing:"
     grep 'withdrew itself' "$HERE/wm-reicon.log"; FAIL=1

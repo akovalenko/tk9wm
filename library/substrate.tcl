@@ -1549,7 +1549,7 @@ proc refuse-iconify {w} {
 }
 
 # ---------------- manage / unmanage ----------------
-proc manage {w} {
+proc manage {w {asiconic 0}} {
     global dpy
     if {[info exists ::managed($w)]} {
         # A MapRequest for a window we already hold: an iconic client
@@ -1661,15 +1661,33 @@ proc manage {w} {
     x-sync 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
     refresh-title $w
-    policy-managed $w
+    # Is this window going to end up minimized? Two ways in: a client
+    # that ASKED to start that way — ICCCM 4.1.4 spells it WM_HINTS
+    # initial_state = IconicState, which is what `start /min` under wine
+    # sets — and a window ADOPTED back into the state a previous
+    # instance of us left it in. Framed and mapped first either way: the
+    # frame has to exist for the window list to have anything to bring
+    # back.
+    #
+    # What must NOT happen in between is the initial-focus decision.
+    # policy-managed hands the focus over, and on the WM_TAKE_FOCUS
+    # models it does so by INVITATION — so a client that answers an
+    # invitation for a window we unmap half a breath later is left
+    # believing it holds a focus the server has already moved on from.
+    # It comes back keyboard-dead until something makes it re-decide,
+    # which is what a click does. Only clients that track focus
+    # themselves are hit, which is exactly why xterm and emacs looked
+    # fine while the rest did not (owner's report, 2026-07-29).
+    set toiconic [expr {$asiconic || [client-initial-iconic $w]}]
+    if {!$toiconic} { policy-managed $w }
     tell-where-you-are $w
-    # "Start me minimized" — ICCCM 4.1.4 spells it as WM_HINTS
-    # initial_state = IconicState, and that is what `start /min` under
-    # wine (and a session restoring a minimized window) sets. Framed
-    # and mapped first, then iconified: the frame has to exist for the
-    # window list to have anything to bring back.
-    if {[client-initial-iconic $w]} {
-        puts "WM: 0x[format %x $w] asked to start iconic"
+    if {$toiconic} {
+        puts "WM: 0x[format %x $w] [expr {$asiconic ? {adopted minimized}
+                                                   : {asked to start iconic}}]"
+        # Through the policy, not straight to iconify-client: a
+        # `minimize refuse` style is the user's standing word about this
+        # client, and it applies to a window arriving minimized as much
+        # as to one being minimized now.
         policy-minimize-request $w
     }
     # ...and "start me fullscreen", the EWMH spelling of the same idea.
@@ -2749,11 +2767,9 @@ proc adopt-existing {} {
         if {[dict get $at map-state] eq "viewable"} { incr ::skip_unmap($w) }
         puts "WM: adopting existing window 0x[format %x $w] (${aw}x${ah})[
             expr {$iconic ? { — minimized, and staying that way} : {}}]"
-        manage $w
-        # Straight back to iconic, through the ordinary path: the client
-        # gets a real unmap and the WM_STATE to match, so the eventual
-        # restore is the ordinary map it knows how to answer.
-        if {$iconic} { iconify-client $w }
+        # The intent goes IN, so manage can skip the initial-focus
+        # decision rather than make it and take it back.
+        manage $w $iconic
     }
 }
 
