@@ -19,13 +19,22 @@
 # way, and missed a table keyed on the bare modifier: the key was
 # swallowed by our own grab and nothing ran.
 #
-# IN-PROCESS, and that is not a shortcut: this Xvfb accepts no keymap
-# at all (setxkbmap cannot talk to it and an xkbcomp load of the
-# server's own dump, edited or not, is silently a no-op — measured), so
-# there is no way to switch a group on it. What the server puts in the
-# state is documented in the header quoted above; what this desk does
-# with it is ours to test, and handle-key takes the state as an
-# argument.
+# The battery is IN-PROCESS, feeding handle-key the states directly,
+# and then a LIVE leg fires the chord through the server for real —
+# through the group switch too, where the host allows one.
+#
+# Where it does not, the reason is worth writing down, because the
+# obvious diagnosis is wrong. Xvfb honors XKB perfectly well: it runs
+# the compiler on every setxkbmap (its stderr says so) and the
+# extension is there. What fails is the WRITE — the server compiles a
+# keymap into XKM_OUTPUT_DIR, /var/lib/xkb, which is baked in at build
+# time, has no runtime override (`-xkbdir` moves the input tree only,
+# and pointing it at a writable copy changes nothing), and is READ-ONLY
+# inside the sandbox this suite was developed in. The compile
+# "succeeds" with warnings, the load never happens, the server keeps
+# the old map, and every client-side path — setxkbmap, xkbcomp of the
+# server's own dump, xmodmap — is silently a no-op (all measured,
+# 2026-07-30). On an ordinary host the live group leg runs.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:52
 rm -f /tmp/.X52-lock /tmp/.X11-unix/X52
@@ -35,9 +44,19 @@ CONF=$(mktemp -d)
 trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
 sleep 1.5
 
+# A second group if this host will take one — the live leg below needs
+# a group to switch to, and says so when there is none.
+setxkbmap -layout us,ru -option grp:alt_shift_toggle 2>/dev/null
+if xmodmap -pke | grep -qE "^keycode +46 = l L Cyrillic"; then
+    TWOGROUP=yes
+else
+    TWOGROUP=no
+fi
+echo "--- keycode 46: $(xmodmap -pke | grep -E '^keycode +46 ' | sed 's/.*= //')"
+
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set ::fired 0
-wm-bind {<Super>l} {incr ::fired}
+wm-bind {<Super>l} {incr ::fired; puts "CHORD FIRE"}
 
 proc kchk {desc want got} {
     if {$got eq $want} {
@@ -79,6 +98,21 @@ LOG="$HERE/wm-chordstate.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
 sleep 4
+
+# The LIVE leg: the same chord through the server, on the WM's own root
+# grab (so nothing needs focus). First in group 0, which proves the
+# plumbing of this leg wherever it runs; then after a group switch,
+# which is the question.
+fires_since_done() {
+    sed -n '/^CHORD DONE/,$p' "$LOG" | grep -c '^CHORD FIRE'
+}
+xdotool key super+l; sleep 0.5
+LIVE0=$(fires_since_done)
+if [ "$TWOGROUP" = yes ]; then
+    xdotool keydown alt keydown shift keyup shift keyup alt; sleep 0.6
+    xdotool key super+l; sleep 0.5
+    LIVE1=$(fires_since_done)
+fi
 kill $WM 2>/dev/null
 sleep 0.3
 
@@ -100,5 +134,21 @@ if [ "$DONE" = 11 ]; then
     echo "OK: all 11 checks ran"
 else
     echo "FAIL: the battery is missing or truncated (ran ${DONE:-0}, want 11)"
+fi
+if [ "$LIVE0" = 1 ]; then
+    echo "OK: and the chord fires for real, through the server's grab"
+else
+    echo "FAIL: the live chord did not fire in group 0 ($LIVE0 fires)"
+fi
+if [ "$TWOGROUP" = yes ]; then
+    if [ "$LIVE1" = 2 ]; then
+        echo "OK: ...and again with the group switched, which is the question"
+    else
+        echo "FAIL: the chord died on the group switch ($LIVE1 fires, want 2)"
+    fi
+else
+    echo "SKIP: no second group on this host — the live group leg needs a"
+    echo "      keymap change, which a read-only /var/lib/xkb forbids (see"
+    echo "      the header). The in-process battery covers the same states."
 fi
 check_invariants "$LOG"

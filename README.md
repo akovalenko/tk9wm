@@ -1096,10 +1096,14 @@ runs as a single shell call:
   ignores in an event's state: the same binding fired at every
   combination of Caps, Num and the two xkb group bits, plus the
   negative controls — Shift and Control still make a chord distinct —
-  and that the keysym it is matched on comes from group 0. An
-  in-process battery of necessity: this Xvfb accepts no keymap at all,
-  so there is no group to switch on it, and `handle-key` takes the
-  state as an argument).
+  and that the keysym it is matched on comes from group 0 — then the
+  same chord fired for real through the server's own grab, and again
+  after a group switch where the host allows one. Where it does not,
+  the reason is not the server: Xvfb honors XKB and runs the compiler
+  on every `setxkbmap`, but the compiled keymap is written to
+  `XKM_OUTPUT_DIR` — `/var/lib/xkb`, baked in at build time with no
+  runtime override — and a sandbox that mounts it read-only turns every
+  client-side path into a silent no-op).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second
