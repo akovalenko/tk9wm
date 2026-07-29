@@ -252,7 +252,11 @@ frames a client and shows a panel has proved both libraries loaded.
   aborts; re-grab on MappingNotify. `grab-keys-to` — keyboard modality
   for UI on top of that same grab, the router gets press AND release.
   `modifier-held` — is the modifier physically down, via XQueryKeymap —
-  the fvwm alt-tab semantics rest on it).
+  the fvwm alt-tab semantics rest on it. `x-group` — read the xkb group
+  as `{locked effective}`, or lock the keyboard into one; nothing here
+  uses it yet, and it is deliberately not what a chord is looked up by,
+  but a desk that wants to show or choose the layout — an indicator, a
+  switch key, per-window layouts — needs exactly this).
 
   **The system tray (XEmbed)** — here we are the tray manager
   ourselves: taking `_NET_SYSTEM_TRAY_S<screen>` with a fresh server

@@ -2137,9 +2137,9 @@ KeyboardObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 	       Tcl_Obj *const objv[])
 {
     static const char *const subs[] = {
-	"keysym", "name", "keycode", "at", "state", "autorepeat", NULL
+	"keysym", "name", "keycode", "at", "state", "autorepeat", "group", NULL
     };
-    enum { K_KEYSYM, K_NAME, K_KEYCODE, K_AT, K_STATE, K_AUTOREPEAT };
+    enum { K_KEYSYM, K_NAME, K_KEYCODE, K_AT, K_STATE, K_AUTOREPEAT, K_GROUP };
     Tk_Window tkMain = (Tk_Window)clientData;
     Display *dpy;
     int index, n;
@@ -2230,6 +2230,51 @@ KeyboardObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 	}
 	XkbSetDetectableAutoRepeat(dpy, onoff ? True : False, &supported);
 	Tcl_SetObjResult(interp, Tcl_NewIntObj(supported != False));
+	return TCL_OK;
+    }
+    case K_GROUP: {
+	/* The xkb GROUP: read it, or lock it to a given index.
+	 *
+	 * The group is what decides which alphabet a keycode speaks, and
+	 * it is deliberately NOT what a chord is looked up by (handle-key
+	 * asks the map for group 0 by hand, so a binding is named by its
+	 * Latin keysym whatever is being typed). This is for the other
+	 * half of the subject — knowing which group is in force, and
+	 * putting the desk in one.
+	 *
+	 * Reading returns {locked effective}: the group the keyboard is
+	 * LOCKED in and the one actually in FORCE at this instant, which
+	 * differ while a momentary switch is held down.
+	 */
+	XkbStateRec st;
+	int grp;
+	if (n > 1) {
+	    Tcl_WrongNumArgs(interp, 2, objv, "?-displayof window? ?group?");
+	    return TCL_ERROR;
+	}
+	if (n == 1) {
+	    if (Tcl_GetIntFromObj(interp, av[0], &grp) != TCL_OK) {
+		return TCL_ERROR;
+	    }
+	    if (grp < 0 || grp > 3) {
+		Tcl_SetObjResult(interp, Tcl_NewStringObj(
+		    "group must be 0..3", -1));
+		return TCL_ERROR;
+	    }
+	    /* XkbLockGroup is a REQUEST and answers nothing; whether it
+	     * took is a question for a subsequent read. */
+	    Tcl_SetObjResult(interp, Tcl_NewIntObj(
+		XkbLockGroup(dpy, XkbUseCoreKbd, (unsigned)grp) != False));
+	    return TCL_OK;
+	}
+	if (XkbGetState(dpy, XkbUseCoreKbd, &st) != Success) {
+	    Tcl_SetObjResult(interp, Tcl_NewStringObj(
+	        "cannot read the keyboard state", -1));
+	    return TCL_ERROR;
+	}
+	Tcl_SetObjResult(interp, Tcl_NewListObj(2, (Tcl_Obj *[]){
+	    Tcl_NewIntObj(st.locked_group),
+	    Tcl_NewIntObj(st.group)}));
 	return TCL_OK;
     }
     }

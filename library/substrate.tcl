@@ -344,6 +344,17 @@ proc x-keysym {name}            { tkwmx::keyboard keysym $name }
 proc x-keysym-name {ks}         { tkwmx::keyboard name $ks }
 proc x-keycode {keysym}         { tkwmx::keyboard keycode $keysym }
 proc x-keysym-at {kc {group 0} {level 0}} { tkwmx::keyboard at $kc $group $level }
+# The xkb GROUP, which decides the alphabet a keycode speaks. Read with
+# no argument for {locked effective} — the two differ while a momentary
+# switch is held — or give an index 0..3 to lock the keyboard into one.
+#
+# Deliberately not what a chord is looked up by (see handle-key: the
+# map is asked for group 0 by hand, so a binding keeps its Latin name
+# whatever is being typed). This is the other half of the subject: what
+# a desk that wants to SHOW or CHOOSE the layout needs — a panel
+# indicator, a key that switches it, per-window layouts. Nothing here
+# uses it yet; the owner asked for the capability (2026-07-30).
+proc x-group {args} { tkwmx::keyboard group {*}$args }
 # which keys are physically down, as a 32-byte bit vector
 proc x-keymap {}                { tkwmx::keyboard state }
 # a ClientMessage with a verbatim payload — every protocol built on one.

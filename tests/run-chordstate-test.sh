@@ -41,12 +41,16 @@
 #     -noreset above, after which the layout sticks and keycode 46
 #     really does carry Cyrillic_de in its second group.
 #
-# What remains unexplained is narrower: the group will not SWITCH. The
-# toggle key is bound (ISO_Next_Group on <CAPS> via grp:caps_toggle),
-# the compat map carries `interpret ISO_Next_Group -> LockGroup(+1)`,
-# both groups are in the map — and after the press a plain key still
-# resolves in group 0. So the live group leg skips, honestly, and the
-# in-process battery is what covers those states here.
+# What remains is narrower and is about this server, not about us. The
+# group can be LOCKED — `tkwmx::keyboard group 1` does it and a
+# separate process reads back {1 1}, so the device state really
+# changed — and an XTEST-injected key is unaffected by it either way:
+# it still resolves in group 0 and its state still carries no group
+# bits. (Pressing a bound ISO_Next_Group does not move the group at
+# all, though the key, the compat interpretation and both groups are
+# all present.) So no synthetic key can exercise the group path here,
+# the live leg says so instead of pretending, and the in-process
+# battery is what covers those states.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:52
 rm -f /tmp/.X52-lock /tmp/.X11-unix/X52
@@ -140,7 +144,11 @@ if [ "$TWOGROUP" = yes ]; then
     "$LINUX/whale" "$HERE/xkb-probe.tcl" > "$HERE/xkb-probe.log" 2>&1 &
     PROBE=$!
     sleep 2
-    xdotool key ISO_Next_Group; sleep 0.6
+    # Switched through the shim rather than by pressing a bound toggle:
+    # it is the direct route (XkbLockGroup on the device) and it is
+    # verifiable — the locker prints the group back.
+    "$LINUX/whale" "$HERE/xkb-lock.tcl" "$ROOT" 1
+    sleep 0.5
     xdotool key l; sleep 0.4          # ...and what does the group make of it?
     if grep -q 'keysym=Cyrillic' "$HERE/xkb-probe.log"; then
         GROUPMOVED=yes
@@ -183,10 +191,10 @@ if [ "$GROUPMOVED" = yes ]; then
         echo "FAIL: the chord died on the group switch ($LIVE1 fires, want 2)"
     fi
 elif [ "$TWOGROUP" = yes ]; then
-    echo "SKIP: the second group is loaded but will not come into force here —"
-    echo "      the toggle key is bound, the compat map carries the LockGroup"
-    echo "      interpretation, and a plain key still resolves in group 0."
-    echo "      The in-process battery covers the same states by hand."
+    echo "SKIP: the second group is loaded and the device really is locked"
+    echo "      into it (the shim reads it back), but an injected key still"
+    echo "      resolves in group 0 and carries no group bits — see the"
+    echo "      header. The in-process battery covers those states by hand."
 else
     echo "SKIP: no second group on this host — a keymap could not be set."
     echo "      The in-process battery covers the same states by hand."
