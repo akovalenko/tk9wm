@@ -373,7 +373,15 @@ install — `package require tk9wm` answers out of the image.
 
   **Window commands** are those actions as a vocabulary — `Minimize`,
   `Maximize`, `Fullscreen`, `Move`, `Resize`, `Raise`, `Lower`, `Bury`,
-  `Close`, `Destroy`. They are Capitalized against the rest of the
+  `Close`, `Destroy`, plus `Unmaximize` and `Unfullscreen`. `Restart`,
+  `Reload` and `Quit` are about the desk rather than a window (the
+  lowercase `restart-wm` and `reload-config` remain, being the
+  implementations). **`Quit` is bound by default**, to `Super+t q`,
+  and releases every client back to the root alive before stopping —
+  with `.Xsession` exec'ing the window manager that ends the session,
+  and a desk whose only exit is another terminal and a `kill` is the
+  "how do I exit vim" joke with a login inside it. They are
+  Capitalized against the rest of the
   config language, which is lowercase and declarative: a capital says
   this one *acts*, now. It also buys the names outright — `raise`,
   `lower`, `close` and `destroy` are Tcl's and Tk's, and a lowercase
@@ -399,6 +407,21 @@ install — `package require tk9wm` answers out of the image.
   minimization stays up without costing the windows after it, and one
   that dies mid-sweep is skipped. Nothing is bound to it by default — a
   desk-wide sweep is not something to discover by accident.
+
+  **A user toggles, a program does not** — Emacs's
+  `called-interactively-p`, and here for the same reason: one name
+  should mean the obvious thing in both mouths, and the obvious thing
+  differs. Pick `Maximize` off the menu over a maximized window and you
+  plainly mean the other way, because you are looking at the window
+  while you say it; press your own key twice and you mean the same. But
+  `Apply-To-Matching always Maximize` means *make this desk maximized*,
+  and a toggle there would un-maximize precisely the windows that were
+  already right — a sweep whose result depends per window on the state
+  it happened to find is a coin toss, not a sweep. So `Maximize` and
+  `Fullscreen` toggle when you ask and force when a sweep asks;
+  `Unmaximize` and `Unfullscreen` never guess. Interactive is the
+  default, and the only thing that declares otherwise is the code that
+  drives other commands.
 
   **minimize** takes the same path as a client's own request
   (`set-minimize iconify|refuse` — default iconify, overridden
@@ -654,7 +677,10 @@ runs as a single shell call:
   resolution XDG → default-config; the default snaps a wm-grid client's
   drag to its increments, the dev preset — ignore plus a bold centered
   title — gives back the raw size).
-- `run-sweep-test.sh` (window commands and the sweep, from one config:
+- `run-quit-test.sh` (the way out: `Super+t q` ends the window manager,
+  and the client it was framing is still alive, still on screen and
+  handed back to the root — a quit that took its clients along would be
+  worse than none), `run-sweep-test.sh` (window commands and the sweep, from one config:
   a bare `Minimize` bound to a chord takes the ACTIVE window out of
   context and touches nothing else, then `Apply-To-Matching always
   Minimize` takes the rest — while the one client whose style refuses

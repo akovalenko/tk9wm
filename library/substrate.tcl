@@ -2797,6 +2797,28 @@ proc restart-wm {} {
     } err]} { puts "WM: restart FAILED: $err" }
 }
 
+# Leave for good — the same release a restart does, and then simply
+# stop. With .Xsession exec'ing the window manager this ends the X
+# session, which is the point of having it: a desk with no way out from
+# the inside is the "how do I exit vim" joke with a whole login inside
+# it, and the answer should not be another terminal and a kill (owner's
+# report, 2026-07-29).
+#
+# Releasing first is not politeness. Our frames are about to go with the
+# process, and a client reparented into one would go with it — the
+# save-set is what stops that, but unmanaging deliberately puts every
+# client back on the root at its own place, which is also what the NEXT
+# window manager will adopt.
+proc quit-wm {} {
+    puts "WM: quit requested — releasing clients and leaving"
+    soft "release the tray on quit" { tray-stop "the window manager is quitting" }
+    soft "release clients on quit" \
+        { foreach w [array names ::managed] { unmanage $w } }
+    soft "sync before exit" { x-sync 0 }
+    puts "WM: bye"
+    exit 0
+}
+
 # To be called by the assembly once the policy layer is in: start
 # dispatching (replaying whatever arrived while it was being loaded)
 # and adopt whatever was already on the screen.

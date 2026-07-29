@@ -1304,36 +1304,67 @@ proc policy-workarea {} { workarea }
 # a straitjacket: the window can be resized and moved freely meanwhile
 # (fvwm semantics, not Windows) — the toggle still restores the
 # geometry saved at maximize time.
-proc maximize-toggle {w} {
-    if {![info exists ::frameof($w)]} return
+# Three operations, not one with a mood. A MENU naturally toggles — you
+# open it over a window, and the entry means "the other way" — but a
+# config wants to force: `Apply-To-Matching always Maximize` that
+# un-maximized every already-maximized window would be nobody's idea of
+# maximizing a desk, and a key bound to Maximize should leave the window
+# maximized however many times it is pressed. So the vocabulary forces
+# and the menu names the toggle (owner, 2026-07-29).
+proc maximize-guard {w} {
+    if {![info exists ::frameof($w)]} { return 0 }
     # Fullscreen already owns this window's geometry, and the two would
     # fight over the same saved copy. Refused audibly rather than
     # silently: the request came from a menu the user just used.
     if {[info exists ::fullscreen($w)]} {
         puts "WM: maximize ignored — 0x[format %x $w] is fullscreen"
-        return
+        return 0
     }
+    return 1
+}
+proc maximize-client {w} {
+    if {![maximize-guard $w]} return
     set t $::frameof($w)
     lassign [frame-chrome $t] B top
-    if {[info exists ::maxsaved($w)]} {
-        lassign $::maxsaved($w) cw ch X Y
-        unset ::maxsaved($w)
-        wm geometry $t +$X+$Y
-        wm-resize-client $w $cw $ch
-    } else {
+    # Only the FIRST maximize records where to go back to. Calling this
+    # on an already-maximized window re-fits it to the workarea as it is
+    # now — which is what you want after the panel appeared or the
+    # screen changed — and must not overwrite the saved geometry with
+    # the maximized one, which would lose the way back entirely.
+    if {![info exists ::maxsaved($w)]} {
         regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
         set ::maxsaved($w) \
             [list [$t.slot cget -width] [$t.slot cget -height] $X $Y]
-        lassign [workarea] wx wy ww wh
-        wm geometry $t +$wx+$wy
-        # increments bind maximize too (an xterm fills to whole cells,
-        # slack stays at the workarea edge) — unless styled away
-        wm-resize-client $w {*}[apply-size-hints $w \
-            [expr {$ww - 2*$B}] [expr {$wh - $top - $B}]]
     }
-    # wm-resize-client skips a no-op resize and tells the client nothing
-    # then — but the frame MOVED either way, so state the origin once
-    # more, from settled Tk geometry.
+    lassign [workarea] wx wy ww wh
+    wm geometry $t +$wx+$wy
+    # increments bind maximize too (an xterm fills to whole cells,
+    # slack stays at the workarea edge) — unless styled away
+    wm-resize-client $w {*}[apply-size-hints $w \
+        [expr {$ww - 2*$B}] [expr {$wh - $top - $B}]]
+    maximize-settle $w
+}
+proc unmaximize-client {w} {
+    if {![maximize-guard $w]} return
+    if {![info exists ::maxsaved($w)]} return   ;# not maximized: nothing to undo
+    set t $::frameof($w)
+    lassign $::maxsaved($w) cw ch X Y
+    unset ::maxsaved($w)
+    wm geometry $t +$X+$Y
+    wm-resize-client $w $cw $ch
+    maximize-settle $w
+}
+proc maximize-toggle {w} {
+    if {[info exists ::maxsaved($w)]} {
+        unmaximize-client $w
+    } else {
+        maximize-client $w
+    }
+}
+# wm-resize-client skips a no-op resize and tells the client nothing
+# then — but the frame MOVED either way, so state the origin once more,
+# from settled Tk geometry.
+proc maximize-settle {w} {
     update idletasks
     send-synthetic-configure $w
 }
@@ -1817,18 +1848,64 @@ proc with-window {w script} {
     }
 }
 
+# Who is asking — the user, or a program? This is Emacs's
+# called-interactively-p, kept for the same reason it exists there: one
+# name should mean the obvious thing in both mouths, and the obvious
+# thing differs.
+#
+# A USER toggles. Open the window menu over a maximized window and pick
+# Maximize and you mean "the other way"; there is no other reading,
+# because you are looking at the window while you say it. The same goes
+# for a key you press yourself.
+#
+# A PROGRAM does not. `Apply-To-Matching always Maximize` means make
+# this desk maximized, and a toggle would un-maximize precisely the
+# windows that were already right — a sweep whose result depends on the
+# state it found is not a sweep, it is a coin toss per window.
+#
+# So: interactive unless a program says otherwise, and the program that
+# says so is the one driving other commands. Nothing needs to mark the
+# menu or a key binding as "the user" — that is the default, and the
+# default is the common case.
+set programmatic 0
+proc programmatically {script} {
+    set save $::programmatic
+    set ::programmatic 1
+    try {
+        uplevel 1 $script
+    } finally {
+        set ::programmatic $save
+    }
+}
+proc interactive-p {} { expr {!$::programmatic} }
+
+# The two commands that read it. Everything else in the table means one
+# thing in either mouth — there is no toggling sense of Close, and
+# Minimize has none either (a window you can pick the menu over is on
+# the screen by definition).
+proc maximize-command {w} {
+    if {[interactive-p]} { maximize-toggle $w } else { maximize-client $w }
+}
+proc fullscreen-command {w} {
+    if {[interactive-p]} { fullscreen-toggle $w } else { fullscreen-client $w }
+}
+
 # name -> the proc that does the work; every one of them takes a window.
+# The Un- pair is unconditional in both mouths: a user who wants the way
+# out and no guessing has it, and so does a sweep.
 set window_commands {
-    Maximize   maximize-toggle
-    Fullscreen fullscreen-toggle
-    Close      close-client
-    Destroy    kill-client
-    Raise      raise-group
-    Lower      lower-group
-    Bury       bury-group
-    Move       move-keyboard
-    Resize     resize-keyboard
-    Minimize   policy-minimize-request
+    Maximize     maximize-command
+    Unmaximize   unmaximize-client
+    Fullscreen   fullscreen-command
+    Unfullscreen unfullscreen-client
+    Close        close-client
+    Destroy      kill-client
+    Raise        raise-group
+    Lower        lower-group
+    Bury         bury-group
+    Move         move-keyboard
+    Resize       resize-keyboard
+    Minimize     policy-minimize-request
 }
 proc window-do {name {w 0}} {
     if {$w == 0} { set w [current-window] }
@@ -1849,6 +1926,25 @@ foreach {_name _impl} $window_commands {
         error "window command $_name would shadow the existing command ::$_name"
     }
     interp alias {} ::$_name {} window-do $_name
+}
+
+# Commands about the DESK rather than a window — same Capital, nothing
+# to resolve. The lowercase originals stay: they are the implementations
+# (as close-client is the implementation behind Close), the substrate
+# and this file call them by those names, and a config written before
+# the vocabulary existed keeps working.
+set desk_commands {
+    Restart restart-wm
+    Reload  reload-config
+    Quit    quit-wm
+}
+foreach {_name _impl} $desk_commands {
+    if {[llength [info commands ::$_name]]} {
+        error "desk command $_name would shadow the existing command ::$_name"
+    }
+    # reload-config lives in main.tcl, which is sourced after this file;
+    # an alias resolves at call time, so declaring it here is fine.
+    interp alias {} ::$_name {} $_impl
 }
 unset _name _impl
 
@@ -1876,6 +1972,9 @@ unset _name _impl
 # other: "as many as possible" is the contract, and a desk half swept
 # because window three had a bad style rule is not it.
 proc Apply-To-Matching {pred command} {
+    programmatically { Apply-To-Matching-1 $pred $command }
+}
+proc Apply-To-Matching-1 {pred command} {
     set targets {}
     foreach w $::focus_hist {
         if {[info exists ::managed($w)]} { lappend targets $w }
@@ -3039,7 +3138,14 @@ proc policy-default-bindings {} {
     # point of the reload is to try a config without restarting, and
     # having to configure the way to reload the config first would be a
     # poor joke. Bind over it like any other default.
-    wm-bind {<Super>t w r} reload-config
+    wm-bind {<Super>t w r} Reload
+    # The way out, and a default for the same reason: a desk you can
+    # only leave by finding another terminal and killing yourself is
+    # the "how do I exit vim" joke with a whole login in it. It sits in
+    # the Super+t family with the rest, one letter under a prefix — far
+    # enough that nobody arrives by accident, and guessable from the
+    # others rather than needing to be looked up (owner, 2026-07-29).
+    wm-bind {<Super>t q} Quit
 }
 policy-default-bindings
 

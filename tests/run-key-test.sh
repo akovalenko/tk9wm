@@ -13,6 +13,13 @@
 #    current one);
 #  - the stumpwm-style sequence Super+t, w, m opens the ops menu for
 #    the focused window through the prefix machinery, Esc closes;
+# NOTE: the abort phase presses a key that must stay UNBOUND under
+# the Super+t prefix. It used to press q, until Quit was bound to
+# Super+t q and the 'abort' quietly became a real command — which
+# ended the WM mid-test and failed the two checks after it as well.
+# Bind a new default onto this key and the same will happen; pick
+# another one here rather than weakening the check.
+#
 #  - Super+t followed by an unbound key aborts the sequence without
 #    wedging anything (a final Alt+Space still answers).
 . "$(dirname "$0")/common.sh"
@@ -83,7 +90,7 @@ import -display :78 -window root "$HERE/key-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/key-test.png"
 key Escape
 key super+t
-key q           # unbound -> abort
+key z           # unbound -> abort (see the note in the header)
 key alt+space   # still alive after the abort
 key Escape
 
@@ -139,7 +146,7 @@ if grep -q 'key Super+t -> prefix' "$HERE/wm-key.log" \
 else
     echo "FAIL: sequence steps missing from the log"
 fi
-if grep -q 'key sequence abort (q unbound)' "$HERE/wm-key.log"; then
+if grep -q 'key sequence abort (z unbound)' "$HERE/wm-key.log"; then
     echo "OK: an unbound key aborted the sequence"
 else
     echo "FAIL: no abort line for the unbound key"

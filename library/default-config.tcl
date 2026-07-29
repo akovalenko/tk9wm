@@ -22,9 +22,9 @@
 # WM_CHANGE_STATE: Tk's `wm iconify`, wine's Win32 SW_MINIMIZE, the
 # winops menu's own entry):
 #   iconify (default) — honor it. The window leaves the screen, keeps
-#     its place in the window list with its title in [brackets], and comes back
-#     when picked there, when a panel button matching it is fired, or
-#     when the client maps itself again.
+#     its place in the window list with its title in [brackets], and
+#     comes back when picked there, when a panel button matching it is
+#     fired, or when the client maps itself again.
 #   refuse — this desk has no minimize. The request is DECLINED to the
 #     client's face (WM_STATE re-stated as NormalState), not ignored:
 #     an app that already minimized itself internally — wine does — is
@@ -305,6 +305,7 @@
 #
 #   Minimize  Maximize  Fullscreen  Move  Resize
 #   Raise     Lower     Bury        Close Destroy
+#   Unmaximize  Unfullscreen
 #
 # These are the winops menu's entries, available by name. Bind one and
 # it acts on the ACTIVE window — it works out from context which window
@@ -312,6 +313,15 @@
 #
 #   wm-bind {<Ctrl><Shift>z} Minimize
 #   wm-bind {<Super>Up}      Maximize
+#
+# A USER TOGGLES, A PROGRAM DOES NOT — Emacs's called-interactively-p,
+# and here for the same reason. Pick Maximize off the menu over a
+# maximized window and you plainly mean "the other way"; press your own
+# key twice and you mean the same. But `Apply-To-Matching always
+# Maximize` means make this desk maximized, and a toggle there would
+# un-maximize exactly the windows that were already right. So Maximize
+# and Fullscreen toggle when you ask and force when a sweep does.
+# Unmaximize and Unfullscreen never guess, in either mouth.
 #
 # (The case is not decoration: `raise`, `lower`, `close` and `destroy`
 # belong to Tcl and Tk, and taking those names would break the toolkit
@@ -332,3 +342,18 @@
 # sweep can be narrow:
 #
 #   wm-bind {<Super>c} {Apply-To-Matching {filter -class Chromium} Close}
+#
+# Two commands are about the DESK rather than a window:
+#
+#   Restart   restart in place — same pid, fresh code off the disk,
+#             clients released and adopted back
+#   Reload    re-read this file on the live desk (also <Super>t w r)
+#   Quit      leave: every client released back to the root alive, then
+#             the WM stops. With .Xsession exec'ing it, that ends the
+#             session. Bound by default to <Super>t q — a desk you can
+#             only leave by finding another terminal and killing
+#             yourself is not a desk.
+#
+# Their lowercase originals, restart-wm and reload-config, still work:
+# they are the implementations, the way close-client is what Close
+# calls, so an older config needs no editing.
