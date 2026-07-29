@@ -59,7 +59,20 @@ cat > "$VFS/main.tcl" <<'EOF'
 # treectrl in one file. starkit::startup mounts us and puts our lib/ on
 # auto_path; everything after that is the ordinary entry point.
 package require starkit
-if {[starkit::startup] eq "sourced"} return
+set mode [starkit::startup]
+if {$mode eq "sourced"} return
+# How to become us again after a restart in place — asked of starkit
+# rather than inferred, since it is the one that knows: a STARPACK is
+# its own application and takes no script argument, while a STARKIT is
+# a file its interpreter has to be told about again (which is what
+# makes replacing the .kit and restarting come up on the new one). The
+# substrate can guess both, and does when nobody tells it; a wrapper
+# that knows should not leave it guessing.
+switch -- $mode {
+    starpack { set ::tk9wm_reexec [list [info nameofexecutable]] }
+    starkit  { set ::tk9wm_reexec [list [info nameofexecutable] \
+                                        $::starkit::topdir] }
+}
 package require tk9wm
 tk9wm-main {*}$argv
 EOF

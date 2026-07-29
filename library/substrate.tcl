@@ -2984,22 +2984,60 @@ proc ::exit {{code 0}} {
 # clients at startup — adoption is exactly "windows that lived before
 # the WM". Tcl has no exec-replacement of its own; the shim does
 # (x-exec-self), and returning from it at all means it failed.
+# What execv has to be handed to become US again: {executable ?script?}.
+# Not one answer, because the same window manager is started in forms
+# that disagree about whether there IS a script to name.
+#
+# ::tk9wm_reexec is the answer for a wrapper that KNOWS — a list in that
+# shape, and the entry point is where the knowledge is (the kit's asks
+# starkit itself, which says starkit or starpack outright). The default
+# below is for everyone else, and it is a guess: an inference from paths
+# that were measured rather than assumed, kept honest by the knob above
+# it, which is what the next wrapper form is supposed to use instead of
+# a patch here.
+#
+# The four forms, measured 2026-07-29 — argv0, and what execv needs:
+#   interpreter + script   /path/tk9wm.tcl        native  name it
+#   starkit                /path/wm.kit           tclvfs  name it
+#   starpack               <exe>/main.tcl         tclvfs  do NOT
+#   whale -app             //zipfs:/app/main.tcl  zipfs   do NOT
+# So the question is not which filesystem argv0 is on — a starkit is
+# mounted ON ITS OWN PATH, and answers tclvfs while being exactly the
+# file that has to be named. The question is whether argv0 lives INSIDE
+# the executable's own image: a path there is not something a command
+# line can carry, and the executable alone re-runs it.
+#
+# NORMALIZED, and that is the owner's correction (2026-07-29): argv0 is
+# what the user typed and `info nameofexecutable` is normalized to
+# within an inch of its life, so comparing them raw is a coin toss.
+proc reexec-head {} {
+    if {[info exists ::tk9wm_reexec]} { return $::tk9wm_reexec }
+    set exe [info nameofexecutable]
+    set a0 [file normalize $::argv0]
+    if {$a0 eq $exe || [string match "$exe/*" $a0]
+            || [lindex [file system $a0] 0] eq "zipfs"} {
+        return [list $exe]
+    }
+    return [list $exe $::argv0]
+}
+
 proc restart-wm {} {
-    # Look before letting go. The exec below replaces us with the
-    # INTERPRETER, handing it $argv0 as a script — so if $argv0 has
-    # moved or been deleted since we started, execv still succeeds and
-    # the fresh interpreter dies on the missing file instead. With
-    # .Xsession exec'ing the window manager, that death is the death of
-    # the session. And by then the clients have already been released,
-    # which is the part that made it unrecoverable: the old order
-    # discovered the problem only after dismantling every frame on the
-    # desk. Rename the checkout, pull a commit that renames the entry
-    # script, and the restart chord became a logout — a real migration,
-    # 2026-07-29.
-    if {![file exists $::argv0]} {
-        puts "WM: restart REFUSED — $::argv0 is gone; nothing released,\
-              the desk is untouched"
-        return 0
+    set head [reexec-head]
+    # Look before letting go. If what execv needs has moved or been
+    # deleted since we started, execv still succeeds and the fresh
+    # process dies on the missing file instead. With .Xsession exec'ing
+    # the window manager, that death is the death of the session. And by
+    # then the clients have already been released, which is the part
+    # that made it unrecoverable: the old order discovered the problem
+    # only after dismantling every frame on the desk. Rename the
+    # checkout, pull a commit that renames the entry script, and the
+    # restart chord became a logout — a real migration, 2026-07-29.
+    foreach f $head {
+        if {![file exists $f]} {
+            puts "WM: restart REFUSED — $f is gone; nothing released,\
+                  the desk is untouched"
+            return 0
+        }
     }
     puts "WM: restart requested — releasing clients, exec'ing myself"
     # The tray goes back to the root the same way the clients do; the
@@ -3019,7 +3057,7 @@ proc restart-wm {} {
     set av $::argv
     if {"-replace" ni $av} { lappend av -replace }
     if {[catch {
-        x-exec-self [info nameofexecutable] [list $::argv0 {*}$av]
+        x-exec-self [lindex $head 0] [list {*}[lrange $head 1 end] {*}$av]
     } err]} { puts "WM: restart FAILED: $err" }
 }
 

@@ -29,6 +29,13 @@ cat > "$HERE/smoke-config/tk9wm.tcl" <<'EOF'
 set-panel-side left
 panel-button терм {match {filter -title {кит*}} launch {exec true}}
 panel-button ещё {}
+# a chord for the restart leg below: a wrapped manager re-execs itself
+# differently from a checkout (a starpack IS its application, a starkit
+# is a file its interpreter has to be told about again), and this is
+# where that is exercised. Bound here rather than sent as a
+# ClientMessage because tools/send-restart.tcl wants cffi, which a
+# stock tclkit has no reason to carry.
+wm-bind {<Super>t x} Restart
 EOF
 
 XDG_CONFIG_HOME="$HERE/smoke-config" "$@" > "$HERE/smoke-wm.log" 2>&1 &
@@ -40,6 +47,11 @@ CL=$!
 sleep 2
 import -display "$DISP" -window root "$HERE/smoke.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/smoke.png"
+xdotool key super+t; sleep 0.4; xdotool key x
+sleep 3
+# read the client's liveness BEFORE we kill it ourselves — asking after
+# is asking about our own handiwork (it read as a failed restart)
+kill -0 $CL 2>/dev/null && CLIENT_ALIVE=yes || CLIENT_ALIVE=no
 kill $WM $CL 2>/dev/null || true
 sleep 0.3
 
@@ -58,6 +70,12 @@ if grep -q 'managed 0x' "$HERE/smoke-wm.log"; then
     echo "OK: a client was framed and managed"
 else
     echo "FAIL: nothing was managed"
+fi
+if [ "$(grep -c 'redirect armed' "$HERE/smoke-wm.log")" -ge 2 ] \
+        && [ "$CLIENT_ALIVE" = yes ]; then
+    echo "OK: a restart in place came back up, client and all"
+else
+    echo "FAIL: the wrapped manager did not restart in place"
 fi
 if grep -q 'handler error' "$HERE/smoke-wm.log"; then
     echo "FAIL: handler errors:"; grep 'handler error' "$HERE/smoke-wm.log"
