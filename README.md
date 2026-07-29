@@ -39,7 +39,26 @@ make                                # -> libtkwmx.a and libtkwmx.so
 
 `--with-tk=DIR` if `tkConfig.sh` does not sit next to `tclConfig.sh`;
 `--disable-shared` for the static archive alone (what a kit build
-wants), `--disable-static` for the reverse. There is no win64 leg and
+wants), `--disable-static` for the reverse.
+
+**Building against a whale.** You cannot point `--with-tcl` at one: a
+whale is a single static binary with no headers, no stub libraries and
+no `tclConfig.sh` inside it. What you point at is the Tcl/Tk install
+tree whalebuild leaves *beside* the whale while building it —
+`work/linux/install/lib`. Mind which tree:
+
+```sh
+# the NATIVE build — tclConfig.sh records real host paths
+./configure --with-tcl=$HOME/…/whalebuild/work/linux/install/lib
+
+# the CONTAINER build — do NOT use: its tclConfig.sh records the
+# paths as seen INSIDE the box (-I/w/work/linux/install/include),
+# and the compile fails on a missing tcl.h
+#   …/whalebuild/work-linux/linux/install/lib
+```
+
+The .so this produces is not tied to the whale it was built against —
+stubs make it good for any Tcl/Tk 9.0.x host. There is no win64 leg and
 never will be: every primitive here — SubstructureRedirect,
 reparenting, the save-set, the X error handler — is an X11 concept
 with no GDI counterpart.
