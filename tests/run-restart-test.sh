@@ -52,4 +52,56 @@ if [ "$ALIVE" = "1" ] && [ "$STATE" = "IsViewable" ] && [ "$GEOM" = "320x240" ];
 else
     echo "FAIL: pid alive=$ALIVE, client state=$STATE geom=$GEOM"; FAIL=1
 fi
+
+# --- phase 2: the entry script vanishes under a running WM -----------
+# A rename in the checkout, or a pull that renames the entry script.
+# execv would still SUCCEED — it replaces us with the interpreter, and
+# it is the interpreter that then dies on the missing file — so the
+# restart must be refused BEFORE anything is released. The old order
+# released every client first and found out afterwards, which with
+# .Xsession exec'ing the WM turned the restart chord into a logout.
+echo "--- phase 2: entry script deleted under the running WM"
+DOOMED="$ROOT/restart-doomed.tcl"
+cp "$WMTCL" "$DOOMED"
+trap 'kill $XVFB 2>/dev/null; rm -f "$DOOMED"' EXIT
+
+"$LINUX/whale" "$DOOMED" > "$HERE/wm-doomed.log" 2>&1 &
+WM2=$!
+sleep 1.5
+"$LINUX/whale" "$HERE/client.tcl" "переживи отказ" 300x200 "#fcaf3e" \
+    > "$HERE/doomed-client.log" &
+CB=$!
+sleep 1.5
+BID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-doomed.log" | head -1)
+echo "--- actor: $BID, WM pid $WM2"
+
+rm -f "$DOOMED"                      # the pull, in one line
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :90
+sleep 2
+
+STATE2=$(xwininfo -id "$BID" 2>/dev/null | awk '/Map State:/ {print $3}')
+PARENT2=$(xwininfo -id "$BID" -children 2>/dev/null \
+    | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')
+ROOTID=$(xwininfo -root 2>/dev/null | sed -n 's/^xwininfo: Window id: \(0x[0-9a-f]*\).*/\1/p')
+ALIVE2=0; kill -0 $WM2 2>/dev/null && ALIVE2=1
+LIVES2=$(grep -c 'redirect armed' "$HERE/wm-doomed.log")
+kill $WM2 $CB 2>/dev/null
+
+if grep -q 'restart REFUSED' "$HERE/wm-doomed.log"; then
+    echo "OK: the restart was refused, not attempted"
+else
+    echo "FAIL: no refusal in the log — it tried to exec a script that is gone"
+    FAIL=1
+fi
+if [ "$ALIVE2" = "1" ] && [ "$LIVES2" = "1" ]; then
+    echo "OK: the WM is still up and never restarted (one lifetime)"
+else
+    echo "FAIL: WM alive=$ALIVE2, lifetimes=$LIVES2 (want 1, alive)"; FAIL=1
+fi
+if [ "$STATE2" = "IsViewable" ] && [ -n "$PARENT2" ] && [ "$PARENT2" != "$ROOTID" ]; then
+    echo "OK: nothing was released — the client is still framed ($PARENT2)"
+else
+    echo "FAIL: client state=$STATE2 parent=«$PARENT2» root=«$ROOTID»"; FAIL=1
+fi
+
 exit $FAIL

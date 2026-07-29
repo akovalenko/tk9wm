@@ -2769,6 +2769,22 @@ proc ::exit {{code 0}} {
 # the WM". Tcl has no exec-replacement of its own; the shim does
 # (x-exec-self), and returning from it at all means it failed.
 proc restart-wm {} {
+    # Look before letting go. The exec below replaces us with the
+    # INTERPRETER, handing it $argv0 as a script — so if $argv0 has
+    # moved or been deleted since we started, execv still succeeds and
+    # the fresh interpreter dies on the missing file instead. With
+    # .Xsession exec'ing the window manager, that death is the death of
+    # the session. And by then the clients have already been released,
+    # which is the part that made it unrecoverable: the old order
+    # discovered the problem only after dismantling every frame on the
+    # desk. Rename the checkout, pull a commit that renames the entry
+    # script, and the restart chord became a logout — a real migration,
+    # 2026-07-29.
+    if {![file exists $::argv0]} {
+        puts "WM: restart REFUSED — $::argv0 is gone; nothing released,\
+              the desk is untouched"
+        return 0
+    }
     puts "WM: restart requested — releasing clients, exec'ing myself"
     # The tray goes back to the root the same way the clients do; the
     # fresh instance announces itself and every icon docks again.
