@@ -548,6 +548,21 @@ frames a client and shows a panel has proved both libraries loaded.
   long-lived, wants to behave like a window → a thread and a real
   connection.
 
+  **A chord is Latin whatever the group, and survives it.** The lookup
+  asks the keymap for **group 0, level 0** by hand rather than trusting
+  the event, so a chord is named by its Latin keysym whatever is being
+  typed: `<Super>l` is `<Super>l` on a Cyrillic group, and so is a menu
+  hotkey. The state mask is the half that had to be fixed — XKB reports
+  the effective group in **bits 13-14 of the core event state**
+  (`XkbGroupForCoreState`, `X11/extensions/XKB.h`), and the shim hands
+  that state through untouched, while the chord's grab keeps working
+  across a group change (XKB keeps a separate grab state with no group
+  in it). So the press still arrived, gained `0x2000` on the way, and
+  missed a table keyed on the bare modifier: the key was swallowed by
+  our own grab and nothing ran. The group bits join Lock and Mod2 in
+  what a chord ignores, and none of this touches the xkb configuration
+  — it is all on our side of the event.
+
   **One router, and taking it serves notice.** Everything
   keyboard-modal here goes through `grab-keys-to` — the menus, the
   confirmation, the keyboard move/resize — and it is a SINGLE SLOT.
@@ -1077,7 +1092,14 @@ runs as a single shell call:
   reference for "the size it would have had anyway". The cast is mixed
   out of necessity — xterms for the size claims, since Tk never sets
   `USSize`, and a Tk client for the position-only one, since xterm
-  cannot make that claim alone).
+  cannot make that claim alone), `run-chordstate-test.sh` (what a chord
+  ignores in an event's state: the same binding fired at every
+  combination of Caps, Num and the two xkb group bits, plus the
+  negative controls — Shift and Control still make a chord distinct —
+  and that the keysym it is matched on comes from group 0. An
+  in-process battery of necessity: this Xvfb accepts no keymap at all,
+  so there is no group to switch on it, and `handle-key` takes the
+  state as an argument).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second

@@ -2906,9 +2906,30 @@ proc modifier-held {mask} {
 # progress consults its current submap (the press came through the
 # temporary XGrabKeyboard). An unbound press aborts a sequence but is
 # ignored in idle state — a stale grab echo is not an error.
+# Which bits of a key event's state are none of a chord's business.
+# Lock and Mod2 are Caps and Num, which make no chord distinct — and
+# neither does the xkb GROUP, which XKB reports in bits 13-14 of the
+# CORE event state (XkbGroupForCoreState in X11/extensions/XKB.h, and
+# the shim hands that state through untouched).
+#
+# That one is not cosmetic. A chord's grab keeps working across a group
+# change — XKB keeps a separate grab state with no group in it, which
+# is what grab_mods is for — so with the layout switched to Russian the
+# press still ARRIVES here, gains 0x2000 on the way, and misses a table
+# keyed on the bare modifier. The key is swallowed by our grab and
+# nothing runs: the chord goes quietly dead for as long as the group is
+# switched, which is the worst of the three possible outcomes.
+#
+# The KEYSYM never had this problem and it is worth saying why, since
+# it is the half one expects to break: the lookup asks the map for
+# group 0 level 0 by hand rather than trusting the event, so a chord is
+# named by its Latin keysym whatever is being typed. <Super>l is
+# <Super>l on a Cyrillic group, and a menu hotkey is its Latin letter
+# too.
+set CHORD_IGNORE [expr {2 | 16 | 0x6000}]
 proc handle-key {state kc time} {
     set ks [x-keysym-at $kc 0 0]
-    set mods [expr {$state & ~(2 | 16)}]   ;# Caps/Num make no chord distinct
+    set mods [expr {$state & ~$::CHORD_IGNORE}]
     if {$::keyrouter ne ""} {
         route-key press [keysym-name $ks] $mods
         return
