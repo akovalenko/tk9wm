@@ -45,6 +45,30 @@ ALIVE_NO=1; kill -0 $WM 2>/dev/null || ALIVE_NO=0
 STATE_NO=$(xwininfo -id "$WID" 2>/dev/null | sed -n 's/.*Map State: //p')
 echo "--- after asking and answering no: asked=$CONFIRMED wm alive=$ALIVE_NO client=$STATE_NO"
 
+# ---- ...and the dialog's own CLOSE BUTTON, which is the one button a
+# window of the WM's own wears. Asking such a frame about the buttons
+# it does NOT have used to throw ("column Cmenu doesn't exist") all the
+# way out to a Tk bgerror box on top of the desk — owner's report,
+# 2026-07-29. The button is found through the geometry the WM logs:
+# our own windows are override-redirect and carry no client, so no
+# outside tool can be asked where they are.
+xdotool key super+t; sleep 0.3; xdotool key q
+sleep 1
+GEO=$(sed -n 's/^WM: wm-window .* \([0-9]*x[0-9]*[+-][0-9]*[+-][0-9]*\)$/\1/p' \
+    "$HERE/wm-quit.log" | tail -1)
+DW=${GEO%%x*}; R=${GEO#*x}; DH=${R%%+*}; R=${R#*+}; DX=${R%%+*}; DY=${R##*+}
+echo "--- confirm window at $GEO — clicking its close button"
+xdotool mousemove $((DX + DW - 14)) $((DY + 17)) click 1
+sleep 1
+ALIVE_X=1; kill -0 $WM 2>/dev/null || ALIVE_X=0
+BGERR=$(grep -c 'background error' "$HERE/wm-quit.log")
+# the desk still answers afterwards: ask again, and count the asks
+xdotool key super+t; sleep 0.3; xdotool key q
+sleep 1
+ASKS=$(grep -c 'confirm «' "$HERE/wm-quit.log")
+xdotool key Escape
+sleep 0.5
+
 # ---- and yes, from the keyboard ----
 xdotool key super+t; sleep 0.3; xdotool key q
 sleep 1
@@ -57,6 +81,7 @@ STATE=$(xwininfo -id "$WID" 2>/dev/null | sed -n 's/.*Map State: //p')
 PARENT=$(xwininfo -id "$WID" -children 2>/dev/null \
     | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')
 echo "--- after Super+t q: wm alive=$ALIVE client alive=$CLIENT_ALIVE state=$STATE parent=$PARENT"
+echo "--- close button: wm alive=$ALIVE_X, background errors=$BGERR, asks=$ASKS"
 kill $WM $CL 2>/dev/null
 
 echo "--- WM saw:"
@@ -90,6 +115,16 @@ if [ "$ALIVE" = "0" ] && grep -q 'confirm: yes' "$HERE/wm-quit.log" \
     echo "OK: confirming from the keyboard ended the window manager"
 else
     echo "FAIL: WM alive=$ALIVE, or it never got a yes"; BAD=1
+fi
+if [ "$ALIVE_X" = 1 ] && [ "$BGERR" = 0 ]; then
+    echo "OK: the confirmation's close button worked without a background error"
+else
+    echo "FAIL: close button — wm alive=$ALIVE_X, background errors=$BGERR"
+fi
+if [ "$ASKS" -ge 3 ]; then
+    echo "OK: ...and the desk went on answering afterwards ($ASKS asks)"
+else
+    echo "FAIL: only $ASKS confirmations were opened, want 3"
 fi
 if [ "$CLIENT_ALIVE" = "1" ] && [ "$STATE" = "IsViewable" ]; then
     echo "OK: the client outlived the window manager, still on screen"

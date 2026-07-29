@@ -1268,24 +1268,31 @@ proc policy-pick-refocus {w} {
 # column only — forcolumn); the action fires on release-inside, classic
 # button semantics, so a drag-away cancels. Anything else is the title
 # drag.
-proc title-button {T x y} {
+# The columns are THIS FRAME's (frame-buttons), not the full three: a
+# window of the WM's own wears only what it asked for, and a `column
+# compare` against a tag that frame never created throws — which the
+# confirmation dialog's close button did, all the way out to a bgerror
+# box (owner's report, 2026-07-29). It takes the FRAME rather than its
+# titlebar for that reason: the button set is a property of the frame.
+proc title-button {t x y} {
+    set T $t.title
     if {[catch {$T identify -array A $x $y}]} { return "" }
     if {$A(where) ne "item" || $A(column) eq ""} { return "" }
-    foreach tag {Cmenu Cmax Cclose} {
+    foreach tag [frame-buttons $t] {
         if {[$T column compare $A(column) == $tag]} { return $tag }
     }
     return ""
 }
 proc title-press {t w x y X Y} {
-    set b [title-button $t.title $x $y]
+    set b [title-button $t $x $y]
     if {$b eq ""} { drag-start $t $w $X $Y; return }
-    popups-close
+    popups-close $t
     set ::btn($t) $b
     $t.title item state forcolumn 1 $b pressed
 }
 proc title-motion {t w x y X Y} {
     if {![info exists ::btn($t)]} { drag-move $t $w $X $Y; return }
-    set on [expr {[title-button $t.title $x $y] eq $::btn($t)}]
+    set on [expr {[title-button $t $x $y] eq $::btn($t)}]
     $t.title item state forcolumn 1 $::btn($t) \
         [expr {$on ? "pressed" : "!pressed"}]
 }
@@ -1294,7 +1301,7 @@ proc title-release {t w x y} {
     set b $::btn($t)
     unset ::btn($t)
     $t.title item state forcolumn 1 $b !pressed
-    if {[title-button $t.title $x $y] eq $b} {
+    if {[title-button $t $x $y] eq $b} {
         if {$w == 0} {
             # A window of the WM's own: the only button it wears is
             # close, and closing it is whatever it said closing means.
@@ -1650,6 +1657,12 @@ proc wm-window {t title cw ch closescript} {
         [expr {max(0, ($sw - $W) / 2)}] [expr {max(0, ($sh - $H) / 3)}]
     raise $t
     update idletasks
+    # Geometry in the log, because a window of ours is the one thing on
+    # this desk nothing else can be asked about: it is override-redirect
+    # and carries no client, so xwininfo and every other outside tool
+    # sees furniture rather than a window. A test that wants to click
+    # its close button has no other way to find it.
+    puts "WM: wm-window «$title» [wm geometry $t]"
     return $t.slot
 }
 # The first thing built on it: a confirmation for a command that cannot
@@ -1731,8 +1744,19 @@ proc wm-window-close {t} {
 # Close whatever popup is open. Every click path calls this as "close
 # if open"; the router is released only when a popup actually owns it —
 # a bare grab-keys-to {} here would abort an unrelated key sequence.
-proc popups-close {} {
+# `except` is the popup the caller is BUSY WITH — and it exists because
+# a click on the WM's own window is both "a click somewhere, close the
+# popups" and "a click on a popup, keep it". Pressing the confirmation
+# dialog's close BUTTON went through here and destroyed the dialog
+# mid-press; the very next line of title-press then poked a widget that
+# was gone, and the error went all the way out to a bgerror box
+# (owner's report, 2026-07-29). Dismissed that way it also skipped its
+# own close script — the × on a window of ours means what the window
+# said it means, and popups-close is deliberately the path that means
+# nothing.
+proc popups-close {{except ""}} {
     foreach m {.winlist .winops .confirm} {
+        if {$m eq $except} continue
         if {[winfo exists $m]} {
             grab-keys-to {}
             # A dismissed wm-window leaves no bookkeeping behind. Its

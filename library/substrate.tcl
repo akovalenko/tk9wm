@@ -197,19 +197,48 @@ proc soft {label script {default ""}} {
     soft-log $label $res
     return $default
 }
+
+# An error that escaped to the event loop anyway — a bind script, an
+# `after`, anything we did not wrap — gets the same treatment, and for
+# a sharper reason than tidiness. Tk's answer to one is a DIALOG, and
+# for a window manager that is wrong twice: it is a window we would
+# have to manage at the exact moment we are demonstrably confused, and
+# what reaches the user is a Tcl stack trace they can neither act on
+# nor stop from happening again. (Owner's report, 2026-07-29: the close
+# button on the WM's own confirmation dialog threw, and what he got was
+# a bgerror box on top of the desk.)
+#
+# So: the log, with the traceback — which is strictly more than the
+# dialog offered, since the log is where everything else about this WM
+# already is. Defined rather than registered through `interp bgerror`
+# because Tk's own handler is AUTOLOADED on first use: a ::bgerror that
+# exists is a ::bgerror that wins.
+proc ::bgerror {msg} {
+    if {![soft-log "background error" $msg]} return
+    if {[info exists ::errorInfo] && $::errorInfo ne ""} {
+        foreach line [split [string trimright $::errorInfo] \n] {
+            puts "WM:   | $line"
+        }
+    }
+}
+# Returns 1 when it actually PRINTED — a caller with more to say (the
+# background-error handler and its traceback) must not say it on the
+# repeats this collapses.
 proc soft-log {label msg} {
     set key $label\n$msg
     if {![info exists ::soft_n($key)]} {
         set ::soft_n($key) 1
         puts "WM: soft failure — $label: $msg"
-        return
+        return 1
     }
     set n [incr ::soft_n($key)]
     # 10th, 100th, then every thousandth: enough to show a failure is
     # relentless, quiet enough to keep the log readable
     if {$n == 10 || $n == 100 || ($n > 100 && $n % 1000 == 0)} {
         puts "WM: soft failure (x$n) — $label: $msg"
+        return 1
     }
+    return 0
 }
 
 # Our log is UTF-8, whatever locale the session hands us. Client titles
