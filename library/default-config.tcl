@@ -22,7 +22,7 @@
 # WM_CHANGE_STATE: Tk's `wm iconify`, wine's Win32 SW_MINIMIZE, the
 # winops menu's own entry):
 #   iconify (default) — honor it. The window leaves the screen, keeps
-#     its place in the window list marked "(свёрнуто)", and comes back
+#     its place in the window list with its title in [brackets], and comes back
 #     when picked there, when a panel button matching it is fired, or
 #     when the client maps itself again.
 #   refuse — this desk has no minimize. The request is DECLINED to the

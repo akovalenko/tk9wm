@@ -360,9 +360,10 @@ install — `package require tk9wm` answers out of the image.
   mnemonics and never reach the input field; it reproduces under fvwm3
   too, so the defect is wine's, and for `-class {*.exe *.exe}` a
   refusal is more honest than a half-dead window. A minimized window is
-  marked in the winlist with a suffix (the literal is `(свёрнуто)` —
-  the on-screen strings are Russian), and picking it there brings it
-  back, as does a panel button with a matching `match`.
+  shown in the winlist with its title in `[brackets]` — the way twm and
+  fvwm have marked an iconified entry since the eighties — and picking
+  it there brings it back, as does a panel button with a matching
+  `match`.
 
   **Keyboard move/resize** — a modal mode on that same key router:
   arrows (and hjkl) move the frame or change the size (a 10 px step,

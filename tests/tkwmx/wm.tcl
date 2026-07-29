@@ -5,8 +5,12 @@
 # make leaves libtkwmx.so and its pkgIndex.tcl at the root, three
 # directories up. Any Tcl/Tk 9 interpreter can host the battery —
 # it needs no window manager and no tk9wm.
-lappend ::auto_path [file dirname [file dirname [file dirname \
-    [file normalize [info script]]]]]
+# Front of auto_path, not the back: `package require` stops at the
+# first directory that supplies the package, so appending would let a
+# compiled-in shim answer instead of the one just built here.
+set ::auto_path [linsert $::auto_path 0 \
+    [file dirname [file dirname [file dirname \
+        [file normalize [info script]]]]]]
 package require Tk
 package require tkwmx
 

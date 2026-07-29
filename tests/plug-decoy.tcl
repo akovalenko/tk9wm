@@ -8,8 +8,11 @@
 # notices if that ever comes back.
 # Run on any Tcl/Tk 9: the shim comes from the checkout this file
 # lives in (./configure && make at its root), not from the host.
-lappend ::auto_path [file dirname [file dirname \
-    [file normalize [info script]]]]
+# Front of auto_path, not the back: `package require` stops at the
+# first directory that supplies the package, so appending would let a
+# compiled-in shim answer instead of the one just built here.
+set ::auto_path [linsert $::auto_path 0 \
+    [file dirname [file dirname [file normalize [info script]]]]]
 package require Tk
 package require tkwmx
 wm withdraw .

@@ -630,7 +630,7 @@ proc policy-attach {w cw ch} {
     $t.title item style set $item \
         Cmenu sMenu C0 sTitle Cmax sMax Cclose sClose
     $t.title item element configure $item C0 eTxt \
-        -text "клиент 0x[format %x $w]"
+        -text "client 0x[format %x $w]"
     $t.title item lastchild root $item
     frame $t.slot -width $cw -height $ch -background #202020
     bind $t.title <ButtonPress-1>   [list title-press   $t $w %x %y %X %Y]
@@ -926,7 +926,7 @@ proc press-end {t} {
 # A client that named nothing is shown by its id — on the titlebar and
 # in the window menu alike.
 proc title-or-id {w title} {
-    expr {$title eq "" ? "клиент 0x[format %x $w]" : $title}
+    expr {$title eq "" ? "client 0x[format %x $w]" : $title}
 }
 
 # The client named (or renamed) itself: put the title on the titlebar.
@@ -1039,10 +1039,16 @@ proc policy-deiconified {w} {
     panel-match-kick
 }
 # The window list is the way back, so an iconic window must be
-# recognizable in it — and the entry has to say so in the list's own
-# language, plain text next to the title.
-proc iconic-mark {w} {
-    expr {[info exists ::iconic($w)] ? " (свёрнуто)" : ""}
+# recognizable in it. The mark is the title in SQUARE BRACKETS — the
+# way twm and fvwm have shown an iconified entry since the eighties.
+# It was a word once ("(свёрнуто)"), which was worse twice over: the
+# only piece of prose in a list that is otherwise nothing but client
+# titles, and one that had to be translated to travel. Brackets are
+# read the same in every language, and they cost two columns instead
+# of eleven — in a list whose width is the widest title, that is the
+# difference between a mark and a shove.
+proc iconic-label {w title} {
+    expr {[info exists ::iconic($w)] ? "\[$title\]" : $title}
 }
 
 # The wink: a client is not answering its WM_DELETE_WINDOW — pulse the
@@ -1661,7 +1667,7 @@ proc winlist-open {wins anchor} {
     $T style layout sWin eTxt -expand ns -padx 4 -squeeze x
     set maxw 0
     foreach w $wins key $::winlist_keys {
-        set title [title-or-id $w [client-title $w]][iconic-mark $w]
+        set title [iconic-label $w [title-or-id $w [client-title $w]]]
         set maxw [expr {max($maxw, [font measure TitleFont $title])}]
         set item [$T item create]
         $T item style set $item Cnum sNum C0 sWin
