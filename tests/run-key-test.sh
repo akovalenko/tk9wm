@@ -159,3 +159,4 @@ if awk '/key sequence abort/ {a=1} a && /winops open/ {ok=1} END {exit !ok}' \
 else
     echo "FAIL: no winops open after the abort"
 fi
+check_invariants "$HERE/wm-key.log"

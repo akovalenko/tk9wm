@@ -85,4 +85,5 @@ if grep -q 'handler error' "$HERE/wm-menufocus.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-menufocus.log"
     FAIL=1
 fi
+check_invariants "$HERE/wm-menufocus.log"
 exit $FAIL

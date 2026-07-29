@@ -17,9 +17,9 @@
 #   A (жертва)   300x200, cascaded to +110+80 — the ordinary window
 #   B (широкое)  styled `place {100%left 30%top}` — full width, short
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:96
-rm -f /tmp/.X96-lock /tmp/.X11-unix/X96
-Xvfb :96 -screen 0 800x600x24 >/dev/null 2>&1 &
+export DISPLAY=:59
+rm -f /tmp/.X59-lock /tmp/.X11-unix/X59
+Xvfb :59 -screen 0 800x600x24 >/dev/null 2>&1 &
 XVFB=$!
 trap 'kill $XVFB 2>/dev/null' EXIT
 sleep 1
@@ -216,3 +216,4 @@ if grep -q 'compass .*: cells 8 5 2' "$HERE/wm-compass.log"; then
 else
     echo "FAIL: the short compass was not accounted for in the log"
 fi
+check_invariants "$HERE/wm-compass.log"

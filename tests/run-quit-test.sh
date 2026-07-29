@@ -142,5 +142,6 @@ if grep -q 'soft failure\|handler error' "$HERE/wm-quit.log"; then
     grep 'soft failure\|handler error' "$HERE/wm-quit.log"; BAD=1
 fi
 
+check_invariants "$HERE/wm-quit.log"
 [ $BAD -eq 0 ] && echo "OK: the desk can be left from the inside, and leaves nothing broken"
 exit $BAD

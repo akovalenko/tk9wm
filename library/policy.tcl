@@ -1808,6 +1808,87 @@ proc popups-close {{except ""}} {
             destroy $m
         }
     }
+    invariants-soon
+}
+
+# ---- the modal invariants ----
+# A window manager's modal things — the keyboard move/resize, the
+# popups, a confirmation — each own a grab, some decoration and some
+# saved state, and each of them can be interrupted by something that
+# knows nothing about it. What goes wrong is never the mode itself; it
+# is the INTERLEAVING, and there are more pairs of those than anyone
+# checks by hand (the owner's point, 2026-07-29, and he is right that
+# ad-hoc checking loses here).
+#
+# So the WM checks itself instead, and says so in the log, where every
+# regression can read it: one grep for INVARIANT turns every scenario
+# the suite already runs into an interleaving test, including the
+# scenarios nobody wrote for that purpose.
+#
+# The check is DEFERRED, because a teardown is several steps (release
+# the router, drop the decoration, unset the state) and half of one is
+# not a violation — only the state left when the event has been fully
+# handled is.
+#
+# `after 0` and not `after idle`, which was the first version and was
+# wrong in a way worth keeping written down: BUILDING a popup calls
+# update idletasks (popup-show, to settle its geometry), which drains
+# the idle queue — so the check ran in the middle of the very
+# construction it was waiting for and complained about a popup that had
+# not taken the router yet. A timer is not drained by update idletasks;
+# it fires when the WM is back at its event loop, which is the moment
+# the invariants are actually about.
+set invariants_due 0
+proc invariants-soon {} {
+    if {$::invariants_due} return
+    set ::invariants_due 1
+    after 0 invariants-check
+}
+proc invariants-check {} {
+    set ::invariants_due 0
+    foreach complaint [wm-invariants] {
+        puts "WM: INVARIANT $complaint"
+    }
+}
+# What must be true whenever nothing is mid-gesture. Returns the
+# complaints, empty when all is well.
+proc wm-invariants {} {
+    set bad {}
+    set modal [expr {$::keyrouter ne ""}]
+    # A keyboard mode and its marks are one thing, alive or dead
+    # together — and the mode is the router's holder while it lives.
+    if {[llength $::kbmr]} {
+        set w [lindex $::kbmr 1]
+        if {![info exists ::frameof($w)]} {
+            lappend bad "keyboard mode on 0x[format %x $w], which is not framed"
+        }
+        if {$::keyrouter ne "kbmr-key"} {
+            lappend bad "keyboard mode is up but the router is «$::keyrouter»"
+        }
+    } else {
+        if {[llength $::compass]} {
+            lappend bad "a compass ([llength $::compass] cells) with no keyboard mode"
+        }
+        foreach {ww tt} [array get ::frameof] {
+            if {[$tt cget -background] eq $::KBMR_BG} {
+                lappend bad "0x[format %x $ww] wears the modal amber with no mode"
+            }
+        }
+    }
+    # A popup is keyboard-modal by construction: it took the router
+    # when it opened, and closing is what gives it back.
+    foreach m {.winlist .winops .confirm} {
+        if {[winfo exists $m] && !$modal} {
+            lappend bad "$m is up with no router"
+        }
+    }
+    # ...and the grab is held for a router or for a chord in progress,
+    # never for its own sake: a keyboard nobody is listening on is a
+    # dead desk.
+    if {$::kbd_grabbed && !$modal && $::keyseq eq ""} {
+        lappend bad "the keyboard is grabbed with no router and no key sequence"
+    }
+    return $bad
 }
 # Popup navigation keys (the owner's spec): arrows always; vi (k/j)
 # and emacs (p/n) letters on a BARE press — a bare letter that is some
@@ -2266,6 +2347,7 @@ proc window-do {name {w 0}} {
         return 0
     }
     with-window $w [list [dict get $::window_commands $name] $w]
+    invariants-soon   ;# a command is the other thing that can pull a rug
     return 1
 }
 # An alias apiece, so the name IS the command. The shadow check is not
@@ -2823,7 +2905,10 @@ proc resize-keyboard {{w 0}} {
 }
 proc kbmr-enter {mode w orig} {
     set ::kbmr [list $mode $w $orig]
-    if {![grab-keys-to kbmr-key]} {
+    # Preempted — a menu opened over us with the mouse, a confirmation
+    # put up — the mode CANCELS: it never got its Enter, and a window
+    # that quietly kept an unfinished move would be the worse surprise.
+    if {![grab-keys-to kbmr-key {kbmr-end 0}]} {
         set ::kbmr {}
         puts "WM: keyboard $mode: keyboard not grabbed"
         return
@@ -2862,6 +2947,7 @@ proc kbmr-end {commit} {
     kbmr-unpaint $w
     set said [expr {$commit ? "done" : "cancelled"}]
     puts "WM: keyboard $mode 0x[format %x $w] $said"
+    invariants-soon
 }
 # Move a frame and tell its client where it now is — the keyboard
 # arrows, the compass and Escape's restore all end up here.

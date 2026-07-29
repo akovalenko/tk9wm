@@ -2614,6 +2614,7 @@ set grabbed_top {}  ;# top chords held by XGrabKey — the MappingNotify re-grab
 set keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
 set kbd_grabbed 0
 set keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
+set keyrouter_lost ""   ;# ...and this is its notice, see grab-keys-to
 set key_invoke_mods 0  ;# modifiers of the chord that fired the running action
 
 # Modifier names a chord may use. A static table: Alt is Mod1 and Super
@@ -2777,7 +2778,28 @@ proc keyseq-abort {why} {
 # to XSetInputFocus those (tkUnixFocus.c, an old olvwm-menus hack) —
 # Tk's own menus run on grabs for the same reason. An empty cmd
 # releases the keyboard and hands keypresses back to the keymap.
-proc grab-keys-to {cmd} {
+#
+# THE ROUTER IS A SINGLE SLOT, and taking it hands the previous holder
+# its notice: `onlost` is a script run when this router stops being the
+# router — whoever ends it, and INCLUDING the holder releasing it
+# itself, which is what makes the callback the one place a modal thing
+# tears itself down. (So every onlost must be idempotent; they are all
+# "end my mode", which is idempotent anyway.)
+#
+# Silently overwriting was how a keyboard resize survived the window
+# menu being opened over it with the mouse — the menu took the router,
+# the pick released it, and the mode was left standing with its amber
+# frame and its compass and nothing to answer its keys (owner's report,
+# 2026-07-29). One slot with no handover is that bug for every pair of
+# modal things, present and future; with the handover there is no pair
+# left to get wrong.
+proc grab-keys-to {cmd {onlost {}}} {
+    # The handover runs FIRST and all the way through, grab included: a
+    # teardown ends with its own grab-keys-to {}, which lets the
+    # keyboard go — done after we had taken it, that release would be
+    # the incoming holder's, and the new mode would come up with a
+    # router and no keyboard under it.
+    keyrouter-lost
     if {$cmd eq ""} {
         set ::keyrouter ""
         keyseq-end
@@ -2792,7 +2814,19 @@ proc grab-keys-to {cmd} {
     }
     set ::keyseq ""      ;# the router replaces any sequence in progress
     set ::keyrouter $cmd
+    set ::keyrouter_lost $onlost
     return 1
+}
+# The outgoing holder's notice, cleared BEFORE it runs: its own
+# teardown will call grab-keys-to again, and a notice still in the slot
+# would call it back.
+proc keyrouter-lost {} {
+    set lost $::keyrouter_lost
+    set ::keyrouter_lost ""
+    if {$lost eq ""} return
+    if {[catch {uplevel #0 $lost} err]} {
+        puts "WM: key router handover: $err"
+    }
 }
 proc route-key {kind name mods} {
     if {[catch {uplevel #0 [list {*}$::keyrouter $kind $name $mods]} err]} {

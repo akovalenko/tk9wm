@@ -36,3 +36,18 @@ WHALE_CLI="${WHALE_CLI:-$LINUX/whale-cli}"
 # Wine, for the three probes that drive a real Windows client through
 # it (the sandbox wrapper in the thoughts tree).
 WINESH="${WINESH:-$ROOT/../../../tools/sandbox/wine.sh}"
+
+# The WM checks its own modal invariants — a mode left standing with no
+# router, a compass with no mode, a frame still wearing the modal amber,
+# the keyboard grabbed for nobody — and says so in the log. That makes
+# the check FREE for every scenario the suite drives, whatever the
+# scenario was written for: one line at the end of a test turns it into
+# an interleaving test as well. Add it to yours.
+check_invariants() {
+    if grep -q 'WM: INVARIANT' "$1"; then
+        echo "FAIL: the WM broke its own modal invariants:"
+        grep 'WM: INVARIANT' "$1" | sed 's/^/    /'
+    else
+        echo "OK: no modal invariant was broken"
+    fi
+}

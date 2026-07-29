@@ -160,3 +160,4 @@ fi
 if grep -q 'handler error' "$HERE/wm-kbmove.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-kbmove.log"
 fi
+check_invariants "$HERE/wm-kbmove.log"

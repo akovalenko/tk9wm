@@ -488,6 +488,39 @@ frames a client and shows a panel has proved both libraries loaded.
   long-lived, wants to behave like a window → a thread and a real
   connection.
 
+  **One router, and taking it serves notice.** Everything
+  keyboard-modal here goes through `grab-keys-to` — the menus, the
+  confirmation, the keyboard move/resize — and it is a SINGLE SLOT.
+  Taking it now runs the previous holder's `onlost` script, whoever
+  ends it and including the holder releasing it itself, which makes
+  that callback the one place a modal thing tears itself down (so every
+  one of them is idempotent; they are all "end my mode", which is
+  idempotent anyway). Overwriting silently was how a keyboard resize
+  survived the window menu being opened over it with the mouse: the
+  menu took the router, the pick gave it back to nobody, and the mode
+  was left standing with its amber frame and its compass and nothing to
+  answer its keys (owner's report, 2026-07-29). One slot with no
+  handover is that bug for every PAIR of modal things; with the
+  handover there is no pair left to get wrong. A preempted move or
+  resize **cancels** — it never got its Enter, and a window quietly
+  keeping an unfinished move is the worse surprise.
+
+  **The WM checks its own modal invariants**, because what goes wrong
+  with modes is never the mode — it is the interleaving, and there are
+  more pairs of those than anyone checks by hand. `wm-invariants` says
+  what must be true when nothing is mid-gesture (a keyboard mode is the
+  router's holder or is not there at all; no compass without a mode; no
+  frame wearing the modal amber without one; no popup without a router;
+  the keyboard never grabbed for nobody), and a violation goes to the
+  log as `WM: INVARIANT …`. That makes the check free for every
+  scenario the suite drives, whatever it was written for —
+  `check_invariants` in `tests/common.sh` is one line at the end of a
+  test and turns it into an interleaving test as well. The check is
+  deferred by a TIMER and not to idle: building a popup calls
+  `update idletasks`, which drains the idle queue, so an idle check ran
+  inside the very construction it was waiting for and complained about
+  a popup that had not taken the router yet.
+
   **A user toggles, a program does not** — Emacs's
   `called-interactively-p`, and here for the same reason: one name
   should mean the obvious thing in both mouths, and the obvious thing
@@ -966,7 +999,13 @@ runs as a single shell call:
   same maximize-shrink-toggle scenario under both readings and by both
   resizes — mouse and keyboard, which the rule's placement in
   `resize-by-edge` is what guarantees; the second config arrives by a
-  live reload).
+  live reload), `run-modes-test.sh` (modal interleavings: a keyboard
+  resize interrupted by the window menu opened with the MOUSE and then
+  Maximize picked from it, a keyboard move interrupted by a menu that
+  is then dismissed, a keyboard move interrupted by its window dying —
+  each asserting both the behaviour and that the WM raised no
+  invariant complaint, plus that the keyboard was not left grabbed
+  after any of it).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second
