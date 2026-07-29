@@ -19,12 +19,16 @@ sleep 1
 WM=$!
 sleep 1.5
 
-# leader 300x200 (dialog 220x140 pops after 2 s and stays), then a bystander
-"$LINUX/whale" "$HERE/client-dlg.tcl" 300x200 220x140 \
+# leader 300x200 (dialog 220x140 pops after 2 s and stays), then a
+# bystander. Both live 30 s: the bury pass at the end needs every actor
+# still on the desk, and a client that quietly ran out of time turns a
+# measurement into a coincidence (this pass first "passed" against a
+# leader that had already exited).
+"$LINUX/whale" "$HERE/client-dlg.tcl" 300x200 220x140 30 \
     > "$HERE/stack-leader.log" &
 CA=$!
 sleep 0.5
-"$LINUX/whale" "$HERE/client.tcl" "сосед" 240x120 "#8ae234" \
+"$LINUX/whale" "$HERE/client.tcl" "сосед" 240x120 "#8ae234" "" "" 30 \
     > "$HERE/stack-b.log" &
 CB=$!
 sleep 2.5
@@ -50,7 +54,38 @@ click $((FX1 + 10))  $((FY1 + 215))     # A: must pull D above itself
 click $((FX3 + 110)) $((FY3 + 84))      # D: the group stays glued
 "$LINUX/whale-cli" "$HERE/probe-stack.tcl" :76 > "$HERE/stack-probe2.log"
 
-kill $WM $CA $CB 2>/dev/null
+# --- bury. A fourth window C, planted in the far corner where it
+# touches NOTHING (its own +x+y is a position claim, so the WM puts it
+# exactly there instead of cascading it into the pile). Started last so
+# the three frames the clicks above are aimed at keep their numbering.
+#
+# C is what makes the pass discriminating. Raise C, then re-raise the
+# group over it, then bury: the topmost OTHER window is now C, but the
+# window the group was actually covering is B. Focusing the topmost
+# would be the easy rule and the wrong one — a window that never shared
+# a pixel with the buried group was not underneath it.
+"$LINUX/whale" "$HERE/client.tcl" "далёкий" 200x110+560+430 "#ad7fa8" \
+    "" "" 30 > "$HERE/stack-c.log" &
+CC=$!
+sleep 1.5
+CID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-stack.log" | sed -n 4p)
+eval "$(awk '/frame \.f[0-9]+ for/ {
+    if (match($0, /\+(-?[0-9]+)\+(-?[0-9]+)$/)) {
+        n++; split(substr($0, RSTART + 1), a, "+")
+        if (n == 4) print "FX4=" a[1] "; FY4=" a[2]
+    }
+}' "$HERE/wm-stack.log")"
+echo "--- C=$CID@+$FX4+$FY4 (must touch nothing)"
+click $((FX4 + 100)) $((FY4 + 80))      # C to the top, and focused
+click $((FX3 + 110)) $((FY3 + 84))      # ...and the group back over it
+xdotool key alt+space; sleep 0.5
+xdotool key b; sleep 0.8
+"$LINUX/whale-cli" "$HERE/probe-stack.tcl" :76 > "$HERE/stack-probe3.log"
+BURIED=$(grep -c '^WM: buried' "$HERE/wm-stack.log")
+FOCUS_AFTER=$(sed -n 's/^WM: focus -> \(0x[0-9a-f]*\).*/\1/p' \
+    "$HERE/wm-stack.log" | tail -1)
+
+kill $WM $CA $CB $CC 2>/dev/null
 
 rank() { grep -nE "(^| )$2( |\$)" "$1" | head -1 | cut -d: -f1; }
 verdict() {
@@ -69,3 +104,26 @@ if grep -q 'BadAccess request=2' "$HERE/wm-stack.log"; then
 fi
 verdict "$HERE/stack-probe1.log" "click on leader"
 verdict "$HERE/stack-probe2.log" "click on dialog"
+
+echo "--- after bury: focus=$FOCUS_AFTER (B=$BID, the far C=$CID), $BURIED bury line(s)"
+RA=$(rank "$HERE/stack-probe3.log" "$AID")
+RB=$(rank "$HERE/stack-probe3.log" "$BID")
+RD=$(rank "$HERE/stack-probe3.log" "$DID")
+if [ "$BURIED" = 1 ]; then
+    echo "OK(bury): the ops menu's b reached bury-group"
+else
+    echo "FAIL(bury): $BURIED bury lines in the log, want 1"
+fi
+if [ -n "$RA" ] && [ -n "$RB" ] && [ -n "$RD" ] \
+        && [ "$RA" -lt "$RB" ] && [ "$RD" -lt "$RB" ]; then
+    echo "OK(bury): the whole group went under B (ranks A=$RA D=$RD B=$RB)"
+else
+    echo "FAIL(bury): ranks A=$RA D=$RD B=$RB, want the group below B"
+fi
+if [ "$FOCUS_AFTER" = "$BID" ]; then
+    echo "OK(bury): ...and the focus went to B — what the group COVERED, not the topmost C"
+elif [ "$FOCUS_AFTER" = "$CID" ]; then
+    echo "FAIL(bury): focus went to C, the topmost — but C was never under the group"
+else
+    echo "FAIL(bury): focus is «$FOCUS_AFTER», want B «$BID»"
+fi

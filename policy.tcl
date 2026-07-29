@@ -860,20 +860,36 @@ proc wink-frame {w n} {
 # Relative restacks never lift the leader, and when the order is
 # already right each one is a server-side no-op — so "re-raise when
 # all is well" costs nothing visible either.
-proc raise-group {w} {
-    set leader $w
+#
+# Who the group belongs to, and who is in it: the same two questions
+# every group gesture starts with, asked in one place. A window with a
+# live leader belongs to that leader's group; anything else leads its
+# own. Only members with a FRAME count — a dead transient is nobody's
+# business.
+proc group-leader {w} {
     if {[info exists ::leaderof($w)] && $::leaderof($w) != 0
             && [info exists ::frameof($::leaderof($w))]} {
-        set leader $::leaderof($w)
+        return $::leaderof($w)
     }
+    return $w
+}
+proc group-members {leader} {
+    set members {}
+    foreach {c l} [array get ::leaderof] {
+        if {$l == $leader && $c != $leader && [info exists ::frameof($c)]} {
+            lappend members $c
+        }
+    }
+    return $members
+}
+proc raise-group {w} {
+    set leader [group-leader $w]
     # top-to-bottom: the touched transient (never the leader — its
     # transients stay above it), the remaining transients, the leader
     set order {}
     if {$w != $leader} { lappend order $w }
-    foreach {c l} [array get ::leaderof] {
-        if {$l == $leader && $c != $w && [info exists ::frameof($c)]} {
-            lappend order $c
-        }
+    foreach c [group-members $leader] {
+        if {$c != $w} { lappend order $c }
     }
     lappend order $leader
     raise $::frameof([lindex $order 0])
@@ -892,18 +908,67 @@ proc raise-group {w} {
 # the group's internal order at the bottom of the stack.
 proc lower-group {w} {
     if {![info exists ::frameof($w)]} return
-    set leader $w
-    if {[info exists ::leaderof($w)] && $::leaderof($w) != 0
-            && [info exists ::frameof($::leaderof($w))]} {
-        set leader $::leaderof($w)
-    }
+    set leader [group-leader $w]
     lower $::frameof($leader)
-    foreach {c l} [array get ::leaderof] {
-        if {$l == $leader && [info exists ::frameof($c)]} {
-            raise $::frameof($c) $::frameof($leader)
-        }
+    foreach c [group-members $leader] {
+        raise $::frameof($c) $::frameof($leader)
     }
     publish-client-list   ;# the stacking order just changed (coalesced)
+}
+
+# ---- bury: lower, and hand the focus to whatever that uncovered ----
+# Lower is a PEEK. It drops the window to the floor and deliberately
+# keeps the focus on it, so a glance at what is underneath costs one
+# gesture and the way back costs one more — which is exactly right, and
+# exactly what is rarely wanted. Bury is the commoner wish and the
+# other half of the pair: get this window out of the way AND give me
+# what it was covering.
+#
+# "What it was covering" is meant literally, and is asked of the screen
+# rather than of the focus history. After the lower the candidates are
+# read TOP DOWN off the server's own stacking order, and the first one
+# whose frame actually overlaps the buried group wins: a window that
+# never shared a pixel with it was not underneath it in any sense the
+# user means, however recently it was focused. Nothing overlapping —
+# the topmost other window is the honest fallback. Nothing at all — the
+# focus stays where it is, because parking it on the holder would be a
+# worse answer than leaving it on a window that is merely at the back.
+proc bury-group {w} {
+    if {![info exists ::frameof($w)]} return
+    set leader [group-leader $w]
+    set group [linsert [group-members $leader] 0 $leader]
+    lower-group $w
+    update idletasks   ;# the restack and the geometry, both settled
+    set next [pick-uncovered $group]
+    if {$next != 0} { focus-to $next }
+    puts "WM: buried 0x[format %x $leader] -> focus\
+ [expr {$next ? "0x[format %x $next]" : {nobody else}}]"
+}
+# The group is what was buried, so the group — not just its leader — is
+# what a candidate has to have been under: a dialog can hang well
+# outside the window it belongs to.
+proc pick-uncovered {group} {
+    set best 0
+    # bottom-first from the server, so walking it backwards is top-down
+    foreach cand [lreverse [client-stacking]] {
+        if {$cand in $group || ![info exists ::frameof($cand)]
+                || [info exists ::iconic($cand)]} continue
+        if {$best == 0} { set best $cand }      ;# the fallback: topmost
+        foreach member $group {
+            if {[frames-overlap $member $cand]} { return $cand }
+        }
+    }
+    return $best
+}
+# Do two frames share a pixel? Plain rectangle intersection on settled
+# Tk geometry — the frame is what the user sees, so the frame is what
+# the question is about, borders and titlebar included.
+proc frames-overlap {a b} {
+    set fa $::frameof($a); set fb $::frameof($b)
+    set ax [winfo rootx $fa]; set ay [winfo rooty $fa]
+    set bx [winfo rootx $fb]; set by [winfo rooty $fb]
+    expr {$ax < $bx + [winfo width $fb] && $bx < $ax + [winfo width $fa]
+       && $ay < $by + [winfo height $fb] && $by < $ay + [winfo height $fa]}
 }
 
 # Click-to-focus: a click inside a client's body raises and focuses it.
@@ -1511,6 +1576,7 @@ set winops_actions {
     destroy  d {kill-client $w}
     raise    r {raise-group $w}
     lower    l {lower-group $w}
+    bury     b {bury-group $w}
     move     m {move-keyboard $w}
     resize   s {resize-keyboard $w}
     minimize i {policy-minimize-request $w}

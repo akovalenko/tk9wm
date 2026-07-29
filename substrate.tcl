@@ -101,6 +101,9 @@
 #                               down right now (XQueryKeymap)?
 #   $::key_invoke_mods          modifier mask of the chord that invoked
 #                               the currently running key action
+#   client-stacking             managed windows in the SERVER's stacking
+#                               order, bottom first — read, not
+#                               remembered (a client can restack itself)
 #   kill-client w               unconditional XKillClient (close-client
 #                               asks politely first)
 #   close-client w              WM_DELETE_WINDOW when supported, else kill
@@ -1292,9 +1295,22 @@ proc publish-client-list-now {} {
     set ::client_order $live
     soft "publish _NET_CLIENT_LIST" \
         [list set-prop-longs $::root $::NET_CLIENT_LIST 33 $live]  ;# XA_WINDOW
-    # ...and the stacking order, read off the server
+    soft "publish _NET_CLIENT_LIST_STACKING" \
+        [list set-prop-longs $::root $::NET_CLIENT_LIST_STACKING 33 \
+            [client-stacking]]
+}
+# The managed windows in the server's OWN stacking order, bottom first.
+# Read rather than remembered: the order lives in the server, and a
+# client can restack itself behind our back. The walk goes through each
+# frame's WRAPPER, because that — not the frame — is the root's child
+# and therefore the thing that is actually stacked.
+#
+# Published as _NET_CLIENT_LIST_STACKING, and the same answer a policy
+# needs whenever it has to reason about what is on top of what (the ops
+# menu's bury does).
+proc client-stacking {} {
     set byroot {}
-    foreach w $live {
+    foreach w $::client_order {
         if {[info exists ::wrapof($w)]} { dict set byroot $::wrapof($w) $w }
     }
     set stack {}
@@ -1302,8 +1318,7 @@ proc publish-client-list-now {} {
     foreach id [lindex $tree 2] {
         if {[dict exists $byroot $id]} { lappend stack [dict get $byroot $id] }
     }
-    soft "publish _NET_CLIENT_LIST_STACKING" \
-        [list set-prop-longs $::root $::NET_CLIENT_LIST_STACKING 33 $stack]
+    return $stack
 }
 
 # _NET_WORKAREA — the screen minus whatever the policy reserves (our
