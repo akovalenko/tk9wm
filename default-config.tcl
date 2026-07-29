@@ -41,6 +41,23 @@
 # windows beats handing back a half-dead one:
 #   wm-style {filter -class {*.exe *.exe}} {minimize refuse}
 #
+# The mouse gesture that carries a window from ANYWHERE on it: hold
+# the modifier, press, move. Button 1 carries, button 3 resizes from
+# the nearest corner — and for a window styled `decor none` (below)
+# that gesture is the only mouse handle there is. <Super> by default,
+# because <Alt> is spoken for inside too many applications; any
+# modifier combination the key binder understands works.
+#   set-drag-modifier {<Alt>}
+#   set-drag-modifier {<Ctrl><Alt>}
+#
+# The cursor over the desk itself. An X server leaves the root window
+# wearing the ancient X_cursor until somebody sets it, and that
+# somebody is conventionally the WM — so we do, and xsetroot is one
+# fewer line in your session script. Any Tk cursor name; the empty
+# string means hands off, keep whatever is there.
+#   set-root-cursor left_ptr        ;# the default
+#   set-root-cursor {}
+#
 # ---- per-client style rules ----
 #
 # wm-style PREDICATE SETTINGS appends a rule. The predicate is any

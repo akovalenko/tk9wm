@@ -692,6 +692,15 @@ proc policy-detach {w} {
         grab-keys-to {}
         puts "WM: keyboard mode dropped — 0x[format %x $w] is gone"
     }
+    # ...and the same for a mouse gesture in flight, for a sharper
+    # reason: the pointer is GRABBED for its duration, and a grab left
+    # standing over a dead window is a dead mouse for the whole desk.
+    if {[info exists ::mdrag] && [lindex $::mdrag 2] == $w} {
+        unset ::mdrag
+        rz-end
+        soft "release the pointer" { grab-pointer-to {} }
+        puts "WM: mouse gesture dropped — 0x[format %x $w] is gone"
+    }
     unset -nocomplain ::btn($::frameof($w)) ::fullframe($::frameof($w)) \
         ::chromeof($::frameof($w))
     destroy $::frameof($w)
@@ -845,13 +854,15 @@ proc rz-edge {t x y} {
     }
     return ""
 }
+# Which cursor an edge wears — the hover over a border grip and the
+# modifier-resize gesture show the same one, so the table is one table.
+array set rzcursor {e right_side w left_side s bottom_side n top_side
+    se bottom_right_corner sw bottom_left_corner
+    ne top_right_corner nw top_left_corner}
 proc rz-hover {t X Y} {
-    array set cur {e right_side w left_side s bottom_side n top_side
-        se bottom_right_corner sw bottom_left_corner
-        ne top_right_corner nw top_left_corner}
     set e [rz-edge $t [expr {$X - [winfo rootx $t]}] \
                       [expr {$Y - [winfo rooty $t]}]]
-    $t configure -cursor [expr {$e eq "" ? "" : $cur($e)}]
+    $t configure -cursor [expr {$e eq "" ? "" : $::rzcursor($e)}]
 }
 proc rz-leave {t} {
     if {![info exists ::rz]} { $t configure -cursor "" }
@@ -908,6 +919,7 @@ proc rz-end {} { unset -nocomplain ::rz }
 proc press-end {t} {
     rz-end
     unset -nocomplain ::drag($t)
+    $t.title configure -cursor ""   ;# the carry cursor ends with the carry
     soft "re-hover after a press" { rz-hover $t {*}[winfo pointerxy $t] }
 }
 
@@ -2909,7 +2921,7 @@ policy-default-bindings
 set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize panel_buttons panel_side panel_preset
-    panel_icon_size panel_live_bar panel_live_face
+    panel_icon_size panel_live_bar panel_live_face drag_mods root_cursor
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb
 }
 proc policy-snapshot-defaults {} {
@@ -2944,6 +2956,7 @@ proc policy-apply {} {
     panel-build         ;# no buttons declared -> the strip goes away
     tray-reconcile      ;# start, stop or leave the tray exactly alone
     retitle-frames      ;# live frames follow the metrics and the font
+    root-cursor-apply   ;# ...and the desk stops wearing the server's X
     publish-workarea
     panel-match-kick
     puts "WM: config applied ([llength $::panel_buttons] panel buttons,\
@@ -2951,11 +2964,15 @@ proc policy-apply {} {
 }
 
 # Move policy is plain Tk: drag the title bar, the client rides along.
-# A title click also raises and focuses.
+# A title click also raises and focuses. The cursor says the window is
+# being carried: it goes on the TITLE widget, since that is where Tk's
+# implicit grab sits for the length of the drag, and comes off at the
+# release (press-end).
 proc drag-start {t w X Y} {
     popups-close
     raise-group $w
     focus-to $w
+    $t.title configure -cursor fleur
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> wx wy
     set ::drag($t) [list $X $Y $wx $wy]
 }
@@ -2966,4 +2983,105 @@ proc drag-move {t w X Y} {
     lassign $::drag($t) x0 y0 wx wy
     wm geometry $t +[expr {$wx + $X - $x0}]+[expr {$wy + $Y - $y0}]
     send-synthetic-configure $w
+}
+
+# ---- carrying a window by a modifier, from anywhere on it ----
+# The gesture every desk has and this one did not: hold a modifier,
+# press on the window itself, move. It is what makes a window with no
+# titlebar and no border usable at all (`decor none` leaves nothing to
+# grab), and it is quicker than aiming at a strip even when there is
+# one.
+#
+# The combination is the config's to choose — the owner's call, and
+# <Super> is the default because <Alt> is spoken for inside so many
+# applications. Button 1 carries the window, button 3 resizes it from
+# the nearest corner, which is the second half of what a bare frame
+# cannot otherwise do.
+#
+# Detection costs nothing: the click-to-focus grab already takes every
+# button with AnyModifier, so the press arrives here anyway. What it
+# takes to CARRY is the substrate's pointer router — the motion and
+# the release after such a press are reported to nobody otherwise, and
+# the grab is also where a cursor over a foreign window can come from.
+set drag_mods 64                ;# <Super>
+proc set-drag-modifier {spec} {
+    set ::drag_mods [parse-mods $spec]
+}
+
+# ---- the cursor over the desk itself ----
+# An X server hands the root window the ancient X_cursor — the big
+# black X nobody has wanted since the 1980s — and leaves it there until
+# somebody says otherwise. That somebody is conventionally the window
+# manager, and every desk that looks normal has one doing it (the
+# owner's had been running xsetroot by hand for it, 2026-07-29). So we
+# do: left_ptr by default, any Tk cursor name from the config, and the
+# empty string to keep hands off and leave whatever is there.
+set root_cursor left_ptr
+proc set-root-cursor {name} {
+    set ::root_cursor $name
+    root-cursor-apply
+}
+proc root-cursor-apply {} {
+    if {$::root_cursor eq ""} return
+    soft "root cursor «$::root_cursor»" \
+        { x-attrs $::root [list cursor $::root_cursor] }
+}
+
+# The substrate's first-refusal hook on a press inside a client: 1 =
+# taken (the click never reaches the client), 0 = not ours. The
+# modifier state must match EXACTLY, not merely contain the drag
+# combination — otherwise every future gesture built on the same
+# modifier plus one more would be swallowed here.
+proc policy-client-press {w state button X Y} {
+    if {$state != $::drag_mods || $button ni {1 3}} { return 0 }
+    if {![info exists ::frameof($w)]} { return 0 }
+    set t $::frameof($w)
+    popups-close
+    raise-group $w
+    focus-to $w
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
+    if {$button == 1} {
+        set ::mdrag [list move $t $w $X $Y $fx $fy]
+        set cursor fleur
+    } else {
+        # Which corner the press is nearer decides which corner the
+        # drag pulls — the same eight-way machinery the border grips
+        # feed, entered by hand because the pointer is nowhere near a
+        # border, and wearing the same corner cursor rz-hover shows.
+        set e [nearest-corner $t $X $Y]
+        set ::rz [list $e $X $Y \
+            [winfo width $t.slot] [winfo height $t.slot] $fx $fy]
+        set ::mdrag [list resize $t $w]
+        set cursor $::rzcursor($e)
+    }
+    if {![grab-pointer-to mouse-gesture $cursor]} {
+        unset -nocomplain ::mdrag ::rz
+        return 0
+    }
+    puts "WM: gesture [lindex $::mdrag 0] on 0x[format %x $w]"
+    return 1
+}
+proc nearest-corner {t X Y} {
+    set cx [expr {[winfo rootx $t] + [winfo width $t] / 2}]
+    set cy [expr {[winfo rooty $t] + [winfo height $t] / 2}]
+    string cat [expr {$Y < $cy ? "n" : "s"}] [expr {$X < $cx ? "w" : "e"}]
+}
+# The router the substrate calls for every motion and the release.
+proc mouse-gesture {kind X Y} {
+    if {![info exists ::mdrag]} { grab-pointer-to {}; return }
+    lassign $::mdrag mode t w x0 y0 fx fy
+    if {$kind eq "release"} {
+        unset -nocomplain ::mdrag
+        rz-end
+        grab-pointer-to {}
+        update idletasks
+        send-synthetic-configure $w
+        return
+    }
+    if {$mode eq "move"} {
+        wm geometry $t +[expr {$fx + $X - $x0}]+[expr {$fy + $Y - $y0}]
+        send-synthetic-configure $w
+    } else {
+        rz-move $t $w $X $Y
+    }
 }

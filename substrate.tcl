@@ -40,6 +40,11 @@
 #   policy-paint-focus w    repaint the focus highlight (w is focused)
 #   policy-title w title    put the client's (new) title on the frame;
 #                           empty string = the client named nothing
+#   policy-client-press w state button x y
+#                           first refusal on a press inside managed w
+#                           (root coords, lock bits stripped from state):
+#                           1 = the WM took the gesture and the client
+#                           must NOT see the click, 0 = not ours
 #   policy-client-click w   a click landed inside managed client w
 #   policy-managed w        w was just managed (initial-focus decision)
 #   policy-pick-refocus w   choose a window to refocus after w's unmanage;
@@ -274,6 +279,15 @@ proc x-ungrab-key {keycode mods w} { tkwmx::grab ungrab-key $keycode $mods $w }
 # 1 = the server gave the keyboard, 0 = someone else holds it
 proc x-grab-keyboard {w {time 0}}  { tkwmx::grab keyboard $w $time }
 proc x-ungrab-keyboard {{time 0}}  { tkwmx::grab ungrab-keyboard $time }
+# The cursor is the GRAB's, and that is the whole reason it is here: a
+# drag over somebody else's window can show a drag cursor no other way
+# (a client's own cursor is not ours to set, and un-setting it would
+# not put back what was there). Named the way Tk names cursors; empty
+# leaves the cursor alone.
+proc x-grab-pointer {w masks {time 0} {cursor ""}} {
+    tkwmx::grab pointer $w $masks $time $cursor
+}
+proc x-ungrab-pointer {{time 0}}   { tkwmx::grab ungrab-pointer $time }
 proc x-grab-button {button mods w masks} {
     tkwmx::grab button $button $mods $w $masks
 }
@@ -923,12 +937,36 @@ proc dispatch-event {ev} {
             # exist. Everything else got here through our grab.
             if {[our-window $win]} return
             set ::evtime [dict get $ev time]
+            # The policy gets first refusal, because a press with the
+            # drag modifier down is the WM's gesture and not the
+            # client's. Taking it changes the answer to the grab: a
+            # REPLAYED press would be delivered to the client after
+            # all, and the window would move with a text selection
+            # dragging along inside it.
+            set taken 0
             soft "click on a client" {
-                if {[info exists ::managed($win)]} { policy-client-click $win }
+                if {[info exists ::managed($win)]} {
+                    set taken [policy-client-press $win \
+                        [expr {[dict get $ev state] & ~(2 | 16)}] \
+                        [dict get $ev button] \
+                        [dict get $ev x-root] [dict get $ev y-root]]
+                    if {!$taken} { policy-client-click $win }
+                }
             }
             # NEVER skip this: a sync grab left unanswered freezes the pointer
-            x-allow-events replay-pointer $::evtime
+            x-allow-events [expr {$taken ? "async-pointer" : "replay-pointer"}] \
+                $::evtime
             x-sync 0
+        }
+        motion-notify { # only ever ours: nothing selects for motion, so
+            # these arrive under the gesture grab and nowhere else
+            if {$::pointerrouter eq ""} return
+            route-pointer motion [dict get $ev x-root] [dict get $ev y-root]
+        }
+        button-release {
+            if {$::pointerrouter eq ""} return
+            set ::evtime [dict get $ev time]
+            route-pointer release [dict get $ev x-root] [dict get $ev y-root]
         }
     }
 }
@@ -2391,6 +2429,23 @@ proc parse-chord {tok} {
     list $mods $ks
 }
 
+# The modifier half of a chord, alone: <Super>, <Ctrl><Alt>. A mouse
+# gesture is held down rather than struck, so it names modifiers and no
+# key — same vocabulary, same spelling, one parser's worth of rules.
+proc parse-mods {spec} {
+    set mods 0
+    set tok $spec
+    while {[regexp {^<([^>]+)>(.*)$} $tok -> m rest]} {
+        if {![info exists ::modmaskof($m)]} { error "unknown modifier <$m>" }
+        set mods [expr {$mods | $::modmaskof($m)}]
+        set tok $rest
+    }
+    if {$tok ne "" || $mods == 0} {
+        error "«$spec» is not a modifier combination"
+    }
+    return $mods
+}
+
 proc keysym-name {ks} {
     set name [soft "keysym name" { x-keysym-name $ks }]
     if {$name ne ""} { return $name }
@@ -2518,6 +2573,36 @@ proc grab-keys-to {cmd} {
 proc route-key {kind name mods} {
     if {[catch {uplevel #0 [list {*}$::keyrouter $kind $name $mods]} err]} {
         puts "WM: key router error: $err"
+    }
+}
+
+# Pointer-modal gesture — grab-keys-to's mouse twin: hold the POINTER
+# and route every motion and the release to cmd, called with `motion X
+# Y` / `release X Y` in ROOT coordinates. It exists for gestures on
+# windows that are not ours: a modifier-drag lands on a CLIENT, where
+# no Tk binding can fire and the click-to-focus grab reports the press
+# and nothing after it. The grab carries the cursor, too, which is the
+# only way to show a drag cursor over a foreign window. An empty cmd
+# ends the gesture and lets the pointer go.
+set pointerrouter ""
+proc grab-pointer-to {cmd {cursor ""}} {
+    if {$cmd eq ""} {
+        set ::pointerrouter ""
+        x-ungrab-pointer $::evtime
+        return 1
+    }
+    if {![x-grab-pointer $::root {button-release pointer-motion} \
+              $::evtime $cursor]} {
+        puts "WM: grab-pointer-to: the pointer grab was refused"
+        return 0
+    }
+    set ::pointerrouter $cmd
+    return 1
+}
+proc route-pointer {kind X Y} {
+    if {[catch {uplevel #0 [list {*}$::pointerrouter $kind $X $Y]} err]} {
+        puts "WM: pointer router error: $err"
+        soft "drop a broken gesture" { grab-pointer-to {} }
     }
 }
 
