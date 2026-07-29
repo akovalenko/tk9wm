@@ -2184,7 +2184,30 @@ set tray_strip_argb 0    ;# ...and what the LIVE strip was built with
 set tray_laid_size 0     ;# the cell size the live cells were laid out at
 proc set-tray {on} {
     set ::tray_on [expr {$on ? 1 : 0}]
-    tray-reconcile
+    tray-reconcile-soon
+}
+# One reconcile per config's worth of knob twiddles — the same shape as
+# panel-rebuild-soon, and for a sharper reason than saving work.
+#
+# A reload puts every wish back to the code's default and then lets the
+# config speak, so WHILE THE CONFIG IS SPEAKING the wish set is
+# half-built, and neither half is the truth yet. At `set-tray-argb on`
+# the tray is not asked for at all (::tray_on is still the reset 0); at
+# `set-tray on` the ARGB wish may still be the reset 0 under a strip
+# that is 32-bit. Reconciling at either of those moments reads the
+# half-built wish as a real one — and both readings say "tear the strip
+# down", one as "no tray wanted", the other as "the visual moved".
+# Which is somebody else's window un-embedded: the Tk client re-docks
+# with a NEW window, the GTK one dies outright (measured,
+# run-trayargb-test.sh) and so does nm-applet (owner's report,
+# 2026-07-29). Deferred to the idle AFTER the config has finished, the
+# knobs are seen together, the live-and-still-wanted case does nothing,
+# and the order the config writes them in stops mattering for real.
+proc tray-reconcile-soon {} {
+    if {![info exists ::tray_pending]} {
+        set ::tray_pending 1
+        after idle {unset ::tray_pending; tray-reconcile}
+    }
 }
 # The wish (::tray_on, ::tray_argb) and the LIVE state (a claimed
 # selection, a built strip) are two different things, and this is the
@@ -2265,7 +2288,7 @@ proc set-tray-argb {on} {
         return
     }
     set ::tray_argb $want
-    tray-reconcile   ;# a live strip is rebuilt only if the visual moved
+    tray-reconcile-soon   ;# a live strip is rebuilt only if the visual moved
 }
 # "truecolor 32" as [winfo visualsavailable] spells it, or "" when the
 # screen has none (a plain 24-bit server: then there is no ARGB to be

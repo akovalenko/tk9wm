@@ -70,6 +70,40 @@ CORNER2=$(px $((SX + 41)) $((SY + 5)))
 MIDDLE2=$(px $((SX + 55)) $((SY + 19)))
 DEPTHS=$(grep -c 'depth 32' "$HERE/wm-trayargb.log")
 
+# --- the reload pass, on a LIVE strip with icons in it
+#
+# A reload resets every wish to the code's default and lets the config
+# speak again, and the tray is supposed to notice that it was already
+# live and still wanted and do NOTHING. With ARGB in the config that
+# was not what happened: the config's two tray knobs each reconciled
+# on the spot, while the wish set was still half-reset, so one of them
+# always read a half-built wish as a real one and tore the strip down.
+# Un-embedding is what an icon does not survive — GTK answers it by
+# destroying its icon window and making a new one, and nm-applet takes
+# an X error and dies (owner's report, 2026-07-29).
+#
+# The measure is the log: no stop, no second dock line, the same icon
+# windows in the same cells. And the pixels again afterwards, because
+# a strip that came back NON-ARGB would look wrong while the count of
+# dock lines stayed innocent.
+DOCKED_BEFORE=$(grep -c '^WM: tray: docked ' "$HERE/wm-trayargb.log")
+CELLS_BEFORE=$(sed -n 's/^WM: tray: docked \(0x[0-9a-f]*\) in slot \(0x[0-9a-f]*\).*/\1 \2/p' \
+    "$HERE/wm-trayargb.log")
+"$LINUX/whale-cli" "$HERE/send-reload.tcl" :94
+sleep 2.5
+DOCKED_AFTER=$(grep -c '^WM: tray: docked ' "$HERE/wm-trayargb.log")
+STOPS=$(grep -c '^WM: tray: stopping' "$HERE/wm-trayargb.log")
+kill -0 $CB 2>/dev/null && GTK_ALIVE=1 || GTK_ALIVE=0
+import -display :94 -window root "$HERE/trayargb-reload.png" 2>/dev/null \
+    && echo "DRIVER: screenshot -> $HERE/trayargb-reload.png"
+RSTRIP=$(sed -n 's/^WM: tray strip \([0-9]*\)x\([0-9]*\)+\([0-9]*\)+\([0-9]*\).*(2 icons)/\1 \2 \3 \4/p' \
+    "$HERE/wm-trayargb.log" | tail -1)
+set -- $RSTRIP
+RSX=$3; RSY=$4
+rpx() { convert "$HERE/trayargb-reload.png" -format "%[pixel:p{$1,$2}]" info:; }
+RCORNER=$(rpx $((RSX + 5)) $((RSY + 5)))
+RMIDDLE=$(rpx $((RSX + 19)) $((RSY + 19)))
+
 kill $CA $CB 2>/dev/null
 sleep 0.5
 kill $WM 2>/dev/null
@@ -112,6 +146,35 @@ esac
 case "$MIDDLE2" in
     *"114,159,207"*) echo "OK: gtk — the icon itself is drawn" ;;
     *) echo "FAIL: gtk — the icon's middle is $MIDDLE2, want #729fcf" ;;
+esac
+echo "--- reload: stops=$STOPS dock lines $DOCKED_BEFORE -> $DOCKED_AFTER,\
+ gtk client alive=$GTK_ALIVE"
+echo "$CELLS_BEFORE" | sed 's/^/---   before: /'
+sed -n 's/^WM: tray: docked \(0x[0-9a-f]*\) in slot \(0x[0-9a-f]*\).*/---   after : \1 \2/p' \
+    "$HERE/wm-trayargb.log" | tail -2
+if [ "$STOPS" = 0 ]; then
+    echo "OK: the reload left the live strip standing"
+else
+    echo "FAIL: the reload stopped the tray $STOPS time(s) — every icon was un-embedded"
+fi
+if [ "$DOCKED_AFTER" = "$DOCKED_BEFORE" ]; then
+    echo "OK: ...and nothing re-docked: the icons never noticed"
+else
+    echo "FAIL: $((DOCKED_AFTER - DOCKED_BEFORE)) icon(s) re-docked across the reload"
+fi
+if [ "$GTK_ALIVE" = 1 ]; then
+    echo "OK: ...and the GTK client is still alive"
+else
+    echo "FAIL: the GTK client died on the reload"
+fi
+case "$RCORNER" in
+    *"46,52,54"*) echo "OK: after the reload the strip is still ARGB over its backdrop" ;;
+    *"255,0,255"*) echo "FAIL: after the reload the corner is the WALLPAPER — the backdrop is gone" ;;
+    *) echo "FAIL: after the reload the corner is $RCORNER, want the tray's color" ;;
+esac
+case "$RMIDDLE" in
+    *"138,226,52"*) echo "OK: ...and the first icon is still drawn" ;;
+    *) echo "FAIL: after the reload the first icon's middle is $RMIDDLE, want #8ae234" ;;
 esac
 if grep -q 'handler error' "$HERE/wm-trayargb.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-trayargb.log"
