@@ -554,7 +554,15 @@ frames a client and shows a panel has proved both libraries loaded.
   The digits scale to the box they are drawn on (a cell is at most a
   quarter of its short side), and the resize handles are anchored to the
   **client area** rather than the frame, which keeps them off the
-  titlebar the mode is using for its readout. The numpad works whatever
+  titlebar the mode is using for its readout. They are placed **once**
+  and stay there: handles that followed the frame read as digits coming
+  unstuck and wandering, since only some of them move on any given step
+  — a west drag pins the east cells and walks the west ones (owner's
+  report, 2026-07-29). A compass that stands still is the better object
+  anyway: it is a keymap, saying which key is which handle, not a
+  decoration of the edges — the frame's own grips are that. The cells
+  are clamped to the screen, so a window hanging off an edge still shows
+  its digits somewhere readable. The numpad works whatever
   NumLock is doing (the key router reads keysym level 0, where the
   numpad carries `KP_Home`/`KP_Up`/… — the digits of the top row work
   too). The compass stands for exactly as long as its digits are live,
@@ -939,8 +947,10 @@ runs as a single shell call:
   taking the nw corner so that dragging it right and down shrinks the
   window while its far corner stays put, 8 taking the north edge which
   ignores a horizontal arrow, the Esc that puts back the position a
-  west/north handle moved, and the middle of the window sampled to show
-  that 5 is no handle).
+  west/north handle moved, a pixel inside the east cell sampled before
+  and after the east edge is pulled away from under it to show that the
+  digits stay put, and the middle of the window sampled to show that 5
+  is no handle).
 - `run-iconify-test.sh` (iconification: the client's request is
   honored for real — Iconic plus unmapped plus `_NET_WM_STATE_HIDDEN`,
   and the winlist brings the window back mapped and focused; a second

@@ -2669,16 +2669,32 @@ proc compass-show {rect cells {active {}}} {
     compass-place $rect
     update idletasks
 }
-# Where the cells sit, called again whenever the box moves under them:
-# a resize compass is drawn on the frame, and the frame is the thing
-# being resized, so its handles have to keep up with their own corners.
+# Where the cells sit — once, at the box they were asked about, and
+# there they stay for the rest of the mode.
+#
+# The resize compass used to follow the frame, on the reasoning that a
+# handle should stay on its own corner. In use that reads as the digits
+# coming unstuck and wandering: only SOME of them move on any given
+# step (a west drag pins the east cells and walks the west ones), which
+# looks like nothing at all from the outside (owner's report,
+# 2026-07-29, not reproducible on demand). A compass that stands still
+# is the better object anyway: it is a KEYMAP, drawn once to say which
+# key is which handle, not a decoration of the edges — the frame's own
+# grips are that.
+#
+# Clamped to the screen, because the box need not be on it: a window
+# dragged half off the right edge would otherwise put its east handles
+# where nobody can read them.
 proc compass-place {rect} {
     lassign $rect rx ry rw rh
+    lassign [screen-size] sw sh
     set s $::compass_s
     foreach cell $::compass {
         lassign $::compass_cells($cell) halign valign
         set X [place-axis $rx $rw $s $halign]
         set Y [place-axis $ry $rh $s $valign]
+        set X [expr {max(0, min($X, $sw - $s))}]
+        set Y [expr {max(0, min($Y, $sh - $s))}]
         wm geometry .compass$cell ${s}x${s}+$X+$Y
         raise .compass$cell
     }
@@ -2913,11 +2929,7 @@ proc kbmr-key {kind name mods} {
         if {$e in {n ne nw}} { incr ch [expr {-$dy*$ystep}] }
         regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
         resize-by-edge $w $e $cw $ch $cw0 $ch0 $fx $fy
-        # the handles are drawn on the window, and the window is the
-        # thing that just changed — they have to keep up with their own
-        # corners
-        update idletasks
-        compass-place [client-rect $w]
+        # ...and the compass stays where it was put — see compass-place
     }
     kbmr-readout
 }

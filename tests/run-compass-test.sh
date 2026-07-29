@@ -72,6 +72,13 @@ client_center() {   # in root coordinates
     ch=$(xwininfo -id "$VID" | awk '/Height:/ {print $2; exit}')
     echo "$((cx + cw / 2)) $((cy + ch / 2))"
 }
+client_east_mid() { # 4 px inside the east edge, half way down
+    cx=$(xwininfo -id "$VID" | awk '/Absolute upper-left X/ {print $NF}')
+    cy=$(xwininfo -id "$VID" | awk '/Absolute upper-left Y/ {print $NF}')
+    cw=$(xwininfo -id "$VID" | awk '/Width:/ {print $2; exit}')
+    ch=$(xwininfo -id "$VID" | awk '/Height:/ {print $2; exit}')
+    echo "$((cx + cw - 4)) $((cy + ch / 2))"
+}
 
 key alt+space; key m          # keyboard MOVE on A
 import -window root "$HERE/compass-mode.png" 2>/dev/null \
@@ -93,6 +100,14 @@ G0=$(frame_at); S0=$(client_size)
 set -- $(client_center); CPIX=$(pixel "$1" "$2")   # cell 5 is not a handle
 import -window root "$HERE/compass-handles.png" 2>/dev/null \
     && echo "DRIVER: screenshot (the handles) -> $HERE/compass-handles.png"
+# A point inside cell 6, where the east edge is NOW. The compass is a
+# keymap and not a decoration of the edges: pull the east edge in and
+# the digits must stay where they were drawn.
+set -- $(client_east_mid); EX=$1; EY=$2
+E0=$(pixel "$EX" "$EY")
+key Left; key Left; key Left; key Left      # se handle: the east edge in 40
+E1=$(pixel "$EX" "$EY")
+key Right; key Right; key Right; key Right  # ...and back to 300x200
 key KP_Home                       # numpad 7 — drag by the nw corner now
 key Right; key Right; key Down    # ...which SHRINKS, and the frame follows
 G1=$(frame_at); S1=$(client_size)
@@ -163,6 +178,12 @@ expect "8 took the north edge, which has no horizontal freedom" \
 expect "...so a horizontal arrow moved nothing" "+$((X0 + 20))+$Y0" "$G2"
 expect "Escape put the size back" "$S0" "$S3"
 expect "...and the position a west/north handle had moved" "$G0" "$G3"
+if [ "$E0" = "$AMBER" ] && [ "$E1" = "$AMBER" ]; then
+    echo "OK: the digits stayed put while the edge they marked moved off"
+else
+    echo "FAIL: cell 6 followed the east edge (before=$E0 after=$E1,\
+ wanted $AMBER both times)"
+fi
 if [ "$CPIX" != "$AMBER" ] && [ "$CPIX" != "srgb(224,169,74)" ]; then
     echo "OK: 5 names no edge, so it is no handle and is not drawn ($CPIX)"
 else
