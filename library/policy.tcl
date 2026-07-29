@@ -1496,19 +1496,32 @@ proc popup-show {m W H X Y} {
 # client's window gets reparented into, and here it is simply where our
 # own widgets go. Returns that frame; pack into it.
 #
-# Keyboard comes from grab-keys-to, the same router the menus use — and
-# that is the known limit of this, not a finished story. A grab is the
-# right answer for something modal (a menu, the Quit confirmation:
-# answer it or dismiss it, nothing else happens meanwhile). It is the
-# wrong answer for a window that should sit on the desk while you work
-# — a settings panel, a monitor — because such a window wants ORDINARY
-# focus: click to take it, alt-tab to reach it, give it up when
-# something else is picked. An override-redirect window is invisible to
-# all of that, so the WM will have to imitate normal focus for its own
-# windows rather than borrow the modal grab (owner, 2026-07-29). The
-# same goes for resize by the border and maximize: rz-* and the
-# maximize pair are still written around a client id, and each wants
-# the same "no client behind this frame" treatment the drag just got.
+# Keyboard comes from grab-keys-to, the same router the menus use, and
+# that fixes what this is FOR. A grab is the right answer for something
+# modal — a menu, the Quit confirmation: answer it or dismiss it, and
+# nothing else happens meanwhile. It is the wrong answer for a window
+# meant to sit on the desk while you work, because such a window wants
+# ORDINARY focus: click to take it, alt-tab to reach it, give it up
+# when something else is picked. An override-redirect window is
+# invisible to all of that.
+#
+# The way out is not to imitate any of it here. A GUI that wants to be
+# a window on equal terms should be a CLIENT, and the window manager
+# can host one without leaving the process: a Tcl thread with its own
+# Tk opens its own X connection, which makes it a different client to
+# the server — so the redirect catches its windows and we frame them
+# like anybody else's, focus, alt-tab, minimize and all (owner's idea,
+# 2026-07-29; measured in tools/probe-threadgui.tcl, which comes up
+# decorated). It buys something else too: a form that blocks can no
+# longer freeze the desk, since the WM's event loop is not the one
+# running it.
+#
+# So the line is: modal and short-lived, and it must NOT be a client —
+# wm-window. Complex, long-lived, wants to behave like a window — a
+# thread and a real connection. Which also settles the two gaps here:
+# rz-* (resize by the border) and the maximize pair are still written
+# around a client id, and nothing that would want them belongs on this
+# side of the line.
 proc wm-window {t title cw ch closescript} {
     lassign [list $::border $::decotop $::titleh] B top titleh
     toplevel $t -background #3465a4

@@ -429,6 +429,21 @@ install — `package require tk9wm` answers out of the image.
   reparented into, and here it is simply where our widgets go.
   Keyboard comes from `grab-keys-to`, the router the menus use.
 
+  That router is also what fixes the scope. A grab suits something
+  **modal** — answer it or dismiss it, nothing else meanwhile — and
+  suits nothing else, because a window meant to sit on the desk while
+  you work wants ordinary focus, which an override-redirect window
+  cannot have. The answer there is not to imitate focus but to stop
+  being a WM window: a Tcl **thread with its own Tk** opens its own X
+  connection, which makes it a different client to the server, so the
+  redirect catches its windows and they are framed like anybody
+  else's — focus, alt-tab, minimize and all (`tools/probe-threadgui.tcl`
+  comes up fully decorated). It also means a form that blocks cannot
+  freeze the desk, the WM's event loop not being the one running it.
+  So: modal, short-lived, must not be a client → `wm-window`; complex,
+  long-lived, wants to behave like a window → a thread and a real
+  connection.
+
   **A user toggles, a program does not** — Emacs's
   `called-interactively-p`, and here for the same reason: one name
   should mean the obvious thing in both mouths, and the obvious thing
