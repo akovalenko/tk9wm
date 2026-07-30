@@ -4428,6 +4428,16 @@ proc panel-build {name idx} {
     # button can never end up hidden under an icon.
     set band [strip-band $name]
     if {$band eq ""} { set band [list 0 0 {*}[screen-size]] }
+    # THE WINDOW COVERS ITS PASSENGERS. A widget riding this panel is a
+    # child of this window, so the window has to be as deep as the band
+    # it made deeper — otherwise the strip grows, the window does not,
+    # and the difference is a stripe of nothing along the top with the
+    # widget hanging out of the bottom (the owner, 2026-07-30). The
+    # tray needs none of this: it is a toplevel of its own.
+    set own $thick
+    if {[llength [info commands widgets-thickness]]} {
+        set thick [expr {max($thick, [widgets-thickness $name])}]
+    }
     lassign [band-strip $band $side $thick] X Y W H
     set geo ${W}x${H}+${X}+${Y}
     set tray [expr {[tray-panel] eq $name ? [tray-extent] : 0}]
@@ -4436,12 +4446,15 @@ proc panel-build {name idx} {
     # place itself on top of one of these.
     set wg 0
     if {[llength [info commands widgets-extent]]} { set wg [widgets-extent $name] }
+    # The button row keeps ITS OWN depth and sits in the middle of a
+    # strip that a widget made deeper: stretched to the full depth it
+    # would be a row of buttons with a field of empty face under each.
     if {$vert} {
-        place $T -x 1 -y 1 -width [expr {$W - 2}] \
+        place $T -x [expr {1 + ($W - $own) / 2}] -y 1 -width [expr {$own - 2}] \
             -height [expr {$H - 2 - $tray - $wg}]
     } else {
-        place $T -x 1 -y 1 -width [expr {$W - 2 - $tray - $wg}] \
-            -height [expr {$H - 2}]
+        place $T -x 1 -y [expr {1 + ($H - $own) / 2}] \
+            -width [expr {$W - 2 - $tray - $wg}] -height [expr {$own - 2}]
     }
     wm geometry $P $geo
     raise $P

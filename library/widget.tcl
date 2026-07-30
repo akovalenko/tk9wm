@@ -254,7 +254,10 @@ proc widget-content {c name opts} {
 # (xsetroot, feh, another desktop manager), and then the desk-layer
 # widgets fall back to a toplevel apiece.
 keep desk_window 1
-keep desk_background #2e3436
+# Deliberately NOT the panel's colour: the desk is the surface and the
+# furniture sits on it, so it reads deeper (the owner asked for the two
+# to differ, 2026-07-30). Any colour, and set-desk-background takes it.
+keep desk_background #14181b
 proc set-desk-window {on} {
     if {![string is boolean -strict $on]} {
         error "set-desk-window: on or off"
@@ -365,8 +368,14 @@ proc area-build {area place idx} {
         # THE STRIP HANDS OUT THE SLOT: the far end, before the tray,
         # centred across. A corner of one's own is what put the owner's
         # clock under the tray.
-        set band [strip-band $what]
-        if {$band eq ""} return
+        #
+        # Measured against the HOST WINDOW and not against the band:
+        # the area is a child of that window, so those are the only
+        # coordinates that mean anything here. (They were the band's
+        # once, and a band deeper than the window put the widget
+        # through the floor of the panel.)
+        set band [list [winfo x $host] [winfo y $host] \
+                       [winfo width $host] [winfo height $host]]
         lassign $band bx by bw bh
         set tray [expr {[tray-panel] eq $what ? [tray-extent] : 0}]
         if {$vert} {

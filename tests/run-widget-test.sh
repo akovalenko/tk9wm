@@ -55,6 +55,13 @@ traygeom() { sed -n 's/^WM: tray strip \([0-9x+]*\) .*/\1/p' "$LOG" | tail -1; }
 ON_PANEL=$(area)
 PANELPX=$(here "$(echo "$ON_PANEL" | sed 's/ .*//')")
 TRAYG=$(traygeom)
+# The panel's WINDOW against the band it reserved: a strip that grew
+# for a passenger and left the growth to nobody is a stripe of nothing
+# along its top, with the passenger hanging out of the bottom (the
+# owner, 2026-07-30). The window must be the whole band.
+PANELG=$(sed -n 's/^WM: panel default up (.*, \([0-9x+]*\))$/\1/p' "$LOG" | tail -1)
+PANELH=$(echo "$PANELG" | sed 's/^[0-9]*x\([0-9]*\)+.*/\1/')
+BANDH=$(echo "$ON_PANEL" | sed 's/^[0-9]*x\([0-9]*\)+.*/\1/')
 import -display :65 -window root "$HERE/widget-panel.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/widget-panel.png"
 
@@ -130,6 +137,13 @@ if [ -n "$AX" ] && [ -n "$TX" ] && [ $((AX + AR)) -le "$TX" ]; then
 else
     echo "FAIL: the widget ends at $((AX + AR)) and the tray starts at $TX —\
  that is the bug that started this"; FAIL=1
+fi
+if [ -n "$PANELH" ] && [ -n "$BANDH" ] && [ "$PANELH" -ge "$BANDH" ]; then
+    echo "OK: ...and the panel's window covers it — ${PANELH}px of strip for a\
+ ${BANDH}px passenger, no stripe of nothing above it"
+else
+    echo "FAIL: the panel window is ${PANELH}px and its passenger ${BANDH}px —\
+ the strip grew and the window did not"; FAIL=1
 fi
 if [ "$PANELPX" = "srgb(78,154,6)" ]; then
     echo "OK: ...and it is DRAWN there, its own colour on the screen"
