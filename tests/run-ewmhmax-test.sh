@@ -20,6 +20,11 @@ panel-button dummy {launch {exec true &}}
 # request must outrank this rule (the born-at-full-size asserts below
 # fail if the rule wins)
 wm-style {filter -title zoomed} {place 50%right}
+# ...and the shield case: born maximized by a forced rule, this one
+# will ask for its own size mid-state — the request must land in the
+# saved way-back geometry, never in the live one
+wm-style {filter -title щитовой} {place {max force}}
+wm-bind {<Super>u} Unmaximize
 EOF
 # a pre-map claimant: -zoomed before the first map
 cat > "$HERE/ewmhmax-config/client-zoomed.tcl" <<'EOF'
@@ -68,7 +73,18 @@ sleep 2
 ZID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-ewmhmax.log" | sed -n 2p)
 SZ_Z=$(size_of "$ZID")
 
-kill $WM $CA $CZ 2>/dev/null
+# the shield: born maximized, asks for 300x150 at t+4s
+"$LINUX/whale" "$HERE/client.tcl" "щитовой" 240x120 "#fcaf3e" 300x150 "" 30 &
+CS=$!
+sleep 6                # past the client's own resize request
+SID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-ewmhmax.log" | sed -n 3p)
+SZ_S=$(size_of "$SID")
+wmctrl -i -r "$SID" -b remove,maximized_vert,maximized_horz; sleep 1
+SZ_PIN=$(size_of "$SID")
+xdotool key super+u; sleep 1     # the USER unmaximizes — the pin binds clients only
+SZ_SR=$(size_of "$SID")
+
+kill $WM $CA $CZ $CS 2>/dev/null
 
 echo "--- actors: A=$AID Z=$ZID want-max=$WANTMAX"
 echo "--- maximize lines:"
@@ -116,6 +132,27 @@ if [ "$MAPPED" = "$WANTMAX" ]; then
     echo "OK: born at full size — mapped once at $MAPPED, no narrow flash"
 else
     echo "FAIL: first map was $MAPPED, want $WANTMAX (the narrow-flash bug)"
+fi
+if [ "$SZ_S" = "$WANTMAX" ]; then
+    echo "OK: the shield held — a mid-state size request left the window maximized"
+else
+    echo "FAIL: after its own resize request the shielded client is $SZ_S, want $WANTMAX"
+fi
+if grep -q 'while maximized — saved for the way back' "$HERE/wm-ewmhmax.log"; then
+    echo "OK: ...and said where the request went"
+else
+    echo "FAIL: no shield log line"
+fi
+if [ "$SZ_PIN" = "$WANTMAX" ] \
+        && grep -q 'pinned by place {max force}, refused' "$HERE/wm-ewmhmax.log"; then
+    echo "OK: a client's remove bounced off the forced rule, and said so"
+else
+    echo "FAIL: after a client remove the pinned window is $SZ_PIN (want $WANTMAX)"
+fi
+if [ "$SZ_SR" = "300x150" ]; then
+    echo "OK: the USER'S unmaximize works and restores what the client last meant"
+else
+    echo "FAIL: user unmaximize landed at $SZ_SR, want the requested 300x150"
 fi
 if grep -q 'handler error' "$HERE/wm-ewmhmax.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-ewmhmax.log"

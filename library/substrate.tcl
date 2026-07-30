@@ -904,7 +904,32 @@ proc dispatch-event {ev} {
                 # (A terminal re-rounds its size to whole cells on every
                 # font change and asks for it; granting that mid-
                 # fullscreen leaves a strip of desk down one side.)
-                if {![info exists ::fullscreen($B)]} {
+                if {[info exists ::fullscreen($B)]} {
+                    # denied whole, per the comment above
+                } elseif {[info exists ::maxsaved($B)]} {
+                    # THE MAXIMIZED SHIELD — fullscreen's rule with a
+                    # memory. While the mark holds, the live geometry
+                    # belongs to the STATE, not the client: emacs
+                    # re-states its own 80x25 idea of itself right
+                    # after mapping, and granting that un-maximizes
+                    # every frame born maximized (the owner's desk —
+                    # born wide, snapped narrow a beat later, telega
+                    # mid-recount). The asked-for SIZE is not thrown
+                    # away though: it lands in the saved way-back
+                    # geometry, so unmaximize restores to what the
+                    # client last meant, not to a stale birth size.
+                    # Position requests are denied like fullscreen's;
+                    # the synthetic ConfigureNotify below tells the
+                    # client what remains true either way.
+                    lassign $::maxsaved($B) scw sch sX sY
+                    if {$vmask & (1 << 2)} { set scw $w }
+                    if {$vmask & (1 << 3)} { set sch $h }
+                    set ::maxsaved($B) [list $scw $sch $sX $sY]
+                    if {$vmask & 12} {
+                        puts "WM: size request 0x[format %x $B]\
+ ${w}x${h} while maximized — saved for the way back"
+                    }
+                } else {
                     if {$vmask & 3} { move-client-request $B $x $y $vmask }
                     resize-client $B $w $h $vmask
                 }
@@ -1214,6 +1239,16 @@ proc dispatch-event {ev} {
                         set didmax 1
                         set on [expr {$act == 2
                             ? ![info exists ::maxsaved($A)] : $act == 1}]
+                        if {!$on && [llength [info commands maximize-pinned]]
+                                && [maximize-pinned $A]} {
+                            # the config's forced max outranks a client
+                            # message, exactly as it outranks the
+                            # client's -geometry; see maximize-pinned
+                            puts "WM: client asks maximize off\
+ (0x[format %x $A]) — pinned by place {max force}, refused"
+                            publish-net-wm-state $A   ;# re-state the truth
+                            continue
+                        }
                         puts "WM: client asks maximize [expr {$on ? {on} : {off}}]\
  (0x[format %x $A])"
                         if {$on} { maximize-client $A } else {

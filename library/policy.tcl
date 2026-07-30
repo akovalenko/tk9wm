@@ -2079,6 +2079,21 @@ proc unmaximize-client {w} {
     maximize-settle $w
     publish-net-wm-state $w
 }
+# Is this window's maximization PINNED by the config — a forced max
+# place rule? `force` already means "over the client's own claims";
+# a client MESSAGE un-maximizing the window is one more of those, and
+# the live case is emacs: a frame whose fullscreen parameter is nil
+# sends "remove maximized" right after mapping, enforcing its own nil
+# against what the desk just did (the owner's log, 2026-07-31:
+# born 1908 by place {max force}, snapped to 1218 a beat later by
+# that message). The pin binds CLIENTS, not the user: the titlebar
+# button, winops and the hand resize stay the way out.
+proc maximize-pinned {w} {
+    set st [style-of $w]
+    if {![dict exists $st place]} { return 0 }
+    lassign [place-force [dict get $st place]] spec forced
+    expr {$forced && [string trim $spec] eq "max"}
+}
 proc maximize-toggle {w} {
     if {[info exists ::maxsaved($w)]} {
         unmaximize-client $w
