@@ -447,6 +447,48 @@
 # the degradation is honest: the button still launches, the name is
 # dropped with a log line, and the match just never fires. A title
 # survives even there.
+#
+# ---- the emacs layer ----
+#
+# One storey above the terminal: a button that means "the TELEGA frame
+# of the telega daemon":
+#
+#   panel-button telega {
+#       emacs {daemon telega frame TELEGA eval (telega)}
+#       key {<Super>g}
+#   }
+#
+# The frame name is the identity: emacs puts a frame's name parameter
+# into the WM_CLASS instance, so the button's match is the same single
+# pattern the terminal layer derives — it finds the GUI frame as
+# {TELEGA Emacs} and the named terminal as {TELEGA XTerm} alike. The
+# launch ensures the daemon (emacsclient -a '' auto-starts one under
+# that socket name), creates the frame named and runs the eval in it:
+#
+#   emacsclient -s telega -a '' -c -F '((name . "TELEGA"))' \
+#       --eval '(telega)' -n
+#
+# Keys: `frame` (required — the identity), `daemon` (the -s socket;
+# omit for the default daemon), `eval` (run in the fresh frame),
+# `via gui|terminal` (this button's answer to the question below).
+#
+# WHICH KIND OF FRAME is the desk's default, one line:
+#   set-emacs-frames terminal        ;# gui is the default
+# In terminal mode the same semantics goes through the terminal layer:
+# a terminal named like the frame, running
+# emacsclient -t -F '((name . "TELEGA"))' — so the match never changes.
+#
+# The terminal case is kept honest against C-x 5 2: the user opened
+# another frame in that terminal and closed the named one — the
+# terminal window still matches, but the frame inside is not the one
+# the button means. A hit therefore focuses the window IMMEDIATELY and
+# asks the daemon, in the background, to put the named frame back on
+# top of its tty — recreating it (and re-running the eval) if it is
+# gone and exactly one tty terminal lives to rebuild on. Every branch
+# ends in an action or a log line; nothing hangs. Frames wearing names
+# from this config are assumed OURS — nothing verifies which terminal
+# a tty frame sits in, and naming frames to spoof your own desk is
+# your own game.
 
 # ---- re-reading this file without restarting ----
 #

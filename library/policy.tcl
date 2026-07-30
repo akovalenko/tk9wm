@@ -4054,6 +4054,162 @@ proc terminal-window {w} {
     expr {$cls in {UXTerm KOI8RXTerm}}
 }
 
+# ---- the emacs layer ----
+# A button that means "the telega frame of the telega daemon" — on the
+# desk the owner actually keeps: dedicated daemons (emacs --daemon=telega
+# for telega.el), frames either X or inside a terminal, whichever the
+# user prefers. The load-bearing find, measured 2026-07-31 on Emacs
+# 32.0.50: A FRAME'S NAME PARAMETER IS THE INSTANCE HALF OF WM_CLASS —
+# `emacsclient -c -F '((name . "TELEGA"))'` yields {TELEGA Emacs} — so
+# the match is the terminal layer's own single-pattern filter, and one
+# button finds its frame as {TELEGA Emacs} or its named terminal as
+# {TELEGA XTerm} with the same predicate, no daemon round-trip in the
+# match path at all.
+#
+# The -F goes on TERMINAL frames too (the owner's design): a tty frame
+# carries the name, so the daemon can be asked for it later. That is
+# what makes the terminal case honest against `C-x 5 2` — the user
+# opened another frame in that terminal and closed the named one; the
+# terminal window still matches, but the frame inside is not ours any
+# more. The fire path then REPAIRS: focus the window at once (nothing
+# waits on a daemon), and one background round-trip asks the daemon to
+# put the named frame back on top of its tty — or to recreate it there.
+# Ownership is assumed, not verified: a frame wearing a name from this
+# config is OURS (the owner's ruling; whoever names frames to spoof a
+# desk is spoofing their own).
+#
+# The rest of the measured floor this stands on (2026-07-31, not
+# documentation): `nil` in frame-parameter over emacsclient -e is the
+# daemon's selected frame — the last frame that saw input or creation
+# ON ANY DISPLAY — and outer-window-id values COLLIDE between X
+# servers, so frames are always found by (frame-list) filter, never by
+# nil and never by bare id. `emacsclient -s NAME -a ''` auto-starts a
+# daemon WITH that socket name, so ensure-daemon costs nothing. And on
+# a tty, select-frame-set-input-focus (plus a redisplay) is what moves
+# tty-top-frame; bare raise-frame does not.
+keep emacs_frames gui
+proc set-emacs-frames {mode} {
+    if {$mode ni {gui terminal}} { error "set-emacs-frames: gui or terminal" }
+    set ::emacs_frames $mode
+}
+proc emacs-spec-check {who spec} {
+    foreach k [dict keys $spec] {
+        if {$k ni {daemon frame eval via}} {
+            error "$who: unknown emacs key \"$k\" (daemon frame eval via)"
+        }
+    }
+    if {![dict exists $spec frame] || [dict get $spec frame] eq ""} {
+        error "$who: the emacs spec needs a frame name (the match hangs off it)"
+    }
+    if {[dict exists $spec via] && [dict get $spec via] ni {gui terminal}} {
+        error "$who: via is gui or terminal"
+    }
+}
+# The name, spelled into elisp. Config-authored, so sane — but a quote
+# or backslash must not silently change the expression's shape.
+proc emacs-lisp-string {s} {
+    return "\"[string map {\\ \\\\ \" \\\"} $s]\""
+}
+proc emacs-client-cmd {spec} {
+    set cmd [list emacsclient]
+    if {[dict exists $spec daemon] && [dict get $spec daemon] ne ""} {
+        lappend cmd -s [dict get $spec daemon]
+    }
+    return $cmd
+}
+# The launch half: nothing named ours exists, make it — daemon
+# included, -a '' starting one under the right socket if need be. The
+# gui shape is the owner's own command; the terminal shape is the SAME
+# semantics handed to the terminal layer, so the frame name and the
+# terminal name coincide and the shared match keeps holding.
+proc emacs-launch {spec} {
+    set frame [dict get $spec frame]
+    set F "((name . [emacs-lisp-string $frame]))"
+    set via $::emacs_frames
+    if {[dict exists $spec via]} { set via [dict get $spec via] }
+    set cmd [concat [emacs-client-cmd $spec] [list -a {}]]
+    if {$via eq "terminal"} {
+        set run [concat $cmd [list -t -F $F]]
+        if {[dict exists $spec eval]} { lappend run --eval [dict get $spec eval] }
+        spawn-terminal [list name $frame run $run]
+    } else {
+        lappend cmd -c -F $F -n
+        if {[dict exists $spec eval]} { lappend cmd --eval [dict get $spec eval] }
+        puts "WM: emacs: launch $cmd"
+        exec {*}$cmd &
+    }
+}
+# The activate half, replacing the plain focus for a hit of an emacs
+# button. The window comes up IMMEDIATELY — no fire waits on a daemon —
+# and what the round-trip then does depends on what the hit is: an
+# {NAME Emacs} window IS the frame, done; a terminal window gets the
+# repair eval below. One self-contained expression, so the daemon
+# decides and reports in a single trip: the named frame exists — put
+# it on top of its tty; gone, and exactly one tty terminal lives —
+# recreate it there (re-running the button's eval in it: the frame was
+# closed, its meaning starts over); anything else — say so. The
+# verdict lands in the log either way, which is what "no hanging bugs"
+# means here: every branch ends in an action or a sentence.
+proc emacs-activate {spec w} {
+    panel-focus-hit $w
+    if {[lindex [client-class $w] 1] eq "Emacs"} return
+    set name [emacs-lisp-string [dict get $spec frame]]
+    set fix {(with-demoted-errors "%S" EVAL)}
+    if {[dict exists $spec eval]} {
+        set fix [string map [list EVAL [dict get $spec eval]] $fix]
+    } else { set fix t }
+    set expr [string map [list %N% $name %FIX% $fix] {
+        (let* ((nf (seq-find (lambda (f) (equal (frame-parameter f (quote name)) %N%))
+                             (frame-list)))
+               (terms (delete-dups
+                       (delq nil (mapcar (lambda (f)
+                                           (and (frame-parameter f (quote tty))
+                                                (frame-terminal f)))
+                                         (frame-list))))))
+          (cond
+           (nf (select-frame-set-input-focus nf) (redisplay t) "raised")
+           ((= (length terms) 1)
+            (let ((f (make-frame (list (cons (quote terminal) (car terms))
+                                       (cons (quote name) %N%)))))
+              (select-frame-set-input-focus f) (redisplay t)
+              (with-selected-frame f %FIX%)
+              "rebuilt"))
+           (t (format "frame %s missing, %d tty terminals to rebuild on"
+                      %N% (length terms)))))}]
+    emacs-eval-bg $spec $expr
+}
+# A background emacsclient -e: the WM's event loop never waits on a
+# socket. No -a here on purpose — a repair must not START a daemon; if
+# the socket is dead, the honest outcome is its error in the log. The
+# guard reaps a connection that answers nothing: a wedged daemon must
+# not leak channels, and must say so.
+proc emacs-eval-bg {spec expr} {
+    set cmd [concat [emacs-client-cmd $spec] [list -e $expr]]
+    if {[catch {open |[list {*}$cmd 2>@1] r} ch]} {
+        puts "WM: emacs: eval failed to start: $ch"
+        return
+    }
+    chan configure $ch -blocking 0
+    set ::emacs_eval($ch) {}
+    set guard [after 5000 [list emacs-eval-done $ch "TIMED OUT"]]
+    fileevent $ch readable [list emacs-eval-read $ch $guard]
+}
+proc emacs-eval-read {ch guard} {
+    append ::emacs_eval($ch) [read $ch]
+    if {[eof $ch]} {
+        after cancel $guard
+        emacs-eval-done $ch ""
+    }
+}
+proc emacs-eval-done {ch tag} {
+    set out [string trim $::emacs_eval($ch)]
+    unset ::emacs_eval($ch)
+    catch {fileevent $ch readable {}}
+    if {[catch {close $ch} err] && $out eq ""} { set out $err }
+    if {$tag ne ""} { set out "$tag $out" }
+    puts "WM: emacs: verdict: $out"
+}
+
 # ---- the panel ----
 # Our own strip panel, wmaker-flavored buttons: a button is
 # IDEMPOTENT — fired (by click or by its chord) it FOCUSES the most
@@ -4250,6 +4406,27 @@ proc panel-button {label settings} {
         }
         if {![dict exists $settings launch]} {
             dict set settings launch [list spawn-terminal $t]
+        }
+    }
+    # `emacs` is the same kind of PROVIDER, one storey higher: the
+    # match is the identical single-pattern filter (a frame's name
+    # parameter IS the WM_CLASS instance — see the emacs layer), the
+    # launch builds gui or terminal per set-emacs-frames (`via`
+    # overrides per button), and the found path gets an activate hook:
+    # a terminal hit may need the daemon to put the named frame back
+    # on top of its tty.
+    if {[dict exists $settings emacs]} {
+        set e [dict get $settings emacs]
+        emacs-spec-check "panel-button $label" $e
+        if {![dict exists $settings match]} {
+            dict set settings match \
+                [list filter -class [dict get $e frame]]
+        }
+        if {![dict exists $settings launch]} {
+            dict set settings launch [list emacs-launch $e]
+        }
+        if {![dict exists $settings activate]} {
+            dict set settings activate [list emacs-activate $e]
         }
     }
     set name $::panel_target
@@ -4749,18 +4926,32 @@ proc panel-build {name idx} {
     puts "WM: panel $name up ([llength $buttons] buttons, $thick px,\
  $side/$preset, $geo)"
 }
+# What "focus the hit" means, shared by the plain fire and by activate
+# hooks that do more around it (the emacs layer's, so far).
+proc panel-focus-hit {w} {
+    if {[info exists ::iconic($w)]} {
+        deiconify-client $w   ;# raises and focuses on its own
+        return
+    }
+    raise-group $w
+    focus-to $w
+}
 proc panel-fire {name i} {
     lassign [lindex [panel-cfg $name buttons] $i] label settings
     set hit [lindex [panel-matches $label $settings] 0]
     if {$hit ne ""} {
         puts "WM: panel $label: found 0x[format %x $hit]"
         panel-flash $name $i found
-        if {[info exists ::iconic($hit)]} {
-            deiconify-client $hit   ;# raises and focuses on its own
+        # A button may bring its own idea of what a hit means —
+        # `activate` replaces the plain focus (and is handed the
+        # window); everything before this line stays common.
+        if {[dict exists $settings activate]} {
+            if {[catch {uplevel #0 [list {*}[dict get $settings activate] $hit]} err]} {
+                puts "WM: panel $label: activate FAILED: $err"
+            }
             return
         }
-        raise-group $hit
-        focus-to $hit
+        panel-focus-hit $hit
     } elseif {[dict exists $settings launch]} {
         puts "WM: panel $label: launch"
         panel-flash $name $i firing
@@ -5414,7 +5605,7 @@ set config_vars {
     key_echo key_echo_place titlebar_buttons titlebar_gestures fade font_kin
     widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
-    terminal_choice terminal_found
+    terminal_choice terminal_found emacs_frames
 }
 proc policy-snapshot-defaults {} {
     foreach v $::config_vars { set ::config_default($v) [set ::$v] }
