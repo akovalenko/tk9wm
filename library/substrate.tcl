@@ -243,9 +243,16 @@ tk useinputmethods 0
 #   keep          STATE the desk carries — including every knob a config
 #                 may have turned. Set on the first load, left alone
 #                 afterwards; the running desk keeps what it has.
-#   once          a setup step with a side effect out in the world (a
+#   unless-already  a setup step with a side effect out in the world (a
 #                 window created, a selection taken, a command renamed).
-#                 Runs on the first load and never again.
+#                 It asks whether that effect is ALREADY THERE — is the
+#                 selection ours, does the font exist — and skips if it
+#                 is. Deliberately not a registry of what this process
+#                 remembers doing: a registry is empty in a process that
+#                 predates this rule, and the first re-source into one
+#                 of those would take the desk apart in exactly the way
+#                 the rule exists to prevent. The world remembers; we
+#                 ask it.
 #
 # What this CANNOT be is reliable, and it is not meant to be: a proc
 # that has gone away stays, a variable whose SHAPE changed keeps the
@@ -257,10 +264,8 @@ proc keep {name value} {
         uplevel #0 [list set $name $value]
     }
 }
-array set once_done {}
-proc once {tag script} {
-    if {[info exists ::once_done($tag)]} return
-    set ::once_done($tag) 1
+proc unless-already {test script} {
+    if {[uplevel #0 [list expr $test]]} return
     uplevel #0 $script
 }
 
@@ -676,7 +681,7 @@ proc desk-take {replace} {
 # `package require tk9wm` time, long before tk9wm-main sees an argument
 # list. So: the command line if there is one, and ::tk9wm_replace for an
 # embedder that builds its own.
-once desk-take {
+unless-already {$::wm_owner_win != 0} {
     desk-take [expr {[info exists ::tk9wm_replace] ? $::tk9wm_replace
         : [expr {[info exists ::argv] && "-replace" in $::argv}]}]
 }
@@ -711,7 +716,7 @@ proc set-prop-longs {win prop type values} {
 proc set-prop-utf8 {win prop str} {
     x-prop-set $win $prop $::UTF8 8 [encoding convertto utf-8 $str]
 }
-once ewmh-minimum {if {[catch {
+unless-already {[info exists ::wmcheck]} {if {[catch {
     set NET_CHECK     [x-intern _NET_SUPPORTING_WM_CHECK]
     set NET_SUPPORTED [x-intern _NET_SUPPORTED]
     set NET_WM_NAME   [x-intern _NET_WM_NAME]
@@ -795,7 +800,7 @@ once ewmh-minimum {if {[catch {
 # (a passive grab fires when the grab window is an ancestor of the
 # focus window — root is an ancestor of this one).
 keep nofocus 0
-once focus-holder {if {[catch {
+unless-already {$::nofocus != 0} {if {[catch {
     # override-redirect: the holder is nobody's client. On one
     # connection our own maps are not redirected to us anyway, but the
     # flag is the honest statement of what this window is — and it is
@@ -3352,7 +3357,8 @@ tkwmx::event on handle-event
 # Orderly shutdown: release every client back to root before Tk destroys
 # the frames (otherwise WM exit would take all clients with it). A hard
 # kill still loses them — see notes.
-once exit-wrapper {rename ::exit ::tk9wm-real-exit}
+unless-already {[llength [info commands ::tk9wm-real-exit]]} \
+    {rename ::exit ::tk9wm-real-exit}
 proc ::exit {{code 0}} {
     soft "release the tray on exit" { tray-stop "the window manager is exiting" }
     soft "release clients on exit" \

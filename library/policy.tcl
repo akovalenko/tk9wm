@@ -41,7 +41,7 @@ keep gripz 24
 # live. Every vertical measure of the decoration derives from its
 # metrics — a 22px strip that was roomy at 96 dpi was visibly too tight
 # for the same font at Xft.dpi 144 (live report, 2026-07-27).
-once fonts-title {font create TitleFont {*}[font actual TkDefaultFont]}
+unless-already {[lsearch -exact [font names] TitleFont] >= 0} {font create TitleFont {*}[font actual TkDefaultFont]}
 if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
     if {[catch {font configure TitleFont {*}[font actual $::env(TK9WM_TITLE_FONT)]} err]} {
         puts "WM: TK9WM_TITLE_FONT «$::env(TK9WM_TITLE_FONT)» rejected: $err"
@@ -54,7 +54,7 @@ if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
 # dock of 48px icons beside a taskbar of 24px ones is the ordinary
 # case — and panels sharing one font would each be lettered for
 # whichever was built last.
-once fonts-icon {font create IconFont -weight bold}
+unless-already {[lsearch -exact [font names] IconFont] >= 0} {font create IconFont -weight bold}
 # 3px of air above and below the text line; the strip sits under the
 # full top border (a real grip, uniform with the bottom), a 2px gap
 # separates it from the client slot.
@@ -69,6 +69,14 @@ proc title-metrics {} {
     # the client. btnw is the button column width and the click-target
     # size the WM advertises in its metrics line.
     set ::btnw [expr {$::titleh - $::border}]
+    # ...and the air inside one. A CONSTANT three pixels was right at
+    # the size this desk is usually run at and wrong everywhere else:
+    # at a 32-point title the glyph filled its box to the outline and
+    # the row of boxes read as one band (the owner, 2026-07-30 — "big
+    # font = big buttons, and big glyphs IN them"). A share of the
+    # button keeps the proportions instead, and at the stock size it is
+    # the same three pixels it always was.
+    set ::btnpad [expr {max(3, $::btnw / 7)}]
     btn-images
     puts "WM: titlebar h=$::titleh top=$::decotop btn=$::btnw\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
@@ -174,7 +182,7 @@ proc btn-images {} {
     # the union box is glyph + 2*3px ipad (the 1px outline draws inside),
     # so this glyph height makes the box exactly btnw square — the full
     # button cell, no inset
-    set g [expr {max($::btnw - 6, 7)}]
+    set g [expr {max($::btnw - 2 * $::btnpad, 7)}]
     dict for {name spec} $::titlebar_buttons {
         image create photo [titlebar-image $name] \
             -format [list svg -scaletoheight $g] -data [dict get $spec glyph]
@@ -264,8 +272,18 @@ proc retitle-frames {} {
         # granted or taken away. A window a COMMAND faded stays faded:
         # that was the user, and a reload is not an answer to him.
         if {![info exists ::opacityof($w)]} { apply-opacity $w }
+        # A rebuild is needed for a changed button SET — the columns,
+        # elements and styles are per widget — and for a changed BUTTON
+        # SIZE, which is the same thing one level down: the box is the
+        # glyph plus the padding, both baked into the style at build
+        # time, and re-creating the photo under its old name does not
+        # make treectrl re-measure the element that draws it. Without
+        # this a live font change grew the strip and the columns and
+        # left four twenty-pixel buttons stranded at the top of a tall
+        # titlebar (the owner, 2026-07-30).
         set want [client-buttons $w]
-        if {$want ne [frame-buttons $t]} {
+        if {$want ne [frame-buttons $t]
+                || ![info exists ::btnwof($t)] || $::btnwof($t) != $::btnw} {
             unset -nocomplain ::btn($t)
             destroy $t.title
             titlebar-build $t $w $want [title-or-id $w \
@@ -955,7 +973,8 @@ proc policy-detach {w} {
     }
     unset -nocomplain ::btn($::frameof($w)) ::fullframe($::frameof($w)) \
         ::chromeof($::frameof($w))
-    unset -nocomplain ::btncols($::frameof($w))   ;# the frame's, not the client's
+    ;# the frame's own, not the client's
+    unset -nocomplain ::btncols($::frameof($w)) ::btnwof($::frameof($w))
     destroy $::frameof($w)
     unset ::frameof($w)
     unset -nocomplain ::titleof($w)
@@ -1635,8 +1654,8 @@ proc titlebar-build {t w names title} {
         $t.title element create e$name image -image [titlebar-image $name]
         $t.title style create s$name
         $t.title style elements s$name [list eBox e$name]
-        $t.title style layout s$name eBox -union e$name -ipadx 3 -ipady 3 \
-            -expand s
+        $t.title style layout s$name eBox -union e$name \
+            -ipadx $::btnpad -ipady $::btnpad -expand s
         $t.title style layout s$name e$name -expand s
         lappend cells C$name s$name
     }
@@ -1645,6 +1664,7 @@ proc titlebar-build {t w names title} {
     $t.title item element configure $item C0 eTxt -text $title
     $t.title item lastchild root $item
     set ::btncols($t) $names
+    set ::btnwof($t) $::btnw   ;# the size this strip was BUILT at
     # Three buttons and the double, because all four are gestures the
     # table can name. w == 0 says "no client behind this frame" to the
     # shared handlers.
@@ -3100,7 +3120,7 @@ array set compass_key {
 keep compass {}      ;# the cells currently up, {} = no compass
 keep compass_s 0     ;# their side, in pixels
 keep compass_on {}   ;# the highlighted cell, {} = none
-once fonts-compass {font create CompassFont -weight bold}
+unless-already {[lsearch -exact [font names] CompassFont] >= 0} {font create CompassFont -weight bold}
 
 # The edge a cell names, in the compass-point vocabulary the MOUSE
 # resize already speaks (rz-edge, rzcursor): aligned to the start of an
