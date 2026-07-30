@@ -1016,7 +1016,11 @@ proc rz-start {t w X Y} {
     raise-group $w
     focus-to $w
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
-    set ::rz [list $e $X $Y [winfo width $t.slot] [winfo height $t.slot] $fx $fy]
+    # The window comes LAST because rz-move's lassign reads the first
+    # seven and would have to be re-counted otherwise; it is there for
+    # the benefit of anyone asking "whose geometry is a hand holding"
+    # (geometry-held-p).
+    set ::rz [list $e $X $Y [winfo width $t.slot] [winfo height $t.slot] $fx $fy $w]
 }
 proc rz-move {t w X Y} {
     if {![info exists ::rz]} return
@@ -1537,10 +1541,9 @@ proc policy-workarea {} { workarea }
 # ---- maximize, fvwm semantics ----
 
 # Maximize fills the workarea and remembers what the window was; the
-# second toggle restores it. "Maximized" is a saved-geometry flag, not
-# a straitjacket: the window can be resized and moved freely meanwhile
-# (fvwm semantics, not Windows) — the toggle still restores the
-# geometry saved at maximize time.
+# second toggle restores it. "Maximized" is a saved geometry and not a
+# state the client is held in: the window can be moved and resized by
+# hand meanwhile like any other.
 # Three operations, not one with a mood. A MENU naturally toggles — you
 # open it over a window, and the entry means "the other way" — but a
 # config wants to force: `Apply-To-Matching always Maximize` that
@@ -1548,23 +1551,30 @@ proc policy-workarea {} { workarea }
 # maximizing a desk, and a key bound to Maximize should leave the window
 # maximized however many times it is pressed. So the vocabulary forces
 # and the menu names the toggle (owner, 2026-07-29).
-# What a HAND resize does to the maximized mark, since there are two
-# honest readings and the owner wants both available (2026-07-29):
+# What a HAND resize does to the maximized mark: two honest readings, so
+# it is a knob (2026-07-29) — and the default is the MEASURED one, since
+# the attribution was wrong when the knob was written. fvwm3, driven by
+# hand (owner, 2026-07-30):
 #
-#   keep (default) — fvwm's. The mark is a saved geometry and nothing
-#     else; resizing a maximized window by hand is allowed and changes
-#     none of it, so the toggle still puts back what was saved AT
-#     MAXIMIZE TIME however the window has been pulled about since.
-#   drop — the Windows/GNOME reading. A hand resize means the window is
-#     no longer the maximized one, so the mark goes and the next toggle
-#     MAXIMIZES rather than restoring.
+#   drop (default) — fvwm3's own, measured. A hand resize means this is
+#     no longer the maximized window: the mark goes, the next toggle
+#     MAXIMIZES rather than restoring — in either direction, a window
+#     pulled BIGGER maximizes just the same — and it saves the hand-set
+#     geometry, so the toggle after that comes back to what the hand
+#     made. Windows and GNOME read it this way too.
+#   keep — the mark survives; the toggle puts back what was saved AT
+#     MAXIMIZE TIME however the window has been pulled about since. This
+#     was called fvwm's here and is nobody's that we know of, but it is
+#     a coherent reading of "the mark is a saved geometry, full stop"
+#     and it stays available.
 #
 # It is about resizing only. Carrying a maximized window somewhere else
-# leaves it maximized under either reading — that gesture moves a window
-# and says nothing about its size, and the desktops that unmaximize on a
-# title drag are doing something else entirely (they resize it to the
-# saved size under the pointer, which nobody has asked for here).
-set maximize keep
+# leaves it maximized under either reading — measured in fvwm3 too — that
+# gesture moves a window and says nothing about its size, and the
+# desktops that unmaximize on a title drag are doing something else
+# entirely (they resize it to the saved size under the pointer, which
+# nobody has asked for here).
+set maximize drop
 proc set-maximize {mode} {
     if {$mode ni {keep drop}} { error "set-maximize: keep|drop" }
     set ::maximize $mode
@@ -1580,26 +1590,35 @@ proc maximize-guard {w} {
     }
     return 1
 }
+# The client size maximize gives THIS window in that rect: the rect
+# minus this frame's decoration, snapped by the client's own size hints
+# — increments bind maximize too (an xterm fills to whole cells, and the
+# slack stays at the far edge), unless a style says otherwise.
+#
+# Its own proc because two callers need the same arithmetic and must not
+# each carry a copy: maximize does it TO a window, and the reflow below
+# asks whether a window already IS the shape it would have made — which
+# is only answerable by the same sum, slack and all.
+proc maximize-fit {w rect} {
+    lassign [frame-chrome $::frameof($w)] B top
+    lassign $rect - - rw rh
+    apply-size-hints $w [expr {$rw - 2*$B}] [expr {$rh - $top - $B}]
+}
 proc maximize-client {w} {
     if {![maximize-guard $w]} return
     set t $::frameof($w)
-    lassign [frame-chrome $t] B top
     # Only the FIRST maximize records where to go back to. Calling this
     # on an already-maximized window re-fits it to the workarea as it is
-    # now — which is what you want after the panel appeared or the
-    # screen changed — and must not overwrite the saved geometry with
-    # the maximized one, which would lose the way back entirely.
+    # now — and must not overwrite the saved geometry with the maximized
+    # one, which would lose the way back entirely.
     if {![info exists ::maxsaved($w)]} {
         regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
         set ::maxsaved($w) \
             [list [$t.slot cget -width] [$t.slot cget -height] $X $Y]
     }
-    lassign [workarea] wx wy ww wh
-    wm geometry $t +$wx+$wy
-    # increments bind maximize too (an xterm fills to whole cells,
-    # slack stays at the workarea edge) — unless styled away
-    wm-resize-client $w {*}[apply-size-hints $w \
-        [expr {$ww - 2*$B}] [expr {$wh - $top - $B}]]
+    set wa [workarea]
+    wm geometry $t +[lindex $wa 0]+[lindex $wa 1]
+    wm-resize-client $w {*}[maximize-fit $w $wa]
     maximize-settle $w
 }
 proc unmaximize-client {w} {
@@ -4224,6 +4243,148 @@ proc fullscreen-refit {} {
     }
 }
 
+# ---- the workarea moved: the windows follow it ----
+#
+# The panel changes side on a reload, or grows a row, or a tray icon
+# widens the band, or the screen resizes under everything — and the
+# windows that were arranged AGAINST the old workarea are suddenly
+# arranged against nothing. A maximized window keeps the old
+# maximization's size in the new geometry; a window flush against the
+# bottom strip now floats above where the strip used to be. Nothing
+# moved them before this (owner's wish, 2026-07-30).
+#
+# ONE RULE, applied to each axis on its own, and everything else falls
+# out of it. In an axis a window either
+#
+#   SPANS the workarea — it sits at the origin and is exactly as long as
+#     maximize would have made it there — and then it spans the new one;
+#   is flush at the NEAR edge, and stays flush at the new near edge;
+#   is flush at the FAR edge, and stays flush at the new far one;
+#   is flush at neither, and does not move in this axis at all.
+#
+# Both of the owner's asks are that rule: "what arithmetically looks
+# maximized goes to the new maximization" is spanning in BOTH axes, and
+# "what was stuck to the old border sticks to the new one" is the two
+# flush cases. It also answers what he did not ask about and would have
+# had to: a full-height column down the left side spans one axis and
+# hugs one edge, and comes out re-fitted in the axis it filled and
+# re-stuck in the other, which is the only reading that keeps it a
+# column.
+#
+# Spanning is measured with maximize-fit and not with the raw extent,
+# which is the whole reason that proc exists. An xterm maximized on an
+# 800x562 workarea is not 562 tall — it is a whole number of cells and
+# leaves slack at the edge — and a test that wanted the extent exactly
+# would call the most obviously maximized window on the desk "flush at
+# the near edge, nothing more" and never re-fit it.
+#
+# What the reflow does NOT do:
+#
+#   - it does not touch the maximized MARK, in either direction. This is
+#     the WM moving furniture, not a hand on the window: `drop` sheds the
+#     mark in resize-by-edge and only there, so a re-fitted maximized
+#     window stays maximized. And a window that merely LOOKS maximized
+#     is not marked as such by being re-fitted — it has no saved
+#     geometry, and inventing one would lie to the toggle exactly the way
+#     a size-yielding `place max` would (see the place grammar).
+#   - it does not clamp anything back onto the screen. A window parked
+#     half off the edge on purpose has a relation to no edge of ours,
+#     and hauling it back would be a policy nobody asked for; a window
+#     that sits UNDER the panel because it claimed that corner keeps
+#     sitting there for the same reason (see clamp-to-screen).
+#   - it leaves alone whatever a hand is holding — see geometry-held-p.
+#
+#   off    nothing follows: the workarea changes and the windows sit
+#          where they were, which is what every version before this did.
+#   max    only what looks maximized (spanning BOTH axes) follows.
+#   stick  the whole rule above. The default.
+set workarea_follow stick
+proc set-workarea-follow {mode} {
+    if {$mode ni {off max stick}} {
+        error "set-workarea-follow: off, max or stick"
+    }
+    set ::workarea_follow $mode
+}
+proc policy-workarea-changed {old new} {
+    if {$::workarea_follow eq "off"} return
+    foreach w [array names ::frameof] {
+        # Fullscreen is the screen's business and has its own refit; a
+        # window under a gesture is somebody's business right now.
+        if {[info exists ::fullscreen($w)] || [geometry-held-p $w]} continue
+        reflow-client $w $old $new
+    }
+}
+# A hand is on this window's geometry at this moment: a title carry, a
+# border or modifier-drag resize, a keyboard move/resize mode. The
+# reflow leaves it be — it would be writing over the numbers the gesture
+# is negotiating, and the keyboard mode's Escape remembers a geometry
+# from before, which it would then restore to a workarea that no longer
+# exists.
+proc geometry-held-p {w} {
+    if {[kbmr-owns $w]} { return 1 }
+    if {[info exists ::drag($::frameof($w))]} { return 1 }
+    if {[info exists ::mdrag] && [lindex $::mdrag 2] == $w} { return 1 }
+    if {[info exists ::rz] && [lindex $::rz 7] == $w} { return 1 }
+    return 0
+}
+# One axis. o0/o and n0/n are that axis of the old and the new workarea,
+# p/s where the frame sits and how long it is, om/nm the length a
+# maximized frame would have in each. Returns {position length how}.
+proc reflow-axis {o0 o n0 n p s om nm} {
+    if {$p == $o0 && $s == $om}  { return [list $n0 $nm span] }
+    if {$p == $o0}               { return [list $n0 $s near] }
+    if {$p + $s == $o0 + $o} {
+        # The near edge wins a window too long to fit, the same way
+        # clamp-to-rect decides it: better to lose the far edge than the
+        # one with the title bar on it.
+        return [list [expr {max($n0, $n0 + $n - $s)}] $s far]
+    }
+    return [list $p $s stay]
+}
+proc reflow-client {w old new} {
+    set t $::frameof($w)
+    lassign [frame-chrome $t] B top
+    # Frame lengths throughout — the client's own size plus what the
+    # decoration adds — because it is the FRAME that is flush with an
+    # edge or fills the workarea, and the client size is what has to be
+    # asked for at the end.
+    set cw [$t.slot cget -width]; set ch [$t.slot cget -height]
+    set fw [expr {$cw + 2*$B}];   set fh [expr {$ch + $top + $B}]
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
+    lassign [maximize-fit $w $old] omw omh
+    lassign [maximize-fit $w $new] nmw nmh
+    lassign [reflow-axis [lindex $old 0] [lindex $old 2] \
+                         [lindex $new 0] [lindex $new 2] $X $fw \
+                         [expr {$omw + 2*$B}] [expr {$nmw + 2*$B}]] nX nfw hx
+    lassign [reflow-axis [lindex $old 1] [lindex $old 3] \
+                         [lindex $new 1] [lindex $new 3] $Y $fh \
+                         [expr {$omh + $top + $B}] [expr {$nmh + $top + $B}]] nY nfh hy
+    # `max` means what it says: a window that does not look maximized —
+    # spanning BOTH axes — is not touched at all, not even in the axis it
+    # happens to fill.
+    if {$::workarea_follow eq "max" && ($hx ne "span" || $hy ne "span")} return
+    if {$nX == $X && $nY == $Y && $nfw == $fw && $nfh == $fh} return
+    wm geometry $t +$nX+$nY
+    wm-resize-client $w [expr {$nfw - 2*$B}] [expr {$nfh - $top - $B}]
+    puts "WM: reflow 0x[format %x $w] $hx/$hy ->\
+ [expr {$nfw - 2*$B}]x[expr {$nfh - $top - $B}]+$nX+$nY"
+    maximize-settle $w    ;# the frame moved even where the size did not
+    # The way back travels with the window. ::maxsaved is a rect in the
+    # workarea that just moved, so the same rule says where it belongs
+    # now: a window maximized on a desk whose panel then moved to the top
+    # must not un-maximize to a place under the panel.
+    if {![info exists ::maxsaved($w)]} return
+    lassign $::maxsaved($w) scw sch sX sY
+    lassign [reflow-axis [lindex $old 0] [lindex $old 2] \
+                         [lindex $new 0] [lindex $new 2] $sX [expr {$scw + 2*$B}] \
+                         [expr {$omw + 2*$B}] [expr {$nmw + 2*$B}]] sX sfw -
+    lassign [reflow-axis [lindex $old 1] [lindex $old 3] \
+                         [lindex $new 1] [lindex $new 3] $sY [expr {$sch + $top + $B}] \
+                         [expr {$omh + $top + $B}] [expr {$nmh + $top + $B}]] sY sfh -
+    set ::maxsaved($w) \
+        [list [expr {$sfw - 2*$B}] [expr {$sfh - $top - $B}] $sX $sY]
+}
+
 # ---- default key bindings ----
 # The defaults live IN CODE — the config is an override layer, not a
 # preset carrier. The window OPS menu (actions on the focused window)
@@ -4273,7 +4434,7 @@ policy-default-bindings
 # so a default and its copy cannot drift apart: there is no copy.
 set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
-    style_rules minimize maximize panels panel_target
+    style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
@@ -4492,7 +4653,7 @@ proc policy-client-press {w state button X Y} {
         # border, and wearing the same corner cursor rz-hover shows.
         set e [nearest-corner $t $X $Y]
         set ::rz [list $e $X $Y \
-            [winfo width $t.slot] [winfo height $t.slot] $fx $fy]
+            [winfo width $t.slot] [winfo height $t.slot] $fx $fy $w]
         set ::mdrag [list resize $t $w]
         set cursor $::rzcursor($e)
     }

@@ -433,20 +433,51 @@ frames a client and shows a panel has proved both libraries loaded.
   server leaves the ancient X_cursor on the root, and by tradition it
   is the WM that sets a normal one, not xsetroot by hand.
 
-  Maximize with fvwm semantics by default (a workarea proc; the mark is
-  a saved geometry rather than a straitjacket, so the window can be
-  moved and resized by hand meanwhile and a second toggle still restores
-  what was saved). What a **hand resize** does to that mark is the one
-  part with two honest answers, so it is an option —
-  `set-maximize keep|drop`: `keep` is the above, `drop` is the
-  Windows/GNOME reading where a hand resize means this is no longer the
-  maximized window and the next toggle maximizes instead of restoring.
-  The rule lives in `resize-by-edge`, which is where both interactive
-  resizes meet, so the border drag and the keyboard mode cannot drift
-  apart on it. Moving a maximized window changes nothing under either
-  answer — that gesture says nothing about size, and the desktops that
-  unmaximize on a title drag are resizing the window under the pointer,
-  which is a different thing nobody asked for here. **Fullscreen** on
+  Maximize with fvwm semantics (a workarea proc; the mark is a saved
+  geometry rather than a state the client is held in, so the window can
+  be moved and resized by hand meanwhile). What a **hand resize** does to
+  that mark has two honest answers, so it is an option —
+  `set-maximize drop|keep`, and `drop` is both the default and what
+  fvwm3 actually does (measured by hand, 2026-07-30, after this was
+  attributed the other way round for a day): the resize means this is no
+  longer the maximized window, so the mark goes and the next toggle
+  maximizes — a window pulled *bigger* included — saving the hand-set
+  geometry, so the toggle after that comes back to what the hand made.
+  `keep` is the other reading, in which the mark is a saved geometry and
+  nothing else, and the toggle restores what was saved at maximize time
+  however the window has been pulled about since. The rule lives in
+  `resize-by-edge`, which is where both interactive resizes meet, so the
+  border drag and the keyboard mode cannot drift apart on it. Moving a
+  maximized window changes nothing under either answer (fvwm3 agrees) —
+  that gesture says nothing about size, and the desktops that unmaximize
+  on a title drag are resizing the window under the pointer, which is a
+  different thing nobody asked for here.
+
+  **The windows follow the workarea when it moves** — a panel that
+  changes side or grows a row on a reload, a tray icon that widens the
+  band, a screen resized under everything. One rule, applied to each axis
+  on its own: a window that SPANS the workarea in that axis (sitting at
+  the origin, exactly as long as maximize would have made it there) spans
+  the new one; one flush at the near or the far edge stays flush at that
+  edge of the new rect; one flush at neither does not move in that axis.
+  Both halves of the wish fall out of it — what looks maximized (spans
+  both axes) goes to the new maximization, and what was stuck to a border
+  re-sticks — and so does the case in between: a full-height column
+  re-fits in the axis it filled and re-sticks in the one it hugged.
+  Spanning is measured against what `maximize-fit` would produce and not
+  against the raw extent, or a maximized xterm — whole cells, slack at
+  the far edge — would read as merely flush at the near edge. The
+  maximized MARK is not touched in either direction: this is the WM
+  moving furniture rather than a hand on the window, so `drop` does not
+  fire, and a window that merely looks maximized is not marked as one.
+  A maximized window's saved geometry travels by the same rule, so the
+  way back does not end up under a panel that moved. Nothing is clamped
+  back onto the screen (a window parked half off the edge, or under the
+  panel because it claimed that corner, is related to no edge of ours),
+  and a window a gesture is holding right now is left to the gesture.
+  `set-workarea-follow off|max|stick`: `stick` is the whole rule and the
+  default, `max` moves only what looks maximized, `off` is what every
+  version before this did. **Fullscreen** on
   a client's EWMH request (`_NET_WM_STATE_FULLSCREEN`) — stronger than
   maximize, and deliberately so: it takes the whole SCREEN rather than
   the workarea, the decoration comes off, the panel and the tray go
@@ -1038,7 +1069,18 @@ runs as a single shell call:
   leader, not to the history), `run-wink-test.sh` (silence on
   WM_DELETE_WINDOW: a stubborn client gets a wink, one that closed in
   time does not), `run-randr-test.sh` (the WM inside a resizeable
-  nested Xephyr; shrink the screen and the panel follows the bottom),
+  nested Xephyr; shrink the screen and the panel follows the bottom —
+  and so does the maximized client, which is the workarea reflow with
+  the screen rather than a reload as its cause),
+  `run-reflow-test.sh` (the workarea moving under five windows, one per
+  per-axis case, through three live reloads that move the panel bottom →
+  top → right → left: the spanning column re-fits and the flush corner
+  re-sticks while the window flush with nothing does not move at all; a
+  maximized xterm is re-fitted rather than carried, which only holds if
+  spanning is measured with size hints and not raw extents; a maximized
+  window's saved geometry travels too, measured by unmaximizing it at the
+  end onto edges that have moved twice; and `set-workarea-follow off`
+  moves nothing),
   `run-place-test.sh` (the position claim: adoption preserves the
   corner, -geometry verbatim, hint-less windows cascade, a late move
   request is honestly carried out, a dialog's own +x+y beats

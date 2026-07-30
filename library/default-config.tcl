@@ -41,20 +41,32 @@
 # windows beats handing back a half-dead one:
 #   wm-style {filter -class {*.exe *.exe}} {minimize refuse}
 #
-# Maximize is a SAVED GEOMETRY and not a straitjacket: a maximized
-# window can be moved and resized by hand like any other, and the
-# toggle puts back what was saved when it was maximized. What a hand
-# resize should do to that mark has two honest answers, and this picks
-# between them:
-#   keep (default) — fvwm's. The mark survives; the toggle restores the
-#     pre-maximize geometry however the window has been pulled about.
-#   drop — the Windows/GNOME reading. A hand resize means this is no
-#     longer the maximized window, so the mark goes and the next toggle
-#     MAXIMIZES instead of restoring.
-#   set-maximize drop
+# Maximize is a SAVED GEOMETRY and not a state the client is held in: a
+# maximized window can be moved and resized by hand like any other. What
+# a hand resize should do to that mark has two honest answers, and this
+# picks between them:
+#   drop (default) — fvwm3's own, measured. A hand resize means this is
+#     no longer the maximized window: the mark goes, the next toggle
+#     MAXIMIZES instead of restoring (a window pulled bigger too), and it
+#     saves the hand-set geometry, so the toggle after that comes back to
+#     what the hand made.
+#   keep — the mark survives; the toggle restores the pre-maximize
+#     geometry however the window has been pulled about since.
+#   set-maximize keep
 # Both interactive resizes obey it — the border/corner drag and the
 # keyboard mode alike. Moving a maximized window changes nothing under
 # either answer.
+#
+# When the WORKAREA moves — this config changing the panel's side or
+# height on a reload, a tray icon widening the band, the screen resized
+# under everything — the windows follow it: what spans an axis of the old
+# workarea spans the new one (so what looks maximized goes to the new
+# maximization), what was flush against an edge is flush against that
+# edge of the new rect, and what was flush with nothing stays where it
+# is. `max` narrows that to windows that look maximized and nothing else;
+# `off` leaves every window exactly where it was.
+#   set-workarea-follow max
+#   set-workarea-follow off
 #
 # The mouse gesture that carries a window from ANYWHERE on it: hold
 # the modifier, press, move. Button 1 carries, button 3 resizes from

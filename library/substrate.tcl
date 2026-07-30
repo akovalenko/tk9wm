@@ -95,6 +95,11 @@
 #   policy-workarea         {x y w h} of the screen minus whatever the
 #                           policy reserves (panel, tray) — published as
 #                           EWMH _NET_WORKAREA
+#   policy-workarea-changed old new  that answer is not what it was:
+#                           the two rects, before and after. Whatever
+#                           the policy glued to a workarea edge re-glues
+#                           — its own furniture is placed by then, so
+#                           this is about the CLIENTS
 #
 # The substrate provides to the policy layer:
 #   focus-to w                  aim the input focus at w. For an ordinary
@@ -1596,6 +1601,16 @@ proc client-stacking {} {
 # a WM that leaves it unset makes everyone guess the full screen.
 # Republished whenever the policy's furniture moves; _NET_DESKTOP_GEOMETRY
 # follows the root's own size, which RandR can change under us.
+#
+# And it is the one place that knows the workarea CHANGED, which is a
+# fact of its own: every cause — a config reload, a panel that moved
+# side or grew a row, a tray icon that widened the band, a RandR resize
+# under everything — arrives here and nowhere else. So the comparison
+# lives here rather than in each of them, and the policy hears about
+# the change once, with both rects in hand. The remembered rect is
+# updated BEFORE the hook runs, so nothing the policy does inside it can
+# be read as a second change.
+set wa_published {}
 proc publish-workarea {} {
     if {![info exists ::NET_WORKAREA]} return
     set a [soft "workarea" { policy-workarea } {}]
@@ -1604,6 +1619,14 @@ proc publish-workarea {} {
         [list set-prop-longs $::root $::NET_WORKAREA 6 $a]   ;# XA_CARDINAL
     soft "publish _NET_DESKTOP_GEOMETRY" \
         [list set-prop-longs $::root $::NET_DESKTOP_GEOMETRY 6 [screen-size]]
+    if {$a eq $::wa_published} return
+    set was $::wa_published
+    set ::wa_published $a
+    # The FIRST publication is not a change: there was no workarea
+    # before it, and there are no windows either.
+    if {$was eq ""} return
+    puts "WM: workarea $was -> $a"
+    soft "workarea changed" [list policy-workarea-changed $was $a]
 }
 
 # _NET_WM_STATE — the EWMH state LIST. Two members are ours:
