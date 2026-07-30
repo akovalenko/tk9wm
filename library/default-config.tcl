@@ -376,6 +376,25 @@
 #   wm-bind {<Super>Return} {exec xterm &}
 #   wm-bind {<Super>t w x}  {exec xterm &}
 #
+# A TOP CHORD IS ALWAYS LIVE: pressed inside a sequence that does not
+# bind it, <Super>t starts over instead of failing, and <Alt>space
+# still opens the ops menu. So a forgotten half-typed prefix costs
+# nothing — press the prefix again. Bind a chord inside a submap and
+# THAT wins there, of course.
+#
+# A running sequence SHOWS itself: a small box says «Super+t …» while
+# it waits, and «Super+t z is undefined» for a moment when a press ends
+# it. It appears the instant the prefix lands; give it a delay in
+# milliseconds and it only shows up when you hesitate (Emacs's
+# echo-keystrokes), or switch it off:
+#   set-key-echo 400
+#   set-key-echo off
+#
+# Where it sits — the `place` grammar's edge words, sizeless (the box
+# is as big as its text), over the workarea; an unnamed axis centers:
+#   set-key-echo-place {right top}
+#   set-key-echo-place center
+#
 # The window list opened by a chord whose modifier is still held runs
 # the fvwm alt-tab cycle: Tab advances with wraparound (Shift+Tab
 # backwards), releasing the modifier commits; a quick full Alt+Tab

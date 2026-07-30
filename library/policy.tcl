@@ -2022,6 +2022,12 @@ proc wm-invariants {} {
     if {$::kbd_grabbed && !$modal && $::keyseq eq ""} {
         lappend bad "the keyboard is grabbed with no router and no key sequence"
     }
+    # The echo is the sequence's own face: it cannot outlive it. (Only
+    # the `keys` face — a `flash` is a message ABOUT a sequence that
+    # has ended, and standing there for its second is its whole job.)
+    if {$::keyecho_kind eq "keys" && $::keyseq eq ""} {
+        lappend bad "the key echo shows a sequence that is not running"
+    }
     return $bad
 }
 # Popup navigation keys (the owner's spec): arrows always; vi (k/j)
@@ -3183,6 +3189,139 @@ proc kbmr-key {kind name mods} {
         # ...and the compass stays where it was put — see compass-place
     }
     kbmr-readout
+}
+
+# ---- the key echo: a chord sequence, made visible ----
+#
+# A prefix takes the whole keyboard. Until now it did that in total
+# silence, which leaves the desk indistinguishable from a wedged one at
+# the exact moment one is least sure — and made an undefined key inside
+# a sequence the quietest event on the desk: nothing happened, nothing
+# said so (the owner, 2026-07-30).
+#
+# So the sequence shows itself, in the same amber the keyboard modes
+# wear, because it IS one of them: `Super+t …` while it waits, and
+# `Super+t z is undefined` for a moment when a press ends it. The
+# trailing ellipsis is the whole message in one character — the desk is
+# holding your keyboard and waiting for the rest.
+#
+# WHEN it appears is a knob and the default is AT ONCE, which is not
+# Emacs's default (echo-keystrokes waits a second) and is deliberate:
+# Emacs echoes a prefix one types hundreds of times an hour, where a
+# box appearing on every C-x would be noise. Here a chord is a rare,
+# deliberate thing, and the feedback asked for was "while you type"
+# (the owner). Whoever finds the flash of a fast Super+t q too much
+# sets a delay and only ever sees the box when hesitating, which is
+# Emacs's behaviour and one number away.
+#
+# It is an override-redirect toplevel like the compass and the menus,
+# takes no focus and answers no clicks: it is a readout, not a widget.
+# The window is NAMED, which costs nothing and lets a test outside this
+# process assert that a box really is on the screen rather than trust
+# our own log for it.
+set key_echo 0                  ;# ms of hesitation before it shows; off = never
+set key_echo_place {hcenter bottom}
+set KEY_ECHO_HOLD 1200          ;# how long a flash stands before it goes
+set KEY_ECHO_BAD  #a40000       ;# ...and the color it stands in
+set keyecho_kind none           ;# none | keys | flash — what is up right now
+set keyecho_pending ""          ;# the text a delayed `keys` is going to show
+
+proc set-key-echo {spec} {
+    if {$spec eq "off"} { set ::key_echo off; return }
+    if {![string is integer -strict $spec] || $spec < 0} {
+        error "set-key-echo: milliseconds of hesitation before the box shows,\
+ 0 for the moment the prefix lands, or off"
+    }
+    set ::key_echo $spec
+}
+# Where it sits, in the `place` grammar's own words — but SIZELESS
+# terms only: the box is as big as its text, so a percentage has
+# nothing to size. An axis nobody names is centered on the workarea.
+proc set-key-echo-place {spec} {
+    keyecho-anchor $spec        ;# a typo is reported now, not at the next chord
+    set ::key_echo_place $spec
+}
+proc keyecho-anchor {spec} {
+    set h center
+    set v center
+    foreach term [split [string map {, " "} $spec]] {
+        if {$term eq ""} continue
+        if {[regexp {^[0-9]+%} $term]} {
+            error "set-key-echo-place: the box is as big as its text —\
+ «$term» has nothing to size"
+        }
+        switch -- $term {
+            left    { set h start }
+            right   { set h end }
+            hcenter { set h center }
+            top     { set v start }
+            bottom  { set v end }
+            vcenter { set v center }
+            center  { set h center; set v center }
+            default { error "set-key-echo-place: cannot read term «$term»" }
+        }
+    }
+    list $h $v
+}
+
+# The substrate's hook. Every call cancels both timers first: whatever
+# the box was about, it is about this now.
+proc policy-key-echo {kind {text ""}} {
+    after cancel keyecho-due
+    after cancel keyecho-hide
+    if {$kind eq "none"} { keyecho-hide; return }
+    if {$::key_echo eq "off"} return
+    switch -- $kind {
+        keys {
+            set ::keyecho_pending $text
+            # Up already, or wanted at once: no second wait. A delay is
+            # about the FIRST chord — once the box is on the screen it
+            # has to follow the typing, not lag a step behind it.
+            if {$::keyecho_kind eq "keys" || $::key_echo == 0} {
+                keyecho-due
+            } else {
+                after $::key_echo keyecho-due
+            }
+        }
+        flash {
+            # Shown whether or not the box had made it up: this one is
+            # the report, and a fast typist is exactly who gets no
+            # warning otherwise.
+            keyecho-show flash $text
+            after $::KEY_ECHO_HOLD keyecho-hide
+        }
+        default { error "policy-key-echo: unknown kind «$kind»" }
+    }
+}
+proc keyecho-due {} { keyecho-show keys "$::keyecho_pending …" }
+proc keyecho-show {kind text} {
+    set b .keyecho
+    if {![winfo exists $b]} {
+        toplevel $b -background $::OUTLINE
+        wm overrideredirect $b 1
+        wm title $b tk9wm-key-echo
+        label $b.t -font TitleFont -justify left -padx 10 -pady 4
+        place $b.t -x 1 -y 1
+    }
+    $b.t configure -text $text -foreground white \
+        -background [expr {$kind eq "flash" ? $::KEY_ECHO_BAD : $::KBMR_BG}]
+    set ::keyecho_kind $kind
+    update idletasks
+    set W [expr {[winfo reqwidth $b.t] + 2}]
+    set H [expr {[winfo reqheight $b.t] + 2}]
+    lassign [workarea] wax way ww wh
+    lassign [keyecho-anchor $::key_echo_place] halign valign
+    wm geometry $b ${W}x${H}+[place-axis $wax $ww $W $halign]+[place-axis\
+ $way $wh $H $valign]
+    raise $b
+    update idletasks
+    puts "WM: key echo ($kind) «$text»"
+}
+proc keyecho-hide {} {
+    set ::keyecho_kind none
+    if {![winfo exists .keyecho]} return
+    destroy .keyecho
+    puts "WM: key echo off"
 }
 
 # ---- the panel ----
@@ -4436,6 +4575,7 @@ set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
+    key_echo key_echo_place
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
 proc policy-snapshot-defaults {} {

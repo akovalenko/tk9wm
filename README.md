@@ -249,7 +249,8 @@ frames a client and shows a panel has proved both libraries loaded.
   machinery (`wm-bind` — chord sequences with stumpwm semantics:
   XGrabKey on the first chord only, as a quadruple over Caps/Num; the
   tail runs under a temporary XGrabKeyboard, Esc or an unknown key
-  aborts; re-grab on MappingNotify. `grab-keys-to` — keyboard modality
+  aborts; re-grab on MappingNotify; a running sequence reports itself
+  through `policy-key-echo`. `grab-keys-to` — keyboard modality
   for UI on top of that same grab, the router gets press AND release.
   `modifier-held` — is the modifier physically down, via XQueryKeymap —
   the fvwm alt-tab semantics rest on it. `x-group` — read the xkb group
@@ -598,6 +599,43 @@ frames a client and shows a panel has proved both libraries loaded.
   what a chord ignores, and none of this touches the xkb configuration
   — it is all on our side of the event.
 
+  **A top chord is always live.** Inside a sequence, a press the
+  current submap does not know but the TOP map does starts over from
+  there instead of aborting — reaching for `<Super>t` when a forgotten
+  `<Super>t` is already pending is the commonest way to land on
+  "undefined key" by accident, and the intent behind that press is
+  never "abort", it is "begin" (the owner, 2026-07-30). It costs a
+  sequence nothing, because the SUBMAP IS ASKED FIRST: a config that
+  binds `<Super>t` under `<Super>t` keeps that meaning exactly where it
+  bound it, and the restart applies everywhere else. The same holds for
+  a top chord that is an ACTION rather than a prefix — `<Alt>space`
+  still opens the ops menu from inside a half-typed sequence, which is
+  the same promise ("a global key is global") read from the other end.
+  Escape sits between the two maps: a submap's own Escape beats the
+  cancel, and the cancel beats the restart, since a globally bound
+  Escape would otherwise take away the one way out that works from
+  anywhere.
+
+  **A sequence shows itself** (`set-key-echo`, `set-key-echo-place`), in
+  the same amber the keyboard modes wear, because it is one of them: a
+  small box says `Super+t …` while it waits for the rest, and
+  `Super+t z is undefined` for a moment when a press ends it. A prefix
+  takes the whole keyboard, and doing that in silence leaves the desk
+  indistinguishable from a wedged one at the exact moment one is least
+  sure — while an undefined key inside a sequence was the quietest
+  event on the desk: nothing happened, and nothing said so. It appears
+  **at once** by default, which is deliberately not Emacs's
+  `echo-keystrokes` (a second's hesitation first): Emacs echoes a
+  prefix typed hundreds of times an hour, where a box on every `C-x`
+  would be noise, and a WM chord is a rare deliberate thing. Whoever
+  finds the flash of a fast `Super+t q` too much sets a delay in
+  milliseconds and gets Emacs's behaviour, or `off`. The placement
+  knob takes the `place` grammar's edge words, sizeless (the box is as
+  big as its text), over the workarea. The substrate only knows WHEN
+  there is something to say (`policy-key-echo kind text`); what it
+  looks like is the policy's, and the window is named `tk9wm-key-echo`
+  so a test outside the process can assert it is really on the screen.
+
   **One router, and taking it serves notice.** Everything
   keyboard-modal here goes through `grab-keys-to` — the menus, the
   confirmation, the keyboard move/resize — and it is a SINGLE SLOT.
@@ -621,7 +659,8 @@ frames a client and shows a panel has proved both libraries loaded.
   what must be true when nothing is mid-gesture (a keyboard mode is the
   router's holder or is not there at all; no compass without a mode; no
   frame wearing the modal amber without one; no popup without a router;
-  the keyboard never grabbed for nobody), and a violation goes to the
+  the keyboard never grabbed for nobody; no key echo showing a sequence
+  that is not running), and a violation goes to the
   log as `WM: INVARIANT …`. That makes the check free for every
   scenario the suite drives, whatever it was written for —
   `check_invariants` in `tests/common.sh` is one line at the end of a
@@ -1056,6 +1095,15 @@ runs as a single shell call:
   releasing Alt; the static list on `Super+t w w` with a bare number
   hotkey; the sequence `Super+t w m` opens winops through prefix grabs;
   an abort on an unknown key does not break the machinery),
+  `run-keyecho-test.sh` (what a sequence says about itself and the
+  always-live top chord: the box appears with the prefix and follows
+  the typing — asserted from OUTSIDE the process, by finding the named
+  window on the screen, not by believing our own log — sits where
+  `set-key-echo-place` put it, leaves with the sequence, reports an
+  undefined key for its second and no longer; `Super+t` inside a
+  sequence restarts it and the echo starts over, `Alt+Space` inside one
+  reaches its action, and where the config binds `<Super>t` under
+  `<Super>t` the submap wins),
   `run-icon-test.sh` (winlist icons from all three sources at once: a
   client's `_NET_WM_ICON` is read and downscaled, a config style rule
   overrides it, an icon-less client gets a pseudo-badge; the number

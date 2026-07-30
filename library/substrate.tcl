@@ -100,6 +100,14 @@
 #                           the policy glued to a workarea edge re-glues
 #                           — its own furniture is placed by then, so
 #                           this is about the CLIENTS
+#   policy-key-echo kind text  a chord sequence has something to say
+#                           about itself: `keys` + the chords typed so
+#                           far (a sequence is running and the keyboard
+#                           is ours), `flash` + a line about a press
+#                           that ended it, `none` (nothing is running,
+#                           take it down). What that LOOKS like is the
+#                           policy's; the substrate only knows when
+#                           there is something to say
 #
 # The substrate provides to the policy layer:
 #   focus-to w                  aim the input focus at w. For an ordinary
@@ -2652,13 +2660,16 @@ proc tray-stop {why} {
 # per prefix and everything behind it stays available to applications.
 # Esc or an unbound chord aborts the sequence. Later binds win — the
 # config overrides the in-code defaults by simply binding over them.
-# No prefix-in-progress indication in v1. The KeyPress events of both
-# grab kinds arrive on this raw connection, in the same handle-event
-# dispatcher as everything else.
+# A sequence in progress SHOWS itself (policy-key-echo, and the policy
+# decides what that looks like), because a grabbed keyboard that says
+# nothing is indistinguishable from a wedged one. The KeyPress events
+# of both grab kinds arrive on this raw connection, in the same
+# handle-event dispatcher as everything else.
 
 set keymap {}       ;# nested dict: "mods,keysym" -> {action script} | {map submap}
 set grabbed_top {}  ;# top chords held by XGrabKey — the MappingNotify re-grab list
 set keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
+set keyseq_keys {}  ;# ...and the chords that got us there, for the echo
 set kbd_grabbed 0
 set keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
 set keyrouter_lost ""   ;# ...and this is its notice, see grab-keys-to
@@ -2810,10 +2821,19 @@ proc keyseq-end {} {
         set ::kbd_grabbed 0
     }
     set ::keyseq ""
+    set ::keyseq_keys {}
+    policy-key-echo none
 }
-proc keyseq-abort {why} {
+# The chords typed so far, as one line — what the echo is about.
+proc keyseq-text {} { join $::keyseq_keys " " }
+# `flash` is what the echo says about the abort AFTER the state is
+# gone, so it has to be composed by the caller, while keyseq-text can
+# still answer. Empty for a cancel the user asked for: Escape needs no
+# report, one already knows.
+proc keyseq-abort {why {flash ""}} {
     puts "WM: key sequence abort ($why)"
     keyseq-end
+    if {$flash ne ""} { policy-key-echo flash $flash }
 }
 
 # Keyboard-modal UI (the menus): hold the keyboard and route every key
@@ -2938,8 +2958,26 @@ proc modifier-held {mask} {
 # One KeyPress from our grabs walks the keymap: idle state consults the
 # top map (the press came through a top-chord XGrabKey), a sequence in
 # progress consults its current submap (the press came through the
-# temporary XGrabKeyboard). An unbound press aborts a sequence but is
-# ignored in idle state — a stale grab echo is not an error.
+# temporary XGrabKeyboard). An unbound press aborts a sequence — out
+# loud, see keyseq-abort — but is ignored in idle state, a stale grab
+# echo being no error.
+#
+# A TOP CHORD IS ALWAYS LIVE. Inside a sequence, a press the current
+# submap does not know but the TOP map does starts over from there
+# instead of aborting: reaching for <Super>t when a forgotten <Super>t
+# is already pending is the commonest way to arrive at "undefined key"
+# by accident, and the intent behind the press is never "abort" — it
+# is "begin" (the owner, 2026-07-30). It costs the sequence nothing:
+# THE SUBMAP IS ASKED FIRST, so a config that binds <Super>t under
+# <Super>t keeps its meaning exactly where it bound it, and the
+# restart applies everywhere else. The same holds for a top chord that
+# is an ACTION and not a prefix: a global key stays global, which is
+# the same promise read from the other end.
+#
+# Escape sits BETWEEN the two maps. The submap's own Escape beats the
+# cancel — the particular beats the rule — but the cancel beats the
+# restart, because a globally bound Escape would otherwise take away
+# the one way out that works from anywhere.
 # Which bits of a key event's state are none of a chord's business.
 # Lock and Mod2 are Caps and Num, which make no chord distinct — and
 # neither does the xkb GROUP, which XKB reports in bits 13-14 of the
@@ -2969,17 +3007,25 @@ proc handle-key {state kc time} {
         return
     }
     if {[info exists ::ismodks($ks)]} return
-    if {$::keyseq ne ""} {
-        if {$ks == $::KS_ESC} { keyseq-abort Esc; return }
-        set node $::keyseq
-    } else {
-        set node $::keymap
-    }
     set k "$mods,$ks"
-    if {![dict exists $node $k]} {
-        if {$::keyseq ne ""} { keyseq-abort "[chord-name $mods $ks] unbound" }
-        return
+    set node $::keymap
+    set restart 0
+    if {$::keyseq ne ""} {
+        if {[dict exists $::keyseq $k]} {
+            set node $::keyseq
+        } elseif {$ks == $::KS_ESC} {
+            keyseq-abort Esc
+            return
+        } elseif {[dict exists $::keymap $k]} {
+            puts "WM: key [chord-name $mods $ks] restarts the sequence"
+            set restart 1
+        } else {
+            keyseq-abort "[chord-name $mods $ks] unbound" \
+                "[keyseq-text] [chord-name $mods $ks] is undefined"
+            return
+        }
     }
+    if {![dict exists $node $k]} return
     lassign [dict get $node $k] kind payload
     if {$kind eq "action"} {
         # release the keyboard BEFORE the action: it may want focus.
@@ -3000,8 +3046,11 @@ proc handle-key {state kc time} {
             }
             set ::kbd_grabbed 1
         }
+        if {$restart} { set ::keyseq_keys {} }
         puts "WM: key [chord-name $mods $ks] -> prefix"
         set ::keyseq $payload
+        lappend ::keyseq_keys [chord-name $mods $ks]
+        policy-key-echo keys [keyseq-text]
     }
 }
 
