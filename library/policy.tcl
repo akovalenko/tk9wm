@@ -4841,14 +4841,37 @@ proc geometry-held-p {w} {
 # One axis. o0/o and n0/n are that axis of the old and the new workarea,
 # p/s where the frame sits and how long it is, om/nm the length a
 # maximized frame would have in each. Returns {position length how}.
-proc reflow-axis {o0 o n0 n p s om nm} {
+# The FAR edge is asked about with SLACK, and that is not a fudge — it
+# is the difference between this rule working for a browser and working
+# for a terminal (the owner's report, 2026-07-30: on a panel change the
+# browsers re-stuck and xterm and emacs sat where they were).
+#
+# A window whose size is quantized CANNOT put its far edge on the
+# workarea's. Drag an xterm's bottom edge down until it stops at the
+# panel and the height snaps to whole cells: the frame ends a few
+# pixels short, for good, by construction. Asked for an exact match
+# that window is "flush at neither edge" and never moves again —
+# whereas a browser, free to be any height, lands on the pixel and
+# re-sticks. Nothing about it is a browser-versus-terminal difference;
+# it is a divisible-versus-quantized one.
+#
+# So flush at the far edge means AS CLOSE AS THIS WINDOW CAN GET: short
+# by less than one increment. For a client with no increments the slack
+# is 1 and the test is the exact one it always was. The near edge needs
+# none of this — a position is never quantized — and neither does span,
+# which is measured against maximize-fit and so carries the same slack
+# already.
+proc reflow-axis {o0 o n0 n p s om nm {slack 1}} {
     if {$p == $o0 && $s == $om}  { return [list $n0 $nm span] }
     if {$p == $o0}               { return [list $n0 $s near] }
-    if {$p + $s == $o0 + $o} {
+    set short [expr {$o0 + $o - ($p + $s)}]
+    if {$short >= 0 && $short < $slack} {
         # The near edge wins a window too long to fit, the same way
         # clamp-to-rect decides it: better to lose the far edge than the
-        # one with the title bar on it.
-        return [list [expr {max($n0, $n0 + $n - $s)}] $s far]
+        # one with the title bar on it. The slack travels with it: the
+        # window keeps its size, so it ends up as short of the new far
+        # edge as it was of the old one, which is how it looked.
+        return [list [expr {max($n0, $n0 + $n - $s - $short)}] $s far]
     }
     return [list $p $s stay]
 }
@@ -4864,12 +4887,18 @@ proc reflow-client {w old new} {
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
     lassign [maximize-fit $w $old] omw omh
     lassign [maximize-fit $w $new] nmw nmh
+    # How close this client can get to a far edge at all — its own
+    # granularity, whoever imposed it (see reflow-axis).
+    lassign [client-size-hints $w] - - incw inch
+    set incw [expr {max($incw, 1)}]
+    set inch [expr {max($inch, 1)}]
     lassign [reflow-axis [lindex $old 0] [lindex $old 2] \
                          [lindex $new 0] [lindex $new 2] $X $fw \
-                         [expr {$omw + 2*$B}] [expr {$nmw + 2*$B}]] nX nfw hx
+                         [expr {$omw + 2*$B}] [expr {$nmw + 2*$B}] $incw] nX nfw hx
     lassign [reflow-axis [lindex $old 1] [lindex $old 3] \
                          [lindex $new 1] [lindex $new 3] $Y $fh \
-                         [expr {$omh + $top + $B}] [expr {$nmh + $top + $B}]] nY nfh hy
+                         [expr {$omh + $top + $B}] [expr {$nmh + $top + $B}] \
+                         $inch] nY nfh hy
     # `max` means what it says: a window that does not look maximized —
     # spanning BOTH axes — is not touched at all, not even in the axis it
     # happens to fill.
@@ -4888,10 +4917,11 @@ proc reflow-client {w old new} {
     lassign $::maxsaved($w) scw sch sX sY
     lassign [reflow-axis [lindex $old 0] [lindex $old 2] \
                          [lindex $new 0] [lindex $new 2] $sX [expr {$scw + 2*$B}] \
-                         [expr {$omw + 2*$B}] [expr {$nmw + 2*$B}]] sX sfw -
+                         [expr {$omw + 2*$B}] [expr {$nmw + 2*$B}] $incw] sX sfw -
     lassign [reflow-axis [lindex $old 1] [lindex $old 3] \
                          [lindex $new 1] [lindex $new 3] $sY [expr {$sch + $top + $B}] \
-                         [expr {$omh + $top + $B}] [expr {$nmh + $top + $B}]] sY sfh -
+                         [expr {$omh + $top + $B}] [expr {$nmh + $top + $B}] \
+                         $inch] sY sfh -
     set ::maxsaved($w) \
         [list [expr {$sfw - 2*$B}] [expr {$sfh - $top - $B}] $sX $sY]
 }
@@ -4979,6 +5009,23 @@ proc policy-reset {} {
     policy-default-bindings
 }
 proc policy-apply {} {
+    # A VERDICT COMPUTED WHILE THE CONFIG WAS STILL SPEAKING IS
+    # PROVISIONAL. policy-reset drops this cache before the config is
+    # read, which is not enough: a knob that touches live frames —
+    # set-title-font and set-title-justify both do, through
+    # retitle-frames — asks every framed client for its style ON THE
+    # SPOT, and the rules declared LATER in the same file are not there
+    # yet. The verdict computed from half a config is then cached and
+    # nothing drops it again.
+    #
+    # That is the owner's report (2026-07-30): his `wm-style always
+    # {increments ignore}` sits below his set-title-font, so every
+    # reload cached "respect" for every window on the desk and his
+    # terminals started snapping to cells again. It depended on the
+    # ORDER OF LINES IN HIS CONFIG, which is why it looked arbitrary —
+    # and a RESTART cured it, adoption happening after the whole config
+    # is read, which is why he could not pin it on either.
+    array unset ::styleof
     panels-build        ;# no buttons declared -> the strip goes away
     tray-reconcile      ;# start, stop or leave the tray exactly alone
     retitle-frames      ;# live frames follow the metrics and the font

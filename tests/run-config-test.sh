@@ -57,8 +57,38 @@ GEOM_A=$GEOM
 phase dev B
 import -display :76 -window root "$HERE/config-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/config-test.png"
-kill $WM $CL 2>/dev/null
 GEOM_B=$GEOM
+
+# --- does the style SURVIVE? The owner's report (2026-07-30) was that
+# his `wm-style always {increments ignore}` had come off his windows,
+# and he could not tell whether a config reload had done it or an
+# earlier restart of the window manager. So the same drag is repeated
+# after each — nothing is changed in between, and the answer is the
+# geometry.
+#
+# The drag is on the RIGHT edge, so each one grows the client by 37 and
+# the expectation grows with it: 337, then 374, then 411 if the ignore
+# holds; anything snapped to a multiple of 10 is the ignore lost.
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :76 >/dev/null 2>&1
+sleep 1.2
+FX=$(xwininfo -id "$AID" | awk '/Absolute upper-left X/ {print $NF - 6}')
+FY=$(xwininfo -id "$AID" | awk '/Absolute upper-left Y/ {print $NF - 34}')
+drag $((FX + 346)) $((FY + 120)) $((FX + 383)) $((FY + 120))
+GEOM_RELOAD=$(xwininfo -id "$AID" \
+    | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
+
+# ...and the restart, which is the one he suspected: the clients are
+# released, the process execs itself, and the survivors are ADOPTED by
+# a fresh instance. If adoption ran before the config were read, or
+# past it, this is where the ignore would go.
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :76 >/dev/null 2>&1
+sleep 2.5
+FX=$(xwininfo -id "$AID" | awk '/Absolute upper-left X/ {print $NF - 6}')
+FY=$(xwininfo -id "$AID" | awk '/Absolute upper-left Y/ {print $NF - 34}')
+drag $((FX + 383)) $((FY + 120)) $((FX + 420)) $((FY + 120))
+GEOM_RESTART=$(xwininfo -id "$AID" \
+    | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
+kill $WM $CL 2>/dev/null
 
 echo "--- verdict"
 if grep -q 'WM: config .*default-config\.tcl$' "$HERE/wm-config-A.log"; then
@@ -80,4 +110,14 @@ if [ "$GEOM_B" = "337x200" ]; then
     echo "OK: styled ignore — the same drag lands raw at $GEOM_B"
 else
     echo "FAIL: phase B client is $GEOM_B, want 337x200"
+fi
+if [ "$GEOM_RELOAD" = "374x200" ]; then
+    echo "OK: ...and it survives a config RELOAD ($GEOM_RELOAD, still raw)"
+else
+    echo "FAIL: after a reload the drag landed $GEOM_RELOAD, want 374x200"
+fi
+if [ "$GEOM_RESTART" = "411x200" ]; then
+    echo "OK: ...and a RESTART, adoption and all ($GEOM_RESTART, still raw)"
+else
+    echo "FAIL: after a restart the drag landed $GEOM_RESTART, want 411x200"
 fi

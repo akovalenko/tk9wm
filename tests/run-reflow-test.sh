@@ -32,6 +32,14 @@
 #             both, and its SAVED geometry is flush at both far edges, so
 #             the way back has to travel too — measured by unmaximizing
 #             it at the end.
+#   setka     a GRIDDED client (inc 10x10) standing six pixels short of
+#             both far edges — which is what "flush" means for a window
+#             whose size is quantized, and the case the owner reported
+#             (2026-07-30: on a panel change his browsers re-stuck and
+#             xterm and emacs sat where they were). It cannot be placed
+#             by rule: a placement lands its pinned edge exactly, so
+#             this one claims its own position and the shell works out
+#             the arithmetic from the published workarea.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:55
 rm -f /tmp/.X55-lock /tmp/.X11-unix/X55
@@ -111,6 +119,20 @@ chord() {   # chord CLIENT-ID KEY
 MAKS_SIZE=$(size "$MAKS")     # what the way back must come back to
 chord "$MAKS" x               # ...and it is maximized from here on
 eval "$(wa)"
+
+# The gridded one, six pixels short of both far edges. A position claim
+# with the usual NorthWest gravity places the FRAME (measured here, and
+# the reading step 62 settled), so the arithmetic is the frame's: 300x200
+# of client plus the border on both sides and the strip on top.
+SHORT=6
+GX=$((WAX + WAW - SHORT - 300 - 2 * B))
+GY=$((WAY + WAH - SHORT - 200 - TOP - B))
+"$LINUX/whale" "$HERE/client-grid.tcl" setka "#e9b96e" "+$GX+$GY" 120 &
+CLIENTS="$CLIENTS $!"; sleep 1.5
+SETKA=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | tail -1)
+SR=$(right "$SETKA");  A_SETKA_SHORT_R=$((WAX + WAW - SR))
+SB=$(bottom "$SETKA"); A_SETKA_SHORT_B=$((WAY + WAH - SB))
+echo "    setka $(rect "$SETKA") — short by $A_SETKA_SHORT_R/$A_SETKA_SHORT_B"
 A_SEREDINA=$(rect "$SEREDINA"); A_TERM_W=$(fw "$TERM")
 echo "--- pass A (panel bottom), workarea ${WAW}x${WAH}+${WAX}+${WAY}"
 echo "    stolb $(rect "$STOLB")  ugol $(rect "$UGOL")  seredina $A_SEREDINA"
@@ -125,6 +147,8 @@ B_STOLB_Y=$(fy "$STOLB"); B_STOLB_W=$(fw "$STOLB")
 B_UGOL_BOTTOM=$(bottom "$UGOL"); B_UGOL_RIGHT=$(right "$UGOL")
 B_SEREDINA=$(rect "$SEREDINA")
 B_MAKS_X=$(fx "$MAKS"); B_MAKS_Y=$(fy "$MAKS"); B_TERM_Y=$(fy "$TERM")
+SB=$(bottom "$SETKA"); B_SETKA_SHORT_B=$((WAY + WAH - SB))
+SR=$(right "$SETKA");  B_SETKA_SHORT_R=$((WAX + WAW - SR))
 echo "--- pass B (panel top), workarea ${WAW}x${WAH}+${WAX}+${WAY}"
 echo "    stolb $(rect "$STOLB")  ugol $(rect "$UGOL")  seredina $B_SEREDINA"
 echo "    terminal $(rect "$TERM")  maksugol $(rect "$MAKS")"
@@ -140,6 +164,8 @@ C_UGOL_RIGHT=$(right "$UGOL"); C_UGOL_BOTTOM=$(bottom "$UGOL")
 C_SEREDINA=$(rect "$SEREDINA")
 C_TERM_X=$(fx "$TERM"); C_TERM_W=$(fw "$TERM"); C_TERM_RIGHT=$(right "$TERM")
 C_MAKS_X=$(fx "$MAKS"); C_MAKS_W=$(fw "$MAKS")
+SR=$(right "$SETKA");  C_SETKA_SHORT_R=$((WAX + WAW - SR))
+C_SETKA_SIZE=$(size "$SETKA")
 echo "--- pass C (panel right), workarea ${WAW}x${WAH}+${WAX}+${WAY}"
 echo "    stolb $(rect "$STOLB")  ugol $(rect "$UGOL")  seredina $C_SEREDINA"
 echo "    terminal $(rect "$TERM")  maksugol $(rect "$MAKS")"
@@ -195,6 +221,10 @@ expect "...and its right edge, whose far edge did not move, stays put" \
 expect "the maximized window moves to the new origin" \
     "0 $B_WAY" "$B_MAKS_X $B_MAKS_Y"
 expect "the xterm too, increments and all" "$B_WAY" "$B_TERM_Y"
+expect "the gridded window, six short of the bottom, is six short of the new one" \
+    "$A_SETKA_SHORT_B" "$B_SETKA_SHORT_B"
+expect "...and its right edge, whose far edge did not move, is unchanged" \
+    "$A_SETKA_SHORT_R" "$B_SETKA_SHORT_R"
 expect "the window flush with nothing does not move" "$A_SEREDINA" "$B_SEREDINA"
 has "the substrate said the workarea changed" 'WM: workarea 0 0 800'
 has "and the reflow named the case it found: span/near for the column" \
