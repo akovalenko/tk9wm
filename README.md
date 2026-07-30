@@ -469,6 +469,22 @@ frames a client and shows a panel has proved both libraries loaded.
   So `policy-apply` drops the cache once more, after the config has
   finished.
 
+  **A reload is ONE workarea transition** (`workarea-held`). A reload
+  tears the panel down and builds it again, so the workarea flaps — and
+  the first hop used to be handled the instant a config line touched
+  the panel, with the rules below it not yet declared. `increments`
+  then read as `respect`, maximize-fit snapped, and a window whose size
+  is quantized was not recognized as spanning: three clients out of six
+  moved and the ones with increments did not, after which they matched
+  no edge of anything and the second hop correctly left them alone (the
+  owner, 2026-07-30 — "it seems to depend on a pause"; what it depended
+  on was where in his config the panel-touching line sat). So the
+  property still publishes at every step — a client that asks gets
+  today's answer — while the POLICY hears about it once, when the whole
+  config has spoken. Startup is held the same way. It also ends
+  something that was always visible and always pointless: every window
+  bouncing out to full width and back on every reload.
+
   **The windows follow the workarea when it moves** — a panel that
   changes side or grows a row on a reload, a tray icon that widens the
   band, a screen resized under everything. One rule, applied to each axis
