@@ -260,6 +260,10 @@ proc retitle-frames {} {
         # columns, elements and styles are per widget — so the strip is
         # thrown away and built again, which also puts the title back
         # from where the WM keeps it.
+        # ...and the resting opacity, which a rule may have just
+        # granted or taken away. A window a COMMAND faded stays faded:
+        # that was the user, and a reload is not an answer to him.
+        if {![info exists ::opacityof($w)]} { apply-opacity $w }
         set want [client-buttons $w]
         if {$want ne [frame-buttons $t]} {
             unset -nocomplain ::btn($t)
@@ -951,13 +955,14 @@ proc policy-detach {w} {
     }
     unset -nocomplain ::btn($::frameof($w)) ::fullframe($::frameof($w)) \
         ::chromeof($::frameof($w))
+    unset -nocomplain ::btncols($::frameof($w))   ;# the frame's, not the client's
     destroy $::frameof($w)
     unset ::frameof($w)
     unset -nocomplain ::titleof($w)
     unset -nocomplain ::leaderof($w)
     unset -nocomplain ::placeof($w)
     unset -nocomplain ::maxsaved($w) ::fssaved($w)
-    unset -nocomplain ::styleof($w)
+    unset -nocomplain ::styleof($w) ::opacityof($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
     panel-match-kick
 }
@@ -1253,6 +1258,68 @@ proc policy-paint-focus {w} {
     }
 }
 
+# ---- fade: how solid a window is ----
+#
+# A frame's translucency is one property on the frame,
+# _NET_WM_WINDOW_OPACITY, which a COMPOSITOR reads and applies; Tk
+# spells it `wm attributes -alpha` and puts it on the toplevel's
+# wrapper — the very window a compositor composites (tkUnixWm.c:1289).
+# So it changes ON THE FLY: set the property on a mapped window and the
+# next frame the compositor draws is the new one. No unmap, no remap,
+# nothing recreated — measured, not assumed (run-fade-test.sh watches
+# the server's own event stream across the change and insists there is
+# no map in it).
+#
+# What CANNOT be done on the fly is the other kind of transparency:
+# per-pixel alpha needs a 32-bit ARGB visual, and a window's visual is
+# chosen when it is created and never after — the tray's own backdrop
+# already lives with that (set-tray-argb). Uniform opacity has no such
+# problem, and uniform opacity is what a frame wants.
+#
+# With no compositor running the property is simply ignored by
+# everybody: nothing breaks, nothing fades. That is the compositor's
+# half of the bargain, not ours.
+set fade 0.8
+proc set-fade {a} {
+    if {![string is double -strict $a] || $a <= 0.0 || $a > 1.0} {
+        error "set-fade: how solid a faded window is, above 0 and up to 1"
+    }
+    set ::fade $a
+}
+# The value a client rests at when nothing has faded it — its style's,
+# and solid unless a rule says otherwise.
+proc rest-opacity {w} {
+    set st [style-of $w]
+    if {[dict exists $st opacity]} { return [dict get $st opacity] }
+    return 1.0
+}
+proc frame-opacity {w a} {
+    if {![info exists ::frameof($w)]} return
+    wm attributes $::frameof($w) -alpha $a
+    set ::opacityof($w) $a
+    puts "WM: opacity 0x[format %x $w] -> $a"
+}
+proc window-opacity {w} {
+    expr {[info exists ::opacityof($w)] ? $::opacityof($w) : [rest-opacity $w]}
+}
+# A USER toggles and a PROGRAM does not — the same rule Maximize lives
+# by, and for the same reason: `Apply-To-Matching always Fade` means
+# make this desk faded, not flip every window and see what happens.
+proc fade-command {w} {
+    if {[interactive-p] && [window-opacity $w] != [rest-opacity $w]} {
+        unfade-command $w
+    } else {
+        frame-opacity $w $::fade
+    }
+}
+proc unfade-command {w} { frame-opacity $w [rest-opacity $w] }
+# At map time, so a style that asks for it is answered before the
+# window is ever seen solid. Nothing to do in the common case.
+proc apply-opacity {w} {
+    set a [rest-opacity $w]
+    if {$a != 1.0} { frame-opacity $w $a }
+}
+
 # ---- minimize: honored, or refused out loud ----
 # What to do when a client asks to be iconified (ICCCM WM_CHANGE_STATE
 # — Tk's `wm iconify`, wine's Win32 minimize). Two answers, and the
@@ -1484,6 +1551,7 @@ proc policy-client-click {w} {
 proc policy-managed {w} {
     raise-group $w
     focus-to $w
+    apply-opacity $w
     panel-match-kick
 }
 
@@ -2669,6 +2737,8 @@ set window_commands {
     Move         move-keyboard
     Resize       resize-keyboard
     Minimize     policy-minimize-request
+    Fade         fade-command
+    Unfade       unfade-command
 }
 proc window-do {name {w 0}} {
     if {$w == 0} { set w [current-window] }
@@ -4871,7 +4941,7 @@ set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
-    key_echo key_echo_place titlebar_buttons titlebar_gestures
+    key_echo key_echo_place titlebar_buttons titlebar_gestures fade
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
 proc policy-snapshot-defaults {} {

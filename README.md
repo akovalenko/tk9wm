@@ -511,6 +511,28 @@ frames a client and shows a panel has proved both libraries loaded.
   was. The menu drops from the top-left corner, and the titlebar has a
   menu button of its own on the left.
 
+  **Fade** (`set-fade`, default 0.8; the `opacity` style key; the
+  `Fade`/`Unfade` command pair) — a frame made translucent, frame and
+  client together, since the client is the frame's child and a
+  compositor blends the tree. It happens ON THE FLY, and that was the
+  question worth measuring rather than answering (the owner,
+  2026-07-30): the opacity is one property a compositor reads
+  (`_NET_WM_WINDOW_OPACITY`, which Tk spells `wm attributes -alpha` and
+  puts on the toplevel's WRAPPER — the very window the compositor
+  composites), so setting it on a mapped window is all there is to it.
+  `run-fade-test.sh` proves both halves: the titlebar pixel goes to
+  exactly half of itself plus half of the desk behind it (both sampled,
+  since Xvfb's root is grey and an assumed black would only be testing
+  that), and the server's own event stream carries no map, unmap or
+  reparent across the change — a "nothing was remapped" claim cannot be
+  made by the process that would have done the remapping. What CANNOT
+  be done live is the other kind of transparency: per-pixel alpha needs
+  a 32-bit ARGB visual, and a window's visual is fixed when it is
+  created — the tray's backdrop already lives with that
+  (`set-tray-argb`). With no compositor the property is ignored by
+  everybody: nothing breaks and nothing fades, which is the
+  compositor's half of the bargain and not ours.
+
   **Window commands** are those actions as a vocabulary — `Minimize`,
   `Maximize`, `Fullscreen`, `Move`, `Resize`, `Raise`, `Lower`, `Bury`,
   `Close`, `Destroy`, plus `Unmaximize` and `Unfullscreen`. `Restart`,
@@ -1238,6 +1260,9 @@ runs as a single shell call:
   releasing Alt; the static list on `Super+t w w` with a bare number
   hotkey; the sequence `Super+t w m` opens winops through prefix grabs;
   an abort on an unknown key does not break the machinery),
+  `run-fade-test.sh` (translucency: the pixel arithmetic against a
+  sampled desk, no map/unmap/reparent across the change, Unfade
+  exact, and a style rule that makes a client rest translucent),
   `run-keyecho-test.sh` (what a sequence says about itself and the
   always-live top chord: the box appears with the prefix and follows
   the typing — asserted from OUTSIDE the process, by finding the named

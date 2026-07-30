@@ -137,6 +137,24 @@
 # A window whose style refuses minimize is not given the minimize
 # button: a button whose only answer is "no" is worse than none.
 #
+# ---- fade: how solid a window is ----
+#
+# A frame can be made translucent, frame and client together, and it
+# happens ON THE FLY — the opacity is one property a COMPOSITOR reads,
+# so nothing is unmapped, remapped or recreated. With no compositor
+# running nobody reads it and nothing fades; that half is not the WM's.
+#
+# `Fade` toggles a window between solid and this much, `Unfade` is the
+# unconditional way back (a sweep wants the pair, and a user toggling
+# is not a program sweeping):
+#   set-fade 0.75
+#   wm-bind {<Super>minus} Fade
+#   wm-bind {<Super>equal} Unfade
+#
+# A style rule makes a client rest translucent from the moment it maps,
+# which is also where Unfade returns it to:
+#   wm-style {filter -class {* Conky}} {opacity 0.4}
+#
 # ---- per-client style rules ----
 #
 # wm-style PREDICATE SETTINGS appends a rule. The predicate is any
@@ -175,6 +193,8 @@
 #     border and no titlebar, the mouse has nothing to grab — move and
 #     resize such a window from the keyboard (winops, <Alt>space).
 #     A config RELOAD re-decides this for windows already on screen.
+#   opacity N — how solid this client rests, 0 exclusive to 1. Needs a
+#     compositor to be visible; see the fade section above.
 #   place TERMS — the geometry the window is BORN with; see the
 #     placement section below.
 #   icon IMAGE — a Tk image (create it right here in the config) shown
@@ -482,7 +502,7 @@
 #
 #   Minimize  Maximize  Fullscreen  Move  Resize
 #   Raise     Lower     Bury        Close Destroy
-#   Unmaximize  Unfullscreen
+#   Unmaximize  Unfullscreen  Fade  Unfade
 #
 # These are the winops menu's entries, available by name. Bind one and
 # it acts on the ACTIVE window — it works out from context which window
