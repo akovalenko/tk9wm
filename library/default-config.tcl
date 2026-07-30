@@ -378,6 +378,75 @@
 # fire on the most recent match. The judgement follows windows
 # coming, going and renaming themselves.
 #
+# ---- the terminal layer ----
+#
+# A panel button that means "the named terminal running mutt" can SAY
+# that, without exec-ing any particular emulator:
+#
+#   panel-button mutt {terminal {name mutt run mutt} key {<Super>m}}
+#
+# The `terminal` key derives both halves of the idempotent button:
+# the match — `filter -class mutt`, a single pattern, so either half
+# of WM_CLASS answers — and the launch, built for the ACTIVE terminal
+# by its adapter (xterm gets `-name mutt -e mutt`, kitty gets
+# `--name mutt mutt`, the gnome-terminal factory `--class=mutt -- mutt`
+# — its name lives in the class half, which the match takes too). An
+# explicit match or launch beside it wins. `terminal {}` is "just a
+# terminal": it matches any terminal window the desk knows of,
+# whichever beast it is, and launches the active one when none lives.
+#
+# WHICH terminal is one line, and the beast and the binary are
+# separate words — "this is kitty, and it lives over there":
+#   set-terminal kitty
+#   set-terminal kitty ~/bin/kitty.experimental.git.master
+# Known beasts: kitty, alacritty, urxvt, st, xterm, konsole,
+# gnome-terminal. Without the line the desk resolves one on its own:
+# your $TERMINAL if it names a beast we know; x-terminal-emulator if
+# YOU pointed it somewhere (update-alternatives in manual mode — auto
+# mode is the packaging talking, not you); else the first beast found,
+# best-loved first — kitty, alacritty, urxvt, st, xterm, and the DE
+# terminals last. The log says what was picked and on whose word.
+#
+# The full spec, every key optional:
+#   name   the window's name (WM_CLASS instance; on xterm/urxvt also
+#          the xrdb branch — mutt*background: darkblue just works)
+#   run    the command, an exec-style list. Wrappers are argv
+#          concatenation, no grammar needed:
+#          run {uim-fep -e ssh -t host "tmux attach || tmux"}
+#   title  the window title (every beast has a word for it)
+#   env    environment for the TERMINAL process itself:
+#          env {XMODIFIERS {}} cuts uim-xim off an xterm. An empty
+#          value means VAR= (set empty), not unset.
+#   args   beast-keyed extras, applied VERBATIM when the branch names
+#          the active beast (a beast name, a list of them, or *):
+#          args {xterm {-bg darkblue} kitty {-o background=darkblue}}
+#          This is your terminal's own dialect, said out loud — the WM
+#          translates name/run/title and NOTHING else, so a shared
+#          button stays terminal-agnostic with goodies for some.
+#
+# `needs` (a panel-button key, usable with or without `terminal`)
+# gates the whole declaration on commands existing in PATH — no mutt
+# on this machine, no mutt button, one line in the log:
+#
+#   panel-button mutt {
+#       terminal {
+#           name mutt run mutt
+#           args {xterm {-bg darkblue} kitty {-o background=darkblue}}
+#       }
+#       needs mutt
+#       key {<Super>m}
+#       icon mutt
+#   }
+#
+# The launch half stands alone as a command too:
+#   wm-bind {<Super>Return} {spawn-terminal {}}
+#   wm-bind {<Super>s} {spawn-terminal {name scratch}}
+#
+# A beast that cannot name its windows (konsole — and gnome-terminal
+# can, but only through the class half) degrades honestly: the button
+# still launches, the name is dropped with a log line, and the match
+# just never fires. A title survives even there.
+
 # ---- re-reading this file without restarting ----
 #
 # Super+t w r (or `whale-cli send-reload.tcl`) re-reads the config on

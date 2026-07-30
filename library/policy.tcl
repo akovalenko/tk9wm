@@ -3818,6 +3818,233 @@ proc keyecho-hide {} {
     puts "WM: key echo off"
 }
 
+# ---- the terminal layer ----
+# "A unix environment with a terminal, not pinned to a desktop" — the
+# owner's phrase, and this layer is where it becomes machinery. A panel
+# button that means "the named terminal running mutt" should SAY that
+# and nothing else: which emulator the user loves, which flag spells a
+# window's name and which one carries the command are the desk's
+# knowledge, not the button's.
+#
+# The vocabulary every emulator shares turned out to be exactly two
+# words — "this window is called NAME" and "run this inside" — plus a
+# portable title. Nothing else is translated, deliberately: a
+# cross-terminal option compiler is a tar pit (each beast themes its
+# own way, and -geometry would fight our place rules), so extras ride
+# an args branch that names its dialect out loud (see spawn-terminal).
+#
+# What the name buys is the instance half of WM_CLASS — the match half
+# of an idempotent button, and on xterm/urxvt the per-name xrdb branch
+# (mutt*background: darkblue) for free. Measured 2026-07-30 under
+# Xvfb, not read off manpages:
+#
+#   xterm -name mutt             {mutt XTerm}    (-class coexists:
+#                                -name mutt -class work = {mutt work})
+#   urxvt -name mutt             {mutt URxvt}    (urxvtc: per window)
+#   kitty --name mutt            {mutt kitty}    (per window under
+#                                --single-instance too)
+#   gnome-terminal --name=mutt   {gnome-terminal-server Gnome-terminal}
+#       — the factory IGNORES --name; but --class=mutt spawns a
+#       DEDICATED server: {gnome-terminal-server mutt}. Its name lives
+#       in the CLASS half, which is why the derived match takes either.
+#
+# The registry: one entry per beast we know. `name` and `title` are
+# argv fragments with %s for the value (empty = this beast has no such
+# word); `cmd` stands between the options and the command to run;
+# `class` is the class half a window of this beast wears — what the
+# terminal-window predicate recognizes. DECLARATION ORDER IS THE PROBE
+# RANKING: what one installs by hand outranks what a DE brings.
+# alacritty, st and konsole had no binary around — flags from their
+# manuals, unmeasured, and marked so here on purpose.
+set terminal_adapters {
+    kitty          {name {--name %s}  title {--title %s} cmd {}   class kitty}
+    alacritty      {name {--class %s} title {-T %s}      cmd {-e} class Alacritty}
+    urxvt          {name {-name %s}   title {-T %s}      cmd {-e} class URxvt}
+    st             {name {-n %s}      title {-T %s}      cmd {-e} class st}
+    xterm          {name {-name %s}   title {-T %s}      cmd {-e} class XTerm}
+    konsole        {name {}           title {}           cmd {-e} class Konsole}
+    gnome-terminal {name {--class=%s} title {--title %s} cmd {--} class Gnome-terminal}
+}
+keep terminal_choice {}   ;# what set-terminal said: {beast path}, or empty
+keep terminal_found {}    ;# the resolution, cached: {beast path how}
+
+# set-terminal BEAST ?PATH? — the one config line that picks the
+# terminal. The beast and the binary are SEPARATE on purpose (the
+# owner's order): "this is kitty, and it lives in
+# ~/bin/kitty.experimental.git.master" is one dialect at another path.
+# No path = the beast's own name through PATH, at spawn time.
+proc set-terminal {beast {path ""}} {
+    if {![dict exists $::terminal_adapters $beast]} {
+        error "set-terminal: unknown terminal \"$beast\" — one of:\
+ [dict keys $::terminal_adapters]"
+    }
+    set ::terminal_choice [list $beast [expr {$path eq "" ? "" :
+        [file normalize $path]}]]
+    set ::terminal_found {}
+}
+
+# Recognize a binary's basename as a beast we know. The families hide
+# behind other names: Debian's x-terminal-emulator resolves to shims
+# (gnome-terminal.wrapper — whose xterm dialect EATS -name, rewriting
+# it into --window-with-profile; measured), rxvt here IS urxvt (a
+# symlink, and classic rxvt speaks the same -name/-e anyway), and
+# uxterm/lxterm/koi8rxterm are xterm launchers passing "$@" through.
+proc terminal-beast-of {name} {
+    if {[dict exists $::terminal_adapters $name]} { return $name }
+    switch -glob -- $name {
+        gnome-terminal* { return gnome-terminal }
+        urxvt* - rxvt*  { return urxvt }
+        *xterm*         { return xterm }
+    }
+    return ""
+}
+
+# The chain: the config's word, the user's word ($TERMINAL, the loose
+# convention i3 and friends read), the admin's word — x-terminal-
+# emulator, but only in MANUAL mode: the alternatives system in auto
+# mode is the packaging talking, and it points at a DE terminal
+# exactly for the user who never chose one — and then the ranked
+# probe. A shim behind the alternative is never executed; the beast's
+# own binary is (whoever wants the shim's extras says
+# `set-terminal xterm /usr/bin/uxterm` — they pass "$@" through).
+# The verdict is cached until a reload; one log line says what was
+# picked and on whose word.
+proc terminal-resolve {} {
+    if {$::terminal_found ne ""} { return $::terminal_found }
+    set found {}
+    if {$::terminal_choice ne ""} {
+        lassign $::terminal_choice beast path
+        if {$path eq ""} { set path [lindex [auto_execok $beast] 0] }
+        if {$path eq ""} {
+            puts "WM: terminal: set-terminal $beast, but no such binary in PATH"
+        } else {
+            set found [list $beast $path set-terminal]
+        }
+    }
+    if {$found eq "" && [info exists ::env(TERMINAL)]
+            && $::env(TERMINAL) ne ""} {
+        set beast [terminal-beast-of [file tail $::env(TERMINAL)]]
+        set path [lindex [auto_execok $::env(TERMINAL)] 0]
+        if {$beast ne "" && $path ne ""} {
+            set found [list $beast $path \$TERMINAL]
+        }
+    }
+    if {$found eq "" && ![catch {
+            exec update-alternatives --query x-terminal-emulator} q]
+            && [regexp -line {^Status: manual$} $q]
+            && [regexp -line {^Value: (.+)$} $q -> val]} {
+        set beast [terminal-beast-of [file tail $val]]
+        if {$beast ne ""} {
+            set path [lindex [auto_execok $beast] 0]
+            if {$path ne ""} {
+                set found [list $beast $path x-terminal-emulator]
+            }
+        }
+    }
+    if {$found eq ""} {
+        foreach beast [dict keys $::terminal_adapters] {
+            set path [lindex [auto_execok $beast] 0]
+            if {$path ne ""} { set found [list $beast $path probed]; break }
+        }
+    }
+    if {$found eq ""} {
+        puts "WM: terminal: no emulator found (looked for\
+ [dict keys $::terminal_adapters]) — set-terminal?"
+        set found [list {} {} none]
+    } else {
+        puts "WM: terminal: [lindex $found 0] at [lindex $found 1]\
+ ([lindex $found 2])"
+    }
+    set ::terminal_found $found
+    return $found
+}
+
+# spawn-terminal SPEC — the launch half of a semantic button, and a
+# command in its own right (bind it, menu it):
+#
+#     spawn-terminal {name mutt run mutt}
+#     wm-bind {<Super>Return} {spawn-terminal {}}
+#
+# SPEC keys, each optional:
+#   name   the window's name — the instance half of WM_CLASS (the class
+#          half on the gnome-terminal factory; see the measurements)
+#   run    the command, an exec-style list. A wrapper chain is plain
+#          argv concatenation and gets no grammar of its own:
+#          run {uim-fep -e ssh -t host "tmux attach || tmux"} — the
+#          quoted tail stays one element, Tcl lists do the nesting.
+#   title  the window title; every beast has a word for it (Debian
+#          policy guarantees -T even for the shims), so a title
+#          survives even the launch-only degradation — there it is the
+#          only visible mark.
+#   env    VAR VALUE dict for the TERMINAL's environment — the one
+#          thing args cannot say: it needs its slot BEFORE the binary.
+#          env {XMODIFIERS {}} is "cut uim-xim off this xterm"; an
+#          empty value means VAR= (set empty), not unset.
+#   args   beast-keyed extras:
+#          {xterm {-bg darkblue} kitty {-o background=darkblue}}.
+#          A key is a beast name, a LIST of beast names, or *; every
+#          branch matching the active beast applies, in order,
+#          VERBATIM. This is your terminal's own dialect said out
+#          loud — nothing here is translated, and that is what lets a
+#          shared button definition stay terminal-agnostic while
+#          carrying goodies for some.
+proc spawn-terminal {spec} {
+    foreach k [dict keys $spec] {
+        if {$k ni {name run title env args}} {
+            error "spawn-terminal: unknown key \"$k\"\
+ (name run title env args)"
+        }
+    }
+    lassign [terminal-resolve] beast path
+    if {$beast eq ""} {
+        error "spawn-terminal: no terminal emulator (set-terminal?)"
+    }
+    set ad [dict get $::terminal_adapters $beast]
+    set argv [list $path]
+    foreach key {name title} {
+        if {![dict exists $spec $key] || [dict get $spec $key] eq ""} continue
+        set fmt [dict get $ad $key]
+        if {$fmt eq ""} {
+            puts "WM: terminal: $beast has no way to say $key —\
+ \"[dict get $spec $key]\" dropped"
+            continue
+        }
+        lappend argv {*}[lmap a $fmt {
+            string map [list %s [dict get $spec $key]] $a}]
+    }
+    if {[dict exists $spec args]} {
+        dict for {beasts extra} [dict get $spec args] {
+            if {$beasts eq "*" || $beast in $beasts} {
+                lappend argv {*}$extra
+            }
+        }
+    }
+    if {[dict exists $spec run] && [llength [dict get $spec run]]} {
+        lappend argv {*}[dict get $ad cmd] {*}[dict get $spec run]
+    }
+    if {[dict exists $spec env] && [dict size [dict get $spec env]]} {
+        set pre {}
+        dict for {var val} [dict get $spec env] { lappend pre $var=$val }
+        set argv [list env {*}$pre {*}$argv]
+    }
+    puts "WM: terminal: spawn $argv"
+    exec {*}$argv &
+}
+
+# The predicate behind a nameless `terminal {}` button: is this window
+# a terminal AT ALL — the class half against every class the registry
+# knows, plus the xterm launchers wearing their own (their -class
+# flags read straight out of /usr/bin/uxterm and friends). Any beast's
+# window answers, whoever is active today: the desk one switched
+# set-terminal on still has yesterday's windows.
+proc terminal-window {w} {
+    set cls [lindex [client-class $w] 1]
+    dict for {beast ad} $::terminal_adapters {
+        if {$cls eq [dict get $ad class]} { return 1 }
+    }
+    expr {$cls in {UXTerm KOI8RXTerm}}
+}
+
 # ---- the panel ----
 # Our own strip panel, wmaker-flavored buttons: a button is
 # IDEMPOTENT — fired (by click or by its chord) it FOCUSES the most
@@ -3965,6 +4192,55 @@ proc set-panel-live-colors {bar face} {
     panel-rebuild-soon
 }
 proc panel-button {label settings} {
+    # A button that NEEDS a command the system does not have is a NOOP
+    # with one line in the log — the gate that lets a shared or stock
+    # definition say "no mutt on this machine, no mutt button" (the
+    # owner's order). Explicit only, never derived from `run`: a
+    # derived gate would make a typo in a hand-written button vanish
+    # silently, and a button that silently is not there is worse than
+    # one that fails to launch.
+    if {[dict exists $settings needs]} {
+        foreach c [dict get $settings needs] {
+            if {[auto_execok $c] eq ""} {
+                puts "WM: panel $label: needs $c — not found, button skipped"
+                return
+            }
+        }
+    }
+    # `terminal` is a PROVIDER of the two halves, not a third thing: it
+    # fills in match and launch (an explicit one beside it wins) and
+    # the machinery below never hears of it. The derived match is
+    # STATIC — filter with a single pattern, so EITHER half of
+    # WM_CLASS answers: the instance on every beast that names, the
+    # class on the gnome-terminal factory. Deliberately not narrowed
+    # by the resolved beast, twice over: a verdict computed while the
+    # config is still speaking is the styleof lesson (see
+    # policy-apply), and the window found should be "my mutt", not
+    # "my mutt in the terminal I would launch today" — a desk that
+    # switched set-terminal keeps finding yesterday's window instead
+    # of launching a second mutt beside it. A beast that cannot name
+    # (konsole) simply never matches, which IS the launch-only
+    # degradation, and spawn-terminal says so when it drops the name.
+    if {[dict exists $settings terminal]} {
+        set t [dict get $settings terminal]
+        foreach k [dict keys $t] {
+            if {$k ni {name run title env args}} {
+                error "panel-button $label: unknown terminal key \"$k\"\
+ (name run title env args)"
+            }
+        }
+        if {![dict exists $settings match]} {
+            if {[dict exists $t name] && [dict get $t name] ne ""} {
+                dict set settings match \
+                    [list filter -class [dict get $t name]]
+            } else {
+                dict set settings match terminal-window
+            }
+        }
+        if {![dict exists $settings launch]} {
+            dict set settings launch [list spawn-terminal $t]
+        }
+    }
     set name $::panel_target
     panel-ensure $name
     set buttons [panel-cfg $name buttons]
@@ -5127,6 +5403,7 @@ set config_vars {
     key_echo key_echo_place titlebar_buttons titlebar_gestures fade font_kin
     widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
+    terminal_choice terminal_found
 }
 proc policy-snapshot-defaults {} {
     foreach v $::config_vars { set ::config_default($v) [set ::$v] }
