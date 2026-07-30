@@ -429,6 +429,18 @@ proc set-title-justify {j} {
 keep style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
+    # A malformed rule must die HERE, at its own line of the config —
+    # accepted, it detonates later inside style-of on every window the
+    # predicate matches, and what that looks like from the desk is
+    # nothing like a config error: an empty 200x200 husk where the
+    # window list should be, new frames half-managed (the owner's
+    # desk, 2026-07-31, from `place max force` — three words where
+    # `place {max force}` was meant: a value with spaces needs its
+    # own braces).
+    if {[llength $settings] % 2} {
+        error "wm-style: settings is not a dict (odd length): «$settings» —\
+ a value with spaces needs its own braces: place {max force}"
+    }
     lappend ::style_rules [list $pred $settings]
 }
 proc style-of {w} {

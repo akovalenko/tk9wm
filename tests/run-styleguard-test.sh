@@ -1,0 +1,61 @@
+#!/bin/sh
+# Regression for the wm-style declaration guard: a rule whose settings
+# are not a dict (place max force — three words) must fail AT ITS OWN
+# CONFIG LINE, loudly, and never enter the rule list — the desk stays
+# alive, windows manage, the winlist opens. The alternative was
+# measured on the owner's desk: the rule detonates inside style-of on
+# every matching window, and alt-tab becomes an empty 200x200 husk.
+. "$(dirname "$0")/common.sh"
+export DISPLAY=:90
+rm -f /tmp/.X90-lock /tmp/.X11-unix/X90
+Xvfb :90 -screen 0 800x600x24 >/dev/null 2>&1 &
+XVFB=$!
+trap 'kill $XVFB 2>/dev/null' EXIT
+sleep 1
+
+rm -rf "$HERE/styleguard-config"
+mkdir -p "$HERE/styleguard-config"
+cat > "$HERE/styleguard-config/tk9wm.tcl" <<'EOF'
+panel-button dummy {launch {exec true &}}
+wm-style always {place max force}
+EOF
+
+XDG_CONFIG_HOME="$HERE/styleguard-config" \
+    "$LINUX/whale" "$WMTCL" > "$HERE/wm-styleguard.log" 2>&1 &
+WM=$!
+sleep 1.5
+
+"$LINUX/whale" "$HERE/client.tcl" "жертва" 240x120 "#8ae234" "" "" 30 &
+CA=$!
+sleep 1.5
+xdotool key alt+Tab
+sleep 1
+xdotool key Escape
+sleep 0.5
+
+kill $WM $CA 2>/dev/null
+
+echo "--- log:"
+grep -aE "FAILED|winlist|managed|key action error" "$HERE/wm-styleguard.log"
+echo "--- verdict"
+if grep -q 'FAILED: wm-style: settings is not a dict' "$HERE/wm-styleguard.log"; then
+    echo "OK: the config died at its own line, and said which"
+else
+    echo "FAIL: no declaration-time error for the malformed rule"
+fi
+if grep -q 'managed 0x' "$HERE/wm-styleguard.log"; then
+    echo "OK: the desk still manages windows"
+else
+    echo "FAIL: nothing got managed after the bad config"
+fi
+if grep -q 'winlist open' "$HERE/wm-styleguard.log"; then
+    echo "OK: the window list opens"
+else
+    echo "FAIL: no winlist-open line"
+fi
+if grep -q 'key action error' "$HERE/wm-styleguard.log"; then
+    echo "FAIL: the rule still detonated at use"
+else
+    echo "OK: nothing detonated later"
+fi
+check_invariants "$HERE/wm-styleguard.log"
