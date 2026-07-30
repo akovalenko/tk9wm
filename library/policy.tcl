@@ -4150,33 +4150,36 @@ proc emacs-launch {spec} {
 # closed, its meaning starts over); anything else — say so. The
 # verdict lands in the log either way, which is what "no hanging bugs"
 # means here: every branch ends in an action or a sentence.
+# Elisp that outgrows one line lives in .el files under library/elisp/
+# (the owner's order): editable as elisp, not as a string in Tcl. The
+# WM does not punch placeholders into the text either — a template is
+# NATURAL elisp against a small API, and this wraps it in a let that
+# provides that API (the file's form sits inside the let textually, so
+# lexical binding covers it). Read per use: the file is small, and
+# Reread semantics come for free.
+proc emacs-template {name bindings} {
+    set ch [open [file join $::tk9wm_library elisp $name] r]
+    set body [read $ch]
+    close $ch
+    return "(let ($bindings)\n$body)"
+}
 proc emacs-activate {spec w} {
     panel-focus-hit $w
-    if {[lindex [client-class $w] 1] eq "Emacs"} return
-    set name [emacs-lisp-string [dict get $spec frame]]
-    set fix {(with-demoted-errors "%S" EVAL)}
+    # THE EVAL RIDES EVERY ACTIVATION, not only a fresh frame (the
+    # owner's report, live): the frame may have wandered off to other
+    # work, and the button means "back to telega" — so (telega) runs
+    # on the hit too. A smarter policy — "stay put when already in a
+    # telega buffer" — is the eval's own business: it runs inside the
+    # frame and can ask where it is.
+    set isgui [expr {[lindex [client-class $w] 1] eq "Emacs"}]
+    if {$isgui && ![dict exists $spec eval]} return
+    set fix t
     if {[dict exists $spec eval]} {
-        set fix [string map [list EVAL [dict get $spec eval]] $fix]
-    } else { set fix t }
-    set expr [string map [list %N% $name %FIX% $fix] {
-        (let* ((nf (seq-find (lambda (f) (equal (frame-parameter f (quote name)) %N%))
-                             (frame-list)))
-               (terms (delete-dups
-                       (delq nil (mapcar (lambda (f)
-                                           (and (frame-parameter f (quote tty))
-                                                (frame-terminal f)))
-                                         (frame-list))))))
-          (cond
-           (nf (select-frame-set-input-focus nf) (redisplay t) "raised")
-           ((= (length terms) 1)
-            (let ((f (make-frame (list (cons (quote terminal) (car terms))
-                                       (cons (quote name) %N%)))))
-              (select-frame-set-input-focus f) (redisplay t)
-              (with-selected-frame f %FIX%)
-              "rebuilt"))
-           (t (format "frame %s missing, %d tty terminals to rebuild on"
-                      %N% (length terms)))))}]
-    emacs-eval-bg $spec $expr
+        set fix "(with-demoted-errors \"%S\" [dict get $spec eval])"
+    }
+    emacs-eval-bg $spec [emacs-template activate-frame.el \
+        "(tk9wm-name [emacs-lisp-string [dict get $spec frame]])\
+ (tk9wm-fix (lambda () $fix))"]
 }
 # A background emacsclient -e: the WM's event loop never waits on a
 # socket. No -a here on purpose — a repair must not START a daemon; if

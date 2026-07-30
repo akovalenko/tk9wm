@@ -469,8 +469,16 @@
 #       --eval '(telega)' -n
 #
 # Keys: `frame` (required — the identity), `daemon` (the -s socket;
-# omit for the default daemon), `eval` (run in the fresh frame),
-# `via gui|terminal` (this button's answer to the question below).
+# omit for the default daemon), `eval`, `via gui|terminal` (this
+# button's answer to the question below).
+#
+# The eval runs in the fresh frame AND on every hit: the frame may
+# have wandered off to other work, and the button means "back to
+# telega". Wanting it smarter — stay put when the frame is already on
+# a telega buffer — is the eval's own decision to make; it runs inside
+# the frame and can ask where it is:
+#   eval {(unless (derived-mode-p 'telega-root-mode 'telega-chat-mode)
+#           (telega))}
 #
 # WHICH KIND OF FRAME is the desk's default, one line:
 #   set-emacs-frames terminal        ;# gui is the default

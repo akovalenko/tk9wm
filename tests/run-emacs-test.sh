@@ -45,15 +45,22 @@ wait_for 20 sh -c 'grep -q "managed.*TELEGA" '"$HERE"'/wm-emacs.log || xdotool s
 sleep 1
 GID=$(xdotool search --classname '^TELEGA$' | head -1)
 GCLS=$(xprop -id "$GID" WM_CLASS 2>/dev/null | sed 's/.*= //')
-key super+g            # must FIND now, not launch again
+ec '(setq tg-evaled 0)' >/dev/null   # the frame wandered off...
+key super+g            # must FIND now, not launch again — and RE-EVAL
+sleep 2
+GEVAL2=$(ec 'tg-evaled')
 
 echo "--- terminal path"
 key super+h
 wait_for 20 sh -c 'ec() { emacsclient -s emtest -e "$1" 2>/dev/null; }; [ "$(ec "(and (seq-find (lambda (f) (equal (frame-parameter f (quote name)) \"TTYEM\")) (frame-list)) t)")" = t ]' \
     || echo "note: wait for tty frame ran out"
 sleep 1
-key super+h            # hit: focus the xterm, background-raise TTYEM
-sleep 2
+ec '(setq tty-evaled 0)' >/dev/null
+key super+h            # hit: focus the xterm, background-raise TTYEM + re-eval
+wait_for 10 grep -q 'verdict: "raised"' "$HERE/wm-emacs.log" \
+    || echo "note: wait for the raised verdict ran out"
+sleep 0.5
+TEVAL2=$(ec 'tty-evaled')
 
 echo "--- the C-x 5 2 scenario: another frame in, TTYEM out"
 ec '(let ((f (seq-find (lambda (f) (equal (frame-parameter f (quote name)) "TTYEM")) (frame-list))))
@@ -62,7 +69,9 @@ ec '(progn (delete-frame (seq-find (lambda (f) (equal (frame-parameter f (quote 
 ec '(setq tty-evaled nil)' >/dev/null
 sleep 1
 key super+h            # hit again: must REBUILD the named frame
-sleep 3
+wait_for 10 grep -q 'verdict: "rebuilt"' "$HERE/wm-emacs.log" \
+    || echo "note: wait for the rebuilt verdict ran out"
+sleep 0.5
 REBUILT=$(ec '(and (seq-find (lambda (f) (equal (frame-parameter f (quote name)) "TTYEM")) (frame-list)) t)')
 TOP=$(ec '(frame-parameter (tty-top-frame (frame-terminal (seq-find (lambda (f) (frame-parameter f (quote tty))) (frame-list)))) (quote name))')
 REEVAL=$(ec 'tty-evaled')
@@ -86,6 +95,16 @@ if [ "$GEVAL" = 42 ]; then
     echo "OK: the gui eval landed in the daemon"
 else
     echo "FAIL: tg-evaled is $GEVAL, want 42"
+fi
+if [ "$GEVAL2" = 42 ]; then
+    echo "OK: the gui HIT re-ran the eval (verdict gui)"
+else
+    echo "FAIL: after the gui hit tg-evaled is $GEVAL2, want 42 again"
+fi
+if [ "$TEVAL2" = t ]; then
+    echo "OK: the raised tty hit re-ran the eval"
+else
+    echo "FAIL: after the tty hit tty-evaled is $TEVAL2, want t again"
 fi
 if [ "$(grep -c 'WM: emacs: launch' "$HERE/wm-emacs.log")" = 1 ]; then
     echo "OK: exactly one gui launch — the second fire found the frame"
