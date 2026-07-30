@@ -16,6 +16,10 @@ rm -rf "$HERE/ewmhmax-config"
 mkdir -p "$HERE/ewmhmax-config"
 cat > "$HERE/ewmhmax-config/tk9wm.tcl" <<'EOF'
 panel-button dummy {launch {exec true &}}
+# an UNFORCED style on the zoomed claimant: its own pre-map maximize
+# request must outrank this rule (the born-at-full-size asserts below
+# fail if the rule wins)
+wm-style {filter -title zoomed} {place 50%right}
 EOF
 # a pre-map claimant: -zoomed before the first map
 cat > "$HERE/ewmhmax-config/client-zoomed.tcl" <<'EOF'
@@ -24,6 +28,13 @@ wm title . zoomed
 wm attributes . -zoomed 1
 label .l -text zoomed -background #ad7fa8 -font {Sans 14}
 pack .l -expand 1 -fill both
+chan configure stdout -buffering line
+bind . <Map> {
+    if {"%W" eq "."} {
+        puts "ZOOMED: mapped at [winfo width .]x[winfo height .]"
+        bind . <Map> {}
+    }
+}
 after 30000 exit
 EOF
 
@@ -51,7 +62,7 @@ ST_REM=$(xprop -id "$AID" _NET_WM_STATE | sed 's/.*= //')
 wmctrl -i -r "$AID" -b toggle,maximized_vert,maximized_horz; sleep 1
 SZ_TOG=$(size_of "$AID")
 
-"$LINUX/whale" "$HERE/ewmhmax-config/client-zoomed.tcl" &
+"$LINUX/whale" "$HERE/ewmhmax-config/client-zoomed.tcl" > "$HERE/ewmhmax-config/zoomed.log" 2>&1 &
 CZ=$!
 sleep 2
 ZID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-ewmhmax.log" | sed -n 2p)
@@ -95,10 +106,16 @@ if [ "$SZ_Z" = "$WANTMAX" ]; then
 else
     echo "FAIL: the -zoomed client is $SZ_Z, want $WANTMAX"
 fi
-if grep -qE 'asked to start maximized|client asks maximize on' "$HERE/wm-ewmhmax.log"; then
+if grep -qE 'asks to be born maximized|client asks maximize on' "$HERE/wm-ewmhmax.log"; then
     echo "OK: the zoomed request was heard (whichever road Tk took)"
 else
     echo "FAIL: no sign the zoomed request arrived"
+fi
+MAPPED=$(sed -n 's/^ZOOMED: mapped at //p' "$HERE/ewmhmax-config/zoomed.log" | head -1)
+if [ "$MAPPED" = "$WANTMAX" ]; then
+    echo "OK: born at full size — mapped once at $MAPPED, no narrow flash"
+else
+    echo "FAIL: first map was $MAPPED, want $WANTMAX (the narrow-flash bug)"
 fi
 if grep -q 'handler error' "$HERE/wm-ewmhmax.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-ewmhmax.log"

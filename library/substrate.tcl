@@ -2131,10 +2131,15 @@ proc manage {w {asiconic 0}} {
         puts "WM: 0x[format %x $w] asked to start fullscreen"
         fullscreen-client $w
     } elseif {[client-initial-maximized $w]
+              && ![info exists ::maxsaved($w)]
               && [llength [info commands maximize-client]]} {
         # The machinery is the policy's; a substrate running bare (a
         # spike) simply has no maximize to offer. Fullscreen wins when
-        # a client asks for both — it is the stronger claim.
+        # a client asks for both — it is the stronger claim. And a
+        # window policy-initial-size already BORE maximized (the mark
+        # is set) has nothing left to ask: this branch catches only
+        # what the pre-map road could not size — a style whose own
+        # `place` spoke first.
         puts "WM: 0x[format %x $w] asked to start maximized"
         maximize-client $w
     }

@@ -694,8 +694,37 @@ proc policy-initial-size {w cw ch} {
     set cw [expr {max(min($cw, $maxw), $minw, 1)}]
     set ch [expr {max(min($ch, $maxh), $minh, 1)}]
     set st [style-of $w]
-    if {![dict exists $st place]} { return [list $cw $ch] }
-    lassign [place-force [dict get $st place]] spec forced
+    set spec ""
+    set forced 0
+    if {[dict exists $st place]} {
+        lassign [place-force [dict get $st place]] spec forced
+        if {!$forced && [client-initial-maximized $w]} {
+            # The client's own pre-map "start me maximized" outranks an
+            # unforced rule — and its own USSize claim below: the two
+            # client words contradict each other, and the state is the
+            # later, stronger one. A forced rule still wins: force
+            # means it.
+            set spec max
+            set forced 1
+            puts "WM: 0x[format %x $w] asks to be born maximized\
+ (over its style's place)"
+        }
+    } elseif {[client-initial-maximized $w]} {
+        # "Start me maximized", asked BEFORE the map — and honoring it
+        # HERE is the point of the pre-map protocol: the window must
+        # be framed at its maximized size the first time, not mapped
+        # narrow and pulled wide a beat later. The cost of the beat is
+        # real and measured on the owner's desk: telega.el began its
+        # redraw at the narrow width and lagged switching over. The
+        # request is the client's own word about THIS window, so it
+        # does not yield to the -geometry dance below — it forces,
+        # the way a rule that means it does; the asked-for geometry
+        # is exactly what ::maxsaved keeps as the way back.
+        set spec max
+        set forced 1
+        puts "WM: 0x[format %x $w] asks to be born maximized"
+    }
+    if {$spec eq ""} { return [list $cw $ch] }
     # A rule is the user speaking IN GENERAL; a `-geometry` is the same
     # user speaking about THIS window. The particular wins, so a place
     # YIELDS to it (the owner's call, 2026-07-30, reversing the day-old
