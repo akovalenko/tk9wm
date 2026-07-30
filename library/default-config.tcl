@@ -442,10 +442,11 @@
 #   wm-bind {<Super>Return} {spawn-terminal {}}
 #   wm-bind {<Super>s} {spawn-terminal {name scratch}}
 #
-# A beast that cannot name its windows (konsole — and gnome-terminal
-# can, but only through the class half) degrades honestly: the button
-# still launches, the name is dropped with a log line, and the match
-# just never fires. A title survives even there.
+# Every beast measured so far can name its windows one way or another
+# (gnome-terminal through the class half only). Should one ever not,
+# the degradation is honest: the button still launches, the name is
+# dropped with a log line, and the match just never fires. A title
+# survives even there.
 
 # ---- re-reading this file without restarting ----
 #

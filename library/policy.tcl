@@ -3843,6 +3843,17 @@ proc keyecho-hide {} {
 #   urxvt -name mutt             {mutt URxvt}    (urxvtc: per window)
 #   kitty --name mutt            {mutt kitty}    (per window under
 #                                --single-instance too)
+#   alacritty 0.13 --class mutt  {mutt mutt} — a single value fills
+#       BOTH halves; the pair is general,INSTANCE, so
+#       --class Alacritty,mutt = {mutt Alacritty}: our name in the
+#       instance, the beast's own class kept for class-wide styling
+#   st 0.9.3 -n mutt             {mutt st-256color} — the default
+#       class is its termname, NOT "st" (a patched build may differ)
+#   konsole -name mutt           {mutt konsole} — Qt still honors the
+#       classic X11 -name; the class is lowercase. Its --qwindowtitle
+#       is promptly overwritten by the tab's own title (measured with
+#       -e) — kept anyway: a title is volatile on every beast whose
+#       guest retitles, mutt in an xterm included.
 #   gnome-terminal --name=mutt   {gnome-terminal-server Gnome-terminal}
 #       — the factory IGNORES --name; but --class=mutt spawns a
 #       DEDICATED server: {gnome-terminal-server mutt}. Its name lives
@@ -3854,15 +3865,13 @@ proc keyecho-hide {} {
 # `class` is the class half a window of this beast wears — what the
 # terminal-window predicate recognizes. DECLARATION ORDER IS THE PROBE
 # RANKING: what one installs by hand outranks what a DE brings.
-# alacritty, st and konsole had no binary around — flags from their
-# manuals, unmeasured, and marked so here on purpose.
 set terminal_adapters {
     kitty          {name {--name %s}  title {--title %s} cmd {}   class kitty}
-    alacritty      {name {--class %s} title {-T %s}      cmd {-e} class Alacritty}
+    alacritty      {name {--class Alacritty,%s} title {-T %s} cmd {-e} class Alacritty}
     urxvt          {name {-name %s}   title {-T %s}      cmd {-e} class URxvt}
-    st             {name {-n %s}      title {-T %s}      cmd {-e} class st}
+    st             {name {-n %s}      title {-T %s}      cmd {-e} class st-256color}
     xterm          {name {-name %s}   title {-T %s}      cmd {-e} class XTerm}
-    konsole        {name {}           title {}           cmd {-e} class Konsole}
+    konsole        {name {-name %s}   title {--qwindowtitle %s} cmd {-e} class konsole}
     gnome-terminal {name {--class=%s} title {--title %s} cmd {--} class Gnome-terminal}
 }
 keep terminal_choice {}   ;# what set-terminal said: {beast path}, or empty
@@ -4218,9 +4227,11 @@ proc panel-button {label settings} {
     # policy-apply), and the window found should be "my mutt", not
     # "my mutt in the terminal I would launch today" — a desk that
     # switched set-terminal keeps finding yesterday's window instead
-    # of launching a second mutt beside it. A beast that cannot name
-    # (konsole) simply never matches, which IS the launch-only
-    # degradation, and spawn-terminal says so when it drops the name.
+    # of launching a second mutt beside it. A beast that cannot name —
+    # every measured one turned out able to, but a registry entry with
+    # no name word stays possible — simply never matches, which IS the
+    # launch-only degradation, and spawn-terminal says so when it
+    # drops the name.
     if {[dict exists $settings terminal]} {
         set t [dict get $settings terminal]
         foreach k [dict keys $t] {
