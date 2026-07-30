@@ -10,8 +10,23 @@
 #
 # ---- global knobs ----
 #
-# Titlebar font: any Tk font spec or attribute set; the decoration
-# heights follow the font's metrics.
+# THE DESK FONT is the one this window manager is set in, and
+# everything else descends from it. Any Tk font spec or attribute set;
+# the decoration heights follow its metrics.
+#   set-desk-font -family "DejaVu Sans" -size 12
+#
+# A derivation is a base plus a delta, and a size may be a FACTOR of
+# the base's — which is the part Tk cannot do, and the part that keeps
+# a desk in proportion when its font changes:
+#   wm-font PanelFont -size 11 -weight normal    ;# the panel, stated flat
+#   wm-font PanelFont -size 0.85x                ;# ...or relative, and it lasts
+#   wm-font ClockFont -size 1.6x -weight bold    ;# what the clock widget uses
+# In code: TitleFont (the titlebar) and PanelFont (the strip), both the
+# desk font unchanged until a line like the above says otherwise; a
+# widget declares its own. `-from` picks another base than DeskFont.
+# The declaration order is the derivation order.
+#
+# The titlebar alone, which is the same thing aimed at one font:
 #   set-title-font -weight bold
 #   set-title-font -family "DejaVu Sans" -size 12
 #
@@ -507,6 +522,30 @@
 # THIS file; `Restart` execs a fresh process in place.
 #
 #   wm-bind {<Super>t r r} Reread
+#
+# ---- widgets: the desk's own furniture ----
+#
+# A clock, and in time whatever else. A widget knows how to fill a
+# frame and nothing about where it hangs — that is one option, so the
+# same declaration puts it on a panel, in a corner of the workarea, or
+# on the desktop under every window:
+#
+#   wm-widget clock -type clock -on {panel default} -place {right vcenter}
+#   wm-widget clock -type clock -on workarea -place {right top}
+#   wm-widget clock -type clock -on screen -place center -layer desk
+#
+#   -on       workarea (default) | screen | {panel NAME}
+#   -place    the `place` grammar's edge words, sizeless
+#   -layer    top (over the clients) | desk (under all of them)
+#   -padding  air inside it, default 4; -background, -foreground
+#
+# A widget riding a panel makes the panel deeper, the way the tray
+# does. Widgets are cheap: a reload destroys and rebuilds every one of
+# them, which is the whole story of how a widget changes its mind.
+#
+# The clock takes -time-format and -date-format (`clock format`
+# strings, default %H:%M and «%a %d %b») and is set in ClockFont and
+# DateFont — 1.6 and 0.8 of the desk font, so they move with it.
 #
 # ---- window commands ----
 #

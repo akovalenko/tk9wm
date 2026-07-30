@@ -639,6 +639,38 @@ frames a client and shows a panel has proved both libraries loaded.
   button on the close box would kill an application without asking it
   to save anything.
 
+  **One font, and what descends from it** (`set-desk-font`, `wm-font`).
+  DeskFont is the font this window manager is set in — the old
+  TitleFont was that already, under a name that lied about it — and
+  everything else is a DERIVATION: a base plus a delta. The delta is
+  ordinary font options with one addition Tk has no notion of, a size
+  that is a FACTOR of the base's, so "the panel is the desk font at
+  85%" survives the desk font changing where a hard-coded 11 does not.
+  Tk's named fonts do not inherit, so the whole family is re-derived
+  whenever a base moves. Deltas (`+2`) are deliberately not offered:
+  Tk's size is signed and the SIGN IS THE UNIT — positive points,
+  negative pixels — so a factor keeps whichever it is while `+2` would
+  read backwards on half the desks in the world. `TitleFont` and
+  `PanelFont` are the two the WM is written in, both identical to the
+  base until a config says otherwise.
+
+  **Widgets — furniture that is not a window** (`wm-widget`,
+  `library/widget.tcl`, one file per kind under `library/widgets/`). A
+  widget knows how to fill a FRAME and nothing about where it hangs:
+  `-on {panel default}`, `-on workarea`, `-on screen -layer desk` for a
+  clock on the desktop under every client — the same declaration, one
+  word changed. That was the requirement (the owner, 2026-07-30), and
+  it is what keeps a widget from being rewritten the first time it
+  moves. A widget riding a panel makes the panel DEEPER, the way the
+  tray already does; since its size is known only once its content is
+  built, the build is two passes — make them all, then rebuild the
+  strips and publish the workarea if the reserved depth changed, then
+  place. Widgets are CHEAP: a reload destroys and rebuilds every one,
+  so a widget never needs a reconfigure path, a partial update or any
+  state to migrate. What it must not do is block — it runs in the WM's
+  own event loop. The clock is thirty lines: two labels, a heartbeat,
+  and two derived fonts.
+
   **The WM's own windows** (`wm-window`) wear the same decoration every
   client wears — the same border and grips, the same titlebar font and
   colors, restyled by the same config knobs — and the confirmation on
@@ -1318,7 +1350,11 @@ runs as a single shell call:
   releasing Alt; the static list on `Super+t w w` with a bare number
   hotkey; the sequence `Super+t w m` opens winops through prefix grabs;
   an abort on an unknown key does not break the machinery),
-  `run-fade-test.sh` (translucency: the pixel arithmetic against a
+  `run-widget-test.sh` (the clock on a panel — inside the band the
+  panel grew for it — and then, one option changed, at the screen's
+  corner on the desk layer; a reload rebuilding it from nothing; and a
+  bigger DESK font carrying both its lines with it, nothing about the
+  widget edited), `run-fade-test.sh` (translucency: the pixel arithmetic against a
   sampled desk, no map/unmap/reparent across the change, Unfade
   exact, and a style rule that makes a client rest translucent),
   `run-keyecho-test.sh` (what a sequence says about itself and the
