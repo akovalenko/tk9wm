@@ -100,6 +100,43 @@
 #   set-root-cursor left_ptr        ;# the default
 #   set-root-cursor {}
 #
+# ---- the titlebar: buttons, and what they do ----
+#
+# Three different kinds of decision, kept apart. What a titlebar IS —
+# its height, its grips, how a press becomes a gesture — is the WM's
+# and has no knobs here. The other two are these:
+#
+# WHICH BUTTONS EXIST, and what they look like. Order within a side is
+# declaration order, left to right; the stock set is menu on the left,
+# then minimize, maximize and close on the right. The glyph is svg, so
+# it is re-rendered crisp at whatever size the titlebar font dictates.
+#
+#   titlebar-button shade -side left -glyph {<svg
+#    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path
+#    d="M3.5 4 L12.5 4" stroke="#ffffff" stroke-width="1.6"
+#    stroke-linecap="round" fill="none"/></svg>}
+#
+# WHAT A GESTURE DOES. The part is a button's name or `title` for the
+# strip itself; the gesture is <1>, <2>, <3> or <Double-1>; and the
+# command is a command prefix the window is appended to — which is why
+# the window commands (Capitalized, they take an optional window) fit
+# it exactly. A button fires on release-inside, classic button
+# semantics, so a drag away cancels; a gesture on the strip fires on
+# the press. Button 1 on the strip carries the window and cannot be
+# rebound.
+#
+#   titlebar-bind shade <1>        Lower
+#   titlebar-bind title <Double-1> Maximize      ;# the default
+#   titlebar-bind title <3>        winops        ;# the default
+#
+# The sharp one, deliberately NOT a default — a slip of the right
+# button on the close box kills the client without letting it save
+# anything:
+#   titlebar-bind close <3> Destroy
+#
+# A window whose style refuses minimize is not given the minimize
+# button: a button whose only answer is "no" is worse than none.
+#
 # ---- per-client style rules ----
 #
 # wm-style PREDICATE SETTINGS appends a rule. The predicate is any

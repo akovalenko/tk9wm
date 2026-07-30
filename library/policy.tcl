@@ -96,19 +96,144 @@ set SVG_MAX {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 set SVG_MENU {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 <rect x="3.5" y="6.5" width="9" height="3" stroke="#ffffff"
  stroke-width="1.6" fill="none"/></svg>}
+# Minimize is the bar along the BOTTOM, not the middle — the middle is
+# where the menu button's own bar sits, and two thin horizontals at the
+# same height would be one glyph read twice.
+set SVG_MIN {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+<path d="M3.5 12 L12.5 12" stroke="#ffffff" stroke-width="1.6"
+ stroke-linecap="round" fill="none"/></svg>}
+
+# ---- the titlebar in three layers -----------------------------------
+#
+# What a titlebar is made of used to be one piece of knowledge smeared
+# over six places: the glyphs here, the set of columns in frame-buttons,
+# the treectrl construction in policy-attach (with the three names
+# hard-coded), a SECOND copy of that construction in wm-window, the
+# arming machinery in title-press, and a switch in title-release saying
+# what each button does. Adding one button meant editing five of them,
+# which is the owner's point (2026-07-30): these are three different
+# kinds of decision and they must not be mixed, whether or not a config
+# is expected to make them.
+#
+#   1. THE STRIP — what a titlebar and a grip ARE. Its height and the
+#      button cell size (title-metrics), how much of it a window wears
+#      (chrome-of), how it is drawn (deco-draw), how it is built
+#      (titlebar-build), and the press/arm/release machinery that turns
+#      a click into "this part, this gesture" (title-press and friends).
+#      It knows there are button cells; it does not know their names.
+#
+#   2. THE BUTTONS — which buttons exist and what they look like. One
+#      catalogue, below. A frame wears a SET of them (frame-buttons),
+#      which is per frame because it varies: the WM's own windows wear
+#      only close, and a client whose style refuses minimize is not
+#      given a button that would only refuse.
+#
+#   3. THE GESTURES — what pressing something DOES. A table from
+#      {part, gesture} to a command, where a part is a button's name or
+#      `title` for the strip itself: the same table answers "what does
+#      the close button do", "what does a double click on the title
+#      do", and "what does button 3 on the title do", because those are
+#      one question asked three times.
+#
+# The seam between 2 and 3 is the one that pays immediately: a button
+# is declared once and bound once, and the two declarations do not have
+# to be in the same place or come from the same author.
+
+# --- layer 2: the catalogue ---
+# titlebar-button NAME -glyph SVG ?-side left|right?
+# Order within a side is declaration order, left to right. The name
+# becomes a treectrl column tag and an image name, so it is kept to
+# lowercase letters.
+set titlebar_buttons {}
+proc titlebar-button {name args} {
+    if {![regexp {^[a-z][a-z0-9]*$} $name]} {
+        error "titlebar-button: «$name» — lowercase letters and digits,\
+ it becomes a column tag"
+    }
+    set side right
+    set glyph ""
+    foreach {opt val} $args {
+        switch -- $opt {
+            -side {
+                if {$val ni {left right}} {
+                    error "titlebar-button $name: -side is left or right"
+                }
+                set side $val
+            }
+            -glyph { set glyph $val }
+            default { error "titlebar-button $name: unknown option $opt" }
+        }
+    }
+    if {$glyph eq ""} { error "titlebar-button $name: -glyph svg is required" }
+    dict set ::titlebar_buttons $name [dict create side $side glyph $glyph]
+}
+proc titlebar-side  {name} { dict get $::titlebar_buttons $name side }
+proc titlebar-image {name} { return imgBtn-$name }
 proc btn-images {} {
     # re-creating a photo under the same name updates every user of it;
     # the union box is glyph + 2*3px ipad (the 1px outline draws inside),
     # so this glyph height makes the box exactly btnw square — the full
     # button cell, no inset
     set g [expr {max($::btnw - 6, 7)}]
-    image create photo imgClose -format [list svg -scaletoheight $g] \
-        -data $::SVG_CLOSE
-    image create photo imgMax -format [list svg -scaletoheight $g] \
-        -data $::SVG_MAX
-    image create photo imgMenu -format [list svg -scaletoheight $g] \
-        -data $::SVG_MENU
+    dict for {name spec} $::titlebar_buttons {
+        image create photo [titlebar-image $name] \
+            -format [list svg -scaletoheight $g] -data [dict get $spec glyph]
+    }
 }
+
+# --- layer 3: what a gesture on a part does ---
+# titlebar-bind PART GESTURE COMMAND — PART is a button's name or
+# `title`; GESTURE is <1> <2> <3> or <Double-1>; COMMAND is a command
+# prefix and the window is appended, which is what makes the window
+# COMMANDS (Maximize, Close, Minimize — they take an optional window)
+# the natural thing to write here. A button fires on release-inside,
+# classic button semantics, so a drag away cancels; a gesture on the
+# strip itself fires on the press, the way a menu should.
+set titlebar_gestures {}
+proc titlebar-bind {part gesture cmd} {
+    if {$part ne "title" && ![dict exists $::titlebar_buttons $part]} {
+        error "titlebar-bind: no titlebar button «$part» (and it is not\
+ «title»)"
+    }
+    if {$gesture ni {<1> <2> <3> <Double-1>}} {
+        error "titlebar-bind: gesture is <1>, <2>, <3> or <Double-1>"
+    }
+    if {$part eq "title" && $gesture eq "<1>"} {
+        error "titlebar-bind: button 1 on the title carries the window"
+    }
+    dict set ::titlebar_gestures $part,$gesture $cmd
+}
+proc titlebar-action {part gesture} {
+    if {[dict exists $::titlebar_gestures $part,$gesture]} {
+        return [dict get $::titlebar_gestures $part,$gesture]
+    }
+    return ""
+}
+
+# The desk this WM has by default, stated in those two vocabularies and
+# nowhere else. Close on the far right, then maximize and minimize
+# inward — so the two the hand knows by position keep it — and the menu
+# alone on the left.
+titlebar-button menu     -side left  -glyph $SVG_MENU
+titlebar-button minimize -side right -glyph $SVG_MIN
+titlebar-button maximize -side right -glyph $SVG_MAX
+titlebar-button close    -side right -glyph $SVG_CLOSE
+
+titlebar-bind menu     <1> winops
+titlebar-bind minimize <1> Minimize
+titlebar-bind maximize <1> Maximize
+titlebar-bind close    <1> Close
+# The strip itself. Double click maximizes and button 3 opens the ops
+# menu, both being what a hand trained anywhere else already expects.
+# What is deliberately NOT here is `titlebar-bind close <3> Destroy`,
+# though it was the owner's own example of the kind of thing this layer
+# must be able to say: a slip of the right button on the close box
+# would kill an application without asking it to save anything. It is
+# one line in a config for whoever wants it, and that is the right
+# place for a sharp edge.
+titlebar-bind title <Double-1> Maximize
+titlebar-bind title <3>        winops
+
 title-metrics
 
 # Re-derive the metrics and re-lay-out every live frame (same client
@@ -129,6 +254,19 @@ proc retitle-frames {} {
         # it back — while `place`, being a one-shot at map time, leaves
         # every window exactly where it stands.
         set ::chromeof($t) [chrome-of $w]
+        # The BUTTON SET is re-asked for the same reason and one more:
+        # a reload may have changed the catalogue itself. A set that
+        # changed cannot be laid out, it has to be rebuilt — the
+        # columns, elements and styles are per widget — so the strip is
+        # thrown away and built again, which also puts the title back
+        # from where the WM keeps it.
+        set want [client-buttons $w]
+        if {$want ne [frame-buttons $t]} {
+            unset -nocomplain ::btn($t)
+            destroy $t.title
+            titlebar-build $t $w $want [title-or-id $w \
+                [expr {[info exists ::titleof($w)] ? $::titleof($w) : ""}]]
+        }
         frame-layout $t [$t.slot cget -width] [$t.slot cget -height]
     }
     update idletasks
@@ -311,11 +449,23 @@ proc frame-chrome {t} {
     if {[info exists ::chromeof($t)]} { return $::chromeof($t) }
     list $::border $::decotop $::titleh
 }
-# The titlebar buttons a frame carries, in column order. A client's
-# frame carries all three; the WM's own windows say what they want.
+# --- layer 2, per frame: which of the catalogue this one wears ---
+# The set is a property of the FRAME, because it varies: the WM's own
+# windows wear close alone, and a client whose style refuses minimize
+# is not given a button whose only answer would be to refuse. Derived
+# once when the frame is built and again on a reload (retitle-frames),
+# which is also when a config may have changed the catalogue itself.
+proc client-buttons {w} {
+    set names {}
+    foreach name [dict keys $::titlebar_buttons] {
+        if {$name eq "minimize" && [minimize-mode $w] eq "refuse"} continue
+        lappend names $name
+    }
+    return $names
+}
 proc frame-buttons {t} {
     if {[info exists ::btncols($t)]} { return $::btncols($t) }
-    list Cmenu Cmax Cclose
+    dict keys $::titlebar_buttons
 }
 
 # ---- place: the geometry a client is born with ----
@@ -723,55 +873,8 @@ proc policy-attach {w cw ch} {
     canvas $t.deco -highlightthickness 0 -borderwidth 0 -background #3465a4
     place $t.deco -x 0 -y 0 -relwidth 1 -relheight 1
     bind $t.deco <Configure> {deco-draw %W %w %h}
-    # The titlebar is a treectrl (a one-item one): the title text in an
-    # expanding column whose -squeeze x text element ellipsizes what does
-    # not fit, then two fixed button columns — maximize and close — each
-    # a stateful outlined square (rect element) around an svg glyph.
-    treectrl $t.title -showheader no -showroot no -showbuttons no \
-        -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background #3465a4 -itemheight $::titleh
-    # class binds stripped (a dumb label, not a tree) — but the FRAME's
-    # tag stays: press-end must hear a ButtonRelease that happens over
-    # the title, or the drag state outlives the drag (the rz-* handlers
-    # riding along are harmless — they compute from root coords and see
-    # "not a border" here).
-    bindtags $t.title [list $t.title $t all]
-    $t.title state define pressed   ;# armed by a press; release-inside fires
-    $t.title column create -width $::btnw -tags Cmenu
-    $t.title column create -squeeze yes -expand yes -tags C0
-    $t.title column create -width $::btnw -tags Cmax
-    $t.title column create -width $::btnw -tags Cclose
-    $t.title configure -treecolumn C0
-    $t.title element create eTxt text -fill white -lines 1 -font TitleFont
-    $t.title element create eBox rect -outline white -outlinewidth 1 \
-        -fill [list #2e3436 pressed {} {}]
-    $t.title element create eMenu image -image imgMenu
-    $t.title element create eMax image -image imgMax
-    $t.title element create eClose image -image imgClose
-    $t.title style create sTitle
-    $t.title style elements sTitle eTxt
-    $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
-        -padx 4 -squeeze x
-    # the box fills its btnw-wide cell (glyph + ipad == btnw) and is
-    # one grip shorter than the strip: -expand s sends the slack south,
-    # pinning the box flush against the top border — the hole to the
-    # client area opens BELOW the buttons
-    foreach {st el} {sMenu eMenu sMax eMax sClose eClose} {
-        $t.title style create $st
-        $t.title style elements $st [list eBox $el]
-        $t.title style layout $st eBox -union $el -ipadx 3 -ipady 3 -expand s
-        $t.title style layout $st $el -expand s
-    }
-    set item [$t.title item create]   ;# always item 1 in a fresh widget
-    $t.title item style set $item \
-        Cmenu sMenu C0 sTitle Cmax sMax Cclose sClose
-    $t.title item element configure $item C0 eTxt \
-        -text "client 0x[format %x $w]"
-    $t.title item lastchild root $item
+    titlebar-build $t $w [client-buttons $w] "client 0x[format %x $w]"
     frame $t.slot -width $cw -height $ch -background #202020
-    bind $t.title <ButtonPress-1>   [list title-press   $t $w %x %y %X %Y]
-    bind $t.title <B1-Motion>       [list title-motion  $t $w %x %y %X %Y]
-    bind $t.title <ButtonRelease-1> [list title-release $t $w %x %y]
     # Resize by the border: the border strips are the bare toplevel, and a
     # bind on a toplevel fires for its children too — so positions are
     # computed from ROOT coords (%x/%y would be child-relative there) and
@@ -792,7 +895,14 @@ proc policy-attach {w cw ch} {
     winfo pointerxy $t
     set ::frameof($w) $t
     log-claim $w
+    # A line of its OWN, and the reason is worth the line: this frame
+    # line is parsed by a dozen regressions, some for the +X+Y at its
+    # tail and some for "for ID at" in its middle, so it has no free
+    # space anywhere. Which buttons a frame wears is its own fact
+    # anyway — and the first question asked of a window with no
+    # minimize box.
     puts "WM: frame $t for 0x[format %x $w] at +$X+$Y"
+    puts "WM: frame $t wears [frame-buttons $t]"
     return [winfo id $t.slot]
 }
 
@@ -894,8 +1004,8 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
         # Which buttons this frame has is the frame's own business — a
         # client wears all three, a window the WM put up for itself
         # wears whatever it asked for. Same layout code either way.
-        foreach col [frame-buttons $t] {
-            $t.title column configure $col -width $::btnw
+        foreach name [frame-buttons $t] {
+            $t.title column configure C$name -width $::btnw
         }
         place $t.title -x $B -y $B -width $cw -height $titleh
     } else {
@@ -1402,57 +1512,162 @@ proc policy-pick-refocus {w} {
     return 0
 }
 
-# ---- titlebar dispatch: buttons vs the drag ----
-# One press lands on the titlebar treectrl; identify says whether it hit
-# a button column. A button press arms that button (pressed state on its
-# column only — forcolumn); the action fires on release-inside, classic
-# button semantics, so a drag-away cancels. Anything else is the title
-# drag.
-# The columns are THIS FRAME's (frame-buttons), not the full three: a
-# window of the WM's own wears only what it asked for, and a `column
-# compare` against a tag that frame never created throws — which the
-# confirmation dialog's close button did, all the way out to a bgerror
-# box (owner's report, 2026-07-29). It takes the FRAME rather than its
-# titlebar for that reason: the button set is a property of the frame.
+# ---- layer 1: building the strip, and turning a click into a gesture ----
+#
+# The titlebar is a treectrl (a one-item one): the title text in an
+# expanding column whose -squeeze x text element ellipsizes what does
+# not fit, and a fixed square column per button, each a stateful
+# outlined box (rect element) around an svg glyph.
+#
+# ONE builder for both callers. A client's frame and a window the WM
+# puts up for itself wear the same strip with different button sets,
+# and until this was factored out they wore two COPIES of the same
+# forty lines — which is how the two drifted and how adding a button
+# would have meant editing both.
+#
+# What this proc knows about buttons is that they have names, a side
+# and a picture. Which ones exist is the catalogue's business and what
+# they do is the gesture table's.
+proc titlebar-build {t w names title} {
+    treectrl $t.title -showheader no -showroot no -showbuttons no \
+        -showlines no -borderwidth 0 -highlightthickness 0 \
+        -background #3465a4 -itemheight $::titleh
+    # class binds stripped (a dumb label, not a tree) — but the FRAME's
+    # tag stays: press-end must hear a ButtonRelease that happens over
+    # the title, or the drag state outlives the drag (the rz-* handlers
+    # riding along are harmless — they compute from root coords and see
+    # "not a border" here).
+    bindtags $t.title [list $t.title $t all]
+    $t.title state define pressed   ;# armed by a press; release-inside fires
+    foreach name $names {
+        if {[titlebar-side $name] eq "left"} {
+            $t.title column create -width $::btnw -tags C$name
+        }
+    }
+    $t.title column create -squeeze yes -expand yes -tags C0
+    foreach name $names {
+        if {[titlebar-side $name] eq "right"} {
+            $t.title column create -width $::btnw -tags C$name
+        }
+    }
+    $t.title configure -treecolumn C0
+    $t.title element create eTxt text -fill white -lines 1 -font TitleFont
+    $t.title element create eBox rect -outline white -outlinewidth 1 \
+        -fill [list #2e3436 pressed {} {}]
+    $t.title style create sTitle
+    $t.title style elements sTitle eTxt
+    $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
+        -padx 4 -squeeze x
+    # the box fills its btnw-wide cell (glyph + ipad == btnw) and is
+    # one grip shorter than the strip: -expand s sends the slack south,
+    # pinning the box flush against the top border — the hole to the
+    # client area opens BELOW the buttons
+    set cells {}
+    foreach name $names {
+        $t.title element create e$name image -image [titlebar-image $name]
+        $t.title style create s$name
+        $t.title style elements s$name [list eBox e$name]
+        $t.title style layout s$name eBox -union e$name -ipadx 3 -ipady 3 \
+            -expand s
+        $t.title style layout s$name e$name -expand s
+        lappend cells C$name s$name
+    }
+    set item [$t.title item create]   ;# always item 1 in a fresh widget
+    $t.title item style set $item C0 sTitle {*}$cells
+    $t.title item element configure $item C0 eTxt -text $title
+    $t.title item lastchild root $item
+    set ::btncols($t) $names
+    # Three buttons and the double, because all four are gestures the
+    # table can name. w == 0 says "no client behind this frame" to the
+    # shared handlers.
+    foreach n {1 2 3} {
+        bind $t.title <ButtonPress-$n> \
+            [list title-press $t $w %x %y %X %Y $n]
+        bind $t.title <ButtonRelease-$n> [list title-release $t $w %x %y $n]
+    }
+    bind $t.title <B1-Motion> [list title-motion $t $w %x %y %X %Y]
+    bind $t.title <Double-ButtonPress-1> [list title-double $t $w %x %y]
+}
+
+# Which PART of the strip a point is on: a button's name, or "" for the
+# strip itself. The columns asked about are THIS FRAME's, not the whole
+# catalogue — a `column compare` against a tag the frame never created
+# throws, which the confirmation dialog's close button did, all the way
+# out to a bgerror box (owner's report, 2026-07-29).
 proc title-button {t x y} {
     set T $t.title
     if {[catch {$T identify -array A $x $y}]} { return "" }
     if {$A(where) ne "item" || $A(column) eq ""} { return "" }
-    foreach tag [frame-buttons $t] {
-        if {[$T column compare $A(column) == $tag]} { return $tag }
+    foreach name [frame-buttons $t] {
+        if {[$T column compare $A(column) == C$name]} { return $name }
     }
     return ""
 }
-proc title-press {t w x y X Y} {
+# A press on a BUTTON arms it (the pressed state on its column alone —
+# forcolumn) and the action fires on release-inside, so a drag away
+# cancels. A press on the STRIP is the carry for button 1 and fires at
+# once for the others: a menu that waited for the release would feel
+# stuck. Arming happens only where something is bound, so a gesture
+# that does nothing does not light up as if it might.
+proc title-press {t w x y X Y n} {
     set b [title-button $t $x $y]
-    if {$b eq ""} { drag-start $t $w $X $Y; return }
+    if {$b eq ""} {
+        if {$n == 1} {
+            drag-start $t $w $X $Y
+        } else {
+            titlebar-do $t $w title <$n>
+        }
+        return
+    }
+    if {[titlebar-action $b <$n>] eq "" && $w != 0} return
     popups-close $t
-    set ::btn($t) $b
-    $t.title item state forcolumn 1 $b pressed
+    set ::btn($t) [list $b $n]
+    $t.title item state forcolumn 1 C$b pressed
 }
 proc title-motion {t w x y X Y} {
     if {![info exists ::btn($t)]} { drag-move $t $w $X $Y; return }
-    set on [expr {[title-button $t $x $y] eq $::btn($t)}]
-    $t.title item state forcolumn 1 $::btn($t) \
-        [expr {$on ? "pressed" : "!pressed"}]
+    lassign $::btn($t) b -
+    $t.title item state forcolumn 1 C$b \
+        [expr {[title-button $t $x $y] eq $b ? "pressed" : "!pressed"}]
 }
-proc title-release {t w x y} {
+proc title-release {t w x y n} {
     if {![info exists ::btn($t)]} return
-    set b $::btn($t)
+    lassign $::btn($t) b bn
+    if {$n != $bn} return
     unset ::btn($t)
-    $t.title item state forcolumn 1 $b !pressed
-    if {[title-button $t $x $y] eq $b} {
-        if {$w == 0} {
-            # A window of the WM's own: the only button it wears is
-            # close, and closing it is whatever it said closing means.
-            if {$b eq "Cclose"} { wm-window-close $t }
-            return
-        }
-        switch -- $b {
-            Cclose { close-client $w }
-            Cmax   { maximize-toggle $w }
-            Cmenu  { winops $w }
-        }
+    $t.title item state forcolumn 1 C$b !pressed
+    if {[title-button $t $x $y] eq $b} { titlebar-do $t $w $b <$n> }
+}
+# The second click of a pair. Tk gives it to the Double binding INSTEAD
+# of the plain press, so no carry is started by it — and the first
+# click's release already ended the one it did start.
+proc title-double {t w x y} {
+    set b [title-button $t $x $y]
+    if {$b eq ""} {
+        unset -nocomplain ::drag($t)
+        titlebar-do $t $w title <Double-1>
+    } else {
+        titlebar-do $t $w $b <Double-1>
+    }
+}
+
+# --- the seam itself: a part and a gesture, resolved and run ---
+# The command is a prefix and the window is appended, which is why the
+# window COMMANDS fit it exactly — and why a config can put any of them
+# on any part without this layer growing a case for each.
+proc titlebar-do {t w part gesture} {
+    if {$w == 0} {
+        # A window of the WM's own is not a client and the window
+        # commands have nothing to act on. It answers one gesture: the
+        # close box, doing whatever that window said closing means.
+        if {$part eq "close" && $gesture eq "<1>"} { wm-window-close $t }
+        return
+    }
+    set cmd [titlebar-action $part $gesture]
+    if {$cmd eq ""} return
+    puts "WM: titlebar $part $gesture on 0x[format %x $w] -> $cmd"
+    if {[catch {uplevel #0 [list {*}$cmd $w]} err]} {
+        puts "WM: titlebar $part $gesture: $err"
     }
 }
 
@@ -1788,41 +2003,16 @@ proc wm-window {t title cw ch closescript} {
     lassign [list $::border $::decotop $::titleh] B top titleh
     toplevel $t -background #3465a4
     wm overrideredirect $t 1
-    set ::btncols($t) {Cclose}        ;# no menu, no maximize on ours
     set ::closeof($t) $closescript
     canvas $t.deco -highlightthickness 0 -borderwidth 0 -background #3465a4
     place $t.deco -x 0 -y 0 -relwidth 1 -relheight 1
     bind $t.deco <Configure> {deco-draw %W %w %h}
-    treectrl $t.title -showheader no -showroot no -showbuttons no \
-        -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background #3465a4 -itemheight $titleh
-    bindtags $t.title [list $t.title $t all]
-    $t.title state define pressed
-    $t.title column create -squeeze yes -expand yes -tags C0
-    $t.title column create -width $::btnw -tags Cclose
-    $t.title configure -treecolumn C0
-    $t.title element create eTxt text -fill white -lines 1 -font TitleFont
-    $t.title element create eBox rect -outline white -outlinewidth 1 \
-        -fill [list #2e3436 pressed {} {}]
-    $t.title element create eClose image -image imgClose
-    $t.title style create sTitle
-    $t.title style elements sTitle eTxt
-    $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
-        -padx 4 -squeeze x
-    $t.title style create sClose
-    $t.title style elements sClose {eBox eClose}
-    $t.title style layout sClose eBox -union eClose -ipadx 3 -ipady 3 -expand s
-    $t.title style layout sClose eClose -expand s
-    set item [$t.title item create]
-    $t.title item style set $item C0 sTitle Cclose sClose
-    $t.title item element configure $item C0 eTxt -text $title
-    $t.title item lastchild root $item
+    # The same strip every client wears, from the same builder, with a
+    # button set of its own: no menu and no maximize on ours (there is
+    # no client to command and nothing sensible to maximize), and it is
+    # dragged by its titlebar like anything else on this desk.
+    titlebar-build $t 0 {close} $title
     frame $t.slot -width $cw -height $ch -background #202020
-    # Dragged by its titlebar like anything else on this desk; 0 says
-    # "no client behind this frame" to the shared handlers.
-    bind $t.title <ButtonPress-1>   [list title-press   $t 0 %x %y %X %Y]
-    bind $t.title <B1-Motion>       [list title-motion  $t 0 %x %y %X %Y]
-    bind $t.title <ButtonRelease-1> [list title-release $t 0 %x %y]
     lassign [screen-size] sw sh
     set W [expr {$cw + 2*$B}]
     set H [expr {$ch + $top + $B}]
@@ -4681,7 +4871,7 @@ set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
-    key_echo key_echo_place
+    key_echo key_echo_place titlebar_buttons titlebar_gestures
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
 proc policy-snapshot-defaults {} {

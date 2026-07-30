@@ -548,6 +548,44 @@ frames a client and shows a panel has proved both libraries loaded.
   that dies mid-sweep is skipped. Nothing is bound to it by default — a
   desk-wide sweep is not something to discover by accident.
 
+  **The titlebar in three layers** (the owner, 2026-07-30). What a
+  titlebar and a grip ARE, which buttons one wears, and what pressing
+  one DOES are three different kinds of decision, and they used to be
+  one piece of knowledge smeared over six places: the glyphs, the
+  column set in `frame-buttons`, the treectrl construction in
+  `policy-attach` with the three names hard-coded, a SECOND copy of
+  that construction in `wm-window`, the arming machinery, and a
+  `switch` saying what each button did. Adding one button meant editing
+  five of them. Now:
+
+  - **the strip** — `title-metrics` (height and button cell size),
+    `chrome-of` (how much of it a window wears), `deco-draw`,
+    `titlebar-build` (one builder, used by client frames and by the
+    WM's own windows alike — the duplicate copy is gone), and the
+    press/arm/release machinery that turns a click into "this part,
+    this gesture". It knows there are button cells; it does not know
+    their names;
+  - **the buttons** — `titlebar-button NAME -glyph SVG ?-side?`, one
+    catalogue, declaration order left to right within a side. A frame
+    wears a SET of them, per frame because it varies: the WM's own
+    windows wear close alone, and a client whose style refuses minimize
+    is not given a button whose only answer would be to refuse;
+  - **the gestures** — `titlebar-bind PART GESTURE COMMAND`, where a
+    part is a button's name or `title` for the strip. The same table
+    answers "what does close do", "what does a double click on the
+    title do" and "what does button 3 on the title do", because those
+    are one question asked three times. The command is a prefix the
+    window is appended to, which is why the window commands fit it
+    exactly and why this layer needs no case per button.
+
+  Stock: menu (left), then minimize, maximize, close; `Minimize`,
+  `Maximize` and `Close` on their button-1 presses, `winops` on the
+  menu; a double click on the strip maximizes and button 3 on it opens
+  the ops menu. `titlebar-bind close <3> Destroy` is one line for
+  whoever wants it and deliberately not a default — a slip of the right
+  button on the close box would kill an application without asking it
+  to save anything.
+
   **The WM's own windows** (`wm-window`) wear the same decoration every
   client wears — the same border and grips, the same titlebar font and
   colors, restyled by the same config knobs — and the confirmation on
@@ -1155,8 +1193,13 @@ runs as a single shell call:
   the title; a drag started on the root is a noop), `run-size-test.sh`
   (honest sizes: a raw client with no ConfigureRequest, a declared
   minimum against a shrinking drag, an over-wide window squeezed to the
-  screen), `run-button-test.sh` (maximize → workarea → restore; close
-  sends WM_DELETE_WINDOW), `run-restart-test.sh` (restart in place: the
+  screen), `run-button-test.sh` (the titlebar in its three
+  layers: maximize → workarea → restore and close sending
+  WM_DELETE_WINDOW; the minimize button iconifying, and absent from a
+  window whose style refuses; the strip's own gestures, a double click
+  maximizing and button 3 opening the ops menu; and a CONFIG saying all
+  three kinds of thing — declaring a button with its own glyph, binding
+  it to a window command, and putting Destroy on button 3 of close), `run-restart-test.sh` (restart in place: the
   same pid, the client picked back up), `run-config-test.sh` (config
   resolution XDG → default-config; the default snaps a wm-grid client's
   drag to its increments, the dev preset — ignore plus a bold centered
