@@ -57,8 +57,15 @@ wm-style {filter -title seredina} {place {40%center force}}
 wm-style {filter -title terminal} {place {max force}}
 panel-button один { launch {} }'
 
+# set-title-font FIRST, and it matters: it is a knob that touches live
+# frames AT ONCE (retitle-frames rebuilds the panels, the strip height
+# being the font's business), so the workarea moves in the middle of the
+# config being read — with the rules below it not yet declared. That is
+# the owner's desk exactly (2026-07-30), and the reason a reload has to
+# hold the reflow until the whole config has spoken. The value is the
+# default one: what is being reproduced is the CALL, not a new size.
 conf() {   # conf SIDE ?extra-line?
-    { echo "set-panel-side $1"; echo "$RULES"
+    { echo "set-title-font -size 10"; echo "set-panel-side $1"; echo "$RULES"
       [ -n "$2" ] && echo "$2"; } > "$CONF/tk9wm.tcl"
 }
 conf bottom
@@ -189,6 +196,7 @@ echo "--- pass D (follow off, panel left), workarea ${WAW}x${WAH}+${WAX}+${WAY}"
 
 kill $WM $CLIENTS 2>/dev/null
 
+WACHANGES=$(grep -c '^WM: workarea ' "$LOG")
 echo "--- workarea and reflow lines:"
 grep -E 'WM: workarea |WM: reflow ' "$LOG" | sed 's/^/    /'
 
@@ -208,6 +216,9 @@ has() {      # what pattern
     if grep -q "$2" "$LOG"; then echo "OK: $1"
     else echo "FAIL: $1 — no «$2» in the log"; fi
 }
+
+expect "each reload moved the workarea ONCE, not twice — the rebuild in\
+ the middle of the config is held" "3" "$WACHANGES"
 
 # pass B — the origin moved, the extent did not
 expect "the column follows the origin down to the new top edge" \

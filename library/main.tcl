@@ -71,9 +71,14 @@ proc load-config {} {
 # by the default chord Super+t w r.
 proc reload-config {} {
     puts "WM: config reload requested"
-    policy-reset
-    load-config
-    policy-apply
+    # One transition, not the flapping a rebuild makes on the way — see
+    # workarea-held. The clients hear about the workarea once, when the
+    # config has finished saying what it is.
+    workarea-held {
+        policy-reset
+        load-config
+        policy-apply
+    }
 }
 
 # Reload is the config; this is the CODE. Both layers sourced again on
@@ -117,7 +122,13 @@ proc tk9wm-main {args} {
     # was required — the desk is taken before anything here runs. Drop
     # it so it cannot be mistaken for a mode below.
     set args [lsearch -all -inline -not -exact $args -replace]
-    load-config
+    # Held for the same reason a reload is (see workarea-held): a config
+    # line that touches live frames rebuilds the panels before the rest
+    # of the file has declared its buttons, so the workarea moves twice
+    # on the way up. Nothing is managed yet, so nothing is hurt — but
+    # one publication is the truth and two are noise, and the startup
+    # log is where one looks to learn what the shape of a load is.
+    workarea-held { load-config }
     substrate-start
 
     if {[lindex $args 0] eq "demo"} {

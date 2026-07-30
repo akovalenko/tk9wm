@@ -1718,6 +1718,40 @@ proc client-stacking {} {
 # updated BEFORE the hook runs, so nothing the policy does inside it can
 # be read as a second change.
 keep wa_published {}
+# HOLD the consequences while a config is being read. Publishing the
+# property is fine at any moment — a client that asks gets today's
+# answer — but telling the POLICY that the workarea changed is a
+# decision about every window on the desk, and it must not be taken
+# from half a config.
+#
+# A reload tears the panel down and builds it again, so the workarea
+# flaps: 1745 -> the whole screen -> 1797. The first of those hops used
+# to be handled the instant the config's first line touched the panel,
+# with the style rules not yet declared — so `increments` read as
+# `respect`, maximize-fit snapped, and a window whose size is quantized
+# was not recognized as spanning. Three windows out of six moved, the
+# three with increments did not, and from then on they were out of sync
+# for good: the second hop found them matching no edge at all and
+# correctly left them alone. That is the owner's report (2026-07-30),
+# and his "it seems to depend on a pause" was the same thing seen from
+# outside — what it depended on was WHERE in his config the line that
+# rebuilds the panel sat.
+#
+# So a reload is ONE transition, from the workarea before it to the
+# workarea after the whole config has spoken. Held, the intermediate
+# hops publish and say nothing; released, the difference is reported
+# once. It also stops every window bouncing to full width and back on
+# every reload, which was always visible and always pointless.
+keep wa_hold 0
+proc workarea-held {script} {
+    set ::wa_hold 1
+    try {
+        uplevel 1 $script
+    } finally {
+        set ::wa_hold 0
+        publish-workarea
+    }
+}
 proc publish-workarea {} {
     if {![info exists ::NET_WORKAREA]} return
     set a [soft "workarea" { policy-workarea } {}]
@@ -1726,6 +1760,7 @@ proc publish-workarea {} {
         [list set-prop-longs $::root $::NET_WORKAREA 6 $a]   ;# XA_CARDINAL
     soft "publish _NET_DESKTOP_GEOMETRY" \
         [list set-prop-longs $::root $::NET_DESKTOP_GEOMETRY 6 [screen-size]]
+    if {$::wa_hold} return
     if {$a eq $::wa_published} return
     set was $::wa_published
     set ::wa_published $a
