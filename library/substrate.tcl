@@ -2699,6 +2699,14 @@ foreach name {Shift_L Shift_R Control_L Control_R Alt_L Alt_R
 }
 set KS_ESC [x-keysym Escape]
 
+# Both spellings, and that is the point: <Super>t is how one WRITES a
+# chord and Super+t is how the desk SHOWS it (chord-name, the log, the
+# echo, the help list), so whatever is on the screen can be typed
+# straight back into a config without translating it by hand. The
+# <Mod> prefixes are stripped first, then anything left before a `+`
+# is a modifier name too — an X keysym name never contains one (the
+# key next to Backspace is `plus`), so the last field is always the
+# key.
 proc parse-chord {tok} {
     set mods 0
     while {[regexp {^<([^>]+)>(.*)$} $tok -> m rest]} {
@@ -2706,6 +2714,12 @@ proc parse-chord {tok} {
         set mods [expr {$mods | $::modmaskof($m)}]
         set tok $rest
     }
+    set fields [split $tok +]
+    foreach m [lrange $fields 0 end-1] {
+        if {![info exists ::modmaskof($m)]} { error "unknown modifier «$m»" }
+        set mods [expr {$mods | $::modmaskof($m)}]
+    }
+    set tok [lindex $fields end]
     if {$tok eq ""} { error "chord without a key" }
     set ks [x-keysym $tok]
     if {$ks == 0} { error "unknown keysym «$tok»" }
@@ -2723,9 +2737,14 @@ proc parse-mods {spec} {
         set mods [expr {$mods | $::modmaskof($m)}]
         set tok $rest
     }
-    if {$tok ne "" || $mods == 0} {
-        error "«$spec» is not a modifier combination"
+    foreach m [split $tok +] {          ;# ...and Ctrl+Alt, as a chord may be spelled
+        if {$m eq ""} continue
+        if {![info exists ::modmaskof($m)]} {
+            error "«$spec» is not a modifier combination"
+        }
+        set mods [expr {$mods | $::modmaskof($m)}]
     }
+    if {$mods == 0} { error "«$spec» is not a modifier combination" }
     return $mods
 }
 
@@ -2741,6 +2760,37 @@ proc chord-name {mods ks} {
     }
     lappend parts [keysym-name $ks]
     join $parts +
+}
+
+# WHAT IS UNDER THIS PREFIX — Emacs's C-h after a prefix key, and the
+# reason it can exist at all is that a sequence holds the whole
+# keyboard: the help key spends nothing from the global namespace and
+# stays out of every application's way, since it is only ever asked
+# for INSIDE a sequence.
+#
+# The default is <Super>h and the shape of it is the argument (the
+# owner, 2026-07-30): coming from <Super>t the thumb is already on
+# Super, so it is one roll rather than a regrip — which is the same
+# thing that makes C-x C-h comfortable in Emacs.
+#
+# NOT `?`, which was the first idea and is a trap here. The lookup
+# asks the map for group 0 level 0 by hand (see handle-key), so a
+# shifted symbol never arrives under its own name: pressing Shift+/
+# comes in as <Shift>slash whatever the layout says the pair prints,
+# and a binding named `question` could not match on ANY of them. The
+# owner's instinct about layouts was right and then some — it is not
+# "may not land on shift-slash", it is "cannot land anywhere". Binding
+# a shifted symbol is spelled <Shift>slash today; making `question`
+# work would mean also looking the event's OWN group and level up and
+# trying that keysym too, which is a separate decision about what a
+# chord IS, not a fix to make here.
+#
+# The submap is still asked FIRST, so a prefix that binds this key
+# keeps it — the same rule Escape and the top chords live by.
+set HELP_CHORD [parse-chord {<Super>h}]
+set help_chord $HELP_CHORD
+proc set-key-help {spec} {
+    set ::help_chord [expr {$spec eq "off" ? "" : [parse-chord $spec]}]
 }
 
 # Set a key path in a nested keymap dict. A later bind REPLACES what
@@ -2804,6 +2854,7 @@ proc keys-reset {} {
     keyseq-end
     set ::keymap {}
     set ::grabbed_top {}
+    set ::help_chord $::HELP_CHORD    ;# a key binding too, and swept with them
     x-sync 0
     puts "WM: key bindings cleared"
 }
@@ -2826,6 +2877,38 @@ proc keyseq-end {} {
 }
 # The chords typed so far, as one line — what the echo is about.
 proc keyseq-text {} { join $::keyseq_keys " " }
+
+# What is bound under the prefix we are standing in, one entry per
+# line, under the same header the plain echo shows. The keys are named
+# the way a config would spell them, which is now the same way (see
+# parse-chord), so a line here can be typed back verbatim.
+#
+# A submap is shown as how many ways it goes on rather than expanded:
+# the point of the list is to pick the next key, and a whole tree is a
+# manual. An action shows its SCRIPT, collapsed to one line — usually
+# a command name (winops, Quit), and when it is a real script the
+# first few words say enough to recognize it.
+proc keyseq-help {} {
+    set rows {}
+    dict for {k entry} $::keyseq {
+        lassign [split $k ,] mods ks
+        lassign $entry kind payload
+        lappend rows [list [chord-name $mods $ks] \
+            [expr {$kind eq "map" ? "… ([dict size $payload] more)"
+                                  : [help-label $payload]}]]
+    }
+    set out "[keyseq-text] …"
+    foreach row [lsort -index 0 -dictionary $rows] {
+        append out "\n    [lindex $row 0]  →  [lindex $row 1]"
+    }
+    if {![llength $rows]} { append out "\n    (nothing is bound here)" }
+    return $out
+}
+proc help-label {script} {
+    set one [string trim [regsub -all {\s+} $script " "]]
+    if {[string length $one] > 46} { set one "[string range $one 0 43]…" }
+    return $one
+}
 # `flash` is what the echo says about the abort AFTER the state is
 # gone, so it has to be composed by the caller, while keyseq-text can
 # still answer. Empty for a cancel the user asked for: Escape needs no
@@ -3015,6 +3098,13 @@ proc handle-key {state kc time} {
             set node $::keyseq
         } elseif {$ks == $::KS_ESC} {
             keyseq-abort Esc
+            return
+        } elseif {[llength $::help_chord] && $k eq [join $::help_chord ,]} {
+            # The sequence stands where it is: this was a question, not
+            # a step. The next press walks on from the same submap.
+            puts "WM: key [chord-name $mods $ks] -> what is under\
+ [keyseq-text]"
+            policy-key-echo help [keyseq-help]
             return
         } elseif {[dict exists $::keymap $k]} {
             puts "WM: key [chord-name $mods $ks] restarts the sequence"

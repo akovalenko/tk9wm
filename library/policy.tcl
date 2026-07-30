@@ -2025,7 +2025,7 @@ proc wm-invariants {} {
     # The echo is the sequence's own face: it cannot outlive it. (Only
     # the `keys` face — a `flash` is a message ABOUT a sequence that
     # has ended, and standing there for its second is its whole job.)
-    if {$::keyecho_kind eq "keys" && $::keyseq eq ""} {
+    if {$::keyecho_kind in {keys help} && $::keyseq eq ""} {
         lappend bad "the key echo shows a sequence that is not running"
     }
     return $bad
@@ -3270,18 +3270,27 @@ proc policy-key-echo {kind {text ""}} {
     after cancel keyecho-due
     after cancel keyecho-hide
     if {$kind eq "none"} { keyecho-hide; return }
-    if {$::key_echo eq "off"} return
+    # `off` means "do not put a box up while I type" — it cannot mean
+    # "refuse to answer when I ask", so the help goes through it. The
+    # other two kinds are the desk speaking unbidden, and that is
+    # exactly what was switched off.
+    if {$::key_echo eq "off" && $kind ne "help"} return
     switch -- $kind {
         keys {
             set ::keyecho_pending $text
             # Up already, or wanted at once: no second wait. A delay is
             # about the FIRST chord — once the box is on the screen it
             # has to follow the typing, not lag a step behind it.
-            if {$::keyecho_kind eq "keys" || $::key_echo == 0} {
+            if {$::keyecho_kind in {keys help} || $::key_echo == 0} {
                 keyecho-due
             } else {
                 after $::key_echo keyecho-due
             }
+        }
+        help {
+            # Asked for, so it stands until the sequence moves on —
+            # no hold timer, no delay.
+            keyecho-show help $text
         }
         flash {
             # Shown whether or not the box had made it up: this one is
@@ -3340,7 +3349,7 @@ proc keyecho-show {kind text} {
     wm deiconify $b
     raise $b
     update idletasks
-    puts "WM: key echo ($kind) «$text»"
+    puts "WM: key echo ($kind) «[string map [list \n { | }] $text]»"
 }
 proc keyecho-hide {} {
     set ::keyecho_kind none

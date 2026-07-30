@@ -368,10 +368,22 @@
 # FIRST chord is a global grab; the rest is collected under a temporary
 # keyboard grab (Esc or an unbound key aborts). A chord is any number
 # of <Mod> prefixes — <Shift> <Ctrl> <Alt> <Super> <Mod1>..<Mod5> —
-# and then a keysym name. Later binds win, so binding over a default
-# replaces it. In-code defaults: the window ops menu (winops) on
-# <Alt>space and <Super>t w m; the window list (winlist) on <Alt>Tab
-# and <Super>t w w.
+# and then a keysym name (<Control> and <Ctrl> are the same one, as
+# are <Alt>/<Meta>/<Mod1> and <Super>/<Mod4>). Later binds win, so
+# binding over a default replaces it. In-code defaults: the window ops
+# menu (winops) on <Alt>space and <Super>t w m; the window list
+# (winlist) on <Alt>Tab and <Super>t w w.
+#
+# THE SPELLING THE DESK SHOWS ALSO BINDS: the echo and the log write a
+# chord as Super+t / Ctrl+h, and wm-bind takes that form too, so a line
+# read off the screen can be typed straight back here.
+#
+#   wm-bind {Super+t Ctrl+j} {exec xterm &}   ;# same as {<Super>t <Ctrl>j}
+#
+# A SHIFTED SYMBOL IS SPELLED BY THE KEY IT SITS ON. The lookup asks
+# the keymap for group 0 level 0, which is what makes a chord Latin on
+# any layout — and it means `?` never arrives as `?`. Bind <Shift>slash
+# (or whichever key prints it for you), not `question`.
 #
 #   wm-bind {<Super>Return} {exec xterm &}
 #   wm-bind {<Super>t w x}  {exec xterm &}
@@ -394,6 +406,16 @@
 # is as big as its text), over the workarea; an unnamed axis centers:
 #   set-key-echo-place {right top}
 #   set-key-echo-place center
+#
+# WHAT IS UNDER THIS PREFIX — <Super>h inside a sequence lists the keys
+# that go on from where you are, in the same box: Emacs's C-h after a
+# prefix. It costs nothing globally, being reachable only while a
+# sequence holds the keyboard, and it answers even when the echo is
+# `off` (that switches off the desk speaking unbidden, not the desk
+# answering). Asking does not move the sequence: the next key walks on
+# from the same place. A submap that binds this key keeps it.
+#   set-key-help {<Ctrl>h}
+#   set-key-help off
 #
 # The window list opened by a chord whose modifier is still held runs
 # the fvwm alt-tab cycle: Tab advances with wraparound (Shift+Tab

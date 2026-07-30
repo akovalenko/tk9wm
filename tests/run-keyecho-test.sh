@@ -22,6 +22,13 @@ trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-key-echo-place {left top}
 wm-bind {<Super>t <Super>t} {puts "WM: the submap kept its own Super+t"}
+# The DISPLAYED spelling, typed straight back in: this must land in the
+# very same submap the in-code <Super>t defaults built.
+wm-bind {Super+t Ctrl+j} {puts "WM: the shown spelling binds too"}
+# A shifted symbol is spelled by the key it sits on: pressing it comes
+# in as <Shift>slash on any layout, never as `question` (see the help
+# key's comment in the substrate).
+wm-bind {<Super>t <Shift>slash} {puts "WM: shift-slash, not question"}
 EOF
 sleep 1
 
@@ -110,9 +117,27 @@ key Escape
 key super+t
 key super+t
 
+# --- 5b. the shown spelling, and a shifted symbol by its own key
+key super+t
+key ctrl+j
+key super+t
+key question              # xdotool presses shift+slash for this
+
 # --- 6. a top chord that is an ACTION is live from inside a sequence
 key super+t
 key alt+space
+key Escape
+
+# --- 6b. the help: what is under this prefix, on demand, and the
+#         sequence still standing where it was when asked
+key super+t
+key w
+key super+h
+HELP=$(last_echo)
+IDH=$(echo_id)
+import -display :57 -window root "$HERE/keyecho-help.png" 2>/dev/null \
+    && echo "DRIVER: screenshot -> $HERE/keyecho-help.png"
+key m                     # ...and the prefix still walks on from there
 key Escape
 
 # --- 7. a DELAY is the Emacs reading: the box waits for hesitation,
@@ -185,11 +210,32 @@ else
     echo "FAIL: after the restart the echo read «$E5», want «Super+t …»"
 fi
 OPENS=$(grep -c 'winops open 0x' "$LOG")
-if [ "$OPENS" = 3 ]; then
-    echo "OK: winops opened 3 times (plain, after a restart, and by Alt+Space\
- from inside a sequence)"
+if [ "$OPENS" = 4 ]; then
+    echo "OK: winops opened 4 times (plain, after a restart, by Alt+Space from\
+ inside a sequence, and after the help)"
 else
-    echo "FAIL: winops opened $OPENS times, want 3"
+    echo "FAIL: winops opened $OPENS times, want 4"
+fi
+if grep -q 'WM: the shown spelling binds too' "$LOG"; then
+    echo "OK: «Super+t Ctrl+j» — the spelling the desk shows — bound, into the\
+ same submap as the in-code defaults"
+else
+    echo "FAIL: the displayed spelling did not bind (or landed elsewhere)"
+fi
+if grep -q 'WM: shift-slash, not question' "$LOG"; then
+    echo "OK: a shifted symbol answers to <Shift>slash, which is how it arrives"
+else
+    echo "FAIL: <Shift>slash never fired"
+fi
+case "$HELP" in
+    "Super+t w …"*"m  →  winops"*"w  →  winlist"*)
+        echo "OK: the help listed what is under Super+t w" ;;
+    *)  echo "FAIL: the help read «$HELP»" ;;
+esac
+if [ -n "$IDH" ]; then
+    echo "OK: ...on the screen, in the same box"
+else
+    echo "FAIL: the help never made it onto the screen"
 fi
 if grep -q 'WM: the submap kept its own Super+t' "$LOG"; then
     echo "OK: the submap's own <Super>t beat the restart"

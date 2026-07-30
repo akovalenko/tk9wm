@@ -599,6 +599,37 @@ frames a client and shows a panel has proved both libraries loaded.
   what a chord ignores, and none of this touches the xkb configuration
   — it is all on our side of the event.
 
+  **Two spellings, one chord.** `<Super>t` is how a config WRITES a
+  chord; `Super+t` is how the desk SHOWS it (the log, the echo, the
+  help list) — and `wm-bind` takes both, so a line read off the screen
+  can be typed straight back into a config. The `<Mod>` prefixes are
+  stripped first, then anything before a `+` is a modifier name too,
+  which is unambiguous because an X keysym name never contains one (the
+  key next to Backspace is `plus`). `<Control>`/`<Ctrl>`,
+  `<Alt>`/`<Meta>`/`<Mod1>` and `<Super>`/`<Mod4>` are the same
+  modifiers under different names.
+
+  **A shifted symbol is spelled by the key it sits on.** The lookup
+  asks the keymap for group 0 level 0, which is exactly what makes a
+  chord Latin on any layout — and the same thing means `?` never
+  arrives as `?`: pressing Shift+/ comes in as `<Shift>slash` whatever
+  the pair prints, so a binding named `question` could not match on ANY
+  layout. Making it match would mean also resolving the event's OWN
+  group and level and trying that keysym too — a decision about what a
+  chord IS, not a fix, and not taken here.
+
+  **What is under this prefix** (`set-key-help`, default `<Super>h`) —
+  Emacs's `C-h` after a prefix key: inside a sequence it lists the keys
+  that go on from where you are, in the same box, one per line, a
+  submap shown as how many ways it goes on and an action by its script.
+  It costs nothing from the global namespace, being reachable only
+  while a sequence holds the keyboard, and it answers even when the
+  echo is `off` — that switches off the desk speaking unbidden, not the
+  desk answering. Asking does not move the sequence: the next key walks
+  on from the same submap. The default is `<Super>h` because coming
+  from `<Super>t` the thumb is already on Super — one roll rather than
+  a regrip, the same thing that makes `C-x C-h` comfortable.
+
   **A top chord is always live.** Inside a sequence, a press the
   current submap does not know but the TOP map does starts over from
   there instead of aborting — reaching for `<Super>t` when a forgotten
@@ -1121,7 +1152,10 @@ runs as a single shell call:
   in its place, witnessed through xev on the server's own event order; `Super+t` inside a
   sequence restarts it and the echo starts over, `Alt+Space` inside one
   reaches its action, and where the config binds `<Super>t` under
-  `<Super>t` the submap wins),
+  `<Super>t` the submap wins; `<Super>h` lists the submap and leaves it
+  standing; a config line spelled `Super+t Ctrl+j` lands in the very
+  same submap as the in-code defaults, and `<Shift>slash` fires for the
+  key that prints `?`),
   `run-icon-test.sh` (winlist icons from all three sources at once: a
   client's `_NET_WM_ICON` is read and downscaled, a config style rule
   overrides it, an icon-less client gets a pseudo-badge; the number
