@@ -24,13 +24,16 @@ trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 # The owner's own development binding, by hand — the long way, so that
 # what is tested is the FILES being sourced again and not one proc's
-# error handling. (`Reread` is that same pair, done properly: right
+# error handling. ALL THREE of them: main.tcl holds reload-config and
+# load-config, and a re-source that skipped it once cost a live
+# debugging session (a fix that lives there changed nothing). (`Reread` is that same pair, done properly: right
 # order, caught errors. A second leg below presses it.)
 wm-bind {<Super>s} {
     puts "WM: MARK re-sourcing"
     if {[catch {
-        source [file join $::tk9wm_library substrate.tcl]
-        source [file join $::tk9wm_library policy.tcl]
+        foreach f {substrate.tcl policy.tcl main.tcl} {
+            source [file join $::tk9wm_library $f]
+        }
     } err]} {
         puts "WM: MARK re-source FAILED: $err"
     } else {

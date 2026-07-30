@@ -20,7 +20,12 @@ set ::tk9wm_library [file dirname [file normalize [info script]]]
 # after both layers are in and before the config has said a word. So
 # they cannot drift from what the code actually does: nothing is
 # written down twice (see policy.tcl, the config layer).
-policy-snapshot-defaults
+# The one setup step in this file, and it must not run twice: the
+# snapshot is taken from the CODE's own values a moment before a config
+# is first read, and a second one — taken on a live desk — would freeze
+# the config's own values as the defaults it is reset to, which is a
+# reload that can no longer undo anything.
+unless-already {[array exists ::config_default]} { policy-snapshot-defaults }
 
 # The customization layer: ONE Tcl file, sourced after both layers are
 # in and before the first window is managed — the user's
@@ -81,24 +86,31 @@ proc reload-config {} {
     }
 }
 
-# Reload is the config; this is the CODE. Both layers sourced again on
-# the running desk, which redefines every proc and leaves the desk
-# itself alone (see the head of substrate.tcl for the three kinds of
+# Reload is the config; this is the CODE. All THREE files sourced again
+# on the running desk, which redefines every proc and leaves the desk
+# itself alone (see the head of substrate.tcl for the kinds of
 # statement that makes possible, and for the honest edge of it).
+#
+# This file is in the list, and learning that it had to be cost a
+# measurement: a fix to reload-config — which lives HERE — was
+# re-sourced onto the owner's live desk and changed nothing, because
+# only the two layers were being re-read (2026-07-30). A `Reread` that
+# quietly skips a third of the code is worse than none.
 #
 # It exists as a command rather than as a line in everyone's config
 # because the two things that are easy to get wrong belong in one
 # place: the ORDER (the substrate first — the policy calls into it at
-# load, not only at run time) and the CATCH (a typo halfway through
-# would otherwise take the desk down with it, and a desk that dies of
-# a typo is no use for the loop this is for).
+# load, not only at run time; this file last, since it calls into
+# both) and the CATCH (a typo halfway through would otherwise take the
+# desk down with it, and a desk that dies of a typo is no use for the
+# loop this is for).
 #
 # A half-sourced file leaves a half-defined layer, and this cannot
 # undo that. It says so out loud and leaves the desk running, which is
 # the difference between an error one fixes and an error one reboots.
 proc reread-layers {} {
-    puts "WM: re-sourcing both layers"
-    foreach f {substrate.tcl policy.tcl} {
+    puts "WM: re-sourcing the library"
+    foreach f {substrate.tcl policy.tcl main.tcl} {
         set path [file join $::tk9wm_library $f]
         if {[catch {uplevel #0 [list source $path]} err]} {
             puts "WM: re-source $f FAILED: $err"
