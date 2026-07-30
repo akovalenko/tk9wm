@@ -1077,6 +1077,29 @@ frames a client and shows a panel has proved both libraries loaded.
   config is logged and skipped: a WM that dies on a typo in its config
   locks the user out of the very session that would let them fix it.
 
+  **Definitions apart from setup, so the layers can be sourced again**
+  (`Reread`, and the `keep`/`once` words at the head of the substrate).
+  The development loop the owner wanted: edit a layer, press a key, and
+  the running window manager is the new code with every client, frame,
+  grab and mode where it was — a desk that IS the session cannot be
+  restarted casually. A file sourced twice does everything twice, and
+  most of a window manager's file must happen exactly once: the first
+  attempt died at the third statement, `desk-take` finding WM_S0
+  already owned by our own owner window and standing down as it should.
+  Behind that: a second focus holder, a second EWMH check window, an
+  `::exit` renamed onto itself, `font create` on a font that exists,
+  the window-command aliases failing their shadow check against
+  themselves, a frame counter back at 1 — and the reported symptom, a
+  keymap and a grab list wiped while the server went on holding the
+  grabs. So every top-level statement says which of three it is: a
+  `set` is a CONSTANT (re-established, so an edit shows), `keep` is
+  STATE the desk carries (including every knob a config turned — set
+  once, left alone), and `once` is setup with a side effect out in the
+  world. It cannot be made reliable and is not meant to be: a proc that
+  has gone away stays, a variable whose shape changed keeps the old
+  shape, and a half-sourced file leaves a half-loaded layer — which
+  `Reread` says out loud rather than pretending, leaving the desk up.
+
   **Re-reading the config on a live desk** — `reload-config`: the
   chord `Super+t w r` (the default, in code) or the `TK9WM_RELOAD`
   ClientMessage (`tools/send-reload.tcl`). No restart, and not one
@@ -1241,7 +1264,11 @@ runs as a single shell call:
   maximizing and button 3 opening the ops menu; and a CONFIG saying all
   three kinds of thing — declaring a button with its own glyph, binding
   it to a window command, and putting Destroy on button 3 of close), `run-restart-test.sh` (restart in place: the
-  same pid, the client picked back up), `run-config-test.sh` (config
+  same pid, the client picked back up), `run-resource-test.sh` (sourcing
+  both layers on a live desk: the in-code chords and the CONFIG's own
+  still answer, a client mapped afterwards is still framed, the
+  selection is still ours, a reload still rebuilds — and the same
+  through the `Reread` command), `run-config-test.sh` (config
   resolution XDG → default-config; the default snaps a wm-grid client's
   drag to its increments, the dev preset — ignore plus a bold centered
   title — gives back the raw size).
