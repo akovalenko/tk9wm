@@ -3332,15 +3332,19 @@ proc keyecho-show {kind text} {
         wm overrideredirect $b 1
         wm withdraw $b
         wm title $b tk9wm-key-echo
-        label $b.t -font TitleFont -justify left -padx 10 -pady 4
-        place $b.t -x 1 -y 1
     }
-    $b.t configure -text $text -foreground white \
-        -background [expr {$kind eq "flash" ? $::KEY_ECHO_BAD : $::KBMR_BG}]
+    if {$kind eq "help"} {
+        lassign $text header rows
+    } else {
+        set header $text
+        set rows {}
+    }
+    keyecho-build $b $header $rows \
+        [expr {$kind eq "flash" ? $::KEY_ECHO_BAD : $::KBMR_BG}]
     set ::keyecho_kind $kind
-    update idletasks            ;# the label sizes itself, still unmapped
-    set W [expr {[winfo reqwidth $b.t] + 2}]
-    set H [expr {[winfo reqheight $b.t] + 2}]
+    update idletasks            ;# the content sizes itself, still unmapped
+    set W [expr {[winfo reqwidth $b.c] + 2}]
+    set H [expr {[winfo reqheight $b.c] + 2}]
     lassign [workarea] wax way ww wh
     lassign [keyecho-anchor $::key_echo_place] halign valign
     wm geometry $b ${W}x${H}+[place-axis $wax $ww $W $halign]+[place-axis\
@@ -3349,7 +3353,51 @@ proc keyecho-show {kind text} {
     wm deiconify $b
     raise $b
     update idletasks
-    puts "WM: key echo ($kind) «[string map [list \n { | }] $text]»"
+    set line $header
+    foreach row $rows { append line " | [lindex $row 0] → [lindex $row 1]" }
+    puts "WM: key echo ($kind) «$line»"
+}
+# The listing is laid out by the GRID, not by spaces in one label: a
+# proportional font makes padded text a ragged mess, and the columns
+# are the whole point of a list one reads down (the owner, 2026-07-30
+# — "in the range from the grid geometry manager to tktreectrl").
+# Grid is the light end of that range and the fitting one: nothing here
+# is selected, scrolled or clicked, so a treectrl would buy a scrollbar
+# nobody needs.
+#
+# COLUMNS when it is long. The number of rows that fit is worked out
+# from the font and the workarea, and anything past it starts a new
+# pair of columns rather than running off the bottom of the screen.
+proc keyecho-build {b header rows bg} {
+    set c $b.c
+    destroy $c
+    frame $c -background $bg
+    set n [llength $rows]
+    lassign [workarea] - - - wh
+    set rowh [expr {[font metrics TitleFont -linespace] + 3}]
+    set percol [expr {max(1, ($wh - 4 * $rowh) / $rowh)}]
+    if {$n < $percol} { set percol [expr {max(1, $n)}] }
+    set ncols [expr {($n + $percol - 1) / $percol}]
+    label $c.h -text $header -font TitleFont -background $bg \
+        -foreground white -anchor w
+    grid $c.h -row 0 -column 0 -columnspan [expr {max(3, 3 * $ncols)}] \
+        -sticky w -padx 10 -pady [expr {$n ? {4 2} : 4}]
+    set i 0
+    foreach row $rows {
+        lassign $row keys what
+        set r [expr {1 + $i % $percol}]
+        set col [expr {3 * ($i / $percol)}]
+        foreach {suffix txt} [list k $keys a → v $what] {
+            label $c.$suffix$i -text $txt -font TitleFont -background $bg \
+                -foreground white -anchor w
+        }
+        grid $c.k$i -row $r -column $col       -sticky w -padx {18 0} -pady {0 3}
+        grid $c.a$i -row $r -column [expr {$col + 1}] -padx 6 -pady {0 3}
+        grid $c.v$i -row $r -column [expr {$col + 2}] -sticky w -padx {0 12} \
+            -pady {0 3}
+        incr i
+    }
+    place $c -x 1 -y 1
 }
 proc keyecho-hide {} {
     set ::keyecho_kind none
@@ -3511,8 +3559,10 @@ proc panel-button {label settings} {
     lappend buttons [list $label $settings]
     dict set ::panels $name buttons $buttons
     if {[dict exists $settings key]} {
+        # ...and the binding carries the BUTTON'S name, so the help
+        # list reads "Super+e → emacs" and not "panel-fire dock 2".
         wm-bind [dict get $settings key] \
-            [list panel-fire $name [expr {[llength $buttons] - 1}]]
+            [list panel-fire $name [expr {[llength $buttons] - 1}]] $label
     }
     # `style` is a shorthand and nothing more: the button's own match
     # predicate, handed to wm-style with these settings. It exists

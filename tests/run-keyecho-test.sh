@@ -29,6 +29,13 @@ wm-bind {Super+t Ctrl+j} {puts "WM: the shown spelling binds too"}
 # in as <Shift>slash on any layout, never as `question` (see the help
 # key's comment in the substrate).
 wm-bind {<Super>t <Shift>slash} {puts "WM: shift-slash, not question"}
+# A panel button's chord is bound to `panel-fire NAME INDEX`; the help
+# must call it by the button's own name instead.
+panel-button "терминал" {
+    match  {filter -class {xterm XTerm}}
+    launch {exec xterm &}
+    key    {<Super>t x}
+}
 EOF
 sleep 1
 
@@ -128,16 +135,16 @@ key super+t
 key alt+space
 key Escape
 
-# --- 6b. the help: what is under this prefix, on demand, and the
-#         sequence still standing where it was when asked
+# --- 6b. the help: the WHOLE subtree under where we stand, on demand,
+#         with the sequence still standing where it was when asked
 key super+t
-key w
 key super+h
 HELP=$(last_echo)
 IDH=$(echo_id)
 import -display :57 -window root "$HERE/keyecho-help.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/keyecho-help.png"
-key m                     # ...and the prefix still walks on from there
+key w                     # ...and the prefix still walks on from there
+key m
 key Escape
 
 # --- 7. a DELAY is the Emacs reading: the box waits for hesitation,
@@ -228,9 +235,14 @@ else
     echo "FAIL: <Shift>slash never fired"
 fi
 case "$HELP" in
-    "Super+t w …"*"m  →  winops"*"w  →  winlist"*)
-        echo "OK: the help listed what is under Super+t w" ;;
+    "Super+t …"*"q → Quit"*"w m → winops"*"w w → winlist"*)
+        echo "OK: the help expanded the whole subtree under Super+t" ;;
     *)  echo "FAIL: the help read «$HELP»" ;;
+esac
+case "$HELP" in
+    *"x → терминал"*)
+        echo "OK: ...and a panel button's chord is called by its label" ;;
+    *)  echo "FAIL: no «x → терминал» in the help — «$HELP»" ;;
 esac
 if [ -n "$IDH" ]; then
     echo "OK: ...on the screen, in the same box"

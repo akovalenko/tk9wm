@@ -620,8 +620,23 @@ frames a client and shows a panel has proved both libraries loaded.
 
   **What is under this prefix** (`set-key-help`, default `<Super>h`) —
   Emacs's `C-h` after a prefix key: inside a sequence it lists the keys
-  that go on from where you are, in the same box, one per line, a
-  submap shown as how many ways it goes on and an action by its script.
+  that go on from where you are, in the same box — the WHOLE subtree,
+  one leaf per line. Showing a submap as "… (2 more)" was the first
+  version and a greedy saving: a desk has a dozen or so bindings, they
+  fit, and a level hiding them buys something only if the group can say
+  what it IS — which cannot be synthesized out of the keys under it, so
+  between expanding and describing the honest one is expanding (the
+  owner, 2026-07-30). The listing is laid out by the GRID and not by
+  spaces in a label, because a proportional font makes padded text
+  ragged and the columns are the point of a list one reads down; a
+  listing longer than the screen starts a second pair of columns rather
+  than running off the bottom. A binding can carry its own NAME
+  (`wm-bind SPEC SCRIPT ?NAME?`) for when the script is not a fit thing
+  to read — which is how a panel button's chord shows as `emacs` and
+  not as `panel-fire dock 2`. The number is right for the machinery (it
+  addresses the button's cell, the thing that gets flashed, and two
+  buttons may share a label), so the caller says what it IS rather than
+  anything reversing a name out of a command afterwards.
   It costs nothing from the global namespace, being reachable only
   while a sequence holds the keyboard, and it answers even when the
   echo is `off` — that switches off the desk speaking unbidden, not the
@@ -1152,8 +1167,9 @@ runs as a single shell call:
   in its place, witnessed through xev on the server's own event order; `Super+t` inside a
   sequence restarts it and the echo starts over, `Alt+Space` inside one
   reaches its action, and where the config binds `<Super>t` under
-  `<Super>t` the submap wins; `<Super>h` lists the submap and leaves it
-  standing; a config line spelled `Super+t Ctrl+j` lands in the very
+  `<Super>t` the submap wins; `<Super>h` expands the whole subtree —
+  including a panel button's chord under its own label — and leaves the
+  sequence standing; a config line spelled `Super+t Ctrl+j` lands in the very
   same submap as the in-code defaults, and `<Shift>slash` fires for the
   key that prints `?`),
   `run-icon-test.sh` (winlist icons from all three sources at once: a

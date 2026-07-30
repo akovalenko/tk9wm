@@ -2796,25 +2796,42 @@ proc set-key-help {spec} {
 # Set a key path in a nested keymap dict. A later bind REPLACES what
 # was there: an action shadowing a former prefix map drops the whole
 # map, and a longer sequence turns a former action into a prefix.
-proc keymap-set {node keys script} {
+#
+# A leaf is {action SCRIPT ?NAME?}: the optional name is what the help
+# calls this binding when the script itself is not a fit thing to read
+# (see wm-bind).
+proc keymap-set {node keys entry} {
     set k [lindex $keys 0]
     if {[llength $keys] == 1} {
-        dict set node $k [list action $script]
+        dict set node $k [linsert $entry 0 action]
     } else {
         set sub {}
         if {[dict exists $node $k]
                 && [lindex [dict get $node $k] 0] eq "map"} {
             set sub [lindex [dict get $node $k] 1]
         }
-        dict set node $k [list map [keymap-set $sub [lrange $keys 1 end] $script]]
+        dict set node $k [list map [keymap-set $sub [lrange $keys 1 end] $entry]]
     }
     return $node
 }
 
-proc wm-bind {spec script} {
+# The optional NAME is for the help list, and one case showed how
+# general it is: a panel button binds its chord to `panel-fire dock 2`,
+# and a list of those is nonsense to read (the owner, 2026-07-30). The
+# number is right for the machinery — it addresses the button's CELL,
+# which is the thing that gets flashed, and two buttons may carry the
+# same label — so the answer is not to change what is CALLED but to let
+# the caller say what it IS. Nothing has to reverse a name out of a
+# command after the fact.
+#
+# For an ordinary config binding there is nothing to synthesize and
+# nothing is: the script speaks for itself (winops, Quit, or the first
+# words of an exec), which is why the name is optional.
+proc wm-bind {spec script {name ""}} {
     set chords [lmap tok $spec {parse-chord $tok}]
     if {![llength $chords]} { error "wm-bind: empty chord sequence" }
-    set ::keymap [keymap-set $::keymap [lmap c $chords {join $c ,}] $script]
+    set ::keymap [keymap-set $::keymap [lmap c $chords {join $c ,}] \
+                      [list $script $name]]
     set top [lindex $chords 0]
     if {$top ni $::grabbed_top} {
         lappend ::grabbed_top $top
@@ -2878,31 +2895,41 @@ proc keyseq-end {} {
 # The chords typed so far, as one line — what the echo is about.
 proc keyseq-text {} { join $::keyseq_keys " " }
 
-# What is bound under the prefix we are standing in, one entry per
-# line, under the same header the plain echo shows. The keys are named
-# the way a config would spell them, which is now the same way (see
-# parse-chord), so a line here can be typed back verbatim.
+# What is bound under the prefix we are standing in: {header rows},
+# where a row is {keys what}. The keys are spelled the way a config
+# would spell them, which is now the same way the desk shows them
+# everywhere else (see parse-chord), so a line here can be typed back
+# verbatim.
 #
-# A submap is shown as how many ways it goes on rather than expanded:
-# the point of the list is to pick the next key, and a whole tree is a
-# manual. An action shows its SCRIPT, collapsed to one line — usually
-# a command name (winops, Quit), and when it is a real script the
-# first few words say enough to recognize it.
+# THE WHOLE SUBTREE, not just the next step. The first version showed
+# a submap as "… (2 more)" and the owner was right to call that a
+# greedy saving (2026-07-30): a desk has a dozen or so bindings, they
+# fit on the screen, and hiding them behind a level buys nothing. It
+# would buy something only if a group could say what it IS — and a
+# group's meaning cannot be synthesized out of the keys under it, so
+# between "expand" and "describe" the honest one is expand.
+#
+# An action with no name of its own shows its SCRIPT collapsed to one
+# line — usually a command (winops, Quit), otherwise the first words of
+# it, which is enough to recognize something one wrote oneself.
 proc keyseq-help {} {
+    list "[keyseq-text] …" \
+         [lsort -index 0 -dictionary [keymap-rows $::keyseq {}]]
+}
+proc keymap-rows {node path} {
     set rows {}
-    dict for {k entry} $::keyseq {
+    dict for {k entry} $node {
         lassign [split $k ,] mods ks
-        lassign $entry kind payload
-        lappend rows [list [chord-name $mods $ks] \
-            [expr {$kind eq "map" ? "… ([dict size $payload] more)"
-                                  : [help-label $payload]}]]
+        set here [concat $path [list [chord-name $mods $ks]]]
+        lassign $entry kind payload name
+        if {$kind eq "map"} {
+            lappend rows {*}[keymap-rows $payload $here]
+        } else {
+            lappend rows [list [join $here " "] \
+                [expr {$name ne "" ? $name : [help-label $payload]}]]
+        }
     }
-    set out "[keyseq-text] …"
-    foreach row [lsort -index 0 -dictionary $rows] {
-        append out "\n    [lindex $row 0]  →  [lindex $row 1]"
-    }
-    if {![llength $rows]} { append out "\n    (nothing is bound here)" }
-    return $out
+    return $rows
 }
 proc help-label {script} {
     set one [string trim [regsub -all {\s+} $script " "]]

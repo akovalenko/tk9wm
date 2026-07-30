@@ -380,6 +380,13 @@
 #
 #   wm-bind {Super+t Ctrl+j} {exec xterm &}   ;# same as {<Super>t <Ctrl>j}
 #
+# A third argument NAMES the binding for the help list, for when the
+# script is not a fit thing to read. Nothing needs it usually — winops,
+# Quit or the first words of an exec say enough — and a panel button
+# fills it in for you with the button's own label.
+#
+#   wm-bind {<Super>Return} {exec urxvtc -e tmux new -As0} "a terminal"
+#
 # A SHIFTED SYMBOL IS SPELLED BY THE KEY IT SITS ON. The lookup asks
 # the keymap for group 0 level 0, which is what makes a chord Latin on
 # any layout — and it means `?` never arrives as `?`. Bind <Shift>slash
@@ -409,7 +416,9 @@
 #
 # WHAT IS UNDER THIS PREFIX — <Super>h inside a sequence lists the keys
 # that go on from where you are, in the same box: Emacs's C-h after a
-# prefix. It costs nothing globally, being reachable only while a
+# prefix. The WHOLE subtree, not the next step only (a desk's dozen or
+# so bindings fit on the screen, and a long list goes into columns
+# rather than off the bottom). It costs nothing globally, being reachable only while a
 # sequence holds the keyboard, and it answers even when the echo is
 # `off` (that switches off the desk speaking unbidden, not the desk
 # answering). Asking does not move the sequence: the next key walks on
