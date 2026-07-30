@@ -495,6 +495,19 @@
 # cycle mode. In every popup menu k/j and p/n move the selection when
 # no item hotkey claims the letter; Ctrl+P/Ctrl+N move unconditionally.
 
+# ---- working ON the window manager ----
+#
+# `Reread` sources both layers again on the running desk: every proc is
+# replaced, and the desk — clients, frames, grabs, the config you had
+# loaded — carries on. It is the development loop, not a hot-patch
+# facility, and it has an honest edge: a proc that has gone away stays
+# until a restart, a variable whose shape changed keeps the old shape,
+# and a file with a typo in it leaves that layer half-loaded (it says
+# so and does not take the desk down). `Reload` next to it re-reads
+# THIS file; `Restart` execs a fresh process in place.
+#
+#   wm-bind {<Super>t r r} Reread
+#
 # ---- window commands ----
 #
 # Everything else in this file is lowercase and DESCRIBES a desk. A

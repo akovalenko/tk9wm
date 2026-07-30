@@ -15,15 +15,15 @@
 package require treectrl   ;# titlebars: its text element cuts a long
                             ;# title with an ellipsis instead of overflowing
 
-set ncli 0
-set fid 0
-set focus_hist {}
+keep ncli 0
+keep fid 0
+keep focus_hist {}
 # Border width, all four sides. 6px is a resize GRIP, not just a
 # line: the old 2px border left nothing to grab. The top strip above
 # the titlebar was 2px for a while (top resize worked but was
 # unhittable); the owner asked for grips uniform with the bottom
 # (2026-07-28), so the strip is a full border now.
-set border 6
+keep border 6
 # Corner grip arm length — ALL four corners, deco-draw and rz-edge
 # alike. The top arms briefly ran border+titleh ("hug the buttons"),
 # then the buttons briefly shrank to gripz - border to meet 24px
@@ -33,7 +33,7 @@ set border 6
 # against the button the way the bottom border presses against the
 # client area. The grip's cut is just a mark on the border — it does
 # not chase the button's edge. Button size — see title-metrics.
-set gripz 24
+keep gripz 24
 
 # Titlebar typography. TitleFont is OUR named font: it starts as a copy
 # of TkDefaultFont, TK9WM_TITLE_FONT overrides it at startup (any Tk
@@ -41,7 +41,7 @@ set gripz 24
 # live. Every vertical measure of the decoration derives from its
 # metrics — a 22px strip that was roomy at 96 dpi was visibly too tight
 # for the same font at Xft.dpi 144 (live report, 2026-07-27).
-font create TitleFont {*}[font actual TkDefaultFont]
+once fonts-title {font create TitleFont {*}[font actual TkDefaultFont]}
 if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
     if {[catch {font configure TitleFont {*}[font actual $::env(TK9WM_TITLE_FONT)]} err]} {
         puts "WM: TK9WM_TITLE_FONT «$::env(TK9WM_TITLE_FONT)» rejected: $err"
@@ -54,7 +54,7 @@ if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
 # dock of 48px icons beside a taskbar of 24px ones is the ordinary
 # case — and panels sharing one font would each be lettered for
 # whichever was built last.
-font create IconFont -weight bold
+once fonts-icon {font create IconFont -weight bold}
 # 3px of air above and below the text line; the strip sits under the
 # full top border (a real grip, uniform with the bottom), a 2px gap
 # separates it from the client slot.
@@ -83,7 +83,7 @@ proc title-metrics {} {
 # grips, and the constant dark outline that keeps two touching frames
 # readable as two windows (before it, several inactive titlebars fused
 # into one gray field).
-set OUTLINE #2e3436
+keep OUTLINE #2e3436
 set KBMR_BG #c17d11
 array set gripof {#3465a4 #6b93c0 #888a85 #a5a7a1 #c17d11 #e0a94a}
 
@@ -144,7 +144,7 @@ set SVG_MIN {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 # Order within a side is declaration order, left to right. The name
 # becomes a treectrl column tag and an image name, so it is kept to
 # lowercase letters.
-set titlebar_buttons {}
+keep titlebar_buttons {}
 proc titlebar-button {name args} {
     if {![regexp {^[a-z][a-z0-9]*$} $name]} {
         error "titlebar-button: «$name» — lowercase letters and digits,\
@@ -189,7 +189,7 @@ proc btn-images {} {
 # the natural thing to write here. A button fires on release-inside,
 # classic button semantics, so a drag away cancels; a gesture on the
 # strip itself fires on the press, the way a menu should.
-set titlebar_gestures {}
+keep titlebar_gestures {}
 proc titlebar-bind {part gesture cmd} {
     if {$part ne "title" && ![dict exists $::titlebar_buttons $part]} {
         error "titlebar-bind: no titlebar button «$part» (and it is not\
@@ -286,7 +286,7 @@ bind . <<ThemeChanged>> retitle-frames
 # Title alignment knob. The flags feed the text element's -expand in
 # the titlebar style: where the layout may ADD space decides where the
 # text ends up (ns = left, extra space east+west = centered).
-set titlejust left
+keep titlejust left
 array set justflags {left ns center wens right wns}
 proc set-title-justify {j} {
     if {![info exists ::justflags($j)]} {
@@ -321,7 +321,7 @@ proc set-title-justify {j} {
 # decor (full|border|none) — how much frame this client wears; see
 # chrome-of. place (a term list) — the geometry it is born with; see
 # parse-place.
-set style_rules {}
+keep style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
     lappend ::style_rules [list $pred $settings]
@@ -1279,7 +1279,7 @@ proc policy-paint-focus {w} {
 # With no compositor running the property is simply ignored by
 # everybody: nothing breaks, nothing fades. That is the compositor's
 # half of the bargain, not ours.
-set fade 0.8
+keep fade 0.8
 proc set-fade {a} {
     if {![string is double -strict $a] || $a <= 0.0 || $a > 1.0} {
         error "set-fade: how solid a faded window is, above 0 and up to 1"
@@ -1348,7 +1348,7 @@ proc apply-opacity {w} {
 # honest answer for those windows is to refuse minimize rather than
 # hand back a half-dead window:
 #   wm-style {filter -class {*.exe *.exe}} {minimize refuse}
-set minimize iconify
+keep minimize iconify
 proc set-minimize {mode} {
     if {$mode ni {iconify refuse}} { error "set-minimize: iconify|refuse" }
     set ::minimize $mode
@@ -1857,7 +1857,7 @@ proc policy-workarea {} { workarea }
 # desktops that unmaximize on a title drag are doing something else
 # entirely (they resize it to the saved size under the pointer, which
 # nobody has asked for here).
-set maximize drop
+keep maximize drop
 proc set-maximize {mode} {
     if {$mode ni {keep drop}} { error "set-maximize: keep|drop" }
     set ::maximize $mode
@@ -2230,7 +2230,7 @@ proc popups-close {{except ""}} {
 # not taken the router yet. A timer is not drained by update idletasks;
 # it fires when the WM is back at its event loop, which is the moment
 # the invariants are actually about.
-set invariants_due 0
+keep invariants_due 0
 proc invariants-soon {} {
     if {$::invariants_due} return
     set ::invariants_due 1
@@ -2333,7 +2333,7 @@ proc popup-move {T n d} {
 # classic toggle — commit lands on the previous window. Invoked with
 # nothing held (the Super-sequence ends fully released) the list is a
 # static menu. set-winlist-cycle off disables the mode entirely.
-set winlist_cycle_opt 1
+keep winlist_cycle_opt 1
 proc set-winlist-cycle {onoff} {
     set ::winlist_cycle_opt [expr {$onoff in {on 1 yes true}}]
 }
@@ -2351,7 +2351,7 @@ proc set-winlist-cycle {onoff} {
 # rgba-png), a smaller one stays smaller. A miss logs once and
 # returns "" — the caller shows its no-icon look. Every resolution is
 # cached per {spec size}: panel rebuilds reuse, nothing leaks.
-set icon_path [list ~/.local/share/icons/hicolor/48x48/apps \
+keep icon_path [list ~/.local/share/icons/hicolor/48x48/apps \
     /usr/share/icons/hicolor/48x48/apps /usr/share/pixmaps]
 proc set-icon-path {dirs} { set ::icon_path $dirs }
 proc resolve-icon {spec size} {
@@ -2662,7 +2662,7 @@ proc winlist-cancel {} {
 # and the winops menu, which acts on the window it was opened over. The
 # context is a bound subject where there is one, and the focused client
 # everywhere else.
-set subject_window 0
+keep subject_window 0
 proc current-window {} {
     expr {$::subject_window != 0 ? $::subject_window : $::focused}
 }
@@ -2698,7 +2698,7 @@ proc with-window {w script} {
 # says so is the one driving other commands. Nothing needs to mark the
 # menu or a key binding as "the user" — that is the default, and the
 # default is the common case.
-set programmatic 0
+keep programmatic 0
 proc programmatically {script} {
     set save $::programmatic
     set ::programmatic 1
@@ -2756,7 +2756,11 @@ proc window-do {name {w 0}} {
 # this file is torn down — and the damage would show up somewhere else
 # entirely. Failing here, at load, is the cheap end of that.
 foreach {_name _impl} $window_commands {
-    if {[llength [info commands ::$_name]]} {
+    # An alias of ours from a previous load is not a collision — it is
+    # this very line, run before. Anything else that answers to the
+    # name IS one, and failing here at load is the cheap end of that.
+    if {[llength [info commands ::$_name]]
+            && [interp alias {} ::$_name] eq ""} {
         error "window command $_name would shadow the existing command ::$_name"
     }
     interp alias {} ::$_name {} window-do $_name
@@ -2798,10 +2802,12 @@ proc quit-command {} {
 set desk_commands {
     Restart restart-wm
     Reload  reload-config
+    Reread  reread-layers
     Quit    quit-command
 }
 foreach {_name _impl} $desk_commands {
-    if {[llength [info commands ::$_name]]} {
+    if {[llength [info commands ::$_name]]
+            && [interp alias {} ::$_name] eq ""} {
         error "desk command $_name would shadow the existing command ::$_name"
     }
     # reload-config lives in main.tcl, which is sourced after this file;
@@ -3002,7 +3008,7 @@ proc winops-click {x y} {
 # read), and the titlebar lends its text to a live readout, +X+Y while
 # moving and WxH while resizing. Both are undone on commit AND on
 # cancel; nothing about the client changes, only our decoration.
-set kbmr {}   ;# {move|resize w saved-geometry}, {} = mode off
+keep kbmr {}   ;# {move|resize w saved-geometry}, {} = mode off
 proc kbmr-owns {w} {
     expr {[llength $::kbmr] && [lindex $::kbmr 1] == $w}
 }
@@ -3091,10 +3097,10 @@ array set compass_key {
     KP_1 1     KP_2 2      KP_3 3
     7 7  8 8  9 9   4 4  5 5  6 6   1 1  2 2  3 3
 }
-set compass {}      ;# the cells currently up, {} = no compass
-set compass_s 0     ;# their side, in pixels
-set compass_on {}   ;# the highlighted cell, {} = none
-font create CompassFont -weight bold
+keep compass {}      ;# the cells currently up, {} = no compass
+keep compass_s 0     ;# their side, in pixels
+keep compass_on {}   ;# the highlighted cell, {} = none
+once fonts-compass {font create CompassFont -weight bold}
 
 # The edge a cell names, in the compass-point vocabulary the MOUSE
 # resize already speaks (rz-edge, rzcursor): aligned to the start of an
@@ -3289,7 +3295,7 @@ proc move-keyboard {{w 0}} {
 # what the mode always did before it could be told otherwise: the arrows
 # grew the window down and to the right and the top-left corner stayed
 # put. The compass does not change that, it says it out loud.
-set kbmr_edge se
+keep kbmr_edge se
 proc resize-keyboard {{w 0}} {
     if {$w == 0} { set w $::focused }
     if {$w == 0 || ![info exists ::frameof($w)]} return
@@ -3501,12 +3507,12 @@ proc kbmr-key {kind name mods} {
 # The window is NAMED, which costs nothing and lets a test outside this
 # process assert that a box really is on the screen rather than trust
 # our own log for it.
-set key_echo 0                  ;# ms of hesitation before it shows; off = never
-set key_echo_place {hcenter bottom}
+keep key_echo 0                  ;# ms of hesitation before it shows; off = never
+keep key_echo_place {hcenter bottom}
 set KEY_ECHO_HOLD 1200          ;# how long a flash stands before it goes
 set KEY_ECHO_BAD  #a40000       ;# ...and the color it stands in
-set keyecho_kind none           ;# none | keys | flash — what is up right now
-set keyecho_pending ""          ;# the text a delayed `keys` is going to show
+keep keyecho_kind none           ;# none | keys | flash — what is up right now
+keep keyecho_pending ""          ;# the text a delayed `keys` is going to show
 
 proc set-key-echo {spec} {
     if {$spec eq "off"} { set ::key_echo off; return }
@@ -3761,8 +3767,8 @@ proc panel-defaults {} {
 # present from the start would always have been the first band carved,
 # whatever the config wrote first, and the corner rule would be a rule
 # about our initialization rather than about the config.
-set panels {}
-set panel_target default   ;# whose knobs the config is turning right now
+keep panels {}
+keep panel_target default   ;# whose knobs the config is turning right now
 array set panel_win {}     ;# name -> the live top-level, absent = not built
 array set panel_zone {}    ;# name -> its reserved arrow strip, set per build
 # The block form. `panel NAME BODY` points the knobs at NAME for the
@@ -3827,8 +3833,8 @@ proc set-panel-preset {preset} {
 proc set-panel-icon-size {px} {
     panel-set $::panel_target icon_size $px
 }
-set panel_live_bar  #8ae234  ;# the indicator strip
-set panel_live_face #5d6e59  ;# the face tint under a live match
+keep panel_live_bar  #8ae234  ;# the indicator strip
+keep panel_live_face #5d6e59  ;# the face tint under a live match
 proc set-panel-live-colors {bar face} {
     set ::panel_live_bar $bar
     set ::panel_live_face $face
@@ -3910,7 +3916,7 @@ proc panel-matches {label settings} {
 # the persistent states. Kicked (debounced — one manage can cascade
 # a burst of property traffic) from the policy hooks: manage,
 # unmanage, title change; run straight at the end of every rebuild.
-set panel_reeval_pending ""
+keep panel_reeval_pending ""
 proc panel-match-kick {} {
     if {![llength [panel-all-buttons]]} return
     after cancel $::panel_reeval_pending
@@ -4404,19 +4410,19 @@ proc panel-on-top {} {
 # share an edge, so the carve is the thicker of them), and the panel
 # shortens its button row by the strip's length so the two never
 # overlap.
-set tray_on 0
-set tray_icon_size 24    ;# the freedesktop-conventional cell
-set tray_gap 4           ;# between cells
-set tray_pad 3           ;# around the row
-set tray_bg #2e3436      ;# what shows through a transparent icon
-set tray_sid 0
-set tray_order {}        ;# icon windows, in dock order
-set tray_seen_extent 0   ;# the length the panel last reserved for us
-set tray_geo ""          ;# the strip geometry we last asked for
-set tray_argb 0          ;# the ARGB experiment — see set-tray-argb
-set tray_strip_argb 0    ;# ...and what the LIVE strip was built with
-set tray_laid_size 0     ;# the cell size the live cells were laid out at
-set tray_panel default   ;# whose bar the tray is part of
+keep tray_on 0
+keep tray_icon_size 24    ;# the freedesktop-conventional cell
+keep tray_gap 4           ;# between cells
+keep tray_pad 3           ;# around the row
+keep tray_bg #2e3436      ;# what shows through a transparent icon
+keep tray_sid 0
+keep tray_order {}        ;# icon windows, in dock order
+keep tray_seen_extent 0   ;# the length the panel last reserved for us
+keep tray_geo ""          ;# the strip geometry we last asked for
+keep tray_argb 0          ;# the ARGB experiment — see set-tray-argb
+keep tray_strip_argb 0    ;# ...and what the LIVE strip was built with
+keep tray_laid_size 0     ;# the cell size the live cells were laid out at
+keep tray_panel default   ;# whose bar the tray is part of
 proc set-tray {on} {
     set ::tray_on [expr {$on ? 1 : 0}]
     tray-reconcile-soon
@@ -4725,7 +4731,7 @@ proc tray-tell-panel {} {
 # mode switch): the panel is glued to the bottom edge, so re-place it.
 # Debounced — an interactive Xephyr resize streams a notify per step,
 # and rebuilding the strip on each would thrash.
-set panel_resize_pending ""
+keep panel_resize_pending ""
 proc policy-screen-changed {} {
     after cancel $::panel_resize_pending
     # the tray is glued to a corner of the same band; panels-build ends
@@ -4803,7 +4809,7 @@ proc fullscreen-refit {} {
 #          where they were, which is what every version before this did.
 #   max    only what looks maximized (spanning BOTH axes) follows.
 #   stick  the whole rule above. The default.
-set workarea_follow stick
+keep workarea_follow stick
 proc set-workarea-follow {mode} {
     if {$mode ni {off max stick}} {
         error "set-workarea-follow: off, max or stick"
@@ -4998,7 +5004,7 @@ proc policy-apply {} {
 #
 # The MODIFIER drag has no slop and wants none: holding a modifier
 # before pressing is not something one does by accident.
-set drag_slop 4
+keep drag_slop 4
 proc set-drag-slop {px} {
     if {![string is integer -strict $px] || $px < 0} {
         error "set-drag-slop: a pixel count, 0 to carry from the first pixel"
@@ -5014,7 +5020,7 @@ proc set-drag-slop {px} {
 # which the owner missed here). Both edges of both axes, and the
 # WORKAREA's rather than the screen's: the edge worth being flush with
 # is the one the panel leaves free. 0 switches it off.
-set edge_resist 12
+keep edge_resist 12
 proc set-edge-resist {px} {
     if {![string is integer -strict $px] || $px < 0} {
         error "set-edge-resist: a pixel count, 0 to switch it off"
@@ -5096,7 +5102,7 @@ proc drag-move {t w X Y} {
 # takes to CARRY is the substrate's pointer router — the motion and
 # the release after such a press are reported to nobody otherwise, and
 # the grab is also where a cursor over a foreign window can come from.
-set drag_mods 64                ;# <Super>
+keep drag_mods 64                ;# <Super>
 proc set-drag-modifier {spec} {
     set ::drag_mods [parse-mods $spec]
 }
@@ -5109,7 +5115,7 @@ proc set-drag-modifier {spec} {
 # owner's had been running xsetroot by hand for it, 2026-07-29). So we
 # do: left_ptr by default, any Tk cursor name from the config, and the
 # empty string to keep hands off and leave whatever is there.
-set root_cursor left_ptr
+keep root_cursor left_ptr
 proc set-root-cursor {name} {
     set ::root_cursor $name
     root-cursor-apply

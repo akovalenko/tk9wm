@@ -76,6 +76,35 @@ proc reload-config {} {
     policy-apply
 }
 
+# Reload is the config; this is the CODE. Both layers sourced again on
+# the running desk, which redefines every proc and leaves the desk
+# itself alone (see the head of substrate.tcl for the three kinds of
+# statement that makes possible, and for the honest edge of it).
+#
+# It exists as a command rather than as a line in everyone's config
+# because the two things that are easy to get wrong belong in one
+# place: the ORDER (the substrate first — the policy calls into it at
+# load, not only at run time) and the CATCH (a typo halfway through
+# would otherwise take the desk down with it, and a desk that dies of
+# a typo is no use for the loop this is for).
+#
+# A half-sourced file leaves a half-defined layer, and this cannot
+# undo that. It says so out loud and leaves the desk running, which is
+# the difference between an error one fixes and an error one reboots.
+proc reread-layers {} {
+    puts "WM: re-sourcing both layers"
+    foreach f {substrate.tcl policy.tcl} {
+        set path [file join $::tk9wm_library $f]
+        if {[catch {uplevel #0 [list source $path]} err]} {
+            puts "WM: re-source $f FAILED: $err"
+            puts "WM: the desk is running on a HALF-LOADED layer — fix and re-source again"
+            return 0
+        }
+    }
+    puts "WM: re-sourced (procs replaced; state, grabs and clients untouched)"
+    return 1
+}
+
 # Read the config, arm the dispatcher, and run. Everything above is
 # definition only, so `package require tk9wm` leaves a loaded but idle
 # WM — this is the call that starts managing the desk, and it does not

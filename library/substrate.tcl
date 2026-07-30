@@ -216,6 +216,54 @@ wm withdraw .   ;# our own real toplevel is no client of ours
 # Tk itself.
 tk useinputmethods 0
 
+# ---------------- definitions, and the setup they are not ------------
+#
+# SOURCING EITHER LAYER AGAIN, ON A LIVE DESK, MUST ONLY REDEFINE ITS
+# PROCS. That is the development loop the owner wants (2026-07-30):
+# edit, press a key, and the running window manager is the new code
+# with every client, frame, grab and mode where it was — no restart,
+# no logging out of the session the desk IS.
+#
+# A file that is sourced twice does everything twice, and a window
+# manager's file is mostly things that must happen exactly once. The
+# first re-source killed the desk outright at the third statement:
+# desk-take saw WM_S0 already owned — by our OWN owner window — and
+# concluded that another window manager had the desk. Behind that
+# waited a second focus holder, a second EWMH check window, an ::exit
+# renamed onto itself (an infinite recursion on the way out), a frame
+# counter back at 1 colliding with .f1, and — the symptom the owner
+# actually reported — a keymap and a grab list wiped while the server
+# went on holding the grabs.
+#
+# So the file says which of the three each statement is:
+#
+#   proc          a definition. Re-sourcing REPLACES it; that is the point.
+#   set / array   a CONSTANT. Re-sourcing re-establishes it, so editing
+#                 one and re-sourcing shows the edit.
+#   keep          STATE the desk carries — including every knob a config
+#                 may have turned. Set on the first load, left alone
+#                 afterwards; the running desk keeps what it has.
+#   once          a setup step with a side effect out in the world (a
+#                 window created, a selection taken, a command renamed).
+#                 Runs on the first load and never again.
+#
+# What this CANNOT be is reliable, and it is not meant to be: a proc
+# that has gone away stays, a variable whose SHAPE changed keeps the
+# old shape, the snapshot of config defaults stays as first taken, and
+# a half-finished edit makes a half-finished desk. It is a development
+# affordance with an honest edge, not a hot-patch facility.
+proc keep {name value} {
+    if {![uplevel #0 [list info exists $name]]} {
+        uplevel #0 [list set $name $value]
+    }
+}
+array set once_done {}
+proc once {tag script} {
+    if {[info exists ::once_done($tag)]} return
+    set ::once_done($tag) 1
+    uplevel #0 $script
+}
+
 # Line buffering FIRST, before anything can have something to say. It
 # used to be set where the redirect was armed, which was fine while
 # every message before that point was a fatal one on its way to a
@@ -439,8 +487,8 @@ proc x-exec-self {path arglist} { tkwmx::exec-self $path $arglist }
 # closer to their calls and are consulted first (they consume the
 # errors Tk expects, e.g. colormap walks over dying windows) and
 # everything unclaimed arrives here.
-set xerr_last ""
-set xerr_n 0
+keep xerr_last ""
+keep xerr_n 0
 proc xerror-flush {} {
     if {$::xerr_n > 1} {
         puts "WM:   (previous X error repeated [expr {$::xerr_n - 1}] more times)"
@@ -510,8 +558,8 @@ proc screen-number {} {
 set WM_SELECTION  [x-intern WM_S[screen-number]]
 set MANAGER       [x-intern MANAGER]
 set TK9WM_TIME    [x-intern TK9WM_TIME]
-set wm_owner_win  0     ;# the window that holds WM_S<n>, 0 = we do not
-set wm_claim_time 0     ;# when we took it (see selection-clear)
+keep wm_owner_win  0     ;# the window that holds WM_S<n>, 0 = we do not
+keep wm_claim_time 0     ;# when we took it (see selection-clear)
 # Why we left, in the only language a session script can read. Leaving
 # because somebody TOOK the desk is a different event from leaving
 # because the user asked to (Quit), and until this code existed a
@@ -628,8 +676,10 @@ proc desk-take {replace} {
 # `package require tk9wm` time, long before tk9wm-main sees an argument
 # list. So: the command line if there is one, and ::tk9wm_replace for an
 # embedder that builds its own.
-desk-take [expr {[info exists ::tk9wm_replace] ? $::tk9wm_replace
-    : [expr {[info exists ::argv] && "-replace" in $::argv}]}]
+once desk-take {
+    desk-take [expr {[info exists ::tk9wm_replace] ? $::tk9wm_replace
+        : [expr {[info exists ::argv] && "-replace" in $::argv}]}]
+}
 
 set WM_PROTOCOLS      [x-intern WM_PROTOCOLS]
 set WM_DELETE_WINDOW  [x-intern WM_DELETE_WINDOW]
@@ -661,7 +711,7 @@ proc set-prop-longs {win prop type values} {
 proc set-prop-utf8 {win prop str} {
     x-prop-set $win $prop $::UTF8 8 [encoding convertto utf-8 $str]
 }
-if {[catch {
+once ewmh-minimum {if {[catch {
     set NET_CHECK     [x-intern _NET_SUPPORTING_WM_CHECK]
     set NET_SUPPORTED [x-intern _NET_SUPPORTED]
     set NET_WM_NAME   [x-intern _NET_WM_NAME]
@@ -727,7 +777,7 @@ if {[catch {
               $NET_WM_DESKTOP]                                 ;# XA_ATOM
     x-sync 0
     puts "WM: EWMH minimum up (_NET_SUPPORTING_WM_CHECK=[format 0x%x $wmcheck])"
-} err]} { puts "WM: EWMH setup failed: $err" }
+} err]} { puts "WM: EWMH setup failed: $err" }}
 
 # ---------------- the focus holder ----------------
 # fvwm's NoFocusWin, ported: a real, viewable, off-screen window that
@@ -744,8 +794,8 @@ if {[catch {
 # A real holder has neither problem and keeps the root key grabs alive
 # (a passive grab fires when the grab window is an ancestor of the
 # focus window — root is an ancestor of this one).
-set nofocus 0
-if {[catch {
+keep nofocus 0
+once focus-holder {if {[catch {
     # override-redirect: the holder is nobody's client. On one
     # connection our own maps are not redirected to us anyway, but the
     # flag is the honest statement of what this window is — and it is
@@ -754,7 +804,7 @@ if {[catch {
     x-map $nofocus        ;# must be viewable to hold the focus
     x-sync 0
     puts "WM: focus holder up (0x[format %x $nofocus])"
-} err]} { puts "WM: focus holder setup failed: $err"; set nofocus 0 }
+} err]} { puts "WM: focus holder setup failed: $err"; set nofocus 0 }}
 
 # A fresh server timestamp, fetched — not guessed. Every WM_TAKE_FOCUS
 # invitation must carry a time NEWER than the server's last focus change,
@@ -798,8 +848,8 @@ proc server-time {} {
 # background handler, and in a Tk process that means an error DIALOG —
 # from the window manager, on a desk whose dialogs it is supposed to be
 # managing.
-set evqueue {}      ;# what arrived before the policy layer was in
-set dispatching 0   ;# substrate-start flips this and replays the queue
+keep evqueue {}      ;# what arrived before the policy layer was in
+keep dispatching 0   ;# substrate-start flips this and replays the queue
 proc handle-event {ev} {
     # Before substrate-start the events are QUEUED, not dropped: the
     # redirect is armed while this file is sourced, but the policy layer
@@ -1599,8 +1649,8 @@ proc publish-frame-extents {w} {
 #
 # Coalesced through the idle queue: a raise happens on every click, and
 # publishing is a round trip plus two property writes.
-set client_order {}          ;# managed windows, oldest first
-set clientlist_pending 0
+keep client_order {}          ;# managed windows, oldest first
+keep clientlist_pending 0
 proc publish-client-list {} {
     if {$::clientlist_pending || ![info exists ::NET_CLIENT_LIST]} return
     set ::clientlist_pending 1
@@ -1655,7 +1705,7 @@ proc client-stacking {} {
 # the change once, with both rects in hand. The remembered rect is
 # updated BEFORE the hook runs, so nothing the policy does inside it can
 # be read as a second change.
-set wa_published {}
+keep wa_published {}
 proc publish-workarea {} {
     if {![info exists ::NET_WORKAREA]} return
     set a [soft "workarea" { policy-workarea } {}]
@@ -2085,8 +2135,8 @@ proc unmanage {w {dead 0}} {
 # The substrate owns the honest server-side focus (XSetInputFocus + the
 # verification and repair paths); which window DESERVES focus and how the
 # highlight looks is the policy layer's business.
-set focused 0
-set evtime 0   ;# timestamp of the last user input event we parsed
+keep focused 0
+keep evtime 0   ;# timestamp of the last user input event we parsed
 # The window we invited with WM_TAKE_FOCUS and whose answer we are still
 # waiting for (0 = none). It carries the INTENT while the X focus still
 # says otherwise: an honest WM publishes the focus it HAS, not the one it
@@ -2094,7 +2144,7 @@ set evtime 0   ;# timestamp of the last user input event we parsed
 # window and this is the only record of where we are heading. Settled by
 # any FocusIn, by any focus we set ourselves, and by the window going
 # away. There is no timer behind it: fvwm's mark, same discipline.
-set invited 0
+keep invited 0
 proc paint-focus {w} {
     set ::focused $w
     # every honest focus change publishes _NET_ACTIVE_WINDOW — Wine
@@ -2379,13 +2429,13 @@ proc kill-client {w} {
 #   policy-tray-detach w   the icon is gone: drop its slot
 #   policy-tray-origin w   root {x y} of w's slot, for the synthetic
 #                          ConfigureNotify
-set tray_owner 0        ;# the selection owner while the tray RUNS, 0 = off
-set tray_owner_win 0    ;# ...the window itself, kept across stops
+keep tray_owner 0        ;# the selection owner while the tray RUNS, 0 = off
+keep tray_owner_win 0    ;# ...the window itself, kept across stops
 array set trayicon {}   ;# icon window -> the slot it sits in
 array set traysize {}   ;# icon window -> the size we hold it at
-set trayseq {}          ;# the same icons in dock order — the record below
-set tray_freeze 0       ;# hold the record still while the tray goes down
-set tray_claim_time 0   ;# when we last took the selection (see selection-clear)
+keep trayseq {}          ;# the same icons in dock order — the record below
+keep tray_freeze 0       ;# hold the record still while the tray goes down
+keep tray_claim_time 0   ;# when we last took the selection (see selection-clear)
 
 # The record of what our icons ARE, published on the root so it
 # outlives this process — a restart reads it back, and so does a fresh
@@ -2703,14 +2753,14 @@ proc tray-stop {why} {
 # of both grab kinds arrive on this raw connection, in the same
 # handle-event dispatcher as everything else.
 
-set keymap {}       ;# nested dict: "mods,keysym" -> {action script} | {map submap}
-set grabbed_top {}  ;# top chords held by XGrabKey — the MappingNotify re-grab list
-set keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
-set keyseq_keys {}  ;# ...and the chords that got us there, for the echo
-set kbd_grabbed 0
-set keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
-set keyrouter_lost ""   ;# ...and this is its notice, see grab-keys-to
-set key_invoke_mods 0  ;# modifiers of the chord that fired the running action
+keep keymap {}       ;# nested dict: "mods,keysym" -> {action script} | {map submap}
+keep grabbed_top {}  ;# top chords held by XGrabKey — the MappingNotify re-grab list
+keep keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
+keep keyseq_keys {}  ;# ...and the chords that got us there, for the echo
+keep kbd_grabbed 0
+keep keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
+keep keyrouter_lost ""   ;# ...and this is its notice, see grab-keys-to
+keep key_invoke_mods 0  ;# modifiers of the chord that fired the running action
 
 # Modifier names a chord may use. A static table: Alt is Mod1 and Super
 # is Mod4 on any stock map; a layout where that lies wants a dynamic
@@ -2825,7 +2875,7 @@ proc chord-name {mods ks} {
 # The submap is still asked FIRST, so a prefix that binds this key
 # keeps it — the same rule Escape and the top chords live by.
 set HELP_CHORD [parse-chord {<Super>h}]
-set help_chord $HELP_CHORD
+keep help_chord $HELP_CHORD
 proc set-key-help {spec} {
     set ::help_chord [expr {$spec eq "off" ? "" : [parse-chord $spec]}]
 }
@@ -3056,7 +3106,7 @@ proc route-key {kind name mods} {
 # and nothing after it. The grab carries the cursor, too, which is the
 # only way to show a drag cursor over a foreign window. An empty cmd
 # ends the gesture and lets the pointer go.
-set pointerrouter ""
+keep pointerrouter ""
 proc grab-pointer-to {cmd {cursor ""}} {
     if {$cmd eq ""} {
         set ::pointerrouter ""
@@ -3302,7 +3352,7 @@ tkwmx::event on handle-event
 # Orderly shutdown: release every client back to root before Tk destroys
 # the frames (otherwise WM exit would take all clients with it). A hard
 # kill still loses them — see notes.
-rename ::exit ::tk9wm-real-exit
+once exit-wrapper {rename ::exit ::tk9wm-real-exit}
 proc ::exit {{code 0}} {
     soft "release the tray on exit" { tray-stop "the window manager is exiting" }
     soft "release clients on exit" \
