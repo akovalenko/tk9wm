@@ -32,10 +32,34 @@
 # What a widget must NOT do is block: it runs in the window manager's
 # own event loop, and a widget that waits is a desk that has stopped
 # (the XIM post-mortem of the same day says what that looks like).
+#
+# CONTAINMENT, NOT STACKING — the owner's call, and it was earned the
+# hard way. The first version gave every widget its own toplevel and
+# raised it to the layer it asked for. A raise is a MOMENT, not a
+# state: the panel is rebuilt, a client is raised, a menu comes and
+# goes, and the widget sinks one raise at a time until it is at the
+# bottom of the world — mapped, correctly placed and invisible, which
+# is what his clock did — measured on his live desk, at the bottom of
+# the stack, under every client frame. (Two attempts to re-state the
+# layer from panel-on-top appeared to fail; they were in fact never
+# running, the guard `info commands widgets-layer` finding nothing
+# because the proc had not been added. Worth writing down: a guarded
+# call to a proc that does not exist is a fix that reports success.
+# Containment is still the right answer — a raise is a moment and the
+# list of places that restack a desk is not something one enumerates
+# and keeps enumerated — but it did not need that false evidence.)
+#
+# So a widget hosted by a panel IS PART OF THE PANEL'S WINDOW — a Tk
+# frame inside it — and the question does not arise: a child is over
+# its parent by construction, and it dies with it, which is also why
+# the flicker went. The desk host still keeps a toplevel of its own for
+# now; the owner's next step is to make that one window too, ours and
+# shared, with the same kind of area inside it.
 
 keep widget_types {}   ;# TYPE -> {build CMD ?tick CMD? ?every MS?}
 keep widgets {}        ;# NAME -> options, in declaration order
-array set widget_win {}    ;# NAME -> the container toplevel
+array set widget_win {}    ;# NAME -> the content frame, wherever it lives
+array set widget_top {}    ;# ...and its own toplevel, if it needed one
 array set widget_size {}   ;# ...and the content size it was last placed at
 
 proc wm-widget-type {name spec} {
@@ -111,28 +135,16 @@ proc widget-host-rect {name opts} {
     return {}
 }
 
-proc widget-place {name} {
-    if {![info exists ::widget_win($name)]} return
-    set w $::widget_win($name)
-    set opts [dict get $::widgets $name]
-    set rect [widget-host-rect $name $opts]
-    if {![llength $rect]} return
-    lassign $rect hx hy hw hh
-    update idletasks
-    set cw [winfo reqwidth $w.c]
-    set ch [winfo reqheight $w.c]
-    set W [expr {$cw + 2}]
-    set H [expr {$ch + 2}]
-    lassign [anchor-of [dict get $opts -place]] halign valign
-    wm geometry $w ${W}x${H}+[place-axis $hx $hw $W $halign]+[place-axis\
- $hy $hh $H $valign]
-    set ::widget_size($name) [list $cw $ch]
-    update idletasks
-}
 
+proc widgets-layer {} {
+    foreach name [array names ::widget_top] { widget-layer $name }
+}
+# Only a widget with a WINDOW of its own has a layer to lose; one that
+# rides a panel is inside it and needs nobody's help.
 proc widget-layer {name} {
-    if {![info exists ::widget_win($name)]} return
-    set w $::widget_win($name)
+    if {![info exists ::widget_top($name)]} return
+    set w $::widget_top($name)
+    if {![winfo exists $w]} return
     if {[dict get [dict get $::widgets $name] -layer] eq "desk"} {
         lower $w
     } else {
@@ -154,56 +166,103 @@ proc widgets-thickness {panel} {
     expr {[info exists ::widget_thick($panel)] ? $::widget_thick($panel) : 0}
 }
 proc widget-claims-band {name opts} {
-    if {![info exists ::widget_win($name)]} return
+    if {![info exists ::widget_size($name)]} return
     set on [dict get $opts -on]
     if {[lindex $on 0] ne "panel"} return
     set p [lindex $on 1]
     if {$p eq ""} { set p default }
     if {$p ni [panel-names]} return
-    set w $::widget_win($name)
-    set deep [expr {[panel-cfg $p side] in {left right}
-        ? [winfo reqwidth $w.c] + 2 : [winfo reqheight $w.c] + 2}]
+    # From the MEASUREMENT, not from a window: at this point the widget
+    # has no window anywhere, which is what the measuring pass is for.
+    lassign $::widget_size($name) cw ch
+    set deep [expr {[panel-cfg $p side] in {left right} ? $cw + 2 : $ch + 2}]
     if {$deep > [widgets-thickness $p]} { set ::widget_thick($p) $deep }
 }
 
-# Nothing maps before it knows where it goes — the key echo's lesson,
-# and it costs one line here (the container is built withdrawn).
-proc widget-build {name} {
+# PASS ONE: how big is it? Built in a scratch toplevel nobody sees,
+# measured, thrown away. The size cannot be asked of the host, because
+# what the host reserves depends on the answer.
+proc widget-measure {name} {
     set opts [dict get $::widgets $name]
     set type [dict get $opts -type]
     if {![dict exists $::widget_types $type]} {
         puts "WM: widget $name: no type «$type» is declared"
-        return
+        return 0
     }
-    set spec [dict get $::widget_types $type]
-    set w .wg$name
-    destroy $w
-    toplevel $w -background $::OUTLINE
-    wm overrideredirect $w 1
-    wm withdraw $w
-    wm title $w tk9wm-widget-$name
-    frame $w.c -background [dict get $opts -background] \
-        -padx [dict get $opts -padding] -pady [dict get $opts -padding]
-    place $w.c -x 1 -y 1
-    if {[catch {uplevel #0 [list {*}[dict get $spec build] $w.c $opts]} err]} {
-        puts "WM: widget $name: build failed: $err"
-        destroy $w
-        return
-    }
-    set ::widget_win($name) $w
-    update idletasks          ;# the content settles; its size is now known
+    destroy .wgmeasure
+    toplevel .wgmeasure
+    wm withdraw .wgmeasure
+    set c [widget-content .wgmeasure.c $name $opts]
+    if {$c eq ""} { destroy .wgmeasure; return 0 }
+    update idletasks
+    set ::widget_size($name) [list [winfo reqwidth $c] [winfo reqheight $c]]
+    destroy .wgmeasure
     widget-claims-band $name $opts
+    return 1
 }
-# ...and the second half, once the strips know how deep to be.
+# The content itself, in whatever parent it is given — the one thing a
+# widget type ever sees.
+proc widget-content {c name opts} {
+    set spec [dict get $::widget_types [dict get $opts -type]]
+    frame $c -background [dict get $opts -background] \
+        -padx [dict get $opts -padding] -pady [dict get $opts -padding]
+    if {[catch {uplevel #0 [list {*}[dict get $spec build] $c $opts]} err]} {
+        puts "WM: widget $name: build failed: $err"
+        destroy $c
+        return ""
+    }
+    return $c
+}
+# PASS TWO: build it where it lives, now that the strips know how deep
+# to be. A panel host takes the widget INTO its own window; anything
+# else gets a toplevel of its own, placed and lowered or raised.
 proc widget-show {name} {
-    if {![info exists ::widget_win($name)]} return
-    set w $::widget_win($name)
     set opts [dict get $::widgets $name]
-    widget-place $name
-    wm deiconify $w
-    widget-layer $name
-    puts "WM: widget $name ([dict get $opts -type]) [wm geometry $w] on\
- [dict get $opts -on], layer [dict get $opts -layer]"
+    set on [dict get $opts -on]
+    set rect [widget-host-rect $name $opts]
+    if {![llength $rect]} return
+    lassign $rect hx hy hw hh
+    lassign $::widget_size($name) cw ch
+    lassign [anchor-of [dict get $opts -place]] halign valign
+    if {[lindex $on 0] eq "panel"} {
+        set p [lindex $on 1]
+        if {$p eq ""} { set p default }
+        set host [panel-window $p]
+        if {$host eq ""} return
+        # ...inside the panel, in the panel's own coordinates. The old
+        # one goes first: a panel rebuild brings us back here, and a
+        # frame that is still there from the last time is an error, not
+        # a saving.
+        destroy $host.wg$name
+        set c [widget-content $host.wg$name $name $opts]
+        if {$c eq ""} return
+        set X [place-axis $hx $hw $cw $halign]
+        set Y [place-axis $hy $hh $ch $valign]
+        place $c -x [expr {$X - $hx}] -y [expr {$Y - $hy}]
+        set ::widget_win($name) $c
+        puts "WM: widget $name ([dict get $opts -type]) ${cw}x${ch}+${X}+${Y}\
+ inside the «$p» panel's own window"
+    } else {
+        set w .wg$name
+        destroy $w
+        toplevel $w -background $::OUTLINE
+        wm overrideredirect $w 1
+        wm withdraw $w
+        wm title $w tk9wm-widget-$name
+        set c [widget-content $w.c $name $opts]
+        if {$c eq ""} { destroy $w; return }
+        place $c -x 1 -y 1
+        wm geometry $w [expr {$cw + 2}]x[expr {$ch + 2}]+[place-axis \
+            $hx $hw [expr {$cw + 2}] $halign]+[place-axis $hy $hh \
+            [expr {$ch + 2}] $valign]
+        update idletasks
+        wm deiconify $w
+        set ::widget_win($name) $c
+        set ::widget_top($name) $w
+        widget-layer $name
+        puts "WM: widget $name ([dict get $opts -type]) [wm geometry $w] on\
+ $on, layer [dict get $opts -layer]"
+    }
     set spec [dict get $::widget_types [dict get $opts -type]]
     if {[dict exists $spec every]} { widget-tick $name }
 }
@@ -213,21 +272,21 @@ proc widget-show {name} {
 # is gone simply stops.
 proc widget-tick {name} {
     if {![info exists ::widget_win($name)]} return
-    set w $::widget_win($name)
-    if {![winfo exists $w]} { unset ::widget_win($name); return }
+    set c $::widget_win($name)
+    if {![winfo exists $c]} { unset ::widget_win($name); return }
     set opts [dict get $::widgets $name]
     set spec [dict get $::widget_types [dict get $opts -type]]
     if {[dict exists $spec tick]} {
-        if {[catch {uplevel #0 [list {*}[dict get $spec tick] $w.c $opts]} err]} {
+        if {[catch {uplevel #0 [list {*}[dict get $spec tick] $c $opts]} err]} {
             puts "WM: widget $name: tick failed: $err"
         }
-        # A clock is wider at 10:00 than at 9:00: re-place, but only
-        # when the content really changed size.
+        # A clock is wider at 10:00 than at 9:00. Re-place only when the
+        # content really changed size — and through the whole build,
+        # since a wider widget may want a deeper strip.
         update idletasks
-        if {[list [winfo reqwidth $w.c] [winfo reqheight $w.c]] \
+        if {[list [winfo reqwidth $c] [winfo reqheight $c]] \
                 ne $::widget_size($name)} {
-            widget-place $name
-            widget-layer $name
+            widgets-rebuild-soon
         }
     }
     after [dict get $spec every] [list widget-tick $name]
@@ -235,18 +294,29 @@ proc widget-tick {name} {
 
 # All of them, from nothing — the panels' own pattern, and for the same
 # reason: what a reload changes about a widget can be anything at all.
+# Measure them all, let the strips grow if they must, then build them
+# where they live. The flag is what keeps that from spiralling: the
+# panels-build in the middle calls back here, and once is enough.
+keep widgets_building 0
 proc widgets-build {} {
-    foreach {name w} [array get ::widget_win] { destroy $w }
-    array unset ::widget_win
-    array unset ::widget_size
-    set was [lsort [array get ::widget_thick]]
-    array unset ::widget_thick
-    dict for {name opts} $::widgets { widget-build $name }
-    if {[lsort [array get ::widget_thick]] ne $was} {
-        # A strip has to be deeper (or may be shallower) than it was:
-        # rebuild it and say so, before anything is placed against it.
-        panels-build
-        publish-workarea
+    if {$::widgets_building} return
+    set ::widgets_building 1
+    try {
+        foreach name [array names ::widget_top] { destroy $::widget_top($name) }
+        array unset ::widget_top
+        array unset ::widget_win
+        array unset ::widget_size
+        set was [lsort [array get ::widget_thick]]
+        array unset ::widget_thick
+        dict for {name opts} $::widgets { widget-measure $name }
+        if {[lsort [array get ::widget_thick]] ne $was} {
+            # A strip has to be deeper (or may be shallower) than it
+            # was: rebuild it and say so, before anything is placed.
+            panels-build
+            publish-workarea
+        }
+        dict for {name opts} $::widgets { widget-show $name }
+    } finally {
+        set ::widgets_building 0
     }
-    dict for {name opts} $::widgets { widget-show $name }
 }

@@ -4197,6 +4197,11 @@ proc panels-build {} {
         if {[llength [dict get $p buttons]]} { panel-build $name $idx }
     }
     tray-layout      ;# a panel's thickness is the tray's too — it follows
+    # A strip that just came up is a NEW window, and whatever rode the
+    # old one died with it. Rebuilding them here is what makes a panel
+    # rebuild — the commonest event on this desk, and the one that
+    # arrives from the most directions — carry its passengers.
+    if {[llength [info commands widgets-build]]} { widgets-build }
     fullscreen-on-top ;# ...and the strips just lifted themselves over the desk
     publish-workarea ;# they just took a bite out of the screen
 }
@@ -5151,6 +5156,10 @@ proc policy-apply {} {
     retitle-frames      ;# live frames follow the metrics and the font
     root-cursor-apply   ;# ...and the desk stops wearing the server's X
     publish-workarea
+    # ...and the furniture back on its layers, LAST: the apply rebuilt
+    # panels and widgets in some order, and whichever went up first is
+    # under the other until somebody says otherwise.
+    panel-on-top
     panel-match-kick
     puts "WM: config applied ([llength [panel-all-buttons]] buttons on\
  [llength [panel-names]] panel(s), [llength $::style_rules] style rules,\

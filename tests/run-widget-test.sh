@@ -19,9 +19,12 @@ Xvfb :65 -screen 0 900x500x24 >/dev/null 2>&1 &
 XVFB=$!
 CONF=$(mktemp -d)
 trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+# A colour of its own, so a pixel can say "the clock is here" without
+# arguing with the panel's own background.
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 panel-button терминал { launch {exec xterm &} }
-wm-widget clock -type clock -on {panel default} -place {right vcenter}
+wm-widget clock -type clock -on {panel default} -place {right vcenter} \
+    -background #4e9a06
 EOF
 sleep 1
 
@@ -31,8 +34,10 @@ WM=$!
 sleep 2
 
 widget_line() { sed -n 's/^WM: widget clock (clock) //p' "$LOG" | tail -1; }
-# What the widget's own window is, from OUTSIDE: named, like every
-# other piece of our furniture, so a test need not believe the log.
+# A widget INSIDE a panel has no window of its own to find — that is
+# the whole point of putting it there — so it is asked about the way
+# one asks about anything drawn: by looking at the screen. A widget
+# with its own toplevel is still named, and then xdotool can find it.
 wid() { xdotool search --onlyvisible --name '^tk9wm-widget-clock$' | head -1; }
 geom() {
     id=$(wid)
@@ -42,12 +47,32 @@ geom() {
         /Width:/ {w=$2} /Height:/ {h=$2}
         END {print w "x" h "+" x "+" y}'
 }
-fontsize() {  # the size Tk resolved for a named font, asked of the WM
-    "$LINUX/whale-cli" "$TOOLS/probe-font.tcl" :65 "$1" 2>/dev/null
+# ...and its own colour, at the middle of where the WM says it put it.
+here() {
+    set -- $(echo "$1" | sed 's/[x+]/ /g')
+    [ $# -ge 4 ] || { echo "(no geometry)"; return; }
+    import -window root png:- 2>/dev/null | convert png:- -format \
+        "%[pixel:p{$(($3 + $1 / 2)),$(($4 + $2 / 2))}]" info:-
 }
 
-ON_PANEL=$(geom)
 FIRST=$(widget_line)
+ON_PANEL=$(echo "$FIRST" | sed 's/ .*//')
+SHOWN=$(here "$ON_PANEL")
+# A LAYER IS NOT SOMETHING ONE SETS ONCE. Raise a client over the
+# widget and then reload: the desk must put its own furniture back, or
+# the widget sinks a raise at a time until it is at the bottom of the
+# world — mapped, correctly placed, and invisible, which is what the
+# owner found (2026-07-30).
+"$LINUX/whale" "$HERE/client.tcl" "поверх" 400x200 "#fce94f" "" "" 30 \
+    > "$HERE/widget-client.log" &
+CL=$!
+sleep 1.5
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
+sleep 1.5
+AFTER=$(widget_line)
+STILL=$(here "$(echo "$AFTER" | sed 's/ .*//')")
+kill $CL 2>/dev/null
+sleep 0.5
 # ...sampled while the WM is alive: the workarea is a property it owns.
 WAH=$(xprop -display :65 -root _NET_WORKAREA | sed 's/.*, //')
 import -display :65 -window root "$HERE/widget-panel.png" 2>/dev/null \
@@ -96,6 +121,17 @@ if [ -n "$PY" ] && [ "$PY" -ge 0 ] 2>/dev/null && [ "$PY" -ge "${WAH:-0}" ]; the
 else
     echo "FAIL: the widget is at y=$PY, not inside the panel's band (below $WAH)"
     FAIL=1
+fi
+if [ "$SHOWN" = "srgb(78,154,6)" ]; then
+    echo "OK: ...and it is DRAWN there — its own colour is on the screen"
+else
+    echo "FAIL: nothing of the widget at its own coordinates ($SHOWN)"; FAIL=1
+fi
+if [ "$STILL" = "srgb(78,154,6)" ]; then
+    echo "OK: ...and still is after a client was raised over the desk and the\
+ config reloaded — being INSIDE the panel, it has no layer to lose"
+else
+    echo "FAIL: the widget went away behind something ($STILL)"; FAIL=1
 fi
 case "$ON_DESK" in
     *+0+0) echo "OK: the SAME widget, one option changed, sits at the screen's\
