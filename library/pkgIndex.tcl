@@ -11,11 +11,23 @@
 # design (the user's config file calls set-* knobs at global level), so
 # an ::apply wrapper would quietly make every `set` at their top level
 # a local variable.
+# The order is the dependency order and it is not alphabetical: the
+# substrate first (the policy calls into it AT LOAD), then the policy,
+# then the widget frame, then each widget — a widget declares fonts and
+# a type, both of which the frame and the policy must already offer —
+# and main.tcl last, since it calls into all of them. reread-layers
+# walks the same order for the same reason.
 set _tk9wm_load [list source -encoding utf-8 [file join $dir substrate.tcl]]
-foreach _f {policy.tcl main.tcl} {
+set _tk9wm_files [list policy.tcl widget.tcl]
+foreach _w [lsort [glob -nocomplain -tails -directory [file join $dir widgets] *.tcl]] {
+    lappend _tk9wm_files [file join widgets $_w]
+}
+lappend _tk9wm_files main.tcl
+foreach _f $_tk9wm_files {
     append _tk9wm_load \n \
 	[list source -encoding utf-8 [file join $dir $_f]]
 }
 append _tk9wm_load \n [list package provide tk9wm 0.1]
 package ifneeded tk9wm 0.1 $_tk9wm_load
-unset _tk9wm_load _f
+unset _tk9wm_load _f _tk9wm_files
+catch {unset _w}

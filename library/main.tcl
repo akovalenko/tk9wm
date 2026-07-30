@@ -108,10 +108,23 @@ proc reload-config {} {
 # A half-sourced file leaves a half-defined layer, and this cannot
 # undo that. It says so out loud and leaves the desk running, which is
 # the difference between an error one fixes and an error one reboots.
+# Every file of the library, in load order — pkgIndex.tcl builds the
+# same list the same way, and the order is explained there.
+proc library-files {} {
+    set l {}
+    foreach f {substrate.tcl policy.tcl widget.tcl} {
+        lappend l [file join $::tk9wm_library $f]
+    }
+    foreach w [lsort [glob -nocomplain [file join $::tk9wm_library widgets *.tcl]]] {
+        lappend l $w
+    }
+    lappend l [file join $::tk9wm_library main.tcl]
+    return $l
+}
 proc reread-layers {} {
     puts "WM: re-sourcing the library"
-    foreach f {substrate.tcl policy.tcl main.tcl} {
-        set path [file join $::tk9wm_library $f]
+    foreach path [library-files] {
+        set f [file tail $path]
         if {[catch {uplevel #0 [list source $path]} err]} {
             puts "WM: re-source $f FAILED: $err"
             puts "WM: the desk is running on a HALF-LOADED layer — fix and re-source again"

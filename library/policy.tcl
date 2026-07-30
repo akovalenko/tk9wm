@@ -35,17 +35,104 @@ keep border 6
 # not chase the button's edge. Button size — see title-metrics.
 keep gripz 24
 
-# Titlebar typography. TitleFont is OUR named font: it starts as a copy
-# of TkDefaultFont, TK9WM_TITLE_FONT overrides it at startup (any Tk
-# font spec, e.g. "DejaVu Sans 12"), and set-title-font re-points it
+# ---- the desk's typography: one font, and what descends from it ----
+#
+# DESKFONT is the font this window manager is set in. It starts as a
+# copy of TkDefaultFont, TK9WM_TITLE_FONT overrides it at startup (any
+# Tk font spec, e.g. "DejaVu Sans 12"), and set-desk-font re-points it
 # live. Every vertical measure of the decoration derives from its
 # metrics — a 22px strip that was roomy at 96 dpi was visibly too tight
 # for the same font at Xft.dpi 144 (live report, 2026-07-27).
-unless-already {[lsearch -exact [font names] TitleFont] >= 0} {font create TitleFont {*}[font actual TkDefaultFont]}
+#
+# Everything else is a DERIVATION: a base plus a delta, in
+# `wm-font NAME ?-from BASE? ?option value ...?`. The delta is ordinary
+# font options, with one addition Tk has no notion of — a size may be a
+# FACTOR of the base's:
+#
+#   wm-font PanelFont  -size 11 -weight normal      ;# the owner's example
+#   wm-font ClockFont  -size 1.8x -weight bold      ;# ...and the one Tk cannot
+#   wm-font DateFont   -size 0.8x
+#
+# Tk named fonts do not inherit — a named font is a fixed spec — so the
+# whole family is RE-DERIVED whenever a base moves (set-desk-font, a
+# config reload, a theme change). That is the point of holding the
+# relation rather than the result: "the panel is the desk font at 85%"
+# stays true after the desk font changes, which is exactly what a
+# hard-coded 11 does not.
+#
+# WHY FACTORS AND NOT DELTAS (+2, -1), which one might expect next to
+# them: Tk's size is signed, and the sign is the UNIT — a positive size
+# is points, a negative one is pixels. A factor multiplies and keeps
+# the unit whatever it is; "+2" would have to mean "two points bigger"
+# on one desk and "two pixels smaller" on another, and a rule that
+# reads backwards half the time is worse than no rule. An absolute
+# number is always allowed, and means what Tk means by it.
+#
+# The order of declaration is the order of derivation: a font's base
+# must be declared before it. A chain works (Clock from Panel from
+# Desk); a cycle is refused at declaration.
+unless-already {[lsearch -exact [font names] DeskFont] >= 0} \
+    {font create DeskFont {*}[font actual TkDefaultFont]}
 if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
-    if {[catch {font configure TitleFont {*}[font actual $::env(TK9WM_TITLE_FONT)]} err]} {
+    if {[catch {font configure DeskFont {*}[font actual $::env(TK9WM_TITLE_FONT)]} err]} {
         puts "WM: TK9WM_TITLE_FONT «$::env(TK9WM_TITLE_FONT)» rejected: $err"
     }
+}
+keep font_kin {}   ;# NAME -> {from BASE opts {...}}, in declaration order
+proc wm-font {name args} {
+    if {[llength $args] % 2} { error "wm-font $name: options come in pairs" }
+    set from DeskFont
+    set opts {}
+    foreach {o v} $args {
+        if {$o eq "-from"} { set from $v } else { lappend opts $o $v }
+    }
+    # A base that is not DeskFont must itself be a declared derivation
+    # (or DeskFont), and it must already exist — that is what makes
+    # "declaration order is derivation order" true rather than hoped.
+    if {$from ne "DeskFont" && ![dict exists $::font_kin $from]} {
+        error "wm-font $name: -from «$from» is not a font this desk derives"
+    }
+    if {$name eq $from} { error "wm-font $name: a font cannot descend from itself" }
+    dict set ::font_kin $name [dict create from $from opts $opts]
+    fonts-derive
+}
+# A size that is a factor of the base's — "0.85x" — or a plain number,
+# which Tk reads its own way (positive points, negative pixels). The
+# factor keeps the base's sign, so it keeps the base's unit, and never
+# rounds a font away to nothing.
+proc font-size-of {from v} {
+    if {[regexp {^([0-9]*\.?[0-9]+)[xX]$} $v -> f]} {
+        set base [font configure $from -size]
+        set n [expr {int(round($base * $f))}]
+        return [expr {$base < 0 ? min($n, -1) : max($n, 1)}]
+    }
+    if {![string is integer -strict $v]} {
+        error "wm-font -size: a number, or a factor of the base like 0.85x"
+    }
+    return $v
+}
+proc fonts-derive {} {
+    dict for {name spec} $::font_kin {
+        set from [dict get $spec from]
+        set out [font actual $from]
+        foreach {o v} [dict get $spec opts] {
+            if {$o eq "-size"} { set v [font-size-of $from $v] }
+            dict set out $o $v
+        }
+        if {[lsearch -exact [font names] $name] < 0} { font create $name }
+        font configure $name {*}$out
+    }
+}
+# The two the WM itself is written in. TitleFont is the desk font
+# unchanged — it has its own name because the titlebar is the one piece
+# a desk most often wants to style on its own, and because thirty-odd
+# places already say TitleFont and mean "the text on our furniture".
+wm-font TitleFont
+wm-font PanelFont
+proc set-desk-font {args} {
+    font configure DeskFont {*}$args
+    fonts-derive
+    retitle-frames
 }
 # The pseudo-icon lettering (see winlist-icon): TitleFont's family, but
 # bold and sized in PIXELS to the badge, not the text line — configured
@@ -248,7 +335,7 @@ title-metrics
 # sizes, new strip height); each client then learns its new origin —
 # the slot moved inside the frame. The knob for a live font change:
 proc set-title-font {args} {
-    font configure TitleFont {*}$args
+    wm-font TitleFont {*}$args
     retitle-frames
 }
 proc retitle-frames {} {
@@ -1805,6 +1892,10 @@ proc strip-bands {} {
         set thick [panel-thickness $name]
         if {[tray-panel] eq $name} {
             set thick [expr {max($thick, [tray-thickness])}]
+        }
+        # ...and any widget riding this panel, for the same reason.
+        if {[llength [info commands widgets-thickness]]} {
+            set thick [expr {max($thick, [widgets-thickness $name])}]
         }
         if {$thick <= 0} continue
         lassign [carve-band $free [panel-cfg $name side] $thick] band free
@@ -3549,14 +3640,18 @@ proc set-key-echo-place {spec} {
     keyecho-anchor $spec        ;# a typo is reported now, not at the next chord
     set ::key_echo_place $spec
 }
-proc keyecho-anchor {spec} {
+proc keyecho-anchor {spec} { anchor-of $spec }
+# A corner, in the `place` grammar's own words, SIZELESS: the thing
+# being placed is as big as it is, and only the pinning is being asked
+# about. Shared by the key echo and by every widget, which is why it
+# does not live in either.
+proc anchor-of {spec} {
     set h center
     set v center
     foreach term [split [string map {, " "} $spec]] {
         if {$term eq ""} continue
         if {[regexp {^[0-9]+%} $term]} {
-            error "set-key-echo-place: the box is as big as its text —\
- «$term» has nothing to size"
+            error "a sizeless placement: «$term» has nothing to size"
         }
         switch -- $term {
             left    { set h start }
@@ -3566,7 +3661,7 @@ proc keyecho-anchor {spec} {
             bottom  { set v end }
             vcenter { set v center }
             center  { set h center; set v center }
-            default { error "set-key-echo-place: cannot read term «$term»" }
+            default { error "cannot read the placement term «$term»" }
         }
     }
     list $h $v
@@ -4000,15 +4095,15 @@ proc panel-measure {name} {
         if {$img ne ""} { set iconic 1 }
         lappend faces $img
     }
-    set line [font metrics TitleFont -linespace]
+    set line [font metrics PanelFont -linespace]
     # badge lettering follows the badge size (the winlist formula)
     set bfont [panel-badge-font $name]
-    font configure $bfont -family [font actual TitleFont -family] \
+    font configure $bfont -family [font actual PanelFont -family] \
         -size -[expr {max(7, $isz * 5 / 8)}]
     # the arrow zone: once ANY button can match, every button
     # reserves an east strip for the multi arrow — the row reads
     # uniformly, an unarmed button just shows calm space there
-    set aw [font measure TitleFont ▾]
+    set aw [font measure PanelFont ▾]
     set zoned 0
     foreach b $buttons {
         if {[dict exists [lindex $b 1] match]} { set zoned 1; break }
@@ -4034,7 +4129,7 @@ proc panel-measure {name} {
         set maxw 0
         foreach b $buttons f $faces {
             lassign $b label settings
-            set tw [font measure TitleFont $label]
+            set tw [font measure PanelFont $label]
             if {!$iconic} {
                 set cw $tw
             } else {
@@ -4161,12 +4256,12 @@ proc panel-build {name idx} {
     $T element create eBIcon image
     $T element create ePRect rect
     $T element create ePTxt text -fill white -lines 1 -font $bfont
-    $T element create eBTxt text -fill white -lines 1 -font TitleFont
+    $T element create eBTxt text -fill white -lines 1 -font PanelFont
     $T element create eLive rect -fill [list $::panel_live_bar live] \
         -height 3
     $T element create eSep rect -fill #888a85 -width 1 \
         -height [expr {$itemh - 14}]
-    $T element create eArrow text -text ▾ -fill #d3d7cf -font TitleFont
+    $T element create eArrow text -text ▾ -fill #d3d7cf -font PanelFont
     # Three button styles, assigned per item by what its face resolved
     # to: plain (today's text chip — every button when nothing is
     # iconic), icon, and badge; row and stack presets differ in the
@@ -4997,12 +5092,13 @@ set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
-    key_echo key_echo_place titlebar_buttons titlebar_gestures fade
+    key_echo key_echo_place titlebar_buttons titlebar_gestures fade font_kin
+    widgets
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
 proc policy-snapshot-defaults {} {
     foreach v $::config_vars { set ::config_default($v) [set ::$v] }
-    set ::config_default(TitleFont) [font actual TitleFont]
+    set ::config_default(DeskFont) [font actual DeskFont]
 }
 proc policy-reset {} {
     # The tray is deliberately NOT torn down here, only WISHED away:
@@ -5013,7 +5109,10 @@ proc policy-reset {} {
     # window, which does not always survive being un-embedded (see
     # tray-reconcile).
     foreach v $::config_vars { set ::$v $::config_default($v) }
-    font configure TitleFont {*}$::config_default(TitleFont)
+    # The base and the RELATIONS are the resettable state; the derived
+    # fonts are a consequence and are recomputed from them.
+    font configure DeskFont {*}$::config_default(DeskFont)
+    fonts-derive
     title-metrics
     # Caches that a config decides the contents of: per-client style
     # verdicts (the rules are gone) and resolved icons (the path may
@@ -5048,6 +5147,7 @@ proc policy-apply {} {
     array unset ::styleof
     panels-build        ;# no buttons declared -> the strip goes away
     tray-reconcile      ;# start, stop or leave the tray exactly alone
+    widgets-build       ;# cheap by construction: all of them, from nothing
     retitle-frames      ;# live frames follow the metrics and the font
     root-cursor-apply   ;# ...and the desk stops wearing the server's X
     publish-workarea
