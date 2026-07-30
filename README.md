@@ -671,6 +671,25 @@ frames a client and shows a panel has proved both libraries loaded.
   own event loop. The clock is thirty lines: two labels, a heartbeat,
   and two derived fonts.
 
+  **The widget area, and the desk as one window** (`set-desk-window`,
+  default on). Widgets that name the same host and the same corner
+  share an AREA, laid out in declaration order along the host's long
+  axis; a panel's area takes the free slot at the far end, BEFORE the
+  tray, with the button row shortened for it the way it already is for
+  the tray. Nothing places itself against a strip any more, which is
+  what went wrong before — a clock picking its own corner on a bottom
+  panel picked the tray's (the owner, 2026-07-30). The desk layer is
+  one full-screen toplevel of ours at the bottom of the stack, so
+  desk-layer widgets are contained too and no layer has to be
+  maintained anywhere; `set-desk-window off` gives them a window apiece
+  again, for a desktop somebody else paints. With a floor of our own,
+  `Lower` lowers a client to just ABOVE it — lowered absolutely, a
+  window would land under the desk and vanish. The layout engine
+  inside an area is `grid` rather than a second treectrl: what an area
+  needs — declaration order, columns, alignment — grid has without
+  treectrl's window elements, and only `area-build` would change if
+  that ever stops being true.
+
   **The WM's own windows** (`wm-window`) wear the same decoration every
   client wears — the same border and grips, the same titlebar font and
   colors, restyled by the same config knobs — and the confirmation on

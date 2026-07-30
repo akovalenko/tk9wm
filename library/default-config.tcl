@@ -535,9 +535,23 @@
 #   wm-widget clock -type clock -on screen -place center -layer desk
 #
 #   -on       workarea (default) | screen | {panel NAME}
-#   -place    the `place` grammar's edge words, sizeless
-#   -layer    top (over the clients) | desk (under all of them)
+#   -place    the `place` grammar's edge words, sizeless — WHERE ON THE
+#             DESK. On a panel it is ignored: the strip hands out the
+#             slot (the far end, before the tray), because a widget
+#             that picks its own corner on a strip sooner or later
+#             picks the tray's.
 #   -padding  air inside it, default 4; -background, -foreground
+#
+# Widgets naming the same host and the same corner share an AREA and
+# are laid out in declaration order — along the strip on a panel, in a
+# column on the desk.
+#
+# THE DESK IS ONE WINDOW of ours, at the bottom of the stack, and every
+# desk-layer widget lives inside it. Switch it off if you paint the
+# root yourself (xsetroot, feh, another desktop manager) — the widgets
+# then get a window apiece, as before:
+#   set-desk-window off
+#   set-desk-background #1c1c1c
 #
 # A widget riding a panel makes the panel deeper, the way the tray
 # does. Widgets are cheap: a reload destroys and rebuilds every one of
