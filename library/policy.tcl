@@ -753,6 +753,7 @@ proc policy-initial-size {w cw ch} {
             lassign [place-frame $w [expr {$cw + 2*$B}] \
                                     [expr {$ch + $top + $B}]] X0 Y0
             set ::maxsaved($w) [list $cw $ch $X0 $Y0]
+            publish-net-wm-state $w   ;# born maximized is EWMH state too
         }
         lassign [place-geometry $w $cw $ch $spec] pw ph X Y
     } err]} {
@@ -1289,6 +1290,7 @@ proc resize-by-edge {w e cw ch cw0 ch0 fx fy} {
     if {$::maximize eq "drop" && ($cw != $cw0 || $ch != $ch0)
             && [info exists ::maxsaved($w)]} {
         unset ::maxsaved($w)
+        publish-net-wm-state $w
         puts "WM: 0x[format %x $w] resized by hand — no longer maximized"
     }
     wm-resize-client $w $cw $ch
@@ -2023,6 +2025,7 @@ proc maximize-client {w} {
     wm geometry $t +[lindex $wa 0]+[lindex $wa 1]
     wm-resize-client $w {*}[maximize-fit $w $wa]
     maximize-settle $w
+    publish-net-wm-state $w   ;# the mark is EWMH state now; say so
 }
 proc unmaximize-client {w} {
     if {![maximize-guard $w]} return
@@ -2033,6 +2036,7 @@ proc unmaximize-client {w} {
     wm geometry $t +$X+$Y
     wm-resize-client $w $cw $ch
     maximize-settle $w
+    publish-net-wm-state $w
 }
 proc maximize-toggle {w} {
     if {[info exists ::maxsaved($w)]} {

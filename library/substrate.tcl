@@ -738,6 +738,17 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     # breath. So the atom in the list below is what turns their menu
     # item and their -fullscreen / --start-as flag back on.
     set NET_WM_STATE_FULLSCREEN [x-intern _NET_WM_STATE_FULLSCREEN]
+    # Maximize, the EWMH spelling — the pair of atoms a client puts in
+    # _NET_WM_STATE before mapping ("start me maximized": emacs's
+    # `fullscreen: maximized` X resource takes exactly this road) or
+    # sends as a state action later (wmctrl -b add,maximized_...).
+    # fvwm honored both; a desk that ignores them leaves such a client
+    # at whatever size its OTHER claims add up to — the owner's emacs,
+    # whose ancient Emacs.geometry resource then ruled alone (measured:
+    # a TELEGA frame 1773 wide on a 1920 workarea, the hole exactly
+    # where the request went unheard).
+    set NET_WM_STATE_MAXIMIZED_HORZ [x-intern _NET_WM_STATE_MAXIMIZED_HORZ]
+    set NET_WM_STATE_MAXIMIZED_VERT [x-intern _NET_WM_STATE_MAXIMIZED_VERT]
     set NET_FRAME_EXTENTS [x-intern _NET_FRAME_EXTENTS]
     set NET_REQUEST_FRAME_EXTENTS [x-intern _NET_REQUEST_FRAME_EXTENTS]
     # The KDE-era twin of the extents, still read by Qt4-vintage
@@ -782,6 +793,7 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     set-prop-longs $root $NET_SUPPORTED 4 \
         [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
               $NET_WM_STATE $NET_WM_STATE_HIDDEN $NET_WM_STATE_FULLSCREEN \
+              $NET_WM_STATE_MAXIMIZED_HORZ $NET_WM_STATE_MAXIMIZED_VERT \
               $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS \
               $NET_CLIENT_LIST $NET_CLIENT_LIST_STACKING $NET_WORKAREA \
               $NET_NUMBER_OF_DESKTOPS $NET_CURRENT_DESKTOP \
@@ -1180,6 +1192,11 @@ proc dispatch-event {ev} {
                 # the log rather than silently dropped: the next one to
                 # be implemented will announce itself here.
                 set act [lindex $data 0]
+                # One message may name BOTH maximize atoms (wmctrl
+                # does), and our maximize is whole — acting per atom
+                # would toggle twice and land where it started, so the
+                # pair collapses to one act.
+                set didmax 0
                 foreach a [lrange $data 1 2] {
                     if {$a == 0} continue
                     if {[info exists ::NET_WM_STATE_FULLSCREEN]
@@ -1188,6 +1205,19 @@ proc dispatch-event {ev} {
                             ? ![info exists ::fullscreen($A)] : $act == 1}]
                         if {$on} { fullscreen-client $A } else {
                             unfullscreen-client $A
+                        }
+                    } elseif {[info exists ::NET_WM_STATE_MAXIMIZED_HORZ]
+                            && ($a == $::NET_WM_STATE_MAXIMIZED_HORZ
+                                || $a == $::NET_WM_STATE_MAXIMIZED_VERT)
+                            && [llength [info commands maximize-client]]} {
+                        if {$didmax} continue
+                        set didmax 1
+                        set on [expr {$act == 2
+                            ? ![info exists ::maxsaved($A)] : $act == 1}]
+                        puts "WM: client asks maximize [expr {$on ? {on} : {off}}]\
+ (0x[format %x $A])"
+                        if {$on} { maximize-client $A } else {
+                            unmaximize-client $A
                         }
                     } else {
                         puts "WM: _NET_WM_STATE action $act on\
@@ -1788,6 +1818,13 @@ proc net-wm-state-atoms {w} {
     set atoms {}
     if {[info exists ::iconic($w)]} { lappend atoms $::NET_WM_STATE_HIDDEN }
     if {[info exists ::fullscreen($w)]} { lappend atoms $::NET_WM_STATE_FULLSCREEN }
+    # The maximized mark is the policy's (::maxsaved, the saved way
+    # back), and this builder only READS it: what is published is what
+    # the maximize machinery believes, wherever it changed hands.
+    if {[info exists ::maxsaved($w)]} {
+        lappend atoms $::NET_WM_STATE_MAXIMIZED_HORZ \
+                      $::NET_WM_STATE_MAXIMIZED_VERT
+    }
     return $atoms
 }
 proc publish-net-wm-state {w} { set-net-wm-state $w [net-wm-state-atoms $w] }
@@ -1912,6 +1949,20 @@ proc client-initial-fullscreen {w} {
         type fmt value
     if {$fmt ne "32"} { return 0 }
     expr {$::NET_WM_STATE_FULLSCREEN in $value}
+}
+# ...and "start me maximized", same road, the pair of atoms. Either
+# atom counts: our maximize is whole (one saved geometry, both axes),
+# so a single-axis request maximizes whole rather than being dropped —
+# the client asked for more room and gets it, which is nearer its
+# meaning than silence. Emacs's `fullscreen: maximized` X resource is
+# the live case (the owner's desk).
+proc client-initial-maximized {w} {
+    if {![info exists ::NET_WM_STATE_MAXIMIZED_HORZ]} { return 0 }
+    lassign [soft "read _NET_WM_STATE" { x-prop-get $w $::NET_WM_STATE }] \
+        type fmt value
+    if {$fmt ne "32"} { return 0 }
+    expr {$::NET_WM_STATE_MAXIMIZED_HORZ in $value
+          || $::NET_WM_STATE_MAXIMIZED_VERT in $value}
 }
 # The refusal, and why it can be made to stick: ICCCM gives a WM no way
 # to reply "no" to WM_CHANGE_STATE — but WM_STATE is the channel every
@@ -2079,6 +2130,13 @@ proc manage {w {asiconic 0}} {
     if {[client-initial-fullscreen $w]} {
         puts "WM: 0x[format %x $w] asked to start fullscreen"
         fullscreen-client $w
+    } elseif {[client-initial-maximized $w]
+              && [llength [info commands maximize-client]]} {
+        # The machinery is the policy's; a substrate running bare (a
+        # spike) simply has no maximize to offer. Fullscreen wins when
+        # a client asks for both — it is the stronger claim.
+        puts "WM: 0x[format %x $w] asked to start maximized"
+        maximize-client $w
     }
 }
 
