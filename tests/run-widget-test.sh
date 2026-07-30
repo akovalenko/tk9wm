@@ -4,14 +4,20 @@
 #
 # The owner's requirements (2026-07-30), each one measured:
 #
-#  - the widget is AGNOSTIC about where it lives: the same declaration
-#    with one option changed puts it on the panel, in the corner of the
-#    workarea, or on the desk itself under every client window;
-#  - the clock is bigger than the date, and both are DERIVED from the
-#    desk font rather than stated in points — so moving the desk font
-#    moves them, in proportion, with nothing else edited;
-#  - widgets are CHEAP: a config reload destroys and rebuilds them, and
-#    that is the whole story of how a widget changes its mind.
+#  - a widget is AGNOSTIC about where it lives: the same declaration
+#    with one option changed puts it on a panel or on the desk;
+#  - the strip HANDS OUT the slot — the widget area sits at the far end
+#    of a panel BEFORE the tray, which is the bug that started this
+#    (his clock, placing itself by its own corner, sat under the tray);
+#  - the desk is ONE window of ours, and switching it off gives every
+#    desk-layer area a toplevel again — the fallback for a desktop
+#    somebody else paints;
+#  - the clock is bigger than the date and both DERIVE from the desk
+#    font, so moving the desk font moves them, with nothing edited;
+#  - widgets are CHEAP: a reload destroys and rebuilds them.
+#
+# Everything is measured on the SCREEN, because a contained widget has
+# no window of its own to find — which is the point of containing it.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:65
 rm -f /tmp/.X65-lock /tmp/.X11-unix/X65
@@ -20,129 +26,138 @@ XVFB=$!
 CONF=$(mktemp -d)
 trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
 # A colour of its own, so a pixel can say "the clock is here" without
-# arguing with the panel's own background.
+# arguing with the panel's background.
 cat > "$CONF/tk9wm.tcl" <<'EOF'
+set-tray on
 panel-button терминал { launch {exec xterm &} }
-wm-widget clock -type clock -on {panel default} -place {right vcenter} \
-    -background #4e9a06
+wm-widget clock -type clock -on {panel default} -background #4e9a06
 EOF
 sleep 1
 
 LOG="$HERE/wm-widget.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
+sleep 1.5
+"$LINUX/whale" "$HERE/tray-client.tcl" "#729fcf" > "$HERE/widget-tray.log" &
+TRAY=$!
 sleep 2
 
-widget_line() { sed -n 's/^WM: widget clock (clock) //p' "$LOG" | tail -1; }
-# A widget INSIDE a panel has no window of its own to find — that is
-# the whole point of putting it there — so it is asked about the way
-# one asks about anything drawn: by looking at the screen. A widget
-# with its own toplevel is still named, and then xdotool can find it.
-wid() { xdotool search --onlyvisible --name '^tk9wm-widget-clock$' | head -1; }
-geom() {
-    id=$(wid)
-    [ -n "$id" ] || { echo "(no window)"; return; }
-    xwininfo -id "$id" | awk '
-        /Absolute upper-left X/ {x=$NF} /Absolute upper-left Y/ {y=$NF}
-        /Width:/ {w=$2} /Height:/ {h=$2}
-        END {print w "x" h "+" x "+" y}'
-}
-# ...and its own colour, at the middle of where the WM says it put it.
+area() { sed -n 's/^WM: widget area //p' "$LOG" | tail -1; }
+# The colour at the middle of a WxH+X+Y rectangle.
 here() {
     set -- $(echo "$1" | sed 's/[x+]/ /g')
     [ $# -ge 4 ] || { echo "(no geometry)"; return; }
     import -window root png:- 2>/dev/null | convert png:- -format \
         "%[pixel:p{$(($3 + $1 / 2)),$(($4 + $2 / 2))}]" info:-
 }
+traygeom() { sed -n 's/^WM: tray strip \([0-9x+]*\) .*/\1/p' "$LOG" | tail -1; }
 
-FIRST=$(widget_line)
-ON_PANEL=$(echo "$FIRST" | sed 's/ .*//')
-SHOWN=$(here "$ON_PANEL")
-# A LAYER IS NOT SOMETHING ONE SETS ONCE. Raise a client over the
-# widget and then reload: the desk must put its own furniture back, or
-# the widget sinks a raise at a time until it is at the bottom of the
-# world — mapped, correctly placed, and invisible, which is what the
-# owner found (2026-07-30).
+ON_PANEL=$(area)
+PANELPX=$(here "$(echo "$ON_PANEL" | sed 's/ .*//')")
+TRAYG=$(traygeom)
+import -display :65 -window root "$HERE/widget-panel.png" 2>/dev/null \
+    && echo "DRIVER: screenshot -> $HERE/widget-panel.png"
+
+# --- a client raised over the desk, then a reload: containment means
+#     the widget cannot be lost behind anything.
 "$LINUX/whale" "$HERE/client.tcl" "поверх" 400x200 "#fce94f" "" "" 30 \
     > "$HERE/widget-client.log" &
 CL=$!
 sleep 1.5
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
 sleep 1.5
-AFTER=$(widget_line)
-STILL=$(here "$(echo "$AFTER" | sed 's/ .*//')")
+STILLPX=$(here "$(area | sed 's/ .*//')")
 kill $CL 2>/dev/null
 sleep 0.5
-# ...sampled while the WM is alive: the workarea is a property it owns.
-WAH=$(xprop -display :65 -root _NET_WORKAREA | sed 's/.*, //')
-import -display :65 -window root "$HERE/widget-panel.png" 2>/dev/null \
-    && echo "DRIVER: screenshot -> $HERE/widget-panel.png"
 
-# --- the same widget, told to live somewhere else entirely
+# --- the same widget, told to live on the desk instead
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 panel-button терминал { launch {exec xterm &} }
-wm-widget clock -type clock -on screen -place {left top} -layer desk
+wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
 sleep 1.5
-ON_DESK=$(geom)
-REBUILDS=$(grep -c '^WM: widget clock' "$LOG")
+ON_DESK=$(area)
+DESKPX=$(here "$(echo "$ON_DESK" | sed 's/ .*//')")
+DESKWIN=$(xdotool search --onlyvisible --name '^tk9wm-desk$' | head -1)
 
-# --- and the fonts: a bigger desk font must carry both lines with it
-BEFORE=$(grep -c '^WM: widget clock' "$LOG")
+# --- and with the desk window switched off it falls back to a toplevel
+cat > "$CONF/tk9wm.tcl" <<'EOF'
+set-desk-window off
+panel-button терминал { launch {exec xterm &} }
+wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
+EOF
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
+sleep 1.5
+NODESK=$(xdotool search --onlyvisible --name '^tk9wm-desk$' | head -1)
+OWNWIN=$(xdotool search --onlyvisible --name '^tk9wm-widget-area' | head -1)
+OFFPX=$(here "$(area | sed 's/ .*//')")
+
+# --- a bigger desk font must carry both lines with it
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-desk-font -size 20
-wm-widget clock -type clock -on screen -place {left top} -layer desk
+panel-button терминал { launch {exec xterm &} }
+wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
 sleep 1.5
-BIG=$(geom)
+BIG=$(area)
 import -display :65 -window root "$HERE/widget-desk.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/widget-desk.png"
 
-kill $WM 2>/dev/null
+kill $WM $TRAY 2>/dev/null
 
-echo "--- widget lines:"
-grep -E '^WM: widget ' "$LOG"
-echo "--- on the panel: $ON_PANEL   on the desk: $ON_DESK   with a big font: $BIG"
+echo "--- areas:"
+grep -E '^WM: widget area ' "$LOG"
+echo "--- on the panel: $ON_PANEL (tray at $TRAYG)"
+echo "--- on the desk:  $ON_DESK   with a big font: $BIG"
 
 echo "--- verdict"
 FAIL=0
-if [ -n "$FIRST" ]; then
-    echo "OK: the clock came up on the panel ($FIRST)"
+case "$ON_PANEL" in
+    *"in the «default» panel, before the tray"*)
+        echo "OK: the strip handed out the slot ($ON_PANEL)" ;;
+    *) echo "FAIL: the widget did not land in the panel's slot: «$ON_PANEL»"
+       FAIL=1 ;;
+esac
+# ...and BEFORE the tray means its right edge is left of the tray's.
+AR=$(echo "$ON_PANEL" | sed 's/x.*//')
+AX=$(echo "$ON_PANEL" | sed 's/^[0-9]*x[0-9]*+\([0-9]*\)+.*/\1/')
+TX=$(echo "$TRAYG" | sed 's/^[0-9]*x[0-9]*+\([0-9]*\)+.*/\1/')
+if [ -n "$AX" ] && [ -n "$TX" ] && [ $((AX + AR)) -le "$TX" ]; then
+    echo "OK: ...clear of the tray — it ends at $((AX + AR)), the tray starts\
+ at $TX"
 else
-    echo "FAIL: no widget line in the log"; FAIL=1
+    echo "FAIL: the widget ends at $((AX + AR)) and the tray starts at $TX —\
+ that is the bug that started this"; FAIL=1
 fi
-# The panel is at the bottom by default; a widget riding it must sit
-# inside its band, which starts below the workarea's height.
-PY=$(echo "$ON_PANEL" | sed 's/.*+//')
-if [ -n "$PY" ] && [ "$PY" -ge 0 ] 2>/dev/null && [ "$PY" -ge "${WAH:-0}" ]; then
-    echo "OK: ...ON it — its top edge ($PY) is past where the workarea ends ($WAH)"
+if [ "$PANELPX" = "srgb(78,154,6)" ]; then
+    echo "OK: ...and it is DRAWN there, its own colour on the screen"
 else
-    echo "FAIL: the widget is at y=$PY, not inside the panel's band (below $WAH)"
-    FAIL=1
+    echo "FAIL: nothing of the widget at its own coordinates ($PANELPX)"; FAIL=1
 fi
-if [ "$SHOWN" = "srgb(78,154,6)" ]; then
-    echo "OK: ...and it is DRAWN there — its own colour is on the screen"
+if [ "$STILLPX" = "srgb(78,154,6)" ]; then
+    echo "OK: ...and still is after a client was raised and the config\
+ reloaded — inside the panel, it has no layer to lose"
 else
-    echo "FAIL: nothing of the widget at its own coordinates ($SHOWN)"; FAIL=1
-fi
-if [ "$STILL" = "srgb(78,154,6)" ]; then
-    echo "OK: ...and still is after a client was raised over the desk and the\
- config reloaded — being INSIDE the panel, it has no layer to lose"
-else
-    echo "FAIL: the widget went away behind something ($STILL)"; FAIL=1
+    echo "FAIL: the widget went behind something ($STILLPX)"; FAIL=1
 fi
 case "$ON_DESK" in
-    *+0+0) echo "OK: the SAME widget, one option changed, sits at the screen's\
- top-left instead ($ON_DESK)" ;;
-    *) echo "FAIL: told -on screen -place {left top} it went to $ON_DESK"; FAIL=1 ;;
+    *"on the desk over screen at «left top»"*)
+        echo "OK: one option changed and it lives on the desk instead" ;;
+    *) echo "FAIL: told -on screen it went «$ON_DESK»"; FAIL=1 ;;
 esac
-if [ "$REBUILDS" -ge 2 ]; then
-    echo "OK: a reload rebuilt it from nothing ($REBUILDS builds logged)"
+if [ -n "$DESKWIN" ] && [ "$DESKPX" = "srgb(78,154,6)" ]; then
+    echo "OK: ...inside the desk window, which is ours and one (id $DESKWIN)"
 else
-    echo "FAIL: only $REBUILDS build(s) — the reload did not rebuild the widget"
-    FAIL=1
+    echo "FAIL: desk window «$DESKWIN», pixel $DESKPX"; FAIL=1
+fi
+if [ -z "$NODESK" ] && [ -n "$OWNWIN" ] && [ "$OFFPX" = "srgb(78,154,6)" ]; then
+    echo "OK: set-desk-window off — no desk window, and the area fell back to\
+ a toplevel of its own (id $OWNWIN), still drawn"
+else
+    echo "FAIL: with the desk window off: desk «$NODESK», own «$OWNWIN»,\
+ pixel $OFFPX"; FAIL=1
 fi
 BIGW=$(echo "$BIG" | sed 's/x.*//')
 SMALLW=$(echo "$ON_DESK" | sed 's/x.*//')
@@ -153,7 +168,7 @@ else
     echo "FAIL: the desk font grew and the clock did not ($SMALLW -> $BIGW)"
     FAIL=1
 fi
-if grep -q 'widget clock: build failed\|handler error' "$LOG"; then
+if grep -qE 'build failed|handler error' "$LOG"; then
     echo "FAIL: errors in the log:"; grep -E 'build failed|handler error' "$LOG"
     FAIL=1
 fi

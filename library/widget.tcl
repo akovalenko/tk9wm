@@ -52,9 +52,32 @@
 # So a widget hosted by a panel IS PART OF THE PANEL'S WINDOW — a Tk
 # frame inside it — and the question does not arise: a child is over
 # its parent by construction, and it dies with it, which is also why
-# the flicker went. The desk host still keeps a toplevel of its own for
-# now; the owner's next step is to make that one window too, ours and
-# shared, with the same kind of area inside it.
+# the flicker went. THE DESK IS ONE WINDOW TOO (the owner's next call,
+# and now done): a single full-screen toplevel of ours at the bottom of
+# the stack, which every desk-layer widget lives inside. It is optional
+# — somebody who paints the root with xsetroot, or runs another desktop
+# manager, switches it off with `set-desk-window off` and gets a
+# toplevel per widget again, which is the old behaviour and the honest
+# fallback rather than a refusal.
+#
+# WIDGETS SHARE AN AREA, and the area is what knows about layout. One
+# per host and placement: widgets that name the same host and the same
+# corner are laid out together, in DECLARATION ORDER, along the host's
+# long axis (a row on a horizontal panel, a column on a vertical one
+# and on the desk). A panel's area takes the free slot at the far end
+# of the strip, BEFORE the tray, and the panel shortens its button row
+# to make room — which is the whole of what went wrong before: the
+# owner's clock, placed by its own corner, sat under the tray on a
+# bottom panel (2026-07-30). Nothing places itself against a strip any
+# more; the strip hands out slots.
+#
+# The layout engine inside an area is `grid`, not another treectrl. The
+# owner suggested a treectrl and it would work, but everything it would
+# buy here — declaration order, columns, alignment — grid already has
+# without window elements, and treectrl's window elements are the
+# fiddly part of that widget. If an area ever wants selection, hover or
+# scrolling, that is the moment to change engines, and only area-layout
+# would change.
 
 keep widget_types {}   ;# TYPE -> {build CMD ?tick CMD? ?every MS?}
 keep widgets {}        ;# NAME -> options, in declaration order
@@ -94,6 +117,9 @@ proc wm-widget {name args} {
     if {[dict get $opts -layer] ni {top desk}} {
         error "wm-widget $name: -layer is top or desk"
     }
+    # -layer is now a consequence of the HOST — a panel is over the
+    # clients, the desk window is under them — and is kept only so an
+    # old config does not fail. Where a widget lives is -on.
     dict set ::widgets $name $opts
     widgets-rebuild-soon
 }
@@ -136,20 +162,16 @@ proc widget-host-rect {name opts} {
 }
 
 
+# Only an area with a WINDOW of its own has a layer to lose — which is
+# to say, only when the desk window is switched off. Inside a panel or
+# inside the desk window, containment settles it and nobody has to
+# keep saying so.
 proc widgets-layer {} {
-    foreach name [array names ::widget_top] { widget-layer $name }
-}
-# Only a widget with a WINDOW of its own has a layer to lose; one that
-# rides a panel is inside it and needs nobody's help.
-proc widget-layer {name} {
-    if {![info exists ::widget_top($name)]} return
-    set w $::widget_top($name)
-    if {![winfo exists $w]} return
-    if {[dict get [dict get $::widgets $name] -layer] eq "desk"} {
-        lower $w
-    } else {
-        raise $w
+    foreach k [array names ::widget_top] {
+        set w $::widget_top($k)
+        if {[winfo exists $w]} { lower $w }
     }
+    if {[winfo exists .desk]} { lower .desk }
 }
 
 # A widget that RIDES A PANEL makes it thicker, exactly as the tray
@@ -162,6 +184,8 @@ proc widget-layer {name} {
 # then, if the reserved depth changed, rebuild the strips and publish
 # the workarea before placing. Two passes, no settling loop.
 array set widget_thick {}   ;# PANEL -> the deepest widget riding it
+array set widget_extent {}  ;# ...and how much of its LENGTH they want
+array set widget_area {}    ;# area key -> the frame that holds them
 proc widgets-thickness {panel} {
     expr {[info exists ::widget_thick($panel)] ? $::widget_thick($panel) : 0}
 }
@@ -175,8 +199,18 @@ proc widget-claims-band {name opts} {
     # From the MEASUREMENT, not from a window: at this point the widget
     # has no window anywhere, which is what the measuring pass is for.
     lassign $::widget_size($name) cw ch
-    set deep [expr {[panel-cfg $p side] in {left right} ? $cw + 2 : $ch + 2}]
+    set vert [expr {[panel-cfg $p side] in {left right}}]
+    set deep [expr {$vert ? $cw + 2 : $ch + 2}]
+    set long [expr {$vert ? $ch : $cw}]
     if {$deep > [widgets-thickness $p]} { set ::widget_thick($p) $deep }
+    # ...and along the strip they QUEUE, so the lengths add up (plus a
+    # gap between neighbours, and one at each end).
+    set have [widgets-extent $p]
+    set ::widget_extent($p) [expr {$have + $long + $::widget_gap}]
+}
+keep widget_gap 6
+proc widgets-extent {panel} {
+    expr {[info exists ::widget_extent($panel)] ? $::widget_extent($panel) : 0}
 }
 
 # PASS ONE: how big is it? Built in a scratch toplevel nobody sees,
@@ -213,58 +247,171 @@ proc widget-content {c name opts} {
     }
     return $c
 }
+# ---- the desk: one window of ours, at the bottom, optional ----
+#
+# Default ON, because a desk that owns its own background can put
+# things on it; off for anybody who paints the root themselves
+# (xsetroot, feh, another desktop manager), and then the desk-layer
+# widgets fall back to a toplevel apiece.
+keep desk_window 1
+keep desk_background #2e3436
+proc set-desk-window {on} {
+    if {![string is boolean -strict $on]} {
+        error "set-desk-window: on or off"
+    }
+    set ::desk_window [expr {$on ? 1 : 0}]
+}
+proc set-desk-background {colour} { set ::desk_background $colour }
+proc desk-window {} { expr {[winfo exists .desk] ? ".desk" : ""} }
+proc desk-window-build {} {
+    if {!$::desk_window} { destroy .desk; return }
+    if {![winfo exists .desk]} {
+        toplevel .desk -background $::desk_background
+        wm overrideredirect .desk 1
+        wm title .desk tk9wm-desk
+    }
+    .desk configure -background $::desk_background
+    lassign [screen-size] sw sh
+    wm geometry .desk ${sw}x${sh}+0+0
+    lower .desk
+}
+
 # PASS TWO: build it where it lives, now that the strips know how deep
 # to be. A panel host takes the widget INTO its own window; anything
 # else gets a toplevel of its own, placed and lowered or raised.
-proc widget-show {name} {
-    set opts [dict get $::widgets $name]
+# An area is a frame in its host, holding the widgets that named the
+# same host and corner, in declaration order. It is what gets placed;
+# the widgets inside it only get gridded.
+proc widget-area-of {opts} {
     set on [dict get $opts -on]
-    set rect [widget-host-rect $name $opts]
-    if {![llength $rect]} return
-    lassign $rect hx hy hw hh
-    lassign $::widget_size($name) cw ch
-    lassign [anchor-of [dict get $opts -place]] halign valign
     if {[lindex $on 0] eq "panel"} {
         set p [lindex $on 1]
         if {$p eq ""} { set p default }
-        set host [panel-window $p]
-        if {$host eq ""} return
-        # ...inside the panel, in the panel's own coordinates. The old
-        # one goes first: a panel rebuild brings us back here, and a
-        # frame that is still there from the last time is an error, not
-        # a saving.
-        destroy $host.wg$name
-        set c [widget-content $host.wg$name $name $opts]
-        if {$c eq ""} return
-        set X [place-axis $hx $hw $cw $halign]
-        set Y [place-axis $hy $hh $ch $valign]
-        place $c -x [expr {$X - $hx}] -y [expr {$Y - $hy}]
-        set ::widget_win($name) $c
-        puts "WM: widget $name ([dict get $opts -type]) ${cw}x${ch}+${X}+${Y}\
- inside the «$p» panel's own window"
-    } else {
-        set w .wg$name
-        destroy $w
-        toplevel $w -background $::OUTLINE
-        wm overrideredirect $w 1
-        wm withdraw $w
-        wm title $w tk9wm-widget-$name
-        set c [widget-content $w.c $name $opts]
-        if {$c eq ""} { destroy $w; return }
-        place $c -x 1 -y 1
-        wm geometry $w [expr {$cw + 2}]x[expr {$ch + 2}]+[place-axis \
-            $hx $hw [expr {$cw + 2}] $halign]+[place-axis $hy $hh \
-            [expr {$ch + 2}] $valign]
-        update idletasks
-        wm deiconify $w
-        set ::widget_win($name) $c
-        set ::widget_top($name) $w
-        widget-layer $name
-        puts "WM: widget $name ([dict get $opts -type]) [wm geometry $w] on\
- $on, layer [dict get $opts -layer]"
+        return [list panel $p]
     }
-    set spec [dict get $::widget_types [dict get $opts -type]]
-    if {[dict exists $spec every]} { widget-tick $name }
+    # desk, screen and workarea are all the desk, differing in the rect
+    # a corner is measured against.
+    list desk [lindex $on 0]
+}
+proc widget-host-window {area} {
+    lassign $area kind what
+    if {$kind eq "panel"} { return [panel-window $what] }
+    return [desk-window]
+}
+# With the desk window switched off there is nothing to be inside, so
+# an area on the desk layer gets a toplevel of its own — the old
+# behaviour, kept as the fallback rather than as a refusal. It is the
+# one case left where a layer has to be re-stated, and widgets-layer
+# still does it.
+proc area-own-toplevel {idx bg} {
+    set w .wgarea$idx
+    destroy $w
+    toplevel $w -background $::OUTLINE
+    wm overrideredirect $w 1
+    wm withdraw $w
+    wm title $w tk9wm-widget-area$idx
+    return $w
+}
+proc widgets-in-area {area place} {
+    set out {}
+    dict for {name opts} $::widgets {
+        if {[widget-area-of $opts] ne $area} continue
+        if {[dict get $opts -place] ne $place} continue
+        lappend out $name
+    }
+    return $out
+}
+proc widget-areas {} {
+    set seen {}
+    dict for {name opts} $::widgets {
+        set k [list [widget-area-of $opts] [dict get $opts -place]]
+        if {$k ni $seen} { lappend seen $k }
+    }
+    return $seen
+}
+proc area-build {area place idx} {
+    lassign $area kind what
+    set members [widgets-in-area $area $place]
+    if {![llength $members]} return
+    set bg [dict get [dict get $::widgets [lindex $members 0]] -background]
+    set host [widget-host-window $area]
+    set own ""
+    if {$host eq ""} {
+        if {$kind eq "panel"} return
+        set own [area-own-toplevel $idx $bg]
+        set host $own
+    }
+    set A $host.wgarea$idx
+    destroy $A
+    frame $A -background $bg
+    set vert [expr {$kind eq "desk" ? 1
+        : [panel-cfg $what side] in {left right}}]
+    set i 0
+    foreach name $members {
+        set c [widget-content $A.w$name $name [dict get $::widgets $name]]
+        if {$c eq ""} continue
+        if {$vert} {
+            grid $c -row $i -column 0 -sticky ew -pady [expr {$i ? 2 : 0}]
+        } else {
+            grid $c -row 0 -column $i -sticky ns -padx [expr {$i ? 2 : 0}]
+        }
+        set ::widget_win($name) $c
+        incr i
+    }
+    update idletasks
+    set aw [winfo reqwidth $A]
+    set ah [winfo reqheight $A]
+    if {$kind eq "panel"} {
+        # THE STRIP HANDS OUT THE SLOT: the far end, before the tray,
+        # centred across. A corner of one's own is what put the owner's
+        # clock under the tray.
+        set band [strip-band $what]
+        if {$band eq ""} return
+        lassign $band bx by bw bh
+        set tray [expr {[tray-panel] eq $what ? [tray-extent] : 0}]
+        if {$vert} {
+            set ax [expr {($bw - $aw) / 2}]
+            set ay [expr {$bh - $tray - $ah - $::widget_gap}]
+        } else {
+            set ax [expr {$bw - $tray - $aw - $::widget_gap}]
+            set ay [expr {($bh - $ah) / 2}]
+        }
+        place $A -x $ax -y $ay
+        puts "WM: widget area ${aw}x${ah}+[expr {$bx + $ax}]+[expr {$by + $ay}]\
+ in the «$what» panel, before the tray ([llength $members]: $members)"
+    } else {
+        lassign [widget-host-rect-for $what] hx hy hw hh
+        lassign [anchor-of $place] halign valign
+        set ax [place-axis $hx $hw $aw $halign]
+        set ay [place-axis $hy $hh $ah $valign]
+        if {$own ne ""} {
+            # ...in a window of its own, which then has to be placed
+            # and kept on its layer.
+            place $A -x 1 -y 1
+            wm geometry $own [expr {$aw + 2}]x[expr {$ah + 2}]+${ax}+${ay}
+            update idletasks
+            wm deiconify $own
+            lower $own
+            set ::widget_top(area$idx) $own
+        } else {
+            place $A -x $ax -y $ay
+        }
+        puts "WM: widget area ${aw}x${ah}+${ax}+${ay} on the desk over $what\
+ at «$place» ([llength $members]: $members)"
+    }
+    set ::widget_area([list $area $place]) $A
+    foreach name $members {
+        set spec [dict get $::widget_types [dict get [dict get $::widgets \
+            $name] -type]]
+        if {[dict exists $spec every]} { widget-tick $name }
+    }
+}
+# What a desk-hosted corner is measured against.
+proc widget-host-rect-for {what} {
+    switch -- $what {
+        workarea { return [workarea] }
+        default  { lassign [screen-size] sw sh; return [list 0 0 $sw $sh] }
+    }
 }
 
 # The heartbeat. It reschedules itself from the WIDGET's own existence,
@@ -303,19 +450,27 @@ proc widgets-build {} {
     set ::widgets_building 1
     try {
         foreach name [array names ::widget_top] { destroy $::widget_top($name) }
+        foreach k [array names ::widget_area] { destroy $::widget_area($k) }
         array unset ::widget_top
+        array unset ::widget_area
         array unset ::widget_win
         array unset ::widget_size
         set was [lsort [array get ::widget_thick]]
         array unset ::widget_thick
+        array unset ::widget_extent
         dict for {name opts} $::widgets { widget-measure $name }
+        desk-window-build
         if {[lsort [array get ::widget_thick]] ne $was} {
             # A strip has to be deeper (or may be shallower) than it
             # was: rebuild it and say so, before anything is placed.
             panels-build
             publish-workarea
         }
-        dict for {name opts} $::widgets { widget-show $name }
+        set idx 0
+        foreach k [widget-areas] {
+            incr idx
+            area-build [lindex $k 0] [lindex $k 1] $idx
+        }
     } finally {
         set ::widgets_building 0
     }

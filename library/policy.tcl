@@ -1578,7 +1578,16 @@ proc raise-group {w} {
 proc lower-group {w} {
     if {![info exists ::frameof($w)]} return
     set leader [group-leader $w]
-    lower $::frameof($leader)
+    # To the bottom — but not through the floor. With a desk window of
+    # ours at the very bottom, "lower" means "just above the desk", or
+    # the window would be lowered out of sight entirely.
+    set floor ""
+    if {[llength [info commands desk-window]]} { set floor [desk-window] }
+    if {$floor ne ""} {
+        raise $::frameof($leader) $floor
+    } else {
+        lower $::frameof($leader)
+    }
     foreach c [group-members $leader] {
         raise $::frameof($c) $::frameof($leader)
     }
@@ -4422,11 +4431,16 @@ proc panel-build {name idx} {
     lassign [band-strip $band $side $thick] X Y W H
     set geo ${W}x${H}+${X}+${Y}
     set tray [expr {[tray-panel] eq $name ? [tray-extent] : 0}]
+    # ...and the widget area sits between them, so the button row stops
+    # short of both. A widget that placed itself would sooner or later
+    # place itself on top of one of these.
+    set wg 0
+    if {[llength [info commands widgets-extent]]} { set wg [widgets-extent $name] }
     if {$vert} {
         place $T -x 1 -y 1 -width [expr {$W - 2}] \
-            -height [expr {$H - 2 - $tray}]
+            -height [expr {$H - 2 - $tray - $wg}]
     } else {
-        place $T -x 1 -y 1 -width [expr {$W - 2 - $tray}] \
+        place $T -x 1 -y 1 -width [expr {$W - 2 - $tray - $wg}] \
             -height [expr {$H - 2}]
     }
     wm geometry $P $geo
@@ -5098,7 +5112,7 @@ set config_vars {
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
     key_echo key_echo_place titlebar_buttons titlebar_gestures fade font_kin
-    widgets
+    widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
 }
 proc policy-snapshot-defaults {} {
@@ -5152,6 +5166,7 @@ proc policy-apply {} {
     array unset ::styleof
     panels-build        ;# no buttons declared -> the strip goes away
     tray-reconcile      ;# start, stop or leave the tray exactly alone
+    desk-window-build   ;# ...on, off, and the colour of it
     widgets-build       ;# cheap by construction: all of them, from nothing
     retitle-frames      ;# live frames follow the metrics and the font
     root-cursor-apply   ;# ...and the desk stops wearing the server's X
