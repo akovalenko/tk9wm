@@ -181,6 +181,41 @@ package require Tk
 package require tkwmx
 wm withdraw .   ;# our own real toplevel is no client of ours
 
+# NO INPUT METHOD, EVER — a window manager cannot afford to be one's
+# hostage, and this is not a precaution: it is a post-mortem (the
+# owner's desk, 2026-07-30).
+#
+# Tk creates an XIC lazily for EVERY window that sees an event — our
+# frames, titlebars, panel, menus, the compass, all of them — and
+# Tk_DestroyWindow then calls XDestroyIC, which is a SYNCHRONOUS round
+# trip to the XIM server (generic/tkWindow.c, generic/tkEvent.c). Kill
+# the XIM server on a running desk and the next `destroy` of any Tk
+# window of ours blocks in XIfEvent → poll(-1) waiting for a reply
+# nobody will ever send — INSIDE the X event handler. The whole desk
+# stops: the event loop reads X events and dispatches none of them, no
+# window is framed, no chord fires, nothing is logged, and the process
+# looks perfectly healthy in ps. It took a backtrace to see, since
+# there is no error anywhere: XDestroyIC under Tk_DestroyWindow under
+# our own dispatcher.
+#
+# The trigger was ordinary: the owner swapped his input method
+# (uim-xim killed, another to take its place). Restarting an input
+# method is a thing people do, and a desk that dies of it is the
+# desk's bug, not theirs.
+#
+# The cost of switching it off is ZERO here. Nothing in this window
+# manager accepts typed text — a titlebar, a menu, a panel button and
+# a compass cell are all display-only, and every key we care about
+# comes through our own grabs, decoded from keycodes by hand (see
+# handle-key), never through Tk's IM-composed translation. A GUI that
+# WOULD want an input method belongs on the far side of the line drawn
+# in wm-window: its own thread, its own connection, its own Tk.
+#
+# It must be off before any window sees its first event, since that is
+# when the context would be created — so it is here, three lines after
+# Tk itself.
+tk useinputmethods 0
+
 # Line buffering FIRST, before anything can have something to say. It
 # used to be set where the redirect was armed, which was fine while
 # every message before that point was a fatal one on its way to a
@@ -584,7 +619,9 @@ proc desk-take {replace} {
         [list $t $WM_SELECTION $::wm_owner_win 0 0] 32 {structure-notify}
     x-sync 0
     puts "WM: redirect armed on root [format 0x%x $root]\
- (WM_S[screen-number] owner 0x[format %x $::wm_owner_win])"
+ (WM_S[screen-number] owner 0x[format %x $::wm_owner_win]),\
+ input methods [expr {[tk useinputmethods] ? {ON — THIS DESK CAN BE\
+ FROZEN BY ITS XIM} : {off}}]"
 }
 
 # The flag has to be readable HERE, when the desk is taken — which is

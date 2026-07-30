@@ -622,6 +622,25 @@ frames a client and shows a panel has proved both libraries loaded.
   long-lived, wants to behave like a window → a thread and a real
   connection.
 
+  **No input method, ever** (`tk useinputmethods 0`, three lines after
+  Tk itself) — a window manager cannot afford to be one's hostage, and
+  this is a post-mortem rather than a precaution. Tk creates an XIC
+  lazily for EVERY window that sees an event — frames, titlebars,
+  panel, menus, compass — and `Tk_DestroyWindow` then calls
+  `XDestroyIC`, a SYNCHRONOUS round trip to the XIM server. Kill the
+  XIM server on a running desk (swapping input methods is a thing
+  people do) and the next `destroy` of any window of ours blocks in
+  `XIfEvent` → `poll(-1)`, **inside the X event handler**: the loop
+  goes on reading X events and dispatches none, nothing is framed, no
+  chord fires, nothing is logged, and `ps` shows a healthy process
+  asleep. There is no error to catch anywhere — it took a backtrace to
+  see. Switching it off costs nothing here, since nothing in this WM
+  accepts typed text and every key we care about is decoded from
+  keycodes by hand; a GUI that WOULD want an input method belongs on
+  the far side of the line drawn in `wm-window` — its own thread, its
+  own connection, its own Tk. The startup line says which way the
+  switch is, in as many words.
+
   **A chord is Latin whatever the group, and survives it.** The lookup
   asks the keymap for **group 0, level 0** by hand rather than trusting
   the event, so a chord is named by its Latin keysym whatever is being

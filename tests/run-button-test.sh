@@ -195,6 +195,15 @@ if grep -q 'WM: titlebar close <3> .* -> Destroy' "$HERE/wm-button.log" \
 else
     echo "FAIL: close <3> did not destroy (or asked politely first)"; FAIL=1
 fi
+# Every leg above ends in a `destroy` of some Tk window of ours, which
+# is the call that hangs forever on a wedged XIM server — so this test
+# is the right one to insist the door is shut (see the substrate's
+# `tk useinputmethods 0`).
+if grep -q 'input methods off' "$HERE/wm-button.log"; then
+    echo "OK: the desk holds no input contexts to be hostage to"
+else
+    echo "FAIL: input methods are ON — a destroy can block on the XIM"; FAIL=1
+fi
 if grep -q 'handler error' "$HERE/wm-button.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-button.log"
     FAIL=1
