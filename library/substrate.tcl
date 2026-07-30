@@ -671,8 +671,15 @@ proc desk-take {replace} {
     x-send-client $root $MANAGER \
         [list $t $WM_SELECTION $::wm_owner_win 0 0] 32 {structure-notify}
     x-sync 0
+    # The PID is on this line for one reason: a restart is an execv, so
+    # the process keeps its pid AND its start time, and `ps` cannot tell
+    # a desk that has been re-exec'd five times from one that has been
+    # up all day. The log can — two banners with the same pid are one
+    # process, restarted — and it is the log that should be asked. (I
+    # asked ps and drew the wrong conclusion; the owner was right that
+    # a restart must be legible, and it already was, in the other place.)
     puts "WM: redirect armed on root [format 0x%x $root]\
- (WM_S[screen-number] owner 0x[format %x $::wm_owner_win]),\
+ (WM_S[screen-number] owner 0x[format %x $::wm_owner_win], pid [pid]),\
  input methods [expr {[tk useinputmethods] ? {ON — THIS DESK CAN BE\
  FROZEN BY ITS XIM} : {off}}]"
 }
