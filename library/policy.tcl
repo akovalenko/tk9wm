@@ -3294,11 +3294,34 @@ proc policy-key-echo {kind {text ""}} {
     }
 }
 proc keyecho-due {} { keyecho-show keys "$::keyecho_pending …" }
+# NOTHING MAPS BEFORE IT KNOWS WHERE IT GOES. The box asks the LABEL
+# how big it is, and the `update idletasks` that answer needs is also
+# what maps a freshly built toplevel — so the first version put the box
+# on the screen at Tk's idea of a place and moved it to ours a
+# heartbeat later, which reads as a flash in the wrong corner (the
+# owner, 2026-07-30).
+#
+# Hence: built withdrawn, sized, placed, and only then shown — and it
+# STAYS from then on, hidden by withdrawing rather than destroyed, so
+# the first map is the only one there is. (The menus and the compass
+# never met this: neither asks a widget its size — the menu multiplies
+# item height by count and measures the font for the width, the compass
+# derives a square from font metrics — so neither needs an update
+# before `wm geometry`, and their first map already carries the final
+# geometry. It is the one question that costs a map.)
+#
+# Proved rather than asserted, and by the SERVER rather than by us:
+# `xev -root -event substructure` is the witness, and the box must map
+# with no move after it. With the fix backed out the same leg reads
+# what the eye saw — a 200x200 toplevel (Tk's default for an empty one)
+# mapping at the origin and only then becoming 92x32 in its corner.
+# A flash that short is not a thing a screenshot can be aimed at.
 proc keyecho-show {kind text} {
     set b .keyecho
     if {![winfo exists $b]} {
         toplevel $b -background $::OUTLINE
         wm overrideredirect $b 1
+        wm withdraw $b
         wm title $b tk9wm-key-echo
         label $b.t -font TitleFont -justify left -padx 10 -pady 4
         place $b.t -x 1 -y 1
@@ -3306,21 +3329,23 @@ proc keyecho-show {kind text} {
     $b.t configure -text $text -foreground white \
         -background [expr {$kind eq "flash" ? $::KEY_ECHO_BAD : $::KBMR_BG}]
     set ::keyecho_kind $kind
-    update idletasks
+    update idletasks            ;# the label sizes itself, still unmapped
     set W [expr {[winfo reqwidth $b.t] + 2}]
     set H [expr {[winfo reqheight $b.t] + 2}]
     lassign [workarea] wax way ww wh
     lassign [keyecho-anchor $::key_echo_place] halign valign
     wm geometry $b ${W}x${H}+[place-axis $wax $ww $W $halign]+[place-axis\
  $way $wh $H $valign]
+    update idletasks            ;# ...and the move lands, still unmapped
+    wm deiconify $b
     raise $b
     update idletasks
     puts "WM: key echo ($kind) «$text»"
 }
 proc keyecho-hide {} {
     set ::keyecho_kind none
-    if {![winfo exists .keyecho]} return
-    destroy .keyecho
+    if {![winfo exists .keyecho] || ![winfo ismapped .keyecho]} return
+    wm withdraw .keyecho
     puts "WM: key echo off"
 }
 

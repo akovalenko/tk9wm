@@ -48,6 +48,34 @@ echo_at() {
 # read there; that it is ON THE SCREEN is what echo_id answers.
 last_echo() { sed -n 's/^WM: key echo ([a-z]*) «\(.*\)»$/\1/p' "$LOG" | tail -1; }
 
+# --- 0. IT MUST NOT FLASH ANYWHERE FIRST. A box that maps before its
+#        geometry lands appears at the toolkit's idea of a place and
+#        jumps to ours a heartbeat later (the owner saw it in a corner,
+#        2026-07-30). A screenshot cannot be relied on to catch
+#        something that short — the SERVER's own event order can, and
+#        xev is the witness: for one chord and one Escape there must be
+#        no ConfigureNotify at all between the map and the unmap.
+XEVLOG="$HERE/keyecho-xev.log"
+stdbuf -oL xev -root -event substructure > "$XEVLOG" 2>&1 &
+XEV=$!
+sleep 0.5
+key super+t
+EID=$(echo_id)
+key Escape
+kill $XEV 2>/dev/null
+FLASH=$(awk -v id="$(printf '0x%x,' "${EID:-0}")" '
+    /^[A-Za-z]+ event,/ { type = $1 }
+    index($0, "window " id) && type != "" {
+        if (type == "MapNotify")     { up = 1; next }
+        if (type == "UnmapNotify")   { up = 0; next }
+        if (up && type == "ConfigureNotify") { n++ }
+    }
+    END { print n + 0 }' "$XEVLOG")
+MAPS=$(awk -v id="$(printf '0x%x,' "${EID:-0}")" '
+    /^[A-Za-z]+ event,/ { type = $1 }
+    index($0, "window " id) && type == "MapNotify" { n++ }
+    END { print n + 0 }' "$XEVLOG")
+
 # --- 1. a prefix shows itself, and follows the typing
 key super+t
 E1=$(last_echo); ID1=$(echo_id); AT1=$(echo_at)
@@ -109,6 +137,12 @@ grep -E 'key |echo' "$LOG"
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$LOG"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
+fi
+if [ "$MAPS" = 1 ] && [ "$FLASH" = 0 ]; then
+    echo "OK: the box mapped once, already in its place (no move after the map)"
+else
+    echo "FAIL: the box mapped $MAPS time(s) and moved $FLASH time(s) while up\
+ — it flashed somewhere first (window ${EID:-none}, see $XEVLOG)"
 fi
 if [ "$E1" = "Super+t …" ] && [ "$E2" = "Super+t w …" ]; then
     echo "OK: the echo read «$E1» then «$E2»"

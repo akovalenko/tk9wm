@@ -636,6 +636,23 @@ frames a client and shows a panel has proved both libraries loaded.
   looks like is the policy's, and the window is named `tk9wm-key-echo`
   so a test outside the process can assert it is really on the screen.
 
+  **Nothing maps before it knows where it goes.** The box asks its
+  LABEL how big it is, and the `update idletasks` that answer needs is
+  also what maps a freshly built toplevel — so the first version
+  appeared at Tk's idea of a place (a 200x200 default toplevel at the
+  origin) and moved to ours a heartbeat later, which reads as a flash
+  in the wrong corner. It is built withdrawn, sized, placed and only
+  then deiconified, and it STAYS from then on — hidden by withdrawing
+  rather than destroyed, so the first map is the only one there is.
+  The menus and the compass never met this, and the reason is worth
+  keeping: neither asks a widget its size (the menu multiplies item
+  height by count and measures the font for the width, the compass
+  derives a square from font metrics), so neither needs an update
+  before `wm geometry`. It is that one question that costs a map. The
+  witness is the SERVER's own event order — `xev -root -event
+  substructure`, where the box must map with no move after it — since
+  a flash that short is not something a screenshot can be aimed at.
+
   **One router, and taking it serves notice.** Everything
   keyboard-modal here goes through `grab-keys-to` — the menus, the
   confirmation, the keyboard move/resize — and it is a SINGLE SLOT.
@@ -1100,7 +1117,8 @@ runs as a single shell call:
   the typing — asserted from OUTSIDE the process, by finding the named
   window on the screen, not by believing our own log — sits where
   `set-key-echo-place` put it, leaves with the sequence, reports an
-  undefined key for its second and no longer; `Super+t` inside a
+  undefined key for its second and no longer; it maps ONCE and already
+  in its place, witnessed through xev on the server's own event order; `Super+t` inside a
   sequence restarts it and the echo starts over, `Alt+Space` inside one
   reaches its action, and where the config binds `<Super>t` under
   `<Super>t` the submap wins),
