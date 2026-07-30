@@ -83,6 +83,47 @@ import -display :98 -window root "$HERE/kbmove-test.png" 2>/dev/null \
 AX2=$(xwininfo -id "$AID" | awk '/Absolute upper-left X/ {print $NF}')
 SZ2=$(xwininfo -id "$AID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
 
+# --- the mode RAISES what it is about. A window can be ACTIVE and
+# buried: Lower keeps the focus where it is, which is what makes "drop
+# it, look at what is under it, bring it back" work — and the ops menu
+# on such a window is deliberately kept. Dragging one from the keyboard
+# is the case that reads as broken, so the mode raises first, the way
+# every MOUSE path already does.
+#
+# B is planted over the victim's lower half, leaving its top band clear
+# to click: a click on the client is the ordinary way to focus and
+# raise, and no pixel arithmetic on the decoration is needed for it.
+"$LINUX/whale" "$HERE/client.tcl" "верхнее" 400x300+150+260 "#729fcf" "" "" 20 &
+CB=$!
+sleep 1.5
+xdotool mousemove $((AX1 + 150)) $((AY1 + 20)) click 1   # focus and raise A
+sleep 0.5
+key alt+space
+key l           # Lower: A is active, and now at the bottom
+"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" :98 > "$HERE/kbmove-stack1.log"
+key alt+space
+key m           # keyboard move on the buried, still-active window
+"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" :98 > "$HERE/kbmove-stack2.log"
+import -display :98 -window root "$HERE/kbmove-raise.png" 2>/dev/null \
+    && echo "DRIVER: screenshot (buried window, in the mode) -> $HERE/kbmove-raise.png"
+key Escape
+kill $CB 2>/dev/null
+sleep 0.5
+# Which rung of the stack a client's frame sits on, 1 = bottom.
+stack_pos() {
+    awk -v id="$1" '/^stack:/ { n++; for (i = 1; i <= NF; i++)
+        if ($i == id) print n }' "$2"
+}
+# Against the NEIGHBOUR and not against the top of the stack: the
+# compass puts nine override-redirect cells of its own up there for the
+# length of the mode, and they are supposed to be above everything.
+BID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-kbmove.log" \
+    | sed -n 2p)
+A_LOW=$(stack_pos "$AID" "$HERE/kbmove-stack1.log")
+B_LOW=$(stack_pos "$BID" "$HERE/kbmove-stack1.log")
+A_UP=$(stack_pos "$AID" "$HERE/kbmove-stack2.log")
+B_UP=$(stack_pos "$BID" "$HERE/kbmove-stack2.log")
+
 # a client with a REAL increment grid: the resize readout counts the
 # client's own units (an xterm thinks in cells) beside the pixels.
 # Last, so that the victim's numbers above are read before another
@@ -156,6 +197,19 @@ if grep -q 'keyboard resize .* — resize [0-9]*x[0-9]* ([0-9]* x [0-9]*)' \
         | sed 's/^/    /' | tail -1
 else
     echo "FAIL: no cells in the resize readout for the xterm"
+fi
+if [ -n "$A_LOW" ] && [ -n "$B_LOW" ] && [ "$A_LOW" -lt "$B_LOW" ] \
+        && [ "$A_UP" -gt "$B_UP" ]; then
+    echo "OK: the keyboard mode raised the buried window it was about\
+ (A/B rungs $A_LOW/$B_LOW lowered, $A_UP/$B_UP in the mode)"
+else
+    echo "FAIL: A/B rungs were $A_LOW/$B_LOW lowered and $A_UP/$B_UP in the\
+ mode — want A under B, then A over B"
+fi
+if grep -q "WM: keyboard move $AID" "$HERE/wm-kbmove.log"; then
+    echo "OK: ...and the mode was on the buried window, not on some other"
+else
+    echo "FAIL: no keyboard move on $AID — the leg measured another window"
 fi
 if grep -q 'handler error' "$HERE/wm-kbmove.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-kbmove.log"

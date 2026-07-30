@@ -761,6 +761,24 @@ frames a client and shows a panel has proved both libraries loaded.
   it there brings it back, as does a panel button with a matching
   `match`.
 
+  **A keyboard move or resize RAISES what it is about.** A window can
+  be active and buried — `Lower` keeps the focus where it is, which is
+  what makes "drop it, see what is under it, bring it back" work, and
+  the ops MENU on such a window is deliberately kept: commanding a
+  window one cannot see is the whole point of that gesture. Dragging
+  one is the case that reads as broken (the compass and the amber frame
+  under other windows, and nothing visibly moving), and fvwm looks
+  equally odd, which is what made it look inevitable. It is not: the
+  answer was already here three times over — `drag-start`, `rz-start`
+  and `policy-client-press` all raise before they manipulate, so a
+  keyboard move that did not was not this WM following fvwm but this WM
+  disagreeing with itself (one operation, one outcome). Raise only, no
+  focus: the mouse paths focus because a CLICK is how one points at a
+  window, and this mode does no pointing. And the raise is not undone
+  at the end by either Enter or Escape — Escape puts back the geometry,
+  which is what the mode changed, while the raise is what manipulating
+  a window does, exactly as the mouse leaves it.
+
   **Keyboard move/resize** — a modal mode on that same key router:
   arrows (and hjkl) move the frame or change the size (a 10 px step,
   Shift = 1 px, Ctrl = 50 px; resize steps by the client's increment
@@ -1218,7 +1236,10 @@ runs as a single shell call:
   move/resize from winops: arrow steps with Shift precision, the Enter
   commit, the Esc revert; the frame color is sampled by a pixel on the
   boundary during the mode and after it, the readout in client units on
-  an xterm), `run-compass-test.sh` (the numpad compass in that mode:
+  an xterm; and a LOWERED window that is still the active one, where
+  entering the mode raises it over its neighbour — measured on the
+  server's stacking order against the neighbour rather than the top of
+  it, the compass having nine cells of its own up there), `run-compass-test.sh` (the numpad compass in that mode:
   7/3/5 stick the frame to the corner, the opposite corner and the
   center of an 800x600 workarea — measured against the decoration the
   WM's own metrics line declares — a jump does not commit (Esc still

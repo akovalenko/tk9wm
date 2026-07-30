@@ -3053,6 +3053,28 @@ proc kbmr-enter {mode w orig} {
         puts "WM: keyboard $mode: keyboard not grabbed"
         return
     }
+    # A window can be ACTIVE and buried — Lower keeps the focus where it
+    # was, which is what makes "drop it, see what is under it, bring it
+    # back" work. Opening the ops MENU on such a window is fine and the
+    # owner wants it kept (2026-07-30): the menu is a command, and
+    # commanding a window one cannot see is exactly the point of that
+    # gesture. Dragging one is not fine — the compass and the amber
+    # frame end up under other windows and nothing visibly moves.
+    #
+    # fvwm looks equally odd here, which is what made this look
+    # inevitable. It is not, and the answer was already in this file
+    # THREE TIMES: drag-start, rz-start and policy-client-press all
+    # raise before they manipulate. So a keyboard move that does not
+    # is not us following fvwm, it is us disagreeing with ourselves —
+    # one operation, one outcome (the lesson of step 40).
+    #
+    # Raise only, no focus-to: the mouse paths focus because a CLICK is
+    # how one points at a window, and this mode does no pointing — it
+    # is entered on the active window by construction. And the raise is
+    # NOT undone at the end, by either Enter or Escape: Escape puts back
+    # the geometry, which is what the mode changed, while the raise is
+    # what manipulating a window does, the way the mouse leaves it too.
+    raise-group $w
     kbmr-paint
     # The compass stands for exactly as long as its digits are live —
     # the mode's own lesson, one size down: live keys with no sign of
