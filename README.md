@@ -454,6 +454,21 @@ frames a client and shows a panel has proved both libraries loaded.
   on a title drag are resizing the window under the pointer, which is a
   different thing nobody asked for here.
 
+  **A verdict computed while the config is still speaking is
+  provisional.** `policy-reset` drops the per-client style cache before
+  the config is read, and that is not enough: `set-title-font` and
+  `set-title-justify` touch live frames through `retitle-frames`, which
+  asks every framed client for its style ON THE SPOT — and the rules
+  declared LATER in the same file are not there yet. A `wm-style always
+  {increments ignore}` written below a `set-title-font` therefore cached
+  "respect" for every window on every reload, and the desk's terminals
+  started snapping to cells again (the owner, 2026-07-30). It depended
+  on the ORDER OF LINES IN A CONFIG, which is what made it look
+  arbitrary, and a RESTART cured it — adoption happens after the whole
+  config is read — which is what made it impossible to pin on either.
+  So `policy-apply` drops the cache once more, after the config has
+  finished.
+
   **The windows follow the workarea when it moves** — a panel that
   changes side or grows a row on a reload, a tray icon that widens the
   band, a screen resized under everything. One rule, applied to each axis
