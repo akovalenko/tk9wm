@@ -1,0 +1,85 @@
+#!/bin/sh
+# Regression for Reread vs config state: a Reread replaces PROCS and
+# must not touch what the config wrote — the title font's boldness
+# (font_kin is config state; the stock declarations used to overwrite
+# it on every re-source: bold after Reload, plain after Reread, a
+# pattern the owner could not pin) and a default chord the config
+# rebound (the keymap is config state too; a bare top-level
+# policy-default-bindings used to re-floor it). Reload must keep both
+# too — there the config speaks again on the clean floor.
+. "$(dirname "$0")/common.sh"
+export DISPLAY=:95
+rm -f /tmp/.X95-lock /tmp/.X11-unix/X95
+Xvfb :95 -screen 0 800x600x24 >/dev/null 2>&1 &
+XVFB=$!
+trap 'kill $XVFB 2>/dev/null' EXIT
+sleep 1
+
+rm -rf "$HERE/reread-config"
+mkdir -p "$HERE/reread-config"
+cat > "$HERE/reread-config/tk9wm.tcl" <<EOF
+set-title-font -weight bold
+panel-button dummy {launch {exec true &}}
+wm-bind {<Alt>space} {exec touch $HERE/reread-config/rebound-fired &}
+EOF
+
+XDG_CONFIG_HOME="$HERE/reread-config" \
+    "$LINUX/whale" "$WMTCL" > "$HERE/wm-reread.log" 2>&1 &
+WM=$!
+sleep 1.5
+
+cat > "$HERE/reread-config/q-weight.tcl" <<'EOF'
+font actual TitleFont -weight
+EOF
+cat > "$HERE/reread-config/q-reread.tcl" <<'EOF'
+Reread
+EOF
+cat > "$HERE/reread-config/q-reload.tcl" <<'EOF'
+reload-config
+EOF
+ask() { "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$1"; }
+
+W0=$(ask "$HERE/reread-config/q-weight.tcl")
+ask "$HERE/reread-config/q-reread.tcl" >/dev/null
+sleep 0.5
+W1=$(ask "$HERE/reread-config/q-weight.tcl")
+ask "$HERE/reread-config/q-reload.tcl" >/dev/null
+sleep 0.5
+W2=$(ask "$HERE/reread-config/q-weight.tcl")
+ask "$HERE/reread-config/q-reread.tcl" >/dev/null
+sleep 0.5
+W3=$(ask "$HERE/reread-config/q-weight.tcl")
+
+rm -f "$HERE/reread-config/rebound-fired"
+xdotool key alt+space
+sleep 1
+xdotool key Escape      # closes the winops menu if the rebind was lost
+
+kill $WM 2>/dev/null
+
+echo "--- weights: start=$W0 reread=$W1 reload=$W2 reread=$W3"
+echo "--- verdict"
+if grep -q 'BadAccess request=2' "$HERE/wm-reread.log"; then
+    echo "FAIL: another WM owns this display — this run measured nothing"
+fi
+if [ "$W0" = bold ]; then
+    echo "OK: the config's bold took"
+else
+    echo "FAIL: start weight is $W0"
+fi
+if [ "$W1" = bold ]; then
+    echo "OK: Reread left the title font alone"
+else
+    echo "FAIL: Reread turned the title font $W1"
+fi
+if [ "$W2" = bold ] && [ "$W3" = bold ]; then
+    echo "OK: bold survives the whole Reload/Reread alternation"
+else
+    echo "FAIL: alternation gave reload=$W2 reread=$W3"
+fi
+if [ -e "$HERE/reread-config/rebound-fired" ]; then
+    echo "OK: the config's rebind of a default chord survived Reread"
+else
+    echo "FAIL: alt+space fell back to the default after Reread"
+fi
+check_invariants "$HERE/wm-reread.log"

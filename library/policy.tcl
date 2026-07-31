@@ -71,11 +71,15 @@ keep gripz 24
 # The order of declaration is the order of derivation: a font's base
 # must be declared before it. A chain works (Clock from Panel from
 # Desk); a cycle is refused at declaration.
-unless-already {[lsearch -exact [font names] DeskFont] >= 0} \
-    {font create DeskFont {*}[font actual TkDefaultFont]}
-if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
-    if {[catch {font configure DeskFont {*}[font actual $::env(TK9WM_TITLE_FONT)]} err]} {
-        puts "WM: TK9WM_TITLE_FONT «$::env(TK9WM_TITLE_FONT)» rejected: $err"
+unless-already {[lsearch -exact [font names] DeskFont] >= 0} {
+    font create DeskFont {*}[font actual TkDefaultFont]
+    # The launcher's word applies ONCE, with the creation: re-applied
+    # on every re-source it would stomp whatever set-desk-font wrote
+    # since — the same disease the stock kin declarations below had.
+    if {[info exists ::env(TK9WM_TITLE_FONT)] && $::env(TK9WM_TITLE_FONT) ne ""} {
+        if {[catch {font configure DeskFont {*}[font actual $::env(TK9WM_TITLE_FONT)]} err]} {
+            puts "WM: TK9WM_TITLE_FONT «$::env(TK9WM_TITLE_FONT)» rejected: $err"
+        }
     }
 }
 keep font_kin {}   ;# NAME -> {from BASE opts {...}}, in declaration order
@@ -127,8 +131,14 @@ proc fonts-derive {} {
 # unchanged — it has its own name because the titlebar is the one piece
 # a desk most often wants to style on its own, and because thirty-odd
 # places already say TitleFont and mean "the text on our furniture".
-wm-font TitleFont
-wm-font PanelFont
+# Declared KEEP-fashion: font_kin is state a config writes into
+# (set-title-font -weight bold is an ENTRY here), and a bare wm-font
+# on re-source overwrote that entry with the stock emptiness — the
+# owner's titlebars were measured going un-bold on every Reread while
+# every Reload and Restart bolded them back, a pattern with no visible
+# rule until it had one.
+unless-already {[dict exists $::font_kin TitleFont]} { wm-font TitleFont }
+unless-already {[dict exists $::font_kin PanelFont]} { wm-font PanelFont }
 proc set-desk-font {args} {
     font configure DeskFont {*}$args
     fonts-derive
@@ -5644,7 +5654,15 @@ proc policy-default-bindings {} {
     # others rather than needing to be looked up (owner, 2026-07-29).
     wm-bind {<Super>t q} Quit
 }
-policy-default-bindings
+# Once per process, not per source: the keymap is kept state a config
+# writes into, "later binds win" — so a bare call here made every
+# Reread re-state the defaults OVER whatever the config had rebound
+# those chords to (the fonts' disease, third patient). A Reload still
+# re-floors the keymap on purpose: policy-reset calls this itself.
+unless-already {[info exists ::policy_bindings_up]} {
+    set ::policy_bindings_up 1
+    policy-default-bindings
+}
 
 # ---- the config layer: defaults, reset, apply ----
 # A reload is "put everything back the way the CODE has it, then let the
