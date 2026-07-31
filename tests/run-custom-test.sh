@@ -18,6 +18,7 @@ cat > "$HERE/custom-config/tk9wm.tcl" <<'EOF'
 set-title-font -weight bold
 set-edge-resist 3
 panel-button dummy {launch {exec true &}}
+panel-button second {launch {exec true &} key {<Super>2}}
 EOF
 cat > "$HERE/custom-config/tk9wm.custom.tcl" <<'EOF'
 set-title-font -weight normal
@@ -40,6 +41,19 @@ q 'custom-write {set-fade 0.33}' >/dev/null
 sleep 0.5
 FADE=$(q 'set ::fade')
 KT=$(q 'set t [knob-table]; list [dict get $t set-fade value] [dict get $t set-minimize kind] [dict get $t set-panel-side value] [dict get $t set-title-font group]')
+
+# COLLECTIONS: a set REPLACES by label (not adds), a remove takes the
+# button and its chord away, and the file keeps the ordered
+# declarations in the order they were made
+q 'custom-write {panel-button-set dummy {launch {exec false &} key {<Super>9}}}' >/dev/null
+q 'custom-write {panel-button-remove second}' >/dev/null
+q 'custom-write {wm-bind {<Super>7} {list seven}}' >/dev/null
+sleep 0.5
+COLL=$(q 'set names {}
+          foreach b [panel-cfg default buttons] { lappend names [lindex $b 0] }
+          list buttons $names                dummykey [dict exists [lindex [lindex [panel-cfg default buttons] 0] 1] key]                secondchord [dict exists $::keymap [join [parse-chord {<Super>2}] ,]]                newchord [dict exists $::keymap [join [parse-chord {<Super>9}] ,]]')
+FILEORDER=$(grep -n 'panel-button\|wm-bind\|set-fade' "$HERE/custom-config/tk9wm.custom.tcl" | tr '
+' ' ')
 
 kill $WM 2>/dev/null
 sleep 0.5
@@ -111,5 +125,17 @@ if [ "$AFTERHIDE" = "off 0" ] \
 else
     echo "FAIL: after hide {$AFTERHIDE}, file: $(cat "$HERE/custom-fresh/tk9wm.custom.tcl" 2>/dev/null | tail -1)"
 fi
+echo "--- collections: $COLL"
+echo "--- file: $FILEORDER"
+case $COLL in
+    "buttons dummy dummykey 1 secondchord 0 newchord 1")
+        echo "OK: set replaced by label, remove took the button and its chord" ;;
+    *) echo "FAIL: collections: $COLL" ;;
+esac
+case $FILEORDER in
+    *set-fade*wm-bind*panel-button*)
+        echo "OK: the file sorts the knobs and binds, then keeps declaration order" ;;
+    *) echo "FAIL: file layout: $FILEORDER" ;;
+esac
 check_invariants "$HERE/wm-custom.log"
 check_invariants "$HERE/wm-fresh.log"

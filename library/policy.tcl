@@ -4677,8 +4677,11 @@ proc panel-button {label settings} {
     if {[dict exists $settings key]} {
         # ...and the binding carries the BUTTON'S name, so the help
         # list reads "Super+e → emacs" and not "panel-fire dock 2".
+        # BY LABEL, not by index: a collection that can be edited can
+        # be shortened, and every index after the gap would have meant
+        # a different button than the chord was bound to.
         wm-bind [dict get $settings key] \
-            [list panel-fire $name [expr {[llength $buttons] - 1}]] $label
+            [list panel-fire-labelled $name $label] $label
     }
     # `style` is a shorthand and nothing more: the button's own match
     # predicate, handed to wm-style with these settings. It exists
@@ -4695,6 +4698,45 @@ proc panel-button {label settings} {
     }
     panel-rebuild-soon
 }
+# THE COLLECTION VERBS. A knob's second call overwrites, which is
+# what makes "the click is the later word" true for knobs — and a
+# second panel-button does NOT: it adds another button. So the
+# customization layer says what it means: set (replace by label, or
+# append), and remove. Same shape for the other collections; a
+# widget's declaration already replaces by name, so it needs only the
+# removal, and wm-bind already replaces by chord.
+proc panel-button-set {label settings} {
+    set name $::panel_target
+    panel-ensure $name
+    set i [panel-index $name $label]
+    if {$i < 0} { panel-button $label $settings; return }
+    set buttons [panel-cfg $name buttons]
+    # the old chord goes with the old settings — otherwise a button
+    # that changed its key would answer to both
+    set old [lindex [lindex $buttons $i] 1]
+    if {[dict exists $old key]} { wm-unbind [dict get $old key] }
+    dict set ::panels $name buttons [lreplace $buttons $i $i [list $label $settings]]
+    if {[dict exists $settings key]} {
+        wm-bind [dict get $settings key] \
+            [list panel-fire-labelled $name $label] $label
+    }
+    panel-rebuild-soon
+}
+proc panel-button-remove {label} {
+    set name $::panel_target
+    set i [panel-index $name $label]
+    if {$i < 0} return
+    set buttons [panel-cfg $name buttons]
+    set old [lindex [lindex $buttons $i] 1]
+    if {[dict exists $old key]} { wm-unbind [dict get $old key] }
+    dict set ::panels $name buttons [lreplace $buttons $i $i]
+    panel-rebuild-soon
+}
+proc wm-widget-remove {name} {
+    dict unset ::widgets $name
+    if {[llength [info commands widgets-build]]} { widgets-build }
+}
+
 # one rebuild per config's worth of declarations (or knob twiddles) —
 # and it is every panel that is rebuilt, not the one whose knob moved:
 # the bands are carved from one another, so a strip that got thicker
@@ -5175,6 +5217,22 @@ proc panel-focus-hit {w} {
     }
     raise-group $w
     focus-to $w
+}
+proc panel-index {name label} {
+    set i 0
+    foreach b [panel-cfg $name buttons] {
+        if {[lindex $b 0] eq $label} { return $i }
+        incr i
+    }
+    return -1
+}
+proc panel-fire-labelled {name label} {
+    set i [panel-index $name $label]
+    if {$i < 0} {
+        puts "WM: panel $label: gone from panel $name — nothing to fire"
+        return
+    }
+    panel-fire $name $i
 }
 proc panel-fire {name i} {
     lassign [lindex [panel-cfg $name buttons] $i] label settings
@@ -6022,7 +6080,9 @@ proc custom-erase {name} {
 # The traced vocabulary derives from the registry — one list, not two
 # — plus the named declarations, which are traced per name rather
 # than rendered as knobs.
-set knob_vocab [concat [dict keys $knob_registry] {wm-font wm-bind wm-widget}]
+set knob_vocab [concat [dict keys $knob_registry] \
+    {wm-font wm-bind wm-unbind wm-widget wm-widget-remove
+     panel-button panel-button-set panel-button-remove}]
 set knob_layer ""
 keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # The key is semantic: a plain knob is one key however often it is
@@ -6032,8 +6092,22 @@ proc knob-key {words} {
     set p [lindex $words 0]
     switch -- $p {
         wm-font - wm-bind - wm-widget { return "$p [lindex $words 1]" }
+        panel-button - panel-button-set - panel-button-remove {
+            return "panel-button [lindex $words 1]"
+        }
+        wm-unbind { return "wm-bind [lindex $words 1]" }
+        wm-widget-remove { return "wm-widget [lindex $words 1]" }
         default { return $p }
     }
+}
+# Which keys keep their DECLARATION ORDER in the custom file, and
+# which are sorted for a stable diff (the owner's call): fonts derive
+# from one another, buttons lay themselves out and widgets share an
+# area in order — those three are ordered. Bindings are a map keyed
+# by chord and nothing about their order is meaningful, so they sort;
+# plain knobs likewise.
+proc knob-ordered? {key} {
+    expr {[lindex $key 0] in {wm-font wm-widget panel-button}}
 }
 proc knob-touched {cmd op} {
     if {$::knob_layer eq ""} return
@@ -6103,8 +6177,17 @@ proc custom-save {} {
     puts $ch "# the configurator rewrites this file whole. Hand-written"
     puts $ch "# configuration belongs in tk9wm.tcl, which loads BEFORE this"
     puts $ch "# file; on overlap the desk says so in its log."
-    foreach key [lsort [dict keys $entries]] {
-        puts $ch [dict get $entries $key]
+    set sorted {}
+    set ordered {}
+    dict for {key cmd} $entries {
+        if {[knob-ordered? $key]} { lappend ordered $cmd } else { lappend sorted $key }
+    }
+    foreach key [lsort $sorted] { puts $ch [dict get $entries $key] }
+    if {[llength $ordered]} {
+        puts $ch ""
+        puts $ch "# ...and the ordered declarations, in the order they were made:"
+        puts $ch "# fonts derive, buttons lay out and widgets share an area BY ORDER."
+        foreach cmd $ordered { puts $ch $cmd }
     }
     close $ch
     file rename -force $tmp $path

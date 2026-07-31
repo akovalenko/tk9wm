@@ -3087,6 +3087,36 @@ proc keymap-set {node keys entry} {
 # For an ordinary config binding there is nothing to synthesize and
 # nothing is: the script speaks for itself (winops, Quit, or the first
 # words of an exec), which is why the name is optional.
+# wm-unbind SPEC — the other half of the map, and the customization
+# layer needs it: a click that takes a binding away has to be able to
+# SAY so, and re-declaring cannot express a removal. The grab of a
+# top chord is left alone: it is shared by everything under it, and
+# an ungrab would silence the siblings; a chord with nothing under it
+# simply falls through to the client, which is what it did before
+# anybody bound it. Empty submaps are pruned, so the help list does
+# not show a prefix that leads nowhere.
+proc wm-unbind {spec} {
+    set chords [lmap tok $spec {parse-chord $tok}]
+    if {![llength $chords]} { error "wm-unbind: empty chord sequence" }
+    set ::keymap [keymap-unset $::keymap [lmap c $chords {join $c ,}]]
+}
+proc keymap-unset {node keys} {
+    set k [lindex $keys 0]
+    if {![dict exists $node $k]} { return $node }
+    if {[llength $keys] == 1} {
+        dict unset node $k
+        return $node
+    }
+    set entry [dict get $node $k]
+    if {[lindex $entry 0] ne "map"} { return $node }
+    set sub [keymap-unset [lindex $entry 1] [lrange $keys 1 end]]
+    if {[dict size $sub]} {
+        dict set node $k [list map $sub]
+    } else {
+        dict unset node $k
+    }
+    return $node
+}
 proc wm-bind {spec script {name ""}} {
     set chords [lmap tok $spec {parse-chord $tok}]
     if {![llength $chords]} { error "wm-bind: empty chord sequence" }
