@@ -7121,6 +7121,17 @@ proc ui-restyle {} {
     if {"tk9wm-ui" ni [winfo interps]} return
     catch {send -async -- tk9wm-ui ui-style-sync}
 }
+# ...and FRESHNESS is pushed beside the style, for the applets
+# already on the screen: a Reread and a WM start both mean «the ui
+# code on disk may have moved under the resident host», and the pull
+# half of the stale check (ui-open) is a door no OPEN applet passes
+# through — the owner's Alt-Up case. Async for the same reason
+# ui-restyle is; a current host shrugs the nudge off, a stale one
+# hands its open applets to a successor (ui-freshen in the host).
+proc ui-freshen-push {} {
+    if {"tk9wm-ui" ni [winfo interps]} return
+    catch {send -async -- tk9wm-ui ui-freshen}
+}
 # ui-style — the bridge from the desk's look to the applets' (the
 # owner's ask: the fonts must ARRIVE; and at least one light scheme).
 # The host asks over the send door and applies what it is told, so an
@@ -7153,7 +7164,9 @@ proc ui-style {} {
 # riding ui-style, answers "stale" at the next open when it differs,
 # and the WM respawns — so any edit under ui/ is one close-and-open
 # away, no Reread involved, while a WM restart (mtimes untouched)
-# leaves the resident host in peace.
+# leaves the resident host in peace. For the applets already OPEN the
+# check is also PUSHED — ui-freshen-push above, on a Reread and at
+# start — and a stale host hands them to a successor itself.
 #
 # Mtimes are the CHECKOUT's truth and only that (the owner's caveat):
 # a kit or archive built deterministically pins them on purpose, and

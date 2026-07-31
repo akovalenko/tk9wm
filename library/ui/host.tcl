@@ -1,11 +1,13 @@
 # tk9wm-ui — the applet host: ONE process, one Tk, every applet a
 # toplevel of its own. Run by the WM (see `applet` in policy.tcl) with
 #
-#     <interpreter> host.tcl WMAPP ?APPLET?
+#     <interpreter> host.tcl WMAPP ?APPLET ...?
 #
 # where the interpreter is what reexec-head knows the desk runs on —
 # the self-exec machinery's answer, reused: whatever whale carries the
-# WM certainly carries the ui.
+# WM certainly carries the ui. The WM asks for one applet; several
+# arrive when a stale predecessor hands over everything it had open
+# (see ui-freshen below).
 #
 # THE HOST IS A DISPOSABLE RESIDENT. Disposable: nothing durable lives
 # here — applet state of consequence belongs to the WM and the custom
@@ -26,7 +28,8 @@ package require treectrl   ;# the desk's own widget of choice, and the
                             # configurator's tree; whale carries it
 wm withdraw .
 
-lassign $argv ui_wmapp ui_first
+set ui_wmapp [lindex $argv 0]
+set ui_first [lrange $argv 1 end]
 set ui_library [file dirname [file normalize [info script]]]
 # treesync lives one storey up, beside fut.tcl: the host loads no
 # tk9wm package, so the shared engine is sourced straight out of the
@@ -35,10 +38,10 @@ set ui_library [file dirname [file normalize [info script]]]
 source [file join [file dirname $ui_library] treesync.tcl]
 
 # Claim the name; a LIVE host already holding it means we are the
-# loser of a race — hand it the request and leave.
+# loser of a race — hand it the requests and leave.
 if {[tk appname tk9wm-ui] ne "tk9wm-ui"} {
-    if {$ui_first ne ""} {
-        catch {send -- tk9wm-ui [list ui-open $ui_first]}
+    foreach ui_a $ui_first {
+        catch {send -- tk9wm-ui [list ui-open $ui_a]}
     }
     exit 0
 }
@@ -285,4 +288,47 @@ proc ui-open {name} {
     puts "UI: applet $name up"
 }
 
-if {$ui_first ne ""} { after idle [list ui-open $ui_first] }
+# ui-freshen — the PUSH half of the stale check. The pull half
+# (ui-open) can only help the NEXT open: an applet already on the
+# screen rides a Reread or a WM restart with the code it was born
+# with, against a desk whose dictionary may have moved — the owner's
+# Alt-Up case (2026-07-31), cured that day by destroying the window
+# by hand. So the desk nudges the resident host to LOOK (see
+# ui-freshen-push in policy.tcl); a current host shrugs it off, a
+# stale one restarts itself: it retires the name, execs a successor
+# carrying every applet that stands open (they ride argv into
+# ui-open, and the claim is clean because the name is already free),
+# and leaves — its windows die with it and come back fresh. The
+# blink of the reopening windows is the accepted price (the owner's
+# go, 2026-07-31). A closed (withdrawn) applet is NOT handed over:
+# closed means closed, and the next open builds it anew anyway.
+proc ui-freshen {} {
+    # the guard against a nudge arriving inside a nudge: the wm-calls
+    # below spin the event loop, and one successor is enough
+    if {[info exists ::ui_leaving]} return
+    ui-style-sync
+    if {![ui-stale?] || [info exists ::ui_leaving]} return
+    set ::ui_leaving 1
+    set open {}
+    foreach w [winfo children .] {
+        if {[string match .tk9wm-* $w] && [wm state $w] ne "withdrawn"} {
+            lappend open [string range $w 7 end]
+        }
+    }
+    puts "UI: stale after the desk's nudge — a successor takes over ($open)"
+    catch {tk appname tk9wm-ui-retired}
+    if {[catch {
+        set head [wm-call ui-exec-head]
+        if {![llength $head]} { error "this image gave no ui-exec head" }
+        exec {*}$head [file join $::ui_library host.tcl] \
+            $::ui_wmapp {*}$open &
+    } err]} {
+        # no successor is still a working desk: the next applet press
+        # spawns a fresh host — only the standing windows are lost
+        puts "UI: could not exec a successor ($err) — just leaving"
+    }
+    # the reply must go out before the death (the restart-wm lesson)
+    after idle exit
+}
+
+foreach ui_a $ui_first { after idle [list ui-open $ui_a] }

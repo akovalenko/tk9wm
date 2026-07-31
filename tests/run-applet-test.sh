@@ -78,6 +78,22 @@ sleep 3
 H5=$(hosts)
 CID=$(xdotool search --classname '^tk9wm-about$' | head -1)
 
+# The PUSH half: with the applet OPEN, a Reread nudges the resident
+# host; a stale one execs a successor carrying the open applets and
+# leaves — new host, the window back by itself, nobody pressed
+# anything. And a second Reread with NOTHING touched must change
+# nothing: a current host shrugs the nudge off, no needless blink.
+HPID0=$(pgrep -f 'ui/host.tcl' | head -1)
+touch "$ROOT/library/ui/applets/about.tcl"
+q 'Reread' >/dev/null
+sleep 4
+HPID1=$(pgrep -f 'ui/host.tcl' | head -1)
+H6=$(hosts)
+DID=$(xdotool search --classname '^tk9wm-about$' | head -1)
+q 'Reread' >/dev/null
+sleep 2
+HPID2=$(pgrep -f 'ui/host.tcl' | head -1)
+
 kill $WM 2>/dev/null
 pkill -f 'ui/host.tcl' 2>/dev/null
 
@@ -146,5 +162,20 @@ if grep -q 'UI: stale' "$HERE/wm-applet.log" \
     echo "OK: a touched ui file turned into a fresh host on the next open"
 else
     echo "FAIL: stale path (hosts=$H5, window=$CID)"
+fi
+# the PID is the proof of the handover; the window id is NOT a
+# discriminator — the X server may hand the successor the exact
+# resource-id range the dead client freed (measured: same id twice)
+if grep -q 'successor takes over (about)' "$HERE/wm-applet.log" \
+        && [ -n "$HPID0" ] && [ -n "$HPID1" ] && [ "$HPID0" != "$HPID1" ] \
+        && [ "$H6" = 1 ] && [ -n "$DID" ]; then
+    echo "OK: a Reread pushed the stale host out; the successor reopened the applet"
+else
+    echo "FAIL: freshen (pid $HPID0 -> $HPID1, hosts=$H6, window=$DID)"
+fi
+if [ -n "$HPID2" ] && [ "$HPID1" = "$HPID2" ]; then
+    echo "OK: a current host shrugs the nudge off — no needless blink"
+else
+    echo "FAIL: an untouched Reread moved the host ($HPID1 -> $HPID2)"
 fi
 check_invariants "$HERE/wm-applet.log"

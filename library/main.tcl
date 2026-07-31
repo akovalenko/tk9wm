@@ -190,6 +190,11 @@ proc reread-layers {} {
         }
     }
     puts "WM: re-sourced (procs replaced; state, grabs and clients untouched)"
+    # ...and the resident ui host gets a nudge: the edit that asked
+    # for this Reread may have moved the ui code too, and an OPEN
+    # applet never passes the ui-open stale check. A current host
+    # shrugs it off (ui-freshen in the host).
+    ui-freshen-push
     return 1
 }
 
@@ -213,6 +218,11 @@ proc tk9wm-main {args} {
     # log is where one looks to learn what the shape of a load is.
     workarea-held { panels-held { load-config; load-custom; welcome-inject } }
     substrate-start
+    # the resident ui host SURVIVED any restart on purpose — and the
+    # restart may have brought new code under it (the dev loop pulls
+    # a commit and restarts the desk). Same nudge as a Reread's; on a
+    # cold start there is nobody to nudge and the push says nothing.
+    after idle ui-freshen-push
 
     if {[lindex $args 0] eq "demo"} {
         # exercise the close path on whatever has focus (client B by then)
