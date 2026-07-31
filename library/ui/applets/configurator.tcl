@@ -213,6 +213,8 @@ proc cfg-fit-mapped {W} {
 # doing.
 set cfg_user_sized 0
 set cfg_fit_size {}
+set cfg_col_fit {}    ;# column -> the -width the fit last set there
+set cfg_col_user {}   ;# columns dragged by hand — theirs now
 proc cfg-note-wrap {W w} {
     if {$W ne [winfo toplevel $::cfg_T]} return
     set l $W.b.note
@@ -420,11 +422,40 @@ proc cfg-fit {} {
     dict for {- meta} $::cfg_table {
         set wdoc [expr {max($wdoc, [font measure DeskFont [dict get $meta doc]])}]
     }
-    $T column configure Cname -width {} -maxwidth $cap
-    $T column configure Cval  -width {} -minwidth 140 -maxwidth $cap
-    $T column configure Cflag -width {} \
+    # ONCE THE USER HAS DRAGGED A COLUMN, IT IS THEIR COLUMN (the
+    # owner: the value column would not widen past the cap by hand,
+    # and long values had nowhere to be read). The fit's ceiling is
+    # imposed by MEASURING — auto-width first, then pinning whatever
+    # runs past the cap — never by -maxwidth, which would clamp the
+    # user's drag along with the fit's own arithmetic. A column whose
+    # -width is not what the fit last set was dragged by hand, and
+    # from then on the fit leaves it alone entirely.
+    foreach c {Cname Cval Cflag Cdoc} {
+        if {[dict exists $::cfg_col_fit $c]
+                && ![dict exists $::cfg_col_user $c]
+                && [$T column cget $c -width] ne [dict get $::cfg_col_fit $c]} {
+            dict set ::cfg_col_user $c 1
+            puts "UI: configurator: column $c sized by hand —\
+ the fit steps aside"
+        }
+    }
+    cfg-col-configure Cname -width {}
+    cfg-col-configure Cval  -width {} -minwidth 140
+    cfg-col-configure Cflag -width {} \
         -minwidth [expr {[font measure DeskFont "• custom"] + 12}]
-    $T column configure Cdoc  -width {} -minwidth [expr {$wdoc + 16}]
+    cfg-col-configure Cdoc  -width {} -minwidth [expr {$wdoc + 16}]
+    update idletasks
+    foreach c {Cname Cval} {
+        if {![dict exists $::cfg_col_user $c]
+                && [$T column width $c] > $cap} {
+            $T column configure $c -width $cap
+        }
+    }
+    foreach c {Cname Cval Cflag Cdoc} {
+        if {![dict exists $::cfg_col_user $c]} {
+            dict set ::cfg_col_fit $c [$T column cget $c -width]
+        }
+    }
     update idletasks
     # THE SUM MUST NOT CONTAIN ITS OWN ANSWER. Cdoc EXPANDS — its
     # current width is whatever was left over last time — so adding
@@ -520,6 +551,13 @@ proc cfg-show-field {addr} {
         -text [cfg-value-text $addr [cfg-cur $addr]]
     $::cfg_T item element configure $it Cflag eFlag \
         -text [expr {[dict exists $::cfg_pending $addr] ? "•" : ""}]
+}
+
+# ...and the seam the ownership runs through: a hand-dragged column
+# takes no configuration from the fit, none at all.
+proc cfg-col-configure {c args} {
+    if {[dict exists $::cfg_col_user $c]} return
+    $::cfg_T column configure $c {*}$args
 }
 
 # What a value LOOKS like in its cell. A list says how many it holds

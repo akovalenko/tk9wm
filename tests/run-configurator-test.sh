@@ -358,6 +358,14 @@ WPREFUSE=$(q 'catch {wm-keys windows -switcher {<Super>Tab}}')
 qu 't-sel widgets часы; cfg-delete; list deleted' >/dev/null
 sleep 0.5
 WGONE=$(q 'dict exists $::widgets часы')
+# a column dragged by hand (the drag sets a fixed -width) is the
+# user's: the fit stops touching it, and no -maxwidth clamps it
+COLDRAG=$(qu 'set T $::cfg_T
+    $T column configure Cval -width 400
+    cfg-refresh
+    list w [$T column cget Cval -width] \
+         user [dict exists $::cfg_col_user Cval] \
+         name [$T column cget Cname -width]')
 
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
@@ -634,6 +642,11 @@ case "$WPARAMS|$WPREFUSE|$WGONE" in
     "|1|0")
         echo "OK: windows has no per-member params, and the widget dropped" ;;
     *) echo "FAIL: wparams=«$WPARAMS» refuse=$WPREFUSE widget-gone=$WGONE" ;;
+esac
+case $COLDRAG in
+    "w 400 user 1 name {}")
+        echo "OK: a hand-dragged column keeps its width through the fit" ;;
+    *) echo "FAIL: column drag: $COLDRAG" ;;
 esac
 echo "--- geometry: $GEO"
 case $GEO in
