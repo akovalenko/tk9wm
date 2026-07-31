@@ -22,6 +22,8 @@ set-edge-resist 3
 panel-button dummy {launch {exec true &}}
 wm-bind {<Super>5} {list config-five}
 wm-widget часы -type clock
+action probe {run {true} icon P}
+action w8x {run {true} needs /no/such/thing}
 EOF
 
 XDG_CONFIG_HOME="$HERE/cfg-config" \
@@ -366,6 +368,33 @@ COLDRAG=$(qu 'set T $::cfg_T
     list w [$T column cget Cval -width] \
          user [dict exists $::cfg_col_user Cval] \
          name [$T column cget Cname -width]')
+# ---- the actions family (actions-first turn, slice 1) ----
+# a field edit merges by name; two saves ACCUMULATE said+delta; a
+# waiting action wears its flag; Insert declares, Delete erases
+AFIELD=$(qu 'cfg-set {@field actions probe icon} Q')
+sleep 0.3
+ALIVE2=$(q 'dict get $::action_raw probe icon')
+qu 'cfg-save' >/dev/null
+sleep 0.5
+ASAVED1=$(grep -c '^action probe {icon Q}$' "$HERE/cfg-config/tk9wm.custom.tcl")
+qu 'cfg-set {@field actions probe run} {xclock}' >/dev/null
+qu 'cfg-save' >/dev/null
+sleep 0.5
+ASAVED2=$(grep -c '^action probe {icon Q run xclock}$' "$HERE/cfg-config/tk9wm.custom.tcl")
+AWAITFLAG=$(qu 'set r none
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] eq "elem" && [dict get $d coll] eq "actions"
+                && [dict get $d key] eq "w8x"} {
+            set r [$::cfg_T item element cget $i Cflag eFlag -text]
+        }
+    }
+    set r')
+qu 'cfg-insert-action {} fresh1' >/dev/null
+sleep 0.3
+AINS=$(grep -c '^action fresh1 {}$' "$HERE/cfg-config/tk9wm.custom.tcl")
+qu 't-sel actions fresh1; cfg-delete; list deleted' >/dev/null
+sleep 1
+ADEL=$(grep -c '^action fresh1' "$HERE/cfg-config/tk9wm.custom.tcl")
 
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
@@ -549,8 +578,8 @@ case $GOODMSG in
     *) echo "FAIL: after a good value the line says «$GOODMSG»" ;;
 esac
 case $COLLNODES in
-    "bindings buttons keys widgets")
-        echo "OK: the four families stand in the tree" ;;
+    "actions bindings buttons keys widgets")
+        echo "OK: the five families stand in the tree" ;;
     *) echo "FAIL: collection nodes: $COLLNODES" ;;
 esac
 if [ "$ELEMFOLD" = folded ]; then
@@ -647,6 +676,19 @@ case $COLDRAG in
     "w 400 user 1 name {}")
         echo "OK: a hand-dragged column keeps its width through the fit" ;;
     *) echo "FAIL: column drag: $COLDRAG" ;;
+esac
+case "$AFIELD|$ALIVE2|$ASAVED1|$ASAVED2" in
+    "1|Q|1|1")
+        echo "OK: an action field merges by name and the saves accumulate" ;;
+    *) echo "FAIL: action edit: rc=$AFIELD live=$ALIVE2 saved=$ASAVED1/$ASAVED2" ;;
+esac
+case $AWAITFLAG in
+    "waiting cfg") echo "OK: a waiting action wears its flag in the tree" ;;
+    *) echo "FAIL: waiting flag: «$AWAITFLAG»" ;;
+esac
+case "$AINS|$ADEL" in
+    "1|0") echo "OK: Insert declares a fresh action, Delete takes it back" ;;
+    *) echo "FAIL: action insert/delete: ins=$AINS del=$ADEL" ;;
 esac
 echo "--- geometry: $GEO"
 case $GEO in

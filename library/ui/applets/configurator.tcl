@@ -351,6 +351,7 @@ proc cfg-coll-build {was_folded was_open} {
                 -text [cfg-elem-summary $cname $e]
             set flags {}
             if {$dead} { lappend flags ✗ }
+            if {[dict exists $e waiting]} { lappend flags waiting }
             switch -- [dict get $e owner] {
                 custom { lappend flags custom }
                 config { lappend flags cfg }
@@ -392,7 +393,7 @@ proc cfg-coll-build {was_folded was_open} {
 proc cfg-elem-summary {cname e} {
     set v [dict get $e values]
     switch -- $cname {
-        buttons  { return [join [dict keys $v] " "] }
+        actions - buttons { return [join [dict keys $v] " "] }
         bindings { return [dict get $v script] }
         keys     { return [dict get $v state] }
     }
@@ -1062,12 +1063,12 @@ proc cfg-apply {name value} {
     # the point — the desk skips it quietly and the button appears by
     # itself when the command does. The applet accepts, and only SAYS
     # what will happen, so a vanished button is never a surprise.
-    if {[cfg-field? $name] && [lindex $name 1] eq "buttons"
+    if {[cfg-field? $name] && [lindex $name 1] in {buttons actions}
             && [lindex $name 3] eq "needs"} {
         foreach c $value {
             if {[wm-call [list auto_execok $c]] eq ""} {
-                cfg-status "«$c» is not on this machine — the button\
- will stand by (its card stays) until it appears"
+                cfg-status "«$c» is not on this machine — it will\
+ stand by, visible here, until the command appears"
                 return 1
             }
         }
@@ -1099,6 +1100,7 @@ proc cfg-command {name value} {
 proc cfg-field-command {name value} {
     lassign $name - coll key f
     switch -- $coll {
+        actions { return [list action $key [list $f $value]] }
         buttons { return [list panel-button $key [list $f $value]] }
         bindings {
             set script [expr {$f eq "script" ? $value
@@ -1145,18 +1147,35 @@ proc cfg-save {} {
     # binding, widget or bundle that command already re-states the
     # whole element.
     set deltas {}
+    set adeltas {}
     dict for {name pend} $::cfg_pending {
         if {[cfg-field? $name] && [lindex $name 1] eq "buttons"} {
             dict set deltas [lindex $name 2] [lindex $name 3] \
+                [dict get $pend value]
+        } elseif {[cfg-field? $name] && [lindex $name 1] eq "actions"} {
+            dict set adeltas [lindex $name 2] [lindex $name 3] \
                 [dict get $pend value]
         } else {
             wm-call [list custom-write [dict get $pend cmd]]
         }
     }
+    if {[dict size $adeltas]} { cfg-save-actions $adeltas }
     if {[dict size $deltas]} { cfg-save-buttons $deltas }
     set ::cfg_pending {}
     cfg-refresh
     puts "UI: configurator: saved"
+}
+# An action's custom word is ONE entry keyed by name, so a save must
+# accumulate onto what custom already said — the buttons' said+delta
+# rule, without the adoption (the actions family has no set to own).
+proc cfg-save-actions {deltas} {
+    dict for {key delta} $deltas {
+        set e [cfg-elem-rec actions $key]
+        set said ""
+        if {$e ne "" && [dict exists $e said]} { set said [dict get $e said] }
+        wm-call [list custom-write \
+                     [list action $key [dict merge $said $delta]]]
+    }
 }
 # ADOPTION (the owner's decision 2). A set custom already owns takes
 # the touched buttons as said+delta — the standing custom word with
@@ -1271,6 +1290,12 @@ proc cfg-delete {} {
  says it is yours to edit, not this applet's"
         return
     }
+    if {$coll eq "actions" && [dict get $e owner] ne "custom"} {
+        # a config action has no unsay — only the custom word can go
+        cfg-status "$key is the [dict get $e owner]'s word — nothing\
+ of yours here to drop"
+        return
+    }
     # taking back what a layer WROTE deserves a question; dropping
     # your own click does not (the plan's confirmation, for the
     # element the config declared)
@@ -1301,6 +1326,11 @@ proc cfg-delete {} {
         }
         widgets {
             wm-call [list custom-write [list wm-widget-remove $key]]
+        }
+        actions {
+            # the custom word taken back; the reload inside the
+            # erase replays what the other layers still declare
+            wm-call [list custom-erase "action $key"]
         }
     }
     cfg-refresh
@@ -1424,12 +1454,30 @@ proc cfg-insert {} {
         return
     }
     switch -- [dict get $::cfg_node $it coll] {
+        actions  { cfg-pick-dialog "new action" {} \
+                       "name for the new action" cfg-insert-action }
         buttons  { cfg-insert-buttons-dialog }
         widgets  { cfg-insert-widgets-dialog }
         bindings { cfg-insert-binding-dialog }
         keys     { cfg-status "the bundles are fixed in code — turn\
  them on and off, or take their binds" }
     }
+}
+# A fresh action is born empty and edited into shape — the same road
+# a fresh button label walks.
+proc cfg-insert-action {choice typed} {
+    set name [expr {$choice ne "" ? $choice : $typed}]
+    if {$name eq ""} { return 0 }
+    if {[cfg-elem-rec actions $name] ne ""} {
+        return [cfg-refuse "an action named $name already stands —\
+ pick another name"]
+    }
+    if {[catch {wm-call [list custom-write [list action $name {}]]} err]} {
+        return [cfg-refuse [cfg-brief $err]]
+    }
+    cfg-refresh
+    cfg-status "$name is declared — fill its fields in"
+    return 1
 }
 
 # The commit half of each Insert, dialogless — the programmatic door

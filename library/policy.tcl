@@ -4676,6 +4676,160 @@ proc set-panel-live-colors {bar face} {
     set ::panel_live_face $face
     panel-rebuild-soon
 }
+# ---- actions: named deeds, prior to any button ----
+# The owner's turn of the model (2026-07-31): PRIMARY is not the
+# button but the ACTION — a named thing this desk can do, usually
+# run-or-raise. `run` says what to start (RAW ARGV, one uniform
+# spelling whether it runs bare or inside a terminal — the wrapping
+# is the machinery's business, see run-argv); `match` says which
+# window counts as already-running (no match — plain launcher);
+# `icon` is a face for whatever panel may some day carry it; `key`
+# is the chord that does it — bound to the NAME, live whether or not
+# any panel shows a button; `needs` gates the whole action on the
+# machine having the software. An unmet needs leaves the action
+# WAITING — declared, visible, not bound — and it comes alive by
+# itself on the reload after the command appears. The `terminal` and
+# `emacs` words are ADAPTERS, not kinds: they derive match, launch
+# and activate into the one native shape everything else consumes
+# (spec-derive — the same providers the buttons had).
+#
+# The name is the primary key, and a second declaration REFINES the
+# first: raw words merge, an empty value un-says its key (`terminal`
+# exempt — its empty dict is a word, see the buttons' lesson 117).
+keep action_raw {}    ;# NAME -> the merged raw words (what the layers SAID)
+keep action_spec {}   ;# NAME -> what the machinery runs on (derived + state)
+
+proc action {name settings} {
+    set raw $settings
+    if {[dict exists $::action_raw $name]} {
+        set raw [dict merge [dict get $::action_raw $name] $settings]
+    }
+    foreach k [dict keys $raw] {
+        if {$k ne "terminal" && [dict get $raw $k] eq ""} { dict unset raw $k }
+    }
+    dict set ::action_raw $name $raw
+    action-realize $name
+    # style is a shorthand landing WHEN SAID — this call's word, not
+    # the merged memory's (the panel-button rule, for the same
+    # reasons); a waiting action styles nothing, exactly as it runs
+    # nothing.
+    if {[dict exists $settings style] && [dict get $settings style] ne ""} {
+        set spec [dict get $::action_spec $name]
+        if {[dict get $spec state] eq "active"} {
+            if {![dict exists $spec match]} {
+                error "action $name: style needs a match to apply to"
+            }
+            wm-style [dict get $spec match] [dict get $settings style]
+        }
+    }
+}
+# Derive what the machinery runs on. The adapters go first (a
+# terminal word picks the action's own `run` up unless it carries
+# one); then a bare `run` becomes the launch through the one door.
+# An explicit `launch` is the low-level escape and always wins.
+proc action-derive {name raw} {
+    if {[dict exists $raw terminal] && [dict exists $raw run]
+            && ![dict exists $raw terminal run]} {
+        dict set raw terminal run [dict get $raw run]
+    }
+    set spec [spec-derive "action $name" $raw]
+    if {![dict exists $spec launch] && [dict exists $spec run]} {
+        dict set spec launch [list run-argv [dict get $spec run]]
+    }
+    return $spec
+}
+# Alive or waiting — needs is the gate, judged NOW: every replay
+# re-judges, which is what lets a declared action surface by itself
+# once its software lands. The chord follows the state: bound only
+# while active, and the old chord goes with the old spec whatever
+# happens next.
+proc action-realize {name} {
+    set raw [dict get $::action_raw $name]
+    if {[dict exists $::action_spec $name]
+            && [dict exists $::action_spec $name key]} {
+        catch {wm-unbind [dict get $::action_spec $name key]}
+    }
+    set state active
+    if {[dict exists $raw needs]} {
+        foreach c [dict get $raw needs] {
+            # bust Tcl's auto_execok cache first: a MISS is cached
+            # too, and a cached miss would hide the software this
+            # judgement exists to notice arriving
+            array unset ::auto_execs $c
+            if {[auto_execok $c] eq ""} { set state waiting; break }
+        }
+    }
+    if {$state eq "active"} {
+        set spec [action-derive $name $raw]
+    } else {
+        set spec $raw
+        puts "WM: action $name: needs [dict get $raw needs] — waiting"
+    }
+    dict set spec state $state
+    dict set ::action_spec $name $spec
+    if {$state eq "active" && [dict exists $spec key]} {
+        wm-bind [dict get $spec key] [list action-fire $name] $name
+    }
+}
+
+# THE ONE DOOR every plain launch walks through. Today it is exec's
+# fire-and-forget; the point of a single door is that tomorrow it can
+# be `open |cmd` with error monitoring, or consult a registry of
+# environments by argv[0] ("every firefox runs under
+# GTK_IM_MODULE=fcitx") — and no caller will change a word.
+proc run-argv {argv} {
+    exec {*}$argv &
+}
+
+# Fire by NAME — run-or-raise, panel or no panel: the match's most
+# recent window gets the focus (or the action's own activate hook),
+# otherwise the launch runs under the action's env. Any panel that
+# carries the action flashes its button, found by name. A waiting
+# action says so instead of guessing.
+proc action-fire {name} {
+    if {![dict exists $::action_spec $name]} {
+        puts "WM: action $name: unknown — nothing to fire"
+        return
+    }
+    set spec [dict get $::action_spec $name]
+    if {[dict get $spec state] ne "active"} {
+        puts "WM: action $name: waiting on [dict get $spec needs] —\
+ not firing"
+        return
+    }
+    set hit [lindex [panel-matches $name $spec] 0]
+    if {$hit ne ""} {
+        puts "WM: action $name: found 0x[format %x $hit]"
+        action-flash $name found
+        if {[dict exists $spec activate]} {
+            if {[catch {uplevel #0 \
+                    [list {*}[dict get $spec activate] $hit]} err]} {
+                puts "WM: action $name: activate FAILED: $err"
+            }
+            return
+        }
+        panel-focus-hit $hit
+    } elseif {[dict exists $spec launch]} {
+        puts "WM: action $name: launch"
+        action-flash $name firing
+        set script [dict get $spec launch]
+        if {[dict exists $spec env]} {
+            set script [list with-env [dict get $spec env] $script]
+        }
+        if {[catch {uplevel #0 $script} err]} {
+            puts "WM: action $name: launch FAILED: $err"
+        }
+    } else {
+        puts "WM: action $name: nothing matched, nothing to launch"
+    }
+}
+proc action-flash {name state} {
+    dict for {pname p} $::panels {
+        set i [panel-index $pname $name]
+        if {$i >= 0} { panel-flash $pname $i $state }
+    }
+}
+
 # THE LABEL IS THE PRIMARY KEY (the owner, 2026-08-01). Saying
 # panel-button Emacs twice does not make two buttons: the second call
 # REFINES the first — the keys it says now merge over what stood, the
@@ -4779,17 +4933,20 @@ proc panel-button {label settings} {
 # launch-only degradation, and spawn-terminal says so when it
 # drops the name.
 proc panel-button-derive {label settings} {
-    dict-shaped "panel-button $label: env" $settings env
+    spec-derive "panel-button $label" $settings
+}
+proc spec-derive {who settings} {
+    dict-shaped "$who: env" $settings env
     if {[dict exists $settings terminal]} {
         set t [dict get $settings terminal]
         foreach k [dict keys $t] {
             if {$k ni {name run title env args}} {
-                error "panel-button $label: unknown terminal key \"$k\"\
+                error "$who: unknown terminal key \"$k\"\
  (name run title env args)"
             }
         }
-        dict-shaped "panel-button $label: terminal env" $t env
-        dict-shaped "panel-button $label: terminal args" $t args
+        dict-shaped "$who: terminal env" $t env
+        dict-shaped "$who: terminal args" $t args
         if {![dict exists $settings match]} {
             if {[dict exists $t name] && [dict get $t name] ne ""} {
                 dict set settings match \
@@ -4811,7 +4968,7 @@ proc panel-button-derive {label settings} {
     # on top of its tty.
     if {[dict exists $settings emacs]} {
         set e [dict get $settings emacs]
-        emacs-spec-check "panel-button $label" $e
+        emacs-spec-check $who $e
         if {![dict exists $settings match]} {
             dict set settings match \
                 [list filter -class [dict get $e frame]]
@@ -6375,6 +6532,22 @@ proc custom-reorder {keys} {
 proc collection {name meta} { dict set ::collection_registry $name $meta }
 set collection_registry {}
 
+collection actions {
+    key name ordered no
+    doc {named deeds — run-or-raise by name, prior to any button}
+    list collection-actions
+    fields {
+        run      {kind list  doc {raw argv — what to start, through the one door}}
+        match    {kind text  doc {predicate: which window means already-running}}
+        icon     {kind text  doc {a face, for whatever panel carries it}}
+        key      {kind chord doc {the chord that does it — panel or no panel}}
+        needs    {kind list  doc {commands this action waits for}}
+        style    {kind text  doc {a style rule for the windows it finds}}
+        terminal {kind dict  doc {terminal adapter: name title env args}}
+        emacs    {kind dict  doc {emacs adapter: daemon frame eval via}}
+        env      {kind dict  doc {environment around the launch}}
+    }
+}
 collection buttons {
     key label ordered yes
     doc {the default panel's buttons, in the order the strip wears them}
@@ -6427,6 +6600,27 @@ collection keys {
 # carries `said` — the custom layer's own word for it, which is what
 # a save must accumulate onto so a standing delta survives the next
 # edit.
+proc collection-actions {} {
+    set out {}
+    dict for {name raw} $::action_raw {
+        set e [dict create key $name values $raw \
+                   owner [knob-owner "action $name"]]
+        # waiting — declared, not alive: the tree gets to say why a
+        # deed is not answering (and the panels not showing it)
+        if {[dict exists $::action_spec $name state]
+                && [dict get $::action_spec $name state] ne "active"} {
+            dict set e waiting 1
+        }
+        if {[dict exists $::layer_knobs custom "action $name"]} {
+            set cmd [dict get $::layer_knobs custom "action $name"]
+            if {[lindex $cmd 0] eq "action"} {
+                dict set e said [lindex $cmd 2]
+            }
+        }
+        lappend out $e
+    }
+    dict create elements $out
+}
 proc collection-buttons {} {
     set out {}
     foreach b [panel-cfg default buttons] {
@@ -6629,7 +6823,7 @@ proc collection-table {} {
 # than rendered as knobs.
 set knob_vocab [concat [dict keys $knob_registry] \
     {wm-font wm-bind wm-unbind wm-widget wm-widget-remove
-     panel-button panel-buttons-own wm-keys}]
+     panel-button panel-buttons-own wm-keys action}]
 set knob_layer ""
 keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # The key is semantic: a plain knob is one key however often it is
@@ -6638,7 +6832,8 @@ keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 proc knob-key {words} {
     set p [lindex $words 0]
     switch -- $p {
-        wm-font - wm-bind - wm-widget - panel-button - panel-buttons-own {
+        wm-font - wm-bind - wm-widget - panel-button - panel-buttons-own -
+        action {
             return "$p [lindex $words 1]"
         }
         wm-unbind { return "wm-bind [lindex $words 1]" }
@@ -6998,7 +7193,7 @@ set config_vars {
     widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
-    welcome key_bundles
+    welcome key_bundles action_raw action_spec
 }
 proc policy-snapshot-defaults {} {
     # Incremental on purpose: a Reread may bring NEW config_vars into
