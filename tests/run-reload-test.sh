@@ -19,8 +19,10 @@ CONF="$HERE/reload-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-panel-side right
-panel-button один { launch {} }
-panel-button два  { launch {} }
+action один {}
+action два {}
+panel-button один
+panel-button два
 set-tray on
 wm-bind {<Super>F1} {puts "WM: CHORD ONE"}
 EOF
@@ -55,7 +57,8 @@ CH1=$(grep -c 'CHORD ONE' "$HERE/wm-reload.log")
 
 # --- pass 2: a DIFFERENT config, reloaded in place
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-panel-button единственный { launch {} }
+action единственный {}
+panel-button единственный
 set-tray on
 wm-bind {<Super>F2} {puts "WM: CHORD TWO"}
 EOF

@@ -311,40 +311,73 @@
 # for all. A term that cannot be read is logged and dropped, and the
 # window opens where it otherwise would have.
 #
-# ---- the panel ----
+# ---- actions: named deeds ----
 #
-# panel-button LABEL SETTINGS declares a button on the WM's own panel —
-# a strip that exists only when buttons are declared, and that
-# maximize respects (the workarea ends at it). A button is
-# idempotent, wmaker-style: fired — by click or by its chord — it
-# FOCUSES the most recently used window its `match` predicate finds,
-# else LAUNCHES its `launch` script; the face flashes the verdict
-# (green "found it", orange "launching"). Settings keys, all optional:
-#   match  — predicate command prefix (same vocabulary as wm-style)
-#   launch — any Tcl script, typically {exec ... &}
-#   icon   — the button face: anything resolve-icon takes (see the
-#            style section above)
-#   key    — a wm-bind chord sequence firing this button
+# action NAME SETTINGS declares a named thing this desk can do —
+# idempotent, wmaker-style: fired (by its chord, or from a panel
+# button referencing it) it FOCUSES the most recently used window its
+# `match` predicate finds, else RUNS its command. Settings keys, all
+# optional:
+#   run    — the command as RAW ARGV, no exec wrapping: {firefox
+#            --new-window}. One spelling whether it runs bare or
+#            inside a terminal; the wrapping is the machinery's
+#            business (run-argv — one door, so error monitoring or
+#            an environment registry can land there someday without
+#            a config changing a word)
+#   match  — predicate command prefix (same vocabulary as wm-style);
+#            without one the action is a plain launcher
+#   icon   — a face, for whatever panel may some day carry it:
+#            anything resolve-icon takes (see the style section)
+#   key    — a wm-bind chord sequence firing the action BY NAME —
+#            live whether or not any panel shows it
+#   needs  — commands this action refuses to run without (below)
+#   env    — a VAR VALUE dict applied around the launch and put back
+#            afterwards; an empty value means VAR= (set empty), not
+#            unset
+#   style  — a style rule for the windows the match finds, the
+#            filter said once instead of twice
+#   launch — the low-level escape: any Tcl script, for the launch
+#            `run` cannot say; an explicit launch beats the derived
 #
-#   panel-button xterm {
-#       match {filter -class xterm} launch {exec xterm &} key {<Super>x}
+#   action xterm {
+#       match {filter -class xterm} run {xterm} key {<Super>x}
 #   }
-#
-# The LABEL is the button's primary key: saying panel-button xterm
-# again REFINES that button rather than declaring a second one — the
-# keys said now merge over what stood, the rest keep, and the button
-# keeps the position its first declaration gave it. An empty value
-# takes its key away ({key {}} = no chord after all).
-#
-# ...and `env`, on ANY button: a VAR VALUE dict applied around the
-# launch — whatever the launch is, a plain exec script or a derived
-# terminal/emacs one — and put back afterwards. An empty value means
-# VAR= (set empty), not unset:
-#   panel-button ff {
+#   action ff {
 #       match {filter -class firefox}
-#       launch {exec firefox &}
+#       run {firefox}
 #       env {GTK_IM_MODULE fcitx}
 #   }
+#
+# The NAME is the action's primary key: saying action xterm again
+# REFINES it rather than declaring a second one — the keys said now
+# merge over what stood, the rest keep. An empty value takes its key
+# away ({key {}} = no chord after all).
+#
+# `needs` gates the whole action on commands existing in PATH — no
+# mutt on this machine, no mutt action: it WAITS instead (declared,
+# visible in the configurator, not bound, on no strip), and the
+# reload after the software lands brings it — and every button
+# referencing it — alive by itself.
+#
+# ---- the panel ----
+#
+# panel-button NAME declares a button on the WM's own panel — a
+# strip that exists only when buttons are declared, and that
+# maximize respects (the workarea ends at it). The button is a
+# REFERENCE to the action named NAME: a click fires the action, the
+# face flashes the verdict (green "found it", orange "launching").
+# What the reference may add is how it dresses on THIS panel:
+#
+#   panel-button ff                      ;# the usual: as itself
+#   panel-button ff {label Web icon X}   ;# dressed for this strip
+#
+# label is display only — the button's key stays the action's name;
+# icon covers the action's own face. Everything else — match, run,
+# chord, needs — is the action's to say, once, panel or no panel.
+# Referencing an action declared LATER in the file (or not declared
+# at all yet) is fine: the strip resolves its references after the
+# file is read, and a name with no live action simply stands by,
+# surfacing on the reload that brings its action alive.
 #
 # The strip's shape. set-panel-side top|bottom|left|right picks the
 # screen edge (default bottom; left and right make it a vertical
@@ -370,10 +403,10 @@
 #   panel dock {                       ;# a dock down the left edge
 #       set-panel-side left
 #       set-panel-preset stack
-#       panel-button терм {icon xterm launch {exec xterm &}}
+#       panel-button терм
 #   }
 #   set-panel-side bottom              ;# ...and the default one below
-#   panel-button emacs {match {filter -class Emacs}}
+#   panel-button emacs
 #
 # Each panel keeps its own side, preset, icon size and buttons. What
 # they share is the SCREEN, and they divide it in DECLARATION ORDER:
@@ -396,12 +429,15 @@
 #
 # ---- the terminal layer ----
 #
-# A panel button that means "the named terminal running mutt" can SAY
+# An action that means "the named terminal running mutt" can SAY
 # that, without exec-ing any particular emulator:
 #
-#   panel-button mutt {terminal {name mutt run mutt} key {<Super>m}}
+#   action mutt {terminal {name mutt} run {mutt} key {<Super>m}}
 #
-# The `terminal` key derives both halves of the idempotent button:
+# The `terminal` key derives both halves of the idempotent action —
+# and it runs the action's own `run` inside the terminal (a `run`
+# inside the terminal dict overrides, for the rare button whose
+# terminal should run something else):
 # the match — `filter -class mutt`, a single pattern, so either half
 # of WM_CLASS answers — and the launch, built for the ACTIVE terminal
 # by its adapter (xterm gets `-name mutt -e mutt`, kitty gets
@@ -440,19 +476,21 @@
 #          translates name/run/title and NOTHING else, so a shared
 #          button stays terminal-agnostic with goodies for some.
 #
-# `needs` (a panel-button key, usable with or without `terminal`)
-# gates the whole declaration on commands existing in PATH — no mutt
-# on this machine, no mutt button, one line in the log:
+# ...and with `needs` (see the actions section) the whole thing
+# waits until mutt exists in PATH — the full declaration, worn by
+# the panel with one reference line:
 #
-#   panel-button mutt {
+#   action mutt {
 #       terminal {
-#           name mutt run mutt
+#           name mutt
 #           args {xterm {-bg darkblue} kitty {-o background=darkblue}}
 #       }
+#       run {mutt}
 #       needs mutt
 #       key {<Super>m}
 #       icon mutt
 #   }
+#   panel-button mutt
 #
 # The launch half stands alone as a command too:
 #   wm-bind {<Super>Return} {spawn-terminal {}}
@@ -466,16 +504,16 @@
 #
 # ---- the emacs layer ----
 #
-# One storey above the terminal: a button that means "the TELEGA frame
-# of the telega daemon":
+# One storey above the terminal: an action that means "the TELEGA
+# frame of the telega daemon":
 #
-#   panel-button telega {
+#   action telega {
 #       emacs {daemon telega frame TELEGA eval (telega)}
 #       key {<Super>g}
 #   }
 #
 # The frame name is the identity: emacs puts a frame's name parameter
-# into the WM_CLASS instance, so the button's match is the same single
+# into the WM_CLASS instance, so the action's match is the same single
 # pattern the terminal layer derives — it finds the GUI frame as
 # {TELEGA Emacs} and the named terminal as {TELEGA XTerm} alike. The
 # launch ensures the daemon (emacsclient -a '' auto-starts one under
@@ -486,7 +524,7 @@
 #
 # Keys: `frame` (required — the identity), `daemon` (the -s socket;
 # omit for the default daemon; `none` — see the plain life below),
-# `eval`, `via gui|terminal` (this button's answer to the question
+# `eval`, `via gui|terminal` (this action's answer to the question
 # below), `autodaemon on|off` and `env` (both below).
 #
 # AUTO-STARTING DAEMONS is a choice. Default on — emacsclient -a ''
@@ -495,7 +533,7 @@
 # wants a missing one to be an ERROR, not a spawn into whatever
 # environment the WM had:
 #   set-emacs-autodaemon off
-# ...and per button, the `autodaemon` key overrides the desk answer.
+# ...and per action, the `autodaemon` key overrides the desk answer.
 # When a daemon IS auto-started, the spec's `env` rides the command
 # line (exec env VAR=VAL emacsclient ...), so the daemon inherits it:
 #   emacs {daemon telega frame TELEGA eval (telega)
@@ -503,8 +541,8 @@
 #
 # NO DAEMONS AT ALL is also a choice — the plain life:
 #   set-emacs-daemons off            ;# desk-wide
-#   emacs {frame TELEGA daemon none eval (telega)}   ;# per button
-# A plain button is lookup-or-run: the same match (emacs puts --name
+#   emacs {frame TELEGA daemon none eval (telega)}   ;# per action
+# A plain action is lookup-or-run: the same match (emacs puts --name
 # into the WM_CLASS instance exactly like xterm), and the launch is
 # simply `emacs --name TELEGA --eval (telega)` — in terminal mode,
 # `emacs -nw ...` inside the named terminal. The stated price: with
@@ -569,7 +607,7 @@
 # that clean floor, exactly as at startup.
 #
 # That is worth one rule: KEEP THIS FILE DECLARATIVE. Calling the set-*
-# knobs, declaring panel buttons, style rules and key binds is all
+# knobs, declaring actions, panel buttons, style rules and key binds is all
 # undoable — the reset knows where that state lives. Redefining a
 # policy or substrate proc is not: nothing remembers what the proc used
 # to be, so the patch would survive the reset and the next reload would

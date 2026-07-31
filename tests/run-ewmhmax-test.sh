@@ -15,7 +15,8 @@ sleep 1
 rm -rf "$HERE/ewmhmax-config"
 mkdir -p "$HERE/ewmhmax-config"
 cat > "$HERE/ewmhmax-config/tk9wm.tcl" <<'EOF'
-panel-button dummy {launch {exec true &}}
+action dummy {launch {exec true &}}
+panel-button dummy
 # an UNFORCED style on the zoomed claimant: its own pre-map maximize
 # request must outrank this rule (the born-at-full-size asserts below
 # fail if the rule wins)

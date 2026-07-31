@@ -19,7 +19,8 @@ sleep 1
 rm -rf "$HERE/ewmh-config"
 mkdir -p "$HERE/ewmh-config"
 cat > "$HERE/ewmh-config/tk9wm.tcl" <<'EOF'
-panel-button терм { launch {} }
+action терм {}
+panel-button терм
 EOF
 
 XDG_CONFIG_HOME="$HERE/ewmh-config" \

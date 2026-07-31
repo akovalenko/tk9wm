@@ -321,10 +321,10 @@ proc cfg-select-first {} {
 }
 
 # ---- the collections below the knob groups ----
-# Four more top nodes — buttons, bindings, widgets, keys — served by
-# collection-table exactly as the knobs are by knob-table. A child is
-# an ELEMENT: its key, a summary of what the layers said, and a flag
-# with the owner badge — plus ✗ for a bind a later word buried
+# More top nodes — actions, panel, bindings, widgets, keys — served
+# by collection-table exactly as the knobs are by knob-table. A child
+# is an ELEMENT: its key, a summary of what the layers said, and a
+# flag with the owner badge — plus ✗ for a bind a later word buried
 # (decision 5 made visible). An element's children are its FIELDS,
 # edited by the same kind-editors the knobs use; a buried bind has no
 # children at all — re-binding it is capture-chord's day, not a field
@@ -393,7 +393,7 @@ proc cfg-coll-build {was_folded was_open} {
 proc cfg-elem-summary {cname e} {
     set v [dict get $e values]
     switch -- $cname {
-        actions - buttons { return [join [dict keys $v] " "] }
+        actions - panel { return [join [dict keys $v] " "] }
         bindings { return [dict get $v script] }
         keys     { return [dict get $v state] }
     }
@@ -1063,7 +1063,7 @@ proc cfg-apply {name value} {
     # the point — the desk skips it quietly and the button appears by
     # itself when the command does. The applet accepts, and only SAYS
     # what will happen, so a vanished button is never a surprise.
-    if {[cfg-field? $name] && [lindex $name 1] in {buttons actions}
+    if {[cfg-field? $name] && [lindex $name 1] eq "actions"
             && [lindex $name 3] eq "needs"} {
         foreach c $value {
             if {[wm-call [list auto_execok $c]] eq ""} {
@@ -1089,8 +1089,9 @@ proc cfg-command {name value} {
 }
 # ...and how a FIELD edit becomes one — per family, because each verb
 # has its own grammar:
-#   buttons  — panel-button KEY {FIELD V}: the verb MERGES, so the
-#              delta alone is the whole edit;
+#   actions  — action KEY {FIELD V}: the verb MERGES by name, so the
+#              delta alone is the whole edit — and panel likewise,
+#              panel-button KEY {FIELD V} merging the overrides;
 #   bindings — wm-bind re-states the pair, the other half riding
 #              along from the element;
 #   widgets  — wm-widget replaces WHOLE: the element's standing
@@ -1101,7 +1102,7 @@ proc cfg-field-command {name value} {
     lassign $name - coll key f
     switch -- $coll {
         actions { return [list action $key [list $f $value]] }
-        buttons { return [list panel-button $key [list $f $value]] }
+        panel   { return [list panel-button $key [list $f $value]] }
         bindings {
             set script [expr {$f eq "script" ? $value
                 : [cfg-cur [list @field bindings $key script]]}]
@@ -1140,7 +1141,7 @@ proc cfg-brief {err} {
     return $one
 }
 proc cfg-save {} {
-    # The BUTTON fields do not write their preview commands: the panel
+    # The PANEL fields do not write their preview commands: the panel
     # set is custom's whole or not custom's at all (the owner's
     # decision 2), so their pendings fold into one adoption below.
     # Everything else persists its own preview command — for a
@@ -1149,7 +1150,7 @@ proc cfg-save {} {
     set deltas {}
     set adeltas {}
     dict for {name pend} $::cfg_pending {
-        if {[cfg-field? $name] && [lindex $name 1] eq "buttons"} {
+        if {[cfg-field? $name] && [lindex $name 1] eq "panel"} {
             dict set deltas [lindex $name 2] [lindex $name 3] \
                 [dict get $pend value]
         } elseif {[cfg-field? $name] && [lindex $name 1] eq "actions"} {
@@ -1160,14 +1161,14 @@ proc cfg-save {} {
         }
     }
     if {[dict size $adeltas]} { cfg-save-actions $adeltas }
-    if {[dict size $deltas]} { cfg-save-buttons $deltas }
+    if {[dict size $deltas]} { cfg-save-panel $deltas }
     set ::cfg_pending {}
     cfg-refresh
     puts "UI: configurator: saved"
 }
 # An action's custom word is ONE entry keyed by name, so a save must
-# accumulate onto what custom already said — the buttons' said+delta
-# rule, without the adoption (the actions family has no set to own).
+# accumulate onto what custom already said — the panel set's
+# said+delta rule, without the adoption (no set here to own).
 proc cfg-save-actions {deltas} {
     dict for {key delta} $deltas {
         set e [cfg-elem-rec actions $key]
@@ -1178,13 +1179,13 @@ proc cfg-save-actions {deltas} {
     }
 }
 # ADOPTION (the owner's decision 2). A set custom already owns takes
-# the touched buttons as said+delta — the standing custom word with
-# the edits over it, so an older delta survives this one. A set it
-# does not yet own is taken WHOLE — cfg-adopt-buttons below.
-proc cfg-save-buttons {deltas} {
-    set c [dict get $::cfg_coll buttons]
+# the touched references as said+delta — the standing custom word
+# with the edits over it, so an older delta survives this one. A set
+# it does not yet own is taken WHOLE — cfg-adopt-panel below.
+proc cfg-save-panel {deltas} {
+    set c [dict get $::cfg_coll panel]
     if {[dict get $c owned] ne "yes"} {
-        cfg-adopt-buttons $deltas
+        cfg-adopt-panel $deltas
         return
     }
     foreach e [dict get $c elements] {
@@ -1195,13 +1196,13 @@ proc cfg-save-buttons {deltas} {
             [dict merge $said [dict get $deltas $key]]]]
     }
 }
-# Taking the set whole: own the panel, then every button in panel
+# Taking the set whole: own the panel, then every reference in panel
 # order — a touched one as said+delta, an untouched one by its
-# standing word (usually {}: the BARE LABEL, whose empty word the raw
-# memory answers with the whole config description), and a skipped
+# standing word (usually {}: the bare name, which IS the whole
+# reference — the description lives on the action), and a skipped
 # one not at all — which is what a Delete is.
-proc cfg-adopt-buttons {deltas {skip {}}} {
-    set c [dict get $::cfg_coll buttons]
+proc cfg-adopt-panel {deltas {skip {}}} {
+    set c [dict get $::cfg_coll panel]
     wm-call [list custom-write {panel-buttons-own default}]
     foreach e [dict get $c elements] {
         set key [dict get $e key]
@@ -1303,15 +1304,15 @@ proc cfg-delete {} {
             && ![cfg-confirm "Drop $key from $coll? Its description\
  survives and Insert can bring it back."]} return
     switch -- $coll {
-        buttons {
-            if {[dict get $::cfg_coll buttons owned] eq "yes"} {
+        panel {
+            if {[dict get $::cfg_coll panel owned] eq "yes"} {
                 # the owned set loses its entry; the reload inside the
                 # erase replays the set without it
                 wm-call [list custom-erase "panel-button $key"]
             } else {
                 # adoption minus one: the first edit of the SET is
                 # still an edit of the set
-                cfg-adopt-buttons {} $key
+                cfg-adopt-panel {} $key
             }
         }
         bindings {
@@ -1344,19 +1345,19 @@ proc cfg-delete {} {
 proc cfg-move-elem {dir} {
     set d [cfg-elem-of [cfg-selected]]
     if {$d eq ""} return
-    if {[dict get $d coll] ne "buttons"} {
+    if {[dict get $d coll] ne "panel"} {
         cfg-status "only the panel's buttons move today: a widget's\
  place follows the layers' declaration order"
         return
     }
     set key [dict get $d key]
-    set order [lmap e [dict get $::cfg_coll buttons elements] \
+    set order [lmap e [dict get $::cfg_coll panel elements] \
                    {dict get $e key}]
     set i [lsearch -exact $order $key]
     set j [expr {$dir eq "above" ? $i - 1 : $i + 1}]
     if {$i < 0 || $j < 0 || $j >= [llength $order]} return   ;# the edge
-    if {[dict get $::cfg_coll buttons owned] ne "yes"} {
-        cfg-adopt-buttons {}
+    if {[dict get $::cfg_coll panel owned] ne "yes"} {
+        cfg-adopt-panel {}
     }
     set order [linsert [lreplace $order $i $i] $j $key]
     wm-call [list custom-reorder \
@@ -1366,7 +1367,7 @@ proc cfg-move-elem {dir} {
     cfg-status "$key moved — the set's order is the custom layer's now"
 }
 
-# Ctrl+Enter. On the buttons family (its node or any element): take
+# Ctrl+Enter. On the panel family (its node or any element): take
 # the panel set whole — decision 2's one action. On bindings: take
 # the selected binds into the custom layer as plain wm-bind; any
 # bundle they came out of falls silent (decision 4), the off written
@@ -1378,7 +1379,7 @@ proc cfg-take {} {
     foreach it $items {
         if {![dict exists $::cfg_node $it]} continue
         set d [dict get $::cfg_node $it]
-        if {[dict get $d coll] eq "buttons"} { set what buttons; break }
+        if {[dict get $d coll] eq "panel"} { set what panel; break }
         if {[dict get $d what] eq "elem"
                 && [dict get $d coll] eq "bindings"} {
             set what bindings
@@ -1386,12 +1387,12 @@ proc cfg-take {} {
         }
     }
     switch -- $what {
-        buttons {
-            if {[dict get $::cfg_coll buttons owned] eq "yes"} {
+        panel {
+            if {[dict get $::cfg_coll panel owned] eq "yes"} {
                 cfg-status "the panel set is already yours"
                 return
             }
-            cfg-adopt-buttons {}
+            cfg-adopt-panel {}
             cfg-refresh
             cfg-status "the panel set is yours now — its order and\
  members are the custom layer's word"
@@ -1441,11 +1442,12 @@ proc cfg-take {} {
     }
 }
 
-# Insert — what CAN come in, per family: a button from a card (a
-# description a layer left that is not on the panel — this is where
-# a deleted button comes back) or from thin air by a label; a widget
-# from its type catalogue; a binding from a chord and a script. The
-# keys family is closed — its members are fixed in code.
+# Insert — what CAN come in, per family: a panel button from the
+# card list (every action not on the panel — this is where a deleted
+# button comes back) or by a typed name the actions may not know
+# yet; a widget from its type catalogue; a binding from a chord and
+# a script. The keys family is closed — its members are fixed in
+# code.
 proc cfg-insert {} {
     set it [cfg-selected]
     if {$it eq "" || ![dict exists $::cfg_node $it]} {
@@ -1456,7 +1458,7 @@ proc cfg-insert {} {
     switch -- [dict get $::cfg_node $it coll] {
         actions  { cfg-pick-dialog "new action" {} \
                        "name for the new action" cfg-insert-action }
-        buttons  { cfg-insert-buttons-dialog }
+        panel    { cfg-insert-panel-dialog }
         widgets  { cfg-insert-widgets-dialog }
         bindings { cfg-insert-binding-dialog }
         keys     { cfg-status "the bundles are fixed in code — turn\
@@ -1482,28 +1484,34 @@ proc cfg-insert-action {choice typed} {
 
 # The commit half of each Insert, dialogless — the programmatic door
 # the tests drive, like cfg-set beside the editors.
-proc cfg-insert-button {label} {
-    if {$label eq ""} { return 0 }
-    # a WAITING card is already declared — its needs are not met yet,
-    # and a bare label here would clobber the very word that waits
-    set cards [dict get $::cfg_coll buttons cards]
-    if {[dict exists $cards $label]
-            && [dict get $cards $label waiting] eq "yes"} {
-        cfg-status "$label is already declared — it stands by until\
- what it needs appears on this machine"
+proc cfg-insert-button {name} {
+    if {$name eq ""} { return 0 }
+    if {[cfg-elem-rec panel $name] ne ""} {
+        cfg-status "$name is already on the panel"
         return 1
     }
-    if {[dict get $::cfg_coll buttons owned] ne "yes"} {
-        cfg-adopt-buttons {}
+    if {[dict get $::cfg_coll panel owned] ne "yes"} {
+        cfg-adopt-panel {}
     }
-    # the bare label: a card's word comes back whole from the raw
-    # memory; a fresh label is born empty and edited into shape
+    # the bare name IS the whole reference — the description lives on
+    # the action. Referencing a waiting or still-undeclared action is
+    # legitimate (the button waits with it), so no name is refused;
+    # the status only says what will show when.
     if {[catch {wm-call [list custom-write \
-                             [list panel-button $label {}]]} err]} {
+                             [list panel-button $name {}]]} err]} {
         return [cfg-refuse [cfg-brief $err]]
     }
     cfg-refresh
-    cfg-status "$label is on the panel — fill its fields in"
+    set a [cfg-elem-rec actions $name]
+    if {$a eq ""} {
+        cfg-status "$name is on the panel — no action of that name\
+ yet, so the button stands by until one is declared"
+    } elseif {[dict exists $a waiting]} {
+        cfg-status "$name is on the panel — it stands by until what\
+ its action needs appears on this machine"
+    } else {
+        cfg-status "$name is on the panel"
+    }
     return 1
 }
 proc cfg-insert-widget {name type} {
@@ -1534,10 +1542,10 @@ proc cfg-insert-bind {spec script} {
 # The dialogs: keyboard-first like the list sub-editor — a listbox
 # of what there is, an entry for what there is not, OK and Cancel
 # with their accelerators.
-proc cfg-insert-buttons-dialog {} {
-    set cards [dict keys [dict get $::cfg_coll buttons cards]]
-    cfg-pick-dialog "new panel button" $cards "or a fresh label" \
-        cfg-insert-button
+proc cfg-insert-panel-dialog {} {
+    set cards [dict get $::cfg_coll panel cards]
+    cfg-pick-dialog "new panel button — an action" $cards \
+        "or an action's name" cfg-insert-button
 }
 proc cfg-insert-widgets-dialog {} {
     set types [dict get $::cfg_coll widgets types]

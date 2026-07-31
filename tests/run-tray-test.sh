@@ -16,7 +16,8 @@ rm -rf "$HERE/tray-config"
 mkdir -p "$HERE/tray-config"
 cat > "$HERE/tray-config/tk9wm.tcl" <<'EOF'
 set-tray on
-panel-button терм { launch {} }
+action терм {}
+panel-button терм
 EOF
 
 XDG_CONFIG_HOME="$HERE/tray-config" \

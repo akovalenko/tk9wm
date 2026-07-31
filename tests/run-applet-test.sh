@@ -17,7 +17,8 @@ rm -rf "$HERE/applet-config"
 mkdir -p "$HERE/applet-config"
 cat > "$HERE/applet-config/tk9wm.tcl" <<'EOF'
 set-welcome off
-panel-button dummy {launch {exec true &}}
+action dummy {launch {exec true &}}
+panel-button dummy
 EOF
 
 XDG_CONFIG_HOME="$HERE/applet-config" \

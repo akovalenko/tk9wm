@@ -1,7 +1,7 @@
 #!/bin/sh
 # Regression for the style keys that decide a window's SHAPE: `decor`
 # (how much frame it wears) and `place` (the geometry it is born with),
-# plus the `style` shorthand inside a panel-button declaration.
+# plus the `style` shorthand inside an action declaration.
 #
 # The desk carries a panel, so every percentage below is a percentage of
 # the WORKAREA and not of the screen — the test reads _NET_WORKAREA off
@@ -19,7 +19,7 @@
 #                                       yields its POSITION and still
 #                                       says how big — aspect by
 #                                       aspect, see run-yield-test.sh
-#   полочный     declared by a panel-button's `style` shorthand:
+#   полочный     declared by an action's `style` shorthand:
 #                {decor none place 50%right} — the right half, no frame
 #                at all (frame extents 0)
 #   свойразмер   place {right bottom} — sizeless terms: its own size,
@@ -38,11 +38,11 @@ XVFB=$!
 CONF=$(mktemp -d)
 trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-panel-button полка {
+action полка {
     match  {filter -title полочный}
-    launch {}
     style  {decor none place 50%right}
 }
+panel-button полка
 wm-style {filter -title развёрнутый} {place max}
 wm-style {filter -title уголок}      {place "30%bottom,50%right"}
 wm-style {filter -title свойразмер}  {place {right bottom}}

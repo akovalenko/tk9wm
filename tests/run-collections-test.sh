@@ -16,7 +16,8 @@ sleep 1
 rm -rf "$HERE/coll-config"
 mkdir -p "$HERE/coll-config"
 cat > "$HERE/coll-config/tk9wm.tcl" <<'EOF'
-panel-button дом {launch {exec true &}}
+action дом {launch {exec true &}}
+panel-button дом
 wm-bind {<Super>5} {list config-five}
 wm-widget часы -type clock
 wm-keys accords -prefix {<Super>x}
@@ -30,14 +31,24 @@ sleep 1.5
 q() { printf '%s\n' "$1" > "$HERE/coll-config/q.tcl"
       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/coll-config/q.tcl"; }
 
-# the custom layer refines the config's button (merge by label) and
-# buries the config's Super+5 under its own word
-q 'custom-write {panel-button дом {key {<Super>4}}}' >/dev/null
+# the custom layer refines the config's action (merge by name), the
+# panel reference (label override), and buries the config's Super+5
+# under its own word
+q 'custom-write {action дом {key {<Super>4}}}' >/dev/null
+q 'custom-write {panel-button дом {label Дом}}' >/dev/null
 q 'custom-write {wm-bind {<Super>5} {list custom-five}}' >/dev/null
 sleep 0.5
 
 tblq() { q 'set t [collection-table]
-    set b [lindex [dict get $t buttons elements] 0]
+    set b [lindex [dict get $t panel elements] 0]
+    set a {}
+    foreach e [dict get $t actions elements] {
+        if {[dict get $e key] eq "дом"} {
+            set a [list [dict get $e owner] \
+                       launch [dict exists [dict get $e values] launch] \
+                       key [dict exists [dict get $e values] key]]
+        }
+    }
     set five {}
     foreach e [dict get $t bindings elements] {
         if {[dict get $e key] eq "Super+5"} {
@@ -59,8 +70,8 @@ tblq() { q 'set t [collection-table]
         }
     }
     list btn [dict get $b key] [dict get $b owner] \
-         launch [dict exists [dict get $b values] launch] \
-         key [dict exists [dict get $b values] key] \
+         label [dict exists [dict get $b values] label] \
+         act $a \
          five $five widget $w accords $kb'; }
 
 T1=$(tblq)
@@ -68,7 +79,7 @@ q reload-config >/dev/null
 sleep 0.5
 T2=$(tblq)
 
-# the step-C meta: cards (empty here — every described button is on
+# the step-C meta: cards (empty here — the one declared action is on
 # the panel), the widget type catalogue, and a bundle member knowing
 # its family
 META=$(q 'set t [collection-table]
@@ -76,7 +87,7 @@ META=$(q 'set t [collection-table]
     foreach e [dict get $t bindings elements] {
         if {[dict get $e key] eq "Alt+Tab"} { set ab [dict get $e bundle] }
     }
-    list cards [dict keys [dict get $t buttons cards]] \
+    list cards [dict get $t panel cards] \
          types [lsort [dict get $t widgets types]] bundle $ab')
 
 kill $WM 2>/dev/null
@@ -84,7 +95,7 @@ kill $WM 2>/dev/null
 echo "--- table: $T1"
 echo "--- after reload: $T2"
 echo "--- verdict"
-WANT='btn дом custom launch 1 key 1 five {{list custom-five} custom live {list config-five} config dead} widget {{-type clock} config} accords {on config <Super>x}'
+WANT='btn дом custom label 1 act {custom launch 1 key 1} five {{list custom-five} custom live {list config-five} config dead} widget {{-type clock} config} accords {on config <Super>x}'
 if [ "$T1" = "$WANT" ]; then
     echo "OK: every family serves said values, owners and the buried bind"
 else

@@ -16,7 +16,8 @@ sleep 1
 rm -rf "$HERE/styleguard-config"
 mkdir -p "$HERE/styleguard-config"
 cat > "$HERE/styleguard-config/tk9wm.tcl" <<'EOF'
-panel-button dummy {launch {exec true &}}
+action dummy {launch {exec true &}}
+panel-button dummy
 wm-style always {place max force}
 EOF
 

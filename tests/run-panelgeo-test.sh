@@ -30,8 +30,10 @@ EOF
 
 cat > "$HERE/panelgeo-config/tk9wm.tcl" <<'EOF'
 set-icon-path [list __ICONS__]
-panel-button терм {icon ff match {filter -title {геометрия*}}}
-panel-button безикон {}
+action терм {icon ff match {filter -title {геометрия*}}}
+action безикон {}
+panel-button терм
+panel-button безикон
 proc gchk {desc want got} {
     if {$got eq $want} {
         puts "GEO PASS: $desc"

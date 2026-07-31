@@ -15,14 +15,15 @@ rm -rf "$HERE/panel-config"
 mkdir -p "$HERE/panel-config"
 cat > "$HERE/panel-config/tk9wm.tcl" <<'EOF'
 proc is-panel-client {w} { expr {[client-title $w] eq "панель-клиент"} }
-panel-button терм {
+action терм {
     match is-panel-client
     launch {exec __LINUX__/whale __HERE__/client.tcl панель-клиент 240x120 #8ae234 {} {} 30 &}
 }
-# the label is the primary key: this REFINES the button above (adds
+panel-button терм
+# the name is the primary key: this REFINES the action above (adds
 # its chord) instead of declaring a second one — the panel must come
-# up with 1 button and the chord must fire the merged button
-panel-button терм { key {<Super>z} }
+# up with 1 button and the chord must fire the merged action
+action терм { key {<Super>z} }
 EOF
 sed -i "s|__LINUX__|$LINUX|; s|__HERE__|$HERE|" "$HERE/panel-config/tk9wm.tcl"
 
@@ -64,7 +65,7 @@ set -- $(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-panel.log")
 AID=$1; BID=$2
 echo "--- actors: A=$AID B=$BID"
 echo "--- panel lines:"
-grep -E 'panel |focus ->' "$HERE/wm-panel.log"
+grep -E "action терм|panel |focus ->" "$HERE/wm-panel.log"
 
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-panel.log"; then
@@ -80,12 +81,12 @@ if grep -q 'panel default up (1 buttons' "$HERE/wm-panel.log"; then
 else
     echo "FAIL: panel-up says $(grep -o 'up ([0-9]* buttons' "$HERE/wm-panel.log" | head -1), want 1"
 fi
-if [ "$(grep -c "panel терм: launch" "$HERE/wm-panel.log")" = 1 ]; then
+if [ "$(grep -c "action терм: launch" "$HERE/wm-panel.log")" = 1 ]; then
     echo "OK: the empty-desk fire launched the client"
 else
     echo "FAIL: want exactly one launch line"
 fi
-FOUND=$(grep -c "panel терм: found $AID" "$HERE/wm-panel.log")
+FOUND=$(grep -c "action терм: found $AID" "$HERE/wm-panel.log")
 if [ "$FOUND" = 2 ]; then
     echo "OK: chord and click both found and focused A"
 else
@@ -93,7 +94,7 @@ else
 fi
 if awk -v a="$AID" -v b="$BID" '
     /focus -> / && NF == 4 {last=$4}
-    /panel терм: found/ {if (last != b) exit 1; ok=1; exit}
+    /action терм: found/ {if (last != b) exit 1; ok=1; exit}
     END {exit !ok}' "$HERE/wm-panel.log"; then
     echo "OK: the second fire found A while B held the focus"
 else

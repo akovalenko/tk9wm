@@ -33,7 +33,8 @@ sleep 1
 CONF="$HERE/fullscreen-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-panel-button терм { launch {} }
+action терм {}
+panel-button терм
 set-tray on
 EOF
 

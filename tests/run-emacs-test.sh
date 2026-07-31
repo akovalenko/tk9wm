@@ -21,13 +21,18 @@ export HOME="$HERE/emacs-config/home"
 export XDG_RUNTIME_DIR="$HERE/emacs-config/rt"
 cat > "$HERE/emacs-config/tk9wm.tcl" <<'EOF'
 set-terminal xterm
-panel-button tg  {emacs {daemon emtest frame TELEGA eval {(setq tg-evaled 42)}
-                         env {EMTEST via-env}} key {<Super>g}}
-panel-button tgt {emacs {daemon emtest frame TTYEM eval {(setq tty-evaled t)} via terminal} key {<Super>h}}
-panel-button pl  {emacs {frame PLAINF daemon none eval {(setq plain t)}} key {<Super>j}}
-panel-button na  {emacs {daemon ghostd frame GHOSTF autodaemon off} key {<Super>k}}
-panel-button eb  {launch {exec sh -c "printenv BENV > $::env(HOME)/../benv-out" &}
-                  env {BENV yes} key {<Super>l}}
+action tg  {emacs {daemon emtest frame TELEGA eval {(setq tg-evaled 42)}
+                   env {EMTEST via-env}} key {<Super>g}}
+action tgt {emacs {daemon emtest frame TTYEM eval {(setq tty-evaled t)} via terminal} key {<Super>h}}
+action pl  {emacs {frame PLAINF daemon none eval {(setq plain t)}} key {<Super>j}}
+action na  {emacs {daemon ghostd frame GHOSTF autodaemon off} key {<Super>k}}
+action eb  {launch {exec sh -c "printenv BENV > $::env(HOME)/../benv-out" &}
+            env {BENV yes} key {<Super>l}}
+panel-button tg
+panel-button tgt
+panel-button pl
+panel-button na
+panel-button eb
 EOF
 
 XDG_CONFIG_HOME="$HERE/emacs-config" \
@@ -107,7 +112,7 @@ xdotool windowkill "$PID2" 2>/dev/null
 kill $WM 2>/dev/null
 
 echo "--- emacs lines:"
-grep -E 'emacs|panel t' "$HERE/wm-emacs.log"
+grep -E 'emacs|action t' "$HERE/wm-emacs.log"
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-emacs.log"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
@@ -137,7 +142,7 @@ if [ "$(grep -c 'WM: emacs: launch.*TELEGA' "$HERE/wm-emacs.log")" = 1 ]; then
 else
     echo "FAIL: want exactly one TELEGA launch line"
 fi
-if grep -q 'panel tg: found' "$HERE/wm-emacs.log"; then
+if grep -q 'action tg: found' "$HERE/wm-emacs.log"; then
     echo "OK: the gui hit was a find"
 else
     echo "FAIL: no found-line for the gui button"
@@ -183,7 +188,7 @@ if grep -q 'emacs: launch env.*emacsclient.*TELEGA' "$HERE/wm-emacs.log" \
 else
     echo "FAIL: launch lines do not show the two shapes"
 fi
-if grep -q 'panel pl: found' "$HERE/wm-emacs.log"; then
+if grep -q 'action pl: found' "$HERE/wm-emacs.log"; then
     echo "OK: the plain hit was a find (same match, no server talk)"
 else
     echo "FAIL: no found-line for the plain button"

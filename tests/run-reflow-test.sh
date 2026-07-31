@@ -55,7 +55,8 @@ wm-style {filter -title ugol}     {place {bottom right force}}
 wm-style {filter -title maksugol} {place {bottom right force}}
 wm-style {filter -title seredina} {place {40%center force}}
 wm-style {filter -title terminal} {place {max force}}
-panel-button один { launch {} }'
+action один {}
+panel-button один'
 
 # set-title-font FIRST, and it matters: it is a knob that touches live
 # frames AT ONCE (retitle-frames rebuilds the panels, the strip height

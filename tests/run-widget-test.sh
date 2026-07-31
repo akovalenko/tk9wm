@@ -30,7 +30,8 @@ trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-welcome off
 set-tray on
-panel-button терминал { launch {exec xterm &} }
+action терминал { launch {exec xterm &} }
+panel-button терминал
 wm-widget clock -type clock -on {panel default} -background #4e9a06
 EOF
 sleep 1
@@ -81,7 +82,8 @@ sleep 0.5
 # --- the same widget, told to live on the desk instead
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-welcome off
-panel-button терминал { launch {exec xterm &} }
+action терминал { launch {exec xterm &} }
+panel-button терминал
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
@@ -94,7 +96,8 @@ DESKWIN=$(xdotool search --onlyvisible --name '^tk9wm-desk$' | head -1)
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-welcome off
 set-desk-window off
-panel-button терминал { launch {exec xterm &} }
+action терминал { launch {exec xterm &} }
+panel-button терминал
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
@@ -107,7 +110,8 @@ OFFPX=$(here "$(area | sed 's/ .*//')")
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-welcome off
 set-desk-font -size 20
-panel-button терминал { launch {exec xterm &} }
+action терминал { launch {exec xterm &} }
+panel-button терминал
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1

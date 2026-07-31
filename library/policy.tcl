@@ -4528,22 +4528,24 @@ proc emacs-eval-run {cmd} {
 }
 
 # ---- the panel ----
-# Our own strip panel, wmaker-flavored buttons: a button is
-# IDEMPOTENT — fired (by click or by its chord) it FOCUSES the most
-# recently used window its predicate matches, and LAUNCHES its command
-# when nothing does; the button face flashes the verdict either way
-# (green "found it", orange "launching"). Declared from the config:
+# Our own strip panel, wmaker-flavored buttons — and a button is a
+# REFERENCE: the deed itself is an action (see below), a button is
+# how a panel wears one. Fired by click it does what the action's
+# name does — focus the most recent match, else launch — and the
+# face flashes the verdict either way (green "found it", orange
+# "launching"); the chord is the ACTION's own business, live with no
+# panel at all. Declared from the config:
 #
-#   panel-button LABEL {match PRED launch SCRIPT icon SPEC key CHORD}
+#   panel-button NAME ?{label TEXT icon SPEC}?
 #
-# match is a predicate command prefix (filter, or any proc — the
-# wm-style vocabulary), launch any Tcl script, icon anything
-# resolve-icon takes, key a wm-bind chord spec; every key is optional.
-# The panel exists only when at least one button is declared — stock
-# behavior is panel-less — and the workarea hands the strip over the
-# moment there are buttons, so maximize never covers it. Every
-# raise-group ends by lifting the panel back on top: fvwm's
-# StaysOnTop for the poor, good enough until layers exist.
+# NAME names an action; the optional overrides dress it for THIS
+# panel — label is display only (the reference's key stays the
+# action's name), icon covers the action's own face. The panel
+# exists only when at least one reference resolves — stock behavior
+# is panel-less — and the workarea hands the strip over the moment
+# there are buttons, so maximize never covers it. Every raise-group
+# ends by lifting the panel back on top: fvwm's StaysOnTop for the
+# poor, good enough until layers exist.
 #
 # Where and how, two knobs. set-panel-side top|bottom|left|right picks
 # the screen edge (left and right are vertical treectrls — only the
@@ -4589,14 +4591,16 @@ proc emacs-eval-run {cmd} {
 # keeps its insertion order, so the dict IS the declaration order the
 # bands are carved in, and the config layer's snapshot/restore machinery
 # (which knows how to put a variable back) covers panels for free.
-# Build products stay OUT of it: the live widget and the arrow zone are
-# per-panel too, but they are what a build produced, not what the user
-# asked for, and a reset has no business restoring them. Beside the
-# expanded `buttons` sits `raw` — per label, the merged words the
-# layers actually SAID about it; the expansion is derived from that,
-# and the raw is what a refinement merges into (see panel-button).
+# `refs` is what the layers SAID: per action name, the merged display
+# overrides — a dict again, so its order is the strip's order.
+# `shown` is what a build RESOLVED out of that against the action
+# registry (waiting and undeclared names skipped), {name label spec}
+# per button. A build product, riding in the same dict for the
+# asking — safe there because every build re-resolves it from
+# nothing, so a restored stale copy can mislead nobody. The live
+# widget and the arrow zone stay out as before.
 proc panel-defaults {} {
-    dict create side bottom preset row icon_size 48 buttons {} raw {}
+    dict create side bottom preset row icon_size 48 refs {} shown {}
 }
 # Empty, and `default` is created on first mention like any other name.
 # That is what makes the dict's order the CONFIG's order: a `default`
@@ -4770,6 +4774,9 @@ proc action-realize {name} {
     if {$state eq "active" && [dict exists $spec key]} {
         wm-bind [dict get $spec key] [list action-fire $name] $name
     }
+    # any strip carrying this name shows the NEW spec — the panels
+    # resolve their references at build, so the build must come
+    panel-rebuild-soon
 }
 
 # THE ONE DOOR every plain launch walks through. Today it is exec's
@@ -4830,92 +4837,83 @@ proc action-flash {name state} {
     }
 }
 
-# THE LABEL IS THE PRIMARY KEY (the owner, 2026-08-01). Saying
-# panel-button Emacs twice does not make two buttons: the second call
-# REFINES the first — the keys it says now merge over what stood, the
-# keys it does not say stand, and the button keeps the position its
-# FIRST declaration gave it. A config that meant two different
-# buttons by one label gets the one merged button; that is the
-# semantics, not a loss. The merge is of RAW settings — what the
-# layers SAID, kept per label beside the expanded list — and the
-# providers re-derive from the merged result, so a later word about
-# `terminal` re-derives match and launch instead of tripping over
-# the derivation the first call left in place. An EMPTY value takes
-# its key out ("no chord after all"): a merge can only ever add
-# words, and un-saying one needs a way to be said.
-proc panel-button {label settings} {
-    # A button that NEEDS a command the system does not have is a NOOP
-    # with one line in the log — the gate that lets a shared or stock
-    # definition say "no mutt on this machine, no mutt button" (the
-    # owner's order). Explicit only, never derived from `run`: a
-    # derived gate would make a typo in a hand-written button vanish
-    # silently, and a button that silently is not there is worse than
-    # one that fails to launch. THIS call's needs, not the merged
-    # memory's: a replay must skip the same calls the live path did.
-    if {[dict exists $settings needs]} {
-        foreach c [dict get $settings needs] {
-            if {[auto_execok $c] eq ""} {
-                puts "WM: panel $label: needs $c — not found, button skipped"
-                return
-            }
+# THE NAME IS THE ACTION'S NAME (the actions-first turn): a button
+# holds no settings of its own any more — no match, no launch, no
+# chord; all of that lives on the action it references, declared
+# once and worn by any panel. What the reference CAN say is how it
+# dresses here: `label` (display only — the key stays the name) and
+# `icon` (over the action's own face). Saying panel-button Emacs
+# twice does not make two buttons: the second call REFINES the
+# first — overrides merge, an empty value un-says one ("the plain
+# label after all") — and the button keeps the position its FIRST
+# declaration gave it. Referencing an action nobody has declared
+# yet, or one still waiting on its software, is LEGITIMATE: the
+# strip skips it at resolve (panel-resolve says so in the log), and
+# the button surfaces by itself on the reload that brings the
+# action alive.
+proc panel-button {name {overrides {}}} {
+    if {[llength $overrides] % 2} {
+        error "panel-button $name: overrides want key value pairs"
+    }
+    foreach k [dict keys $overrides] {
+        if {$k ni {label icon}} {
+            error "panel-button $name: unknown override \"$k\" — a\
+ button is a reference to an action; label and icon are all it\
+ overrides (the deed itself is `action $name`'s to describe)"
         }
     }
-    set name $::panel_target
-    panel-ensure $name
-    set raw $settings
-    if {[dict exists $::panels $name raw $label]} {
-        set raw [dict merge [dict get $::panels $name raw $label] $settings]
+    set pn $::panel_target
+    panel-ensure $pn
+    set raw $overrides
+    if {[dict exists $::panels $pn refs $name]} {
+        set raw [dict merge [dict get $::panels $pn refs $name] $overrides]
     }
-    # An empty value is an ERASE ("no chord after all") — EXCEPT
-    # `terminal`, whose empty dict is a word of its own: "just a
-    # terminal" (see the terminal layer). Measured on the owner's
-    # desk, the day this sweep was born: his Terminal button says
-    # `terminal {}`, the sweep took it, the button lost its derived
-    # match, its style then errored on the matchless button — and the
-    # whole config tail after that line never loaded.
     foreach k [dict keys $raw] {
-        if {$k ne "terminal" && [dict get $raw $k] eq ""} { dict unset raw $k }
+        if {[dict get $raw $k] eq ""} { dict unset raw $k }
     }
-    set expanded [panel-button-derive $label $raw]
-    dict set ::panels $name raw $label $raw
-    set buttons [panel-cfg $name buttons]
-    set i [panel-index $name $label]
-    if {$i < 0} {
-        lappend buttons [list $label $expanded]
-    } else {
-        # the old chord goes with the old settings — otherwise a
-        # button that changed its key would answer to both
-        set old [lindex [lindex $buttons $i] 1]
-        if {[dict exists $old key]} { wm-unbind [dict get $old key] }
-        set buttons [lreplace $buttons $i $i [list $label $expanded]]
-    }
-    dict set ::panels $name buttons $buttons
-    if {[dict exists $expanded key]} {
-        # ...and the binding carries the BUTTON'S name, so the help
-        # list reads "Super+e → emacs" and not "panel-fire dock 2".
-        # BY LABEL, not by index: a collection that can be edited can
-        # be shortened, and every index after the gap would have meant
-        # a different button than the chord was bound to.
-        wm-bind [dict get $expanded key] \
-            [list panel-fire-labelled $name $label] $label
-    }
-    # `style` is a shorthand and nothing more: the button's own match
-    # predicate, handed to wm-style with these settings. It exists
-    # because a button and the windows it finds are usually described by
-    # the SAME filter, and writing it twice (or hoisting it into a proc
-    # to write it once) is bookkeeping the config should not have to do.
-    # The rule lands in the list WHEN THE STYLE IS SAID — this call's
-    # word, not the merged memory's: re-landing a remembered style on
-    # every refinement would stack duplicates of the same rule.
-    if {[dict exists $settings style] && [dict get $settings style] ne ""} {
-        if {![dict exists $expanded match]} {
-            error "panel-button $label: style needs a match to apply to"
-        }
-        wm-style [dict get $expanded match] [dict get $settings style]
-    }
+    dict set ::panels $pn refs $name $raw
     panel-rebuild-soon
 }
-# What the panel machinery RUNS ON is the derived form of the raw
+# What a strip SHOWS is resolved here, reference by reference,
+# against the action registry — never at declaration: a config may
+# reference an action it declares three lines later. An undeclared
+# name and a waiting one are skipped; the rest come out as {name
+# label spec}, the spec the action's own with the reference's icon
+# over it. Two callers, two moods: the BUILD resolves once, stores
+# the list for the fire/index machinery and SAYS (`say`) which
+# references stand by; the geometry (panel-measure) resolves live
+# and silently — the strip's thickness is asked about (the workarea,
+# the bands) between declaration and build, and an answer read off a
+# stale stored list made the workarea hop an extra time on every
+# startup (measured — the reflow suite counts the hops).
+proc panel-resolve {name {say 0}} {
+    set shown {}
+    dict for {aname over} [panel-cfg $name refs] {
+        if {![dict exists $::action_spec $aname]} {
+            if {$say} {
+                puts "WM: panel $name: no action named $aname —\
+ the button stands by"
+            }
+            continue
+        }
+        set spec [dict get $::action_spec $aname]
+        if {[dict get $spec state] ne "active"} {
+            if {$say} {
+                puts "WM: panel $name: action $aname waits on\
+ [dict get $spec needs] — the button stands by"
+            }
+            continue
+        }
+        set label $aname
+        if {[dict exists $over label]} { set label [dict get $over label] }
+        if {[dict exists $over icon]} {
+            dict set spec icon [dict get $over icon]
+        }
+        lappend shown [list $aname $label $spec]
+    }
+    return $shown
+}
+# What the machinery RUNS ON is the derived form of an action's raw
 # words. `terminal` is a PROVIDER of the two halves, not a third
 # thing: it fills in match and launch (an explicit one beside it
 # wins) and the machinery never hears of it. The derived match is
@@ -4932,9 +4930,6 @@ proc panel-button {label settings} {
 # no name word stays possible — simply never matches, which IS the
 # launch-only degradation, and spawn-terminal says so when it
 # drops the name.
-proc panel-button-derive {label settings} {
-    spec-derive "panel-button $label" $settings
-}
 proc spec-derive {who settings} {
     dict-shaped "$who: env" $settings env
     if {[dict exists $settings terminal]} {
@@ -4984,24 +4979,20 @@ proc spec-derive {who settings} {
 }
 # OWNING THE SET. The customization layer's word about a panel is the
 # WHOLE set or nothing (the owner, 2026-08-01): no deltas over the
-# config's line-up. panel-buttons-own NAME empties panel NAME — every
-# button and its chord — and the ordinary panel-button declarations
-# that follow ARE the set, in the order the panel wears it; a remove
-# verb would be a second way to say what absence already says, so
-# there is none. What the sweep KEEPS is the raw memory of what each
-# label was told: a config's declaration remains the catalogue entry
-# for "how this button works if I want it", and an owned set
-# re-admits it by its bare label — panel-button терм {} — description
-# and all. The other collections keep a removal verb each, where
-# absence cannot say it: a widget's declaration replaces by name and
-# wm-bind by chord, so those two need only the taking-away.
+# config's line-up. panel-buttons-own NAME empties panel NAME — the
+# references go — and the ordinary panel-button lines that follow ARE
+# the set, in the order the panel wears it; a remove verb would be a
+# second way to say what absence already says, so there is none. And
+# that is ALL it empties now: the chords ride the actions and the
+# descriptions live in the action registry, so there is no bound key
+# to sweep and no raw memory to keep — a dropped reference loses
+# nothing that a bare `panel-button NAME` cannot bring back whole.
+# The other collections keep a removal verb each, where absence
+# cannot say it: a widget's declaration replaces by name and wm-bind
+# by chord, so those two need only the taking-away.
 proc panel-buttons-own {name} {
     panel-ensure $name
-    foreach b [panel-cfg $name buttons] {
-        set s [lindex $b 1]
-        if {[dict exists $s key]} { wm-unbind [dict get $s key] }
-    }
-    dict set ::panels $name buttons {}
+    dict set ::panels $name refs {}
     panel-rebuild-soon
 }
 proc wm-widget-remove {name} {
@@ -5020,14 +5011,14 @@ proc panel-rebuild-soon {} {
         after idle {unset ::panel_pending; panels-build}
     }
 }
-# Every button of every panel, as {panel index label settings} — the
-# sweeps (re-judging matches, counting for a log line) say what they do
-# to a button and not which panel it is on.
+# Every SHOWN button of every panel, as {panel index name label
+# settings} — the sweeps (re-judging matches, counting for a log
+# line) say what they do to a button and not which panel it is on.
 proc panel-all-buttons {} {
     set out {}
     dict for {name p} $::panels {
         set i 0
-        foreach b [dict get $p buttons] {
+        foreach b [dict get $p shown] {
             lappend out [list $name $i {*}$b]
             incr i
         }
@@ -5066,7 +5057,7 @@ proc panel-match-kick {} {
 }
 proc panel-reeval {} {
     foreach b [panel-all-buttons] {
-        lassign $b name i label settings
+        lassign $b name i aname label settings
         set T [panel-tree $name]
         if {$T eq ""} continue
         set n [llength [panel-matches $label $settings]]
@@ -5107,14 +5098,14 @@ proc panel-geometry {name} {
     return $::panel_geo($name)
 }
 proc panel-measure {name} {
-    set buttons [panel-cfg $name buttons]
+    set buttons [panel-resolve $name]
     set preset [panel-cfg $name preset]
     set isz [panel-cfg $name icon_size]
     set vert [expr {[panel-cfg $name side] in {left right}}]
     set faces {}
     set iconic 0
     foreach b $buttons {
-        lassign $b label settings
+        lassign $b aname label settings
         set img ""
         if {[dict exists $settings icon]} {
             set img [resolve-icon [dict get $settings icon] $isz]
@@ -5133,7 +5124,7 @@ proc panel-measure {name} {
     set aw [font measure PanelFont ▾]
     set zoned 0
     foreach b $buttons {
-        if {[dict exists [lindex $b 1] match]} { set zoned 1; break }
+        if {[dict exists [lindex $b 2] match]} { set zoned 1; break }
     }
     set zone [expr {$zoned ? $aw + 12 : 0}]
     if {!$iconic} {
@@ -5155,7 +5146,7 @@ proc panel-measure {name} {
     } elseif {$vert} {
         set maxw 0
         foreach b $buttons f $faces {
-            lassign $b label settings
+            lassign $b aname label settings
             set tw [font measure PanelFont $label]
             if {!$iconic} {
                 set cw $tw
@@ -5218,10 +5209,16 @@ proc panels-build {} {
             font delete $f
         }
     }
+    # Resolve EVERY panel's references before building ANY: the bands
+    # are carved out of one another, and a band asks every other
+    # panel's thickness — which is a question about its resolved set.
+    foreach name [panel-names] {
+        dict set ::panels $name shown [panel-resolve $name 1]
+    }
     set idx 0
     dict for {name p} $::panels {
         incr idx
-        if {[llength [dict get $p buttons]]} { panel-build $name $idx }
+        if {[llength [dict get $p shown]]} { panel-build $name $idx }
     }
     tray-layout      ;# a panel's thickness is the tray's too — it follows
     # A strip that just came up is a NEW window, and whatever rode the
@@ -5245,7 +5242,7 @@ proc panel-build {name idx} {
     set isz [dict get $g icon_size]
     set bfont [dict get $g badge_font]
     set side [panel-cfg $name side]
-    set buttons [panel-cfg $name buttons]
+    set buttons [panel-cfg $name shown]
     set ::panel_zone($name) $zone
     set er [expr {8 + $zone}]   ;# the face's east inner pad
     set P .panel$idx
@@ -5418,7 +5415,7 @@ proc panel-build {name idx} {
         }
     }
     foreach b $buttons f $faces {
-        lassign $b label settings
+        lassign $b aname label settings
         set item [$T item create]
         if {!$iconic} {
             $T item style set $item C0 sBtn
@@ -5490,62 +5487,35 @@ proc panel-focus-hit {w} {
     raise-group $w
     focus-to $w
 }
-proc panel-index {name label} {
+# The index of an action's button in panel NAME's strip — by the
+# action's NAME, which is the reference's key; -1 when the strip is
+# not showing it (never referenced, or standing by).
+proc panel-index {name aname} {
     set i 0
-    foreach b [panel-cfg $name buttons] {
-        if {[lindex $b 0] eq $label} { return $i }
+    foreach b [panel-cfg $name shown] {
+        if {[lindex $b 0] eq $aname} { return $i }
         incr i
     }
     return -1
 }
-proc panel-fire-labelled {name label} {
-    set i [panel-index $name $label]
-    if {$i < 0} {
-        puts "WM: panel $label: gone from panel $name — nothing to fire"
+# A button press IS the action's fire: everything a click means —
+# run-or-raise, the activate hook, the env around the launch, the
+# flash on every panel carrying the name — is action-fire's one
+# story, and the button adds nothing of its own.
+proc panel-fire {name i} {
+    set b [lindex [panel-cfg $name shown] $i]
+    if {$b eq ""} {
+        puts "WM: panel $name: no button $i — nothing to fire"
         return
     }
-    panel-fire $name $i
-}
-proc panel-fire {name i} {
-    lassign [lindex [panel-cfg $name buttons] $i] label settings
-    set hit [lindex [panel-matches $label $settings] 0]
-    if {$hit ne ""} {
-        puts "WM: panel $label: found 0x[format %x $hit]"
-        panel-flash $name $i found
-        # A button may bring its own idea of what a hit means —
-        # `activate` replaces the plain focus (and is handed the
-        # window); everything before this line stays common.
-        if {[dict exists $settings activate]} {
-            if {[catch {uplevel #0 [list {*}[dict get $settings activate] $hit]} err]} {
-                puts "WM: panel $label: activate FAILED: $err"
-            }
-            return
-        }
-        panel-focus-hit $hit
-    } elseif {[dict exists $settings launch]} {
-        puts "WM: panel $label: launch"
-        panel-flash $name $i firing
-        # The button's own env wraps the launch — any button's, the
-        # derived ones included: children of every exec inherit ::env,
-        # and with-env puts the previous values back. Launch only: a
-        # hit's activate path talks to things already running.
-        set script [dict get $settings launch]
-        if {[dict exists $settings env]} {
-            set script [list with-env [dict get $settings env] $script]
-        }
-        if {[catch {uplevel #0 $script} err]} {
-            puts "WM: panel $label: launch FAILED: $err"
-        }
-    } else {
-        puts "WM: panel $label: nothing matched, nothing to launch"
-    }
+    action-fire [lindex $b 0]
 }
 # The arrow zone: the winlist filtered to this button's matches,
 # anchored by the button — picking focuses (winlist-pick). Fewer
 # than two matches means the arrow is stale (the debounce window):
 # degrade to the plain fire.
 proc panel-arrow {name i} {
-    lassign [lindex [panel-cfg $name buttons] $i] label settings
+    lassign [lindex [panel-cfg $name shown] $i] aname label settings
     set wins [panel-matches $label $settings]
     if {[llength $wins] < 2} { panel-fire $name $i; return }
     puts "WM: panel $label: arrow — [llength $wins] matches"
@@ -6548,20 +6518,13 @@ collection actions {
         env      {kind dict  doc {environment around the launch}}
     }
 }
-collection buttons {
-    key label ordered yes
-    doc {the default panel's buttons, in the order the strip wears them}
-    list collection-buttons
+collection panel {
+    key name ordered yes
+    doc {the default panel — references to actions, in strip order}
+    list collection-panel
     fields {
-        match    {kind text  doc {predicate: which window this button seeks}}
-        launch   {kind text  doc {what to run when nothing matches}}
-        icon     {kind text  doc {the button's face}}
-        key      {kind chord doc {the chord that presses it}}
-        needs    {kind list  doc {commands this button refuses to exist without}}
-        style    {kind text  doc {a style rule for the windows it finds}}
-        terminal {kind dict  doc {a semantic terminal button: name run title env args}}
-        emacs    {kind dict  doc {a semantic emacs button: daemon frame eval via}}
-        env      {kind dict  doc {environment around the launch}}
+        label {kind text doc {how the button reads — the action's name when unsaid}}
+        icon  {kind text doc {a face for this panel — the action's own when unsaid}}
     }
 }
 collection bindings {
@@ -6595,11 +6558,11 @@ collection keys {
 }
 
 # A list script answers a DICT — elements, plus whatever meta only
-# the live state knows: buttons say whether the custom layer OWNS the
-# set (the adoption gate the editing rules turn on), and each button
-# carries `said` — the custom layer's own word for it, which is what
-# a save must accumulate onto so a standing delta survives the next
-# edit.
+# the live state knows: the panel says whether the custom layer OWNS
+# the set (the adoption gate the editing rules turn on), and each
+# element carries `said` — the custom layer's own word for it, which
+# is what a save must accumulate onto so a standing delta survives
+# the next edit.
 proc collection-actions {} {
     set out {}
     dict for {name raw} $::action_raw {
@@ -6621,47 +6584,36 @@ proc collection-actions {} {
     }
     dict create elements $out
 }
-proc collection-buttons {} {
+# The panel family is REFERENCES: each element an action's name with
+# its display overrides, `waiting` flagging one the strip is not
+# showing — its action undeclared still, or gated on software the
+# machine lacks; the reference stays VISIBLE here either way, since
+# a customization must never need the file dug out by hand. The
+# CARDS are the registry's other half: every action NOT on the
+# panel, which is exactly what Insert can bring in — the catalogue
+# was the buttons' raw memory once, and is the action registry
+# itself now.
+proc collection-panel {} {
     set out {}
-    foreach b [panel-cfg default buttons] {
-        set label [lindex $b 0]
-        set raw {}
-        catch {set raw [dict get $::panels default raw $label]}
-        set e [dict create key $label values $raw \
-                   owner [knob-owner "panel-button $label"]]
-        if {[dict exists $::layer_knobs custom "panel-button $label"]} {
-            set cmd [dict get $::layer_knobs custom "panel-button $label"]
+    dict for {aname over} [panel-cfg default refs] {
+        set e [dict create key $aname values $over \
+                   owner [knob-owner "panel-button $aname"]]
+        if {![dict exists $::action_spec $aname]
+                || [dict get $::action_spec $aname state] ne "active"} {
+            dict set e waiting 1
+        }
+        if {[dict exists $::layer_knobs custom "panel-button $aname"]} {
+            set cmd [dict get $::layer_knobs custom "panel-button $aname"]
             if {[lindex $cmd 0] eq "panel-button"} {
                 dict set e said [lindex $cmd 2]
             }
         }
         lappend out $e
     }
-    # The CARDS: labels the layers described that are NOT on the
-    # panel. Two kinds, told apart by `waiting`: a raw memory the set
-    # dropped (a deleted button — Insert brings it back by its bare
-    # label), and the custom layer's own word the desk is SKIPPING —
-    # unmet needs, a button declared ahead of its software (the
-    # owner's case): it stands by, and appears by itself when the
-    # command does. Either way the button stays VISIBLE here; a
-    # customization must never need the file dug out by hand.
     set cards {}
-    set live [lmap b [panel-cfg default buttons] {lindex $b 0}]
-    if {[dict exists $::panels default raw]} {
-        dict for {label raw} [dict get $::panels default raw] {
-            if {$label ni $live} {
-                dict set cards $label [dict create values $raw waiting no]
-            }
-        }
-    }
-    if {[dict exists $::layer_knobs custom]} {
-        dict for {k cmd} [dict get $::layer_knobs custom] {
-            if {[lindex $k 0] ne "panel-button"} continue
-            if {[lindex $cmd 0] ne "panel-button"} continue
-            set label [lindex $cmd 1]
-            if {$label in $live} continue
-            dict set cards $label \
-                [dict create values [lindex $cmd 2] waiting yes]
+    dict for {aname -} $::action_raw {
+        if {![dict exists $::panels default refs $aname]} {
+            lappend cards $aname
         }
     }
     dict create elements $out cards $cards owned [expr {[dict exists \

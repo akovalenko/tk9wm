@@ -29,8 +29,10 @@ vwait ::forever
 EOF
 
 cat > "$HERE/panellive-config/tk9wm.tcl" <<'EOF'
-panel-button жилец {match {filter -title {жилец*}}}
-panel-button пусто {match {filter -title {нет-таких*}}}
+action жилец {match {filter -title {жилец*}}}
+action пусто {match {filter -title {нет-таких*}}}
+panel-button жилец
+panel-button пусто
 proc lchk {desc want got} {
     if {$got eq $want} {
         puts "LIVE PASS: $desc"

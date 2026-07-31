@@ -23,9 +23,10 @@ XVFB=$!
 CONF=$(mktemp -d)
 trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
+action полка {}
 panel dock {
     set-panel-side left
-    panel-button полка {}
+    panel-button полка
 }
 EOF
 sleep 1

@@ -39,7 +39,8 @@ cat > "$HERE/iconpath-config/tk9wm.tcl" <<'EOF'
 set-icon-path [list __ICONS__]
 image create photo imgOwn -width 100 -height 100
 wm-style {filter -title {проба*}} {icon ff}
-panel-button тест {icon ff}
+action тест {icon ff}
+panel-button тест
 proc icon-battery {} {
     set tk 0
     foreach w [array names ::frameof] {

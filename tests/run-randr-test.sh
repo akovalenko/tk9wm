@@ -25,7 +25,8 @@ rm -rf "$HERE/randr-config"
 mkdir -p "$HERE/randr-config"
 cat > "$HERE/randr-config/tk9wm.tcl" <<'EOF'
 proc never {w} { return 0 }
-panel-button тест {match never}
+action тест {match never}
+panel-button тест
 # `force`, because a Tk client's `wm geometry` claims a position and a
 # place yields to a claim unless it insists.
 wm-style {filter -title жилец} {place {max force}}

@@ -29,13 +29,14 @@ wm-bind {Super+t Ctrl+j} {puts "WM: the shown spelling binds too"}
 # in as <Shift>slash on any layout, never as `question` (see the help
 # key's comment in the substrate).
 wm-bind {<Super>t <Shift>slash} {puts "WM: shift-slash, not question"}
-# A panel button's chord is bound to `panel-fire NAME INDEX`; the help
-# must call it by the button's own name instead.
-panel-button "терминал" {
+# An action's chord is bound to `action-fire NAME`; the help must
+# call it by the name itself, panel or no panel.
+action "терминал" {
     match  {filter -class {xterm XTerm}}
     launch {exec xterm &}
     key    {<Super>t x}
 }
+panel-button "терминал"
 EOF
 sleep 1
 

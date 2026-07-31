@@ -17,13 +17,16 @@ mkdir -p "$HERE/custom-config"
 cat > "$HERE/custom-config/tk9wm.tcl" <<'EOF'
 set-title-font -weight bold
 set-edge-resist 3
-panel-button dummy {launch {exec true &}}
+action dummy {launch {exec true &}}
 # `terminal {}` is a WORD (just a terminal), not an erasure: if the
-# merge sweep ever eats it again, this button loses its derived match,
+# merge sweep ever eats it again, this action loses its derived match,
 # its style errors, and nothing below this line loads — every tail
 # assertion then fails loudly (the owner's desk, 2026-08-01)
-panel-button anyterm {terminal {} style {place center}}
-panel-button second {launch {exec true &} key {<Super>2}}
+action anyterm {terminal {} style {place center}}
+action second {launch {exec true &} key {<Super>2}}
+panel-button dummy
+panel-button anyterm
+panel-button second
 EOF
 cat > "$HERE/custom-config/tk9wm.custom.tcl" <<'EOF'
 set-title-font -weight normal
@@ -47,26 +50,28 @@ sleep 0.5
 FADE=$(q 'set ::fade')
 KT=$(q 'set t [knob-table]; list [dict get $t set-fade value] [dict get $t set-minimize kind] [dict get $t set-panel-side value] [dict get $t set-title-font group]')
 
-# COLLECTIONS: the label is the primary key — a custom word REFINES
-# the config's button instead of adding a second one; owning the set
-# (panel-buttons-own) sweeps the panel, the declarations after it ARE
+# COLLECTIONS: the name is the primary key — a custom word REFINES
+# the config's action instead of adding a second one; owning the set
+# (panel-buttons-own) sweeps the panel, the references after it ARE
 # the set, and a swept button is simply absent — no remove verb. The
-# raw memory survives the sweep, so the re-admitted dummy keeps the
-# launch only the config ever said. And it must all REPLAY the same
-# from the file, with the sweep written above the buttons.
-q 'custom-write {panel-button dummy {key {<Super>9}}}' >/dev/null
+# description lives on the ACTION, so the re-admitted dummy comes
+# back whole by its bare name — and the swept second keeps its
+# CHORD: the bind rides the action, not the button, and outlives the
+# strip. It must all REPLAY the same from the file, with the sweep
+# written above the references.
+q 'custom-write {action dummy {key {<Super>9}}}' >/dev/null
 q 'custom-write {panel-buttons-own default}' >/dev/null
-q 'custom-write {panel-button dummy {key {<Super>9}}}' >/dev/null
+q 'custom-write {panel-button dummy {}}' >/dev/null
 q 'custom-write {wm-bind {<Super>7} {list seven}}' >/dev/null
 sleep 0.5
 collq() { q 'set names {}
-          foreach b [panel-cfg default buttons] { lappend names [lindex $b 0] }
-          list buttons $names                dummylaunch [dict exists [lindex [lindex [panel-cfg default buttons] 0] 1] launch]                secondchord [dict exists $::keymap [join [parse-chord {<Super>2}] ,]]                newchord [dict exists $::keymap [join [parse-chord {<Super>9}] ,]]'; }
+          foreach b [panel-cfg default shown] { lappend names [lindex $b 0] }
+          list buttons $names                dummylaunch [dict exists [lindex [lindex [panel-cfg default shown] 0] 2] launch]                secondchord [dict exists $::keymap [join [parse-chord {<Super>2}] ,]]                newchord [dict exists $::keymap [join [parse-chord {<Super>9}] ,]]'; }
 COLL=$(collq)
 q reload-config >/dev/null
 sleep 0.5
 COLL2=$(collq)
-FILEORDER=$(grep -n 'panel-button\|wm-bind\|set-fade' "$HERE/custom-config/tk9wm.custom.tcl" | tr '
+FILEORDER=$(grep -n 'panel-button\|wm-bind\|set-fade\|action ' "$HERE/custom-config/tk9wm.custom.tcl" | tr '
 ' ' ')
 
 kill $WM 2>/dev/null
@@ -142,10 +147,10 @@ fi
 echo "--- collections: $COLL"
 echo "--- after reload: $COLL2"
 echo "--- file: $FILEORDER"
-WANTCOLL="buttons dummy dummylaunch 1 secondchord 0 newchord 1"
+WANTCOLL="buttons dummy dummylaunch 1 secondchord 1 newchord 1"
 case $COLL in
     "$WANTCOLL")
-        echo "OK: the owned set holds one refined button, the swept chord is gone" ;;
+        echo "OK: the owned set holds one button; the swept second keeps its chord — binds ride actions" ;;
     *) echo "FAIL: collections: $COLL" ;;
 esac
 case $COLL2 in
@@ -154,8 +159,8 @@ case $COLL2 in
     *) echo "FAIL: collections after reload: $COLL2" ;;
 esac
 case $FILEORDER in
-    *set-fade*wm-bind*"panel-buttons-own default"*"panel-button dummy"*)
-        echo "OK: knobs and binds sorted; the owned set one section, sweep first" ;;
+    *"action dummy"*set-fade*wm-bind*"panel-buttons-own default"*"panel-button dummy"*)
+        echo "OK: knobs, actions and binds sorted; the owned set one section, sweep first" ;;
     *) echo "FAIL: file layout: $FILEORDER" ;;
 esac
 check_invariants "$HERE/wm-custom.log"

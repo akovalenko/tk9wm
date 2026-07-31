@@ -17,7 +17,7 @@ rm -rf "$HERE/terminal-config"
 mkdir -p "$HERE/terminal-config"
 cat > "$HERE/terminal-config/tk9wm.tcl" <<'EOF'
 set-terminal xterm
-panel-button mutt {
+action mutt {
     terminal {
         name muttx
         title "именованный терминал"
@@ -27,8 +27,11 @@ panel-button mutt {
     }
     key {<Super>m}
 }
-panel-button anyterm {terminal {} key {<Super>n}}
-panel-button ghost {launch {exec sleep 30 &} needs no-such-cmd-xyzzy}
+action anyterm {terminal {} key {<Super>n}}
+action ghost {launch {exec sleep 30 &} needs no-such-cmd-xyzzy}
+panel-button mutt
+panel-button anyterm
+panel-button ghost
 EOF
 sed -i "s|__HERE__|$HERE|" "$HERE/terminal-config/tk9wm.tcl"
 
@@ -63,10 +66,10 @@ if grep -q 'panel default up (2 buttons' "$HERE/wm-terminal.log"; then
 else
     echo "FAIL: want the panel up with exactly 2 buttons"
 fi
-if grep -q 'panel ghost: needs no-such-cmd-xyzzy — not found' "$HERE/wm-terminal.log"; then
+if grep -q 'action ghost waits on no-such-cmd-xyzzy — the button stands by' "$HERE/wm-terminal.log"; then
     echo "OK: the needs gate said why the ghost is off"
 else
-    echo "FAIL: no needs-skip line for the ghost"
+    echo "FAIL: no stands-by line for the ghost"
 fi
 if grep -q 'terminal: xterm at .* (set-terminal)' "$HERE/wm-terminal.log"; then
     echo "OK: resolution took the config's word"
@@ -100,12 +103,12 @@ if [ "$TTL" = '"именованный терминал"' ]; then
 else
     echo "FAIL: WM_NAME is $TTL"
 fi
-if grep -q "panel mutt: found $AID" "$HERE/wm-terminal.log"; then
+if grep -q "action mutt: found $AID" "$HERE/wm-terminal.log"; then
     echo "OK: the derived match found the named window"
 else
     echo "FAIL: no found-line for the mutt button"
 fi
-if grep -q "panel anyterm: found $AID" "$HERE/wm-terminal.log"; then
+if grep -q "action anyterm: found $AID" "$HERE/wm-terminal.log"; then
     echo "OK: the nameless button recognized a terminal it did not launch"
 else
     echo "FAIL: no found-line for the anyterm button"

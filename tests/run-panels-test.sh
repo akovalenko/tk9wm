@@ -24,11 +24,13 @@ cat > "$HERE/panels-config/tk9wm.tcl" <<'EOF'
 # A dock down the LEFT edge, declared first, and the stock bar along
 # the bottom — declared the way a config that never heard of the plural
 # writes it, which is the back-compat half of this test.
+action левая {match {filter -title {жилец*}}}
+action нижняя {}
 panel dock {
     set-panel-side left
-    panel-button левая {match {filter -title {жилец*}}}
+    panel-button левая
 }
-panel-button нижняя {}
+panel-button нижняя
 set-tray on
 
 proc pchk {desc want got} {

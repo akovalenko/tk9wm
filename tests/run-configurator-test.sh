@@ -19,7 +19,8 @@ rm -rf "$HERE/cfg-config"
 mkdir -p "$HERE/cfg-config"
 cat > "$HERE/cfg-config/tk9wm.tcl" <<'EOF'
 set-edge-resist 3
-panel-button dummy {launch {exec true &}}
+action dummy {launch {exec true &}}
+panel-button dummy
 wm-bind {<Super>5} {list config-five}
 wm-widget часы -type clock
 action probe {run {true} icon P}
@@ -235,21 +236,22 @@ BUMPED=$(q 'font actual DeskFont -size')
 BUMPFILE=$(grep -c 'set-desk-font' "$HERE/cfg-config/tk9wm.custom.tcl" 2>/dev/null)
 
 # ---- the collections below the knob groups (plan step B) ----
-# four family nodes; an element born folded; a field edit previews
+# five family nodes; an element born folded; a field edit previews
 # through the same door as a knob's; Save ADOPTS the panel set — own
-# above the buttons in order — while the other families each write
-# their whole element; the buried config bind wears ✗ in the tree
+# above the references in order — while the other families each
+# write their whole element; the buried config bind wears ✗ in the
+# tree
 COLLNODES=$(qu 'set n {}
     dict for {i d} $::cfg_node {
         if {[dict get $d what] eq "coll"} { lappend n [dict get $d coll] }
     }
     lsort $n')
-ELEMFOLD=$(qu 'set i [dict get $::cfg_fitem {@field buttons dummy key}]
+ELEMFOLD=$(qu 'set i [dict get $::cfg_fitem {@field panel dummy label}]
     expr {[$::cfg_T item state get [$::cfg_T item parent $i] open]
           ? "open" : "folded"}')
-BTNPREV=$(qu 'cfg-set {@field buttons dummy key} {<Super>9}')
+BTNPREV=$(qu 'cfg-set {@field panel dummy label} Кнопка')
 sleep 0.5
-BTNLIVE=$(q 'chord-of {panel-fire-labelled default dummy}')
+BTNLIVE=$(q 'lindex [lindex [panel-cfg default shown] 0] 1')
 WPREV=$(qu 'cfg-set {@field widgets часы -padding} 7')
 sleep 0.3
 WLIVE=$(q 'dict get $::widgets часы -padding')
@@ -264,14 +266,14 @@ KPARREFUSED=$(qu 'cfg-set {@field keys windows params} {switcher {<Super>Tab}}')
 qu 'cfg-save' >/dev/null
 sleep 1
 OWNSAVED=$(grep -c '^panel-buttons-own default$' "$HERE/cfg-config/tk9wm.custom.tcl")
-BTNSAVED=$(grep -c '^panel-button dummy {key <Super>9}$' "$HERE/cfg-config/tk9wm.custom.tcl")
+BTNSAVED=$(grep -c '^panel-button dummy {label Кнопка}$' "$HERE/cfg-config/tk9wm.custom.tcl")
 BINDSAVED=$(grep -c '^wm-bind Super+5 {list custom-five} {}$' "$HERE/cfg-config/tk9wm.custom.tcl")
 WSAVED=$(grep -c '^wm-widget часы -type clock -padding 7$' "$HERE/cfg-config/tk9wm.custom.tcl")
 KSAVED=$(grep -c '^wm-keys windows off$' "$HERE/cfg-config/tk9wm.custom.tcl")
-AFTERSAVE=$(qu 'set c [dict get $::cfg_coll buttons]
+AFTERSAVE=$(qu 'set c [dict get $::cfg_coll panel]
     set b [lindex [dict get $c elements] 0]
     list owned [dict get $c owned] owner [dict get $b owner] \
-         key [dict get $b values key]')
+         label [dict get $b values label]')
 BINDROWS=$(qu 'set live {}; set dead {}
     dict for {i d} $::cfg_node {
         if {[dict get $d what] ne "elem"
@@ -283,10 +285,11 @@ BINDROWS=$(qu 'set live {}; set dead {}
     list live $live dead $dead')
 
 # ---- step C: the composition gestures ----
-# Delete leaves a card behind and Insert brings it back; Alt reorders
-# through custom-reorder; Ctrl+Enter disassembles a bundle whose off
-# REPLAYS before the kept binds; a needs not yet met SAVES and waits
-# as a card; windows carries no per-member params
+# Delete drops the reference and the action stays a card; Insert
+# brings it back; Alt reorders through custom-reorder; Ctrl+Enter
+# disassembles a bundle whose off REPLAYS before the kept binds; a
+# needs not yet met SAVES on the action and its button stands by;
+# windows carries no per-member params
 qu 'proc cfg-confirm {msg} {return 1}
     proc t-sel {coll key} {
         dict for {i d} $::cfg_node {
@@ -297,20 +300,20 @@ qu 'proc cfg-confirm {msg} {return 1}
         return none
     }
     list armed' >/dev/null
-qu 't-sel buttons dummy; cfg-delete; list deleted' >/dev/null
+qu 't-sel panel dummy; cfg-delete; list deleted' >/dev/null
 sleep 1
-DELBTN=$(q 'llength [panel-cfg default buttons]')
-CARD=$(qu 'dict keys [dict get $::cfg_coll buttons cards]')
+DELBTN=$(q 'llength [panel-cfg default shown]')
+CARD=$(qu 'expr {"dummy" in [dict get $::cfg_coll panel cards]}')
 qu 'cfg-insert-button dummy' >/dev/null
 sleep 0.5
-BACK=$(q 'set b [lindex [panel-cfg default buttons] 0]
-          list [lindex $b 0] [dict exists [lindex $b 1] launch]')
-qu 'cfg-insert-button second' >/dev/null
+BACK=$(q 'set b [lindex [panel-cfg default shown] 0]
+          list [lindex $b 0] [dict exists [lindex $b 2] launch]')
+qu 'cfg-insert-button probe' >/dev/null
 sleep 0.5
-ORDER0=$(q 'lmap b [panel-cfg default buttons] {lindex $b 0}')
-qu 't-sel buttons second; cfg-move-elem above; list moved' >/dev/null
+ORDER0=$(q 'lmap b [panel-cfg default shown] {lindex $b 0}')
+qu 't-sel panel probe; cfg-move-elem above; list moved' >/dev/null
 sleep 1
-ORDER1=$(q 'lmap b [panel-cfg default buttons] {lindex $b 0}')
+ORDER1=$(q 'lmap b [panel-cfg default shown] {lindex $b 0}')
 FILEORD=$(awk '/^panel-button /{printf "%s ",$2}' "$HERE/cfg-config/tk9wm.custom.tcl")
 qu 'set sel {}
     dict for {i d} $::cfg_node {
@@ -341,20 +344,27 @@ qu 't-sel bindings Super+5; cfg-delete; list deleted' >/dev/null
 sleep 1
 FIVEBACK=$(q 'lindex [keymap-payload $::keymap \
                           [list [join [parse-chord Super+5] ,]]] 0')
-# a needs not yet met is a legitimate word: the edit is ACCEPTED with
-# a sentence, Save keeps it, the desk skips the button on replay, the
-# card says it is waiting — and Insert refuses to clobber the word
-NEEDSRC=$(qu 'cfg-set {@field buttons dummy needs} {/bin/nonexistent}')
+# a needs not yet met is a legitimate word ON THE ACTION: the edit is
+# ACCEPTED with a sentence, Save keeps it, the strip skips the button
+# on replay while the reference stays visible, flagged waiting — and
+# a re-Insert of the standing reference is a friendly no-op
+NEEDSRC=$(qu 'cfg-set {@field actions dummy needs} {/bin/nonexistent}')
 NEEDSMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 qu 'cfg-save' >/dev/null
 sleep 0.5
 qu 'cfg-revert' >/dev/null
 sleep 1
-STANDBY=$(q 'lmap b [panel-cfg default buttons] {lindex $b 0}')
-WAITCARD=$(qu 'dict get $::cfg_coll buttons cards dummy waiting')
+STANDBY=$(q 'lmap b [panel-cfg default shown] {lindex $b 0}')
+WAITCARD=$(qu 'set r none
+    foreach e [dict get $::cfg_coll panel elements] {
+        if {[dict get $e key] eq "dummy"} {
+            set r [expr {[dict exists $e waiting] ? "yes" : "no"}]
+        }
+    }
+    set r')
 qu 'cfg-insert-button dummy' >/dev/null
 sleep 0.3
-KEPTWORD=$(grep -c '^panel-button dummy {needs /bin/nonexistent}$' "$HERE/cfg-config/tk9wm.custom.tcl")
+KEPTWORD=$(grep -c '^action dummy {needs /bin/nonexistent}$' "$HERE/cfg-config/tk9wm.custom.tcl")
 WPARAMS=$(q 'dict get $::key_bundle_defs windows params')
 WPREFUSE=$(q 'catch {wm-keys windows -switcher {<Super>Tab}}')
 qu 't-sel widgets часы; cfg-delete; list deleted' >/dev/null
@@ -578,7 +588,7 @@ case $GOODMSG in
     *) echo "FAIL: after a good value the line says «$GOODMSG»" ;;
 esac
 case $COLLNODES in
-    "actions bindings buttons keys widgets")
+    "actions bindings keys panel widgets")
         echo "OK: the five families stand in the tree" ;;
     *) echo "FAIL: collection nodes: $COLLNODES" ;;
 esac
@@ -588,9 +598,9 @@ else
     echo "FAIL: element state: $ELEMFOLD"
 fi
 case "$BTNPREV|$BTNLIVE" in
-    "1|Super+9")
-        echo "OK: a chord field previews — the button answers to the new key" ;;
-    *) echo "FAIL: button field: rc=$BTNPREV chord=«$BTNLIVE»" ;;
+    "1|Кнопка")
+        echo "OK: a label override previews — the strip re-reads the reference" ;;
+    *) echo "FAIL: panel field: rc=$BTNPREV label=«$BTNLIVE»" ;;
 esac
 case "$WPREV|$WLIVE" in
     "1|7") echo "OK: a widget field previews by re-declaring the widget whole" ;;
@@ -615,8 +625,8 @@ case "$BINDSAVED|$WSAVED|$KSAVED" in
     *) echo "FAIL: saved: bind=$BINDSAVED widget=$WSAVED keys=$KSAVED" ;;
 esac
 case $AFTERSAVE in
-    "owned yes owner custom key <Super>9")
-        echo "OK: after Save the set is owned and the button custom's" ;;
+    "owned yes owner custom label Кнопка")
+        echo "OK: after Save the set is owned and the reference custom's" ;;
     *) echo "FAIL: after save: $AFTERSAVE" ;;
 esac
 case $BINDROWS in
@@ -630,20 +640,20 @@ case "$NEEDSRC|$NEEDSMSG" in
     *) echo "FAIL: needs edit: rc=$NEEDSRC msg «$NEEDSMSG»" ;;
 esac
 case "$STANDBY|$WAITCARD|$KEPTWORD" in
-    "second|yes|1")
-        echo "OK: the standing-by button waits as a card, unclobberable" ;;
-    *) echo "FAIL: standby: panel=«$STANDBY» card=$WAITCARD word=$KEPTWORD" ;;
+    "probe|yes|1")
+        echo "OK: the needs rode the action; its reference stands by, flagged" ;;
+    *) echo "FAIL: standby: panel=«$STANDBY» waiting=$WAITCARD word=$KEPTWORD" ;;
 esac
 case "$DELBTN|$CARD" in
-    "0|dummy") echo "OK: Delete emptied the owned set and left the card behind" ;;
-    *) echo "FAIL: after delete: buttons=$DELBTN cards=«$CARD»" ;;
+    "0|1") echo "OK: Delete emptied the owned set; the action stayed a card" ;;
+    *) echo "FAIL: after delete: buttons=$DELBTN dummy-card=$CARD" ;;
 esac
 case $BACK in
-    "dummy 1") echo "OK: Insert brought the card back, description and all" ;;
+    "dummy 1") echo "OK: Insert brought the reference back, deed and all" ;;
     *) echo "FAIL: resurrection: $BACK" ;;
 esac
 case "$ORDER0|$ORDER1|$FILEORD" in
-    "dummy second|second dummy|second dummy ")
+    "dummy probe|probe dummy|probe dummy ")
         echo "OK: Alt moved the button — the file order IS the panel order" ;;
     *) echo "FAIL: move: $ORDER0 -> $ORDER1, file: $FILEORD" ;;
 esac

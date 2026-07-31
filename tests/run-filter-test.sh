@@ -6,7 +6,7 @@
 # (including the case drift that made nocase the wrong default:
 # {ff XTerm} must NOT answer to `-class xterm`), absent-property-fails, the
 # WM_COMMAND -> /proc argv fallback, and filter riding the real call
-# sites (a wm-style rule and a panel-button match). The assertion
+# sites (a wm-style rule and an action's match). The assertion
 # battery runs IN-PROCESS (fired by a chord) against two live actors:
 # an xterm that declares everything and a whale client that declares
 # almost nothing.
@@ -100,10 +100,11 @@ set fallback_cases {
 wm-bind {<Super>f} {filter-battery main $::main_cases}
 wm-bind {<Super>g} {filter-battery fallback $::fallback_cases}
 wm-style {filter -class {ff *}} {increments ignore}
-panel-button тест {
+action тест {
     match {filter -title "Browser*"}
     key {<Super>z}
 }
+panel-button тест
 EOF
 
 XDG_CONFIG_HOME="$HERE/filter-config" \
@@ -159,7 +160,7 @@ if grep -q 'FILTER BATTERY main: 28 checks' "$HERE/wm-filter.log" \
 else
     echo "FAIL: a battery is missing or truncated"
 fi
-if grep -q "panel тест: found $XTW" "$HERE/wm-filter.log"; then
+if grep -q "action тест: found $XTW" "$HERE/wm-filter.log"; then
     echo "OK: the panel button found the xterm through filter"
 else
     echo "FAIL: no panel found-line for $XTW"

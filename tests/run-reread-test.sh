@@ -19,7 +19,8 @@ rm -rf "$HERE/reread-config"
 mkdir -p "$HERE/reread-config"
 cat > "$HERE/reread-config/tk9wm.tcl" <<EOF
 set-title-font -weight bold
-panel-button dummy {launch {exec true &}}
+action dummy {launch {exec true &}}
+panel-button dummy
 wm-bind {<Alt>space} {exec touch $HERE/reread-config/rebound-fired &}
 EOF
 

@@ -24,8 +24,9 @@ sleep 1
 rm -rf "$HERE/emptydesk-config"
 mkdir -p "$HERE/emptydesk-config"
 cat > "$HERE/emptydesk-config/tk9wm.tcl" <<EOF
-panel-button проба {match {filter -title {жилец*}} key {<Super>z} \
+action проба {match {filter -title {жилец*}} key {<Super>z} \
     launch {exec $LINUX/whale $HERE/client.tcl жилец 200x100 #8ae234 {} {} 4 &}}
+panel-button проба
 wm-bind {<Super>w} {puts "MARKER: super+w fired"}
 EOF
 
@@ -52,7 +53,7 @@ sleep 1.5
 kill $WM 2>/dev/null
 
 echo "--- key/focus lines:"
-grep -E 'MARKER|panel проба|parking|holder|unmanaged' "$HERE/wm-emptydesk.log"
+grep -E 'MARKER|action проба|parking|holder|unmanaged' "$HERE/wm-emptydesk.log"
 echo "--- focus on the empty desk: $FOCUS (holder $HOLDER)"
 
 echo "--- verdict"
@@ -65,7 +66,7 @@ if [ "$M" = 3 ]; then
 else
     echo "FAIL: $M marker lines, want 3 (the third is the empty-desk wedge)"
 fi
-L=$(grep -c 'panel проба: launch' "$HERE/wm-emptydesk.log")
+L=$(grep -c 'action проба: launch' "$HERE/wm-emptydesk.log")
 if [ "$L" = 2 ]; then
     echo "OK: the panel launcher fired on both empty desks"
 else
