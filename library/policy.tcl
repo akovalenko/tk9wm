@@ -4712,8 +4712,15 @@ proc panel-button {label settings} {
     if {[dict exists $::panels $name raw $label]} {
         set raw [dict merge [dict get $::panels $name raw $label] $settings]
     }
+    # An empty value is an ERASE ("no chord after all") — EXCEPT
+    # `terminal`, whose empty dict is a word of its own: "just a
+    # terminal" (see the terminal layer). Measured on the owner's
+    # desk, the day this sweep was born: his Terminal button says
+    # `terminal {}`, the sweep took it, the button lost its derived
+    # match, its style then errored on the matchless button — and the
+    # whole config tail after that line never loaded.
     foreach k [dict keys $raw] {
-        if {[dict get $raw $k] eq ""} { dict unset raw $k }
+        if {$k ne "terminal" && [dict get $raw $k] eq ""} { dict unset raw $k }
     }
     set expanded [panel-button-derive $label $raw]
     dict set ::panels $name raw $label $raw
@@ -6377,16 +6384,30 @@ collection keys {
     }
 }
 
+# A list script answers a DICT — elements, plus whatever meta only
+# the live state knows: buttons say whether the custom layer OWNS the
+# set (the adoption gate the editing rules turn on), and each button
+# carries `said` — the custom layer's own word for it, which is what
+# a save must accumulate onto so a standing delta survives the next
+# edit.
 proc collection-buttons {} {
     set out {}
     foreach b [panel-cfg default buttons] {
         set label [lindex $b 0]
         set raw {}
         catch {set raw [dict get $::panels default raw $label]}
-        lappend out [dict create key $label values $raw \
-                         owner [knob-owner "panel-button $label"]]
+        set e [dict create key $label values $raw \
+                   owner [knob-owner "panel-button $label"]]
+        if {[dict exists $::layer_knobs custom "panel-button $label"]} {
+            set cmd [dict get $::layer_knobs custom "panel-button $label"]
+            if {[lindex $cmd 0] eq "panel-button"} {
+                dict set e said [lindex $cmd 2]
+            }
+        }
+        lappend out $e
     }
-    return $out
+    dict create elements $out owned [expr {[dict exists \
+        $::layer_knobs custom "panel-buttons-own default"] ? "yes" : "no"}]
 }
 proc collection-widgets {} {
     set out {}
@@ -6405,7 +6426,7 @@ proc collection-widgets {} {
         lappend out [dict create key $name values $values \
                          owner [knob-owner "wm-widget $name"]]
     }
-    return $out
+    dict create elements $out
 }
 proc collection-keys {} {
     set out {}
@@ -6420,7 +6441,7 @@ proc collection-keys {} {
                         params $params] \
             owner [knob-owner "wm-keys $name"]]
     }
-    return $out
+    dict create elements $out
 }
 # The bindings are TWO lists in one: the keymap walked live — every
 # chord the desk actually answers to — and then the layer words a
@@ -6450,7 +6471,7 @@ proc collection-bindings {} {
                 owner $layer ineffectual 1]
         }
     }
-    return $out
+    dict create elements $out
 }
 proc keymap-elements {node path disp} {
     set out {}
@@ -6505,13 +6526,13 @@ proc keymap-payload {node keys} {
     return [keymap-payload $payload [lrange $keys 1 end]]
 }
 # collection-table — the send-facing answer, the configurator's whole
-# view of the families: the registry plus each collection's elements,
-# one dict.
+# view of the families: the registry, and whatever each collection's
+# list script serves — the elements, plus the meta only the live
+# state knows (a button set's `owned`).
 proc collection-table {} {
     set out {}
     dict for {name meta} $::collection_registry {
-        dict set out $name [dict merge $meta \
-            [dict create elements [uplevel #0 [dict get $meta list]]]]
+        dict set out $name [dict merge $meta [uplevel #0 [dict get $meta list]]]
     }
     return $out
 }

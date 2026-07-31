@@ -18,6 +18,11 @@ cat > "$HERE/custom-config/tk9wm.tcl" <<'EOF'
 set-title-font -weight bold
 set-edge-resist 3
 panel-button dummy {launch {exec true &}}
+# `terminal {}` is a WORD (just a terminal), not an erasure: if the
+# merge sweep ever eats it again, this button loses its derived match,
+# its style errors, and nothing below this line loads — every tail
+# assertion then fails loudly (the owner's desk, 2026-08-01)
+panel-button anyterm {terminal {} style {place center}}
 panel-button second {launch {exec true &} key {<Super>2}}
 EOF
 cat > "$HERE/custom-config/tk9wm.custom.tcl" <<'EOF'
