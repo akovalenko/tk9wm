@@ -5756,6 +5756,10 @@ proc policy-default-bindings {} {
     wm-bind {<Super>t w m} winops
     wm-bind {<Alt>Tab} winlist
     wm-bind {<Super>t w w} winlist
+    # The keymap from the top — the same key that answers "what is
+    # under this prefix" inside a sequence answers "what is there at
+    # all" outside one (see key-help-open).
+    wm-bind {<Super>h} key-help-open "every key this desk answers to"
     # Re-read the config in place. Deliberately a default: the whole
     # point of the reload is to try a config without restarting, and
     # having to configure the way to reload the config first would be a
@@ -5797,17 +5801,109 @@ unless-already {[info exists ::policy_bindings_up]} {
 # from the list still works, it just goes unreported — a soft edge,
 # preferred over tracing every set-* including the substrate's
 # internals.
-set knob_vocab {
-    set-desk-font set-title-font set-title-justify set-minimize
-    set-maximize set-workarea-follow set-drag-modifier set-drag-slop
-    set-edge-resist set-root-cursor set-fade set-panel-side
-    set-panel-preset set-panel-icon-size set-panel-live-colors
-    set-tray set-tray-panel set-tray-background set-tray-icon-size
-    set-tray-argb set-key-echo set-key-echo-place set-key-help
-    set-winlist-cycle set-icon-path set-desk-window set-desk-background
-    set-terminal set-emacs-frames set-emacs-daemons set-emacs-autodaemon
-    set-welcome wm-font wm-bind wm-widget
+# THE KNOB REGISTRY — the desk describing its own knobs, as data.
+# This is what the configurator renders: it never knows the knobs, it
+# ASKS the live WM for this table (knob-table, over the send door) and
+# draws what it is told — so a ui host older or newer than the running
+# desk still renders the running desk's truth. Each entry:
+#   group  where the configurator files it
+#   kind   how to render and validate: bool (on|off), {choice a b ...},
+#          int, {float MIN MAX}, color, {font NAME}, text (free-form),
+#          terminal (beast ?path?)
+#   get    a script answering the CURRENT value
+#   doc    one line for the UI; the long prose stays in
+#          default-config.tcl and in the comments by the procs
+# A knob missing here still works — it just does not appear in the
+# configurator and goes unreported by the layer bookkeeping below,
+# which derives its vocabulary from these keys. Soft edges, said out
+# loud.
+proc knob {name meta} { dict set ::knob_registry $name $meta }
+set knob_registry {}
+knob set-desk-font   {group fonts kind {font DeskFont}  get {font actual DeskFont}
+                      doc {the font this desk is set in; everything derives from it}}
+knob set-title-font  {group fonts kind {font TitleFont} get {font actual TitleFont}
+                      doc {the titlebar font, derived from the desk font}}
+knob set-title-justify {group fonts kind {choice left center right}
+                      get {set ::titlejust} doc {where the title sits in its bar}}
+knob set-minimize    {group windows kind {choice iconify refuse}
+                      get {set ::minimize} doc {what an iconify request gets}}
+knob set-maximize    {group windows kind {choice drop keep}
+                      get {set ::maximize}
+                      doc {what a hand resize does to the maximized mark}}
+knob set-workarea-follow {group windows kind {choice stick max off}
+                      get {set ::workarea_follow}
+                      doc {which windows follow a moving workarea}}
+knob set-drag-modifier {group windows kind text get {set ::drag_mods}
+                      doc {the modifier that carries a window from anywhere}}
+knob set-drag-slop   {group windows kind int get {set ::drag_slop}
+                      doc {pixels a title press may travel and still be a click}}
+knob set-edge-resist {group windows kind int get {set ::edge_resist}
+                      doc {pixels a carried window sticks to a workarea edge}}
+knob set-fade        {group windows kind {float 0 1} get {set ::fade}
+                      doc {how solid a faded window stays}}
+knob set-root-cursor {group desk kind text get {set ::root_cursor}
+                      doc {the cursor over the bare desk}}
+knob set-desk-window {group desk kind bool
+                      get {expr {$::desk_window ? "on" : "off"}}
+                      doc {the desk as one window of ours, or hands off the root}}
+knob set-desk-background {group desk kind color get {set ::desk_background}
+                      doc {the desk window's color}}
+knob set-welcome     {group desk kind bool get {set ::welcome}
+                      doc {the welcome note on the desk}}
+knob set-panel-side  {group panel kind {choice bottom top left right}
+                      get {panel-cfg default side}
+                      doc {which screen edge the default panel rides}}
+knob set-panel-preset {group panel kind {choice row stack}
+                      get {panel-cfg default preset}
+                      doc {iconic buttons as a row or label-under-icon}}
+knob set-panel-icon-size {group panel kind int
+                      get {panel-cfg default icon_size}
+                      doc {the button face size when any face is iconic}}
+knob set-icon-path   {group panel kind text get {set ::icon_path}
+                      doc {directories bare icon names are searched in}}
+knob set-winlist-cycle {group keys kind bool
+                      get {expr {$::winlist_cycle_opt ? "on" : "off"}}
+                      doc {alt-tab as the fvwm cycle, or a static menu}}
+knob set-key-echo    {group keys kind text get {set ::key_echo}
+                      doc {ms of hesitation before a chord shows itself; off = never}}
+knob set-key-echo-place {group keys kind text get {set ::key_echo_place}
+                      doc {where the chord echo sits, in place words}}
+knob set-tray        {group tray kind bool
+                      get {expr {$::tray_on ? "on" : "off"}}
+                      doc {be the display's system tray}}
+knob set-tray-panel  {group tray kind text get {set ::tray_panel}
+                      doc {whose strip the tray is part of}}
+knob set-tray-background {group tray kind color get {set ::tray_bg}
+                      doc {what shows through a transparent icon}}
+knob set-tray-icon-size {group tray kind int get {set ::tray_icon_size}
+                      doc {the tray cell's side, in pixels}}
+knob set-tray-argb   {group tray kind bool
+                      get {expr {$::tray_argb ? "on" : "off"}}
+                      doc {offer an ARGB visual (needs a compositor)}}
+knob set-terminal    {group terminal kind terminal get {set ::terminal_choice}
+                      doc {which terminal emulator this desk favors}}
+knob set-emacs-frames {group emacs kind {choice gui terminal}
+                      get {set ::emacs_frames}
+                      doc {what kind of frame an emacs button makes}}
+knob set-emacs-daemons {group emacs kind bool get {set ::emacs_daemons}
+                      doc {daemons at all, or the plain lookup-or-run life}}
+knob set-emacs-autodaemon {group emacs kind bool get {set ::emacs_autodaemon}
+                      doc {start a missing daemon, or treat it as an error}}
+# knob-table — the send-facing answer: the registry plus each knob's
+# current value, one dict. The configurator's whole worldview.
+proc knob-table {} {
+    set out {}
+    dict for {name meta} $::knob_registry {
+        set value ""
+        catch {set value [uplevel #0 [dict get $meta get]]}
+        dict set out $name [dict merge $meta [dict create value $value]]
+    }
+    return $out
 }
+# The traced vocabulary derives from the registry — one list, not two
+# — plus the named declarations, which are traced per name rather
+# than rendered as knobs.
+set knob_vocab [concat [dict keys $knob_registry] {wm-font wm-bind wm-widget}]
 set knob_layer ""
 keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # The key is semantic: a plain knob is one key however often it is

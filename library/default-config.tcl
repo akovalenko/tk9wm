@@ -663,7 +663,11 @@
 #
 # WHAT IS UNDER THIS PREFIX — <Super>h inside a sequence lists the keys
 # that go on from where you are, in the same box: Emacs's C-h after a
-# prefix. The WHOLE subtree, not the next step only (a desk's dozen or
+# prefix. The SAME key answers at the TOP level too (a stock binding,
+# key-help-open): the whole keymap opens under the usual sequence
+# grab, the next press walks from the root — a listed chord can be
+# typed straight at the list — and Escape leaves. The welcome note
+# links to the same place. The WHOLE subtree, not the next step only (a desk's dozen or
 # so bindings fit on the screen, and a long list goes into columns
 # rather than off the bottom). It costs nothing globally, being reachable only while a
 # sequence holds the keyboard, and it answers even when the echo is

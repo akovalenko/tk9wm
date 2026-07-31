@@ -39,6 +39,7 @@ S1=$(q 'list [font actual TitleFont -weight] $::drag_slop $::edge_resist')
 q 'custom-write {set-fade 0.33}' >/dev/null
 sleep 0.5
 FADE=$(q 'set ::fade')
+KT=$(q 'set t [knob-table]; list [dict get $t set-fade value] [dict get $t set-minimize kind] [dict get $t set-panel-side value] [dict get $t set-title-font group]')
 
 kill $WM 2>/dev/null
 sleep 0.5
@@ -93,6 +94,11 @@ if grep -q 'MACHINE-WRITTEN' "$HERE/custom-config/tk9wm.custom.tcl" \
     echo "OK: the rewrite kept the header and the standing entries"
 else
     echo "FAIL: the rewritten custom file lost its shape"
+fi
+if [ "$KT" = "0.33 {choice iconify refuse} bottom fonts" ]; then
+    echo "OK: knob-table serves kinds, groups and live values"
+else
+    echo "FAIL: knob-table sample is {$KT}"
 fi
 if [ "$WELCOME" = 1 ]; then
     echo "OK: a fresh desk lays out the welcome mat"

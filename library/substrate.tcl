@@ -3148,6 +3148,37 @@ proc keyseq-help {} {
     list "[keyseq-text] …" \
          [lsort -index 0 -dictionary [keymap-rows $::keyseq {}]]
 }
+# The same question asked FROM THE TOP (the owner's ask: <Super>h
+# should answer at the top level, not only inside a sequence). What
+# it does is enter the keymap at its ROOT under the usual sequence
+# grab, with the whole tree shown at once: the next press WALKS from
+# the root exactly as any sequence step — a top chord carries its own
+# modifiers and sits in this very map — Escape leaves, and the help
+# key keeps answering deeper down. The welcome mat's link lands here
+# too, which is why this is a proc and not a binding's private
+# script.
+proc key-help-open {} {
+    if {$::keyrouter ne ""} {
+        puts "WM: key help: a modal holds the keyboard — not now"
+        return
+    }
+    if {![dict size $::keymap]} {
+        puts "WM: key help: nothing is bound"
+        return
+    }
+    if {!$::kbd_grabbed} {
+        if {![x-grab-keyboard $::root]} {
+            puts "WM: key help: the keyboard grab was refused"
+            return
+        }
+        set ::kbd_grabbed 1
+    }
+    set ::keyseq $::keymap
+    set ::keyseq_keys {}
+    puts "WM: key help from the top\
+ ([llength [keymap-rows $::keymap {}]] bindings)"
+    policy-key-echo help [keyseq-help]
+}
 proc keymap-rows {node path} {
     set rows {}
     dict for {k entry} $node {
