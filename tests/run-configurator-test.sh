@@ -53,6 +53,22 @@ REVERTED=$(q 'set ::drag_slop')
 
 BAD=$(qu 'cfg-set set-fade 7')
 
+# the list kind: summarized in its cell, edited whole in the sub-editor
+LISTCELL=$(qu 'cfg-value-text set-icon-path {/a /b}')
+qu 'cfg-set set-icon-path {/tmp/one /tmp/two /tmp/three}' >/dev/null
+sleep 0.3
+LISTLIVE=$(q 'llength $::icon_path')
+# navigation survives a refresh: pick a knob deep in the tree, fold a
+# group, then Revert
+qu 'cfg-select [dict get $::cfg_item set-tray-icon-size]' >/dev/null
+qu 'set g [$::cfg_T item id {root child 0}]; $::cfg_T collapse $g; list folded' >/dev/null
+qu 'cfg-revert' >/dev/null
+sleep 1
+KEPT=$(qu 'cfg-name-of [cfg-selected]')
+FOLD=$(qu 'expr {[$::cfg_T item state get [$::cfg_T item id {root child 0}] open] ? 0 : 1}')
+THEME=$(qu 'ttk::style theme use')
+SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
+
 q 'welcome-font-bump up' >/dev/null
 sleep 0.5
 BUMPED=$(q 'font actual DeskFont -size')
@@ -104,5 +120,25 @@ if [ "$BUMPED" = "$((WMFONT + 1))" ] && [ "$BUMPFILE" = 1 ]; then
     echo "OK: the mat's font button turned the desk font and persisted"
 else
     echo "FAIL: bumped=$BUMPED (want $((WMFONT + 1))), file lines=$BUMPFILE"
+fi
+if [ "$LISTCELL" = "[2 directories]" ] && [ "$LISTLIVE" = 3 ]; then
+    echo "OK: a list summarizes in its cell and edits whole"
+else
+    echo "FAIL: list cell «$LISTCELL», live length $LISTLIVE"
+fi
+if [ "$KEPT" = "set-tray-icon-size" ] && [ "$FOLD" = 1 ]; then
+    echo "OK: a refresh kept the selection and the folded group"
+else
+    echo "FAIL: after refresh selection=$KEPT folded=$FOLD"
+fi
+case $THEME in
+    awdark|awlight) echo "OK: ttk wears the matching aw theme ($THEME)" ;;
+    clam) echo "OK: ttk fell back to clam (awthemes absent)" ;;
+    *) echo "FAIL: ttk theme is $THEME" ;;
+esac
+if [ "$SBFOCUS" = 0 ]; then
+    echo "OK: the scrollbar is out of the focus cycle"
+else
+    echo "FAIL: scrollbar takefocus = $SBFOCUS"
 fi
 check_invariants "$HERE/wm-cfg.log"

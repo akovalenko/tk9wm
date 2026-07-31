@@ -62,6 +62,36 @@ proc ui-style-sync {} {
         if {[lsearch -exact [font names] $name] < 0} { font create $name }
         font configure $name {*}[dict get $st $key]
     }
+    # THE TTK THEME IS PART OF THE BRIDGE (the owner: the font dialog
+    # was a mess of two palettes). Tk's own dialogs — fontchooser
+    # first among them — are ttk widgets, so a desk that dresses its
+    # applets must dress ttk too, matched at least light-to-light and
+    # dark-to-dark. awthemes carries awdark/awlight and rides in
+    # whale; without it, clam is the fallback that at least honors
+    # colors.
+    set scheme [dict get $st scheme]
+    set theme [expr {$scheme eq "light" ? "awlight" : "awdark"}]
+    if {[catch {package require $theme}] || [catch {ttk::style theme use $theme}]} {
+        catch {ttk::style theme use clam}
+        set theme clam
+    }
+    catch {ttk::style configure . -font DeskFont}
+    # ...and the palette THE THEME actually uses becomes ours, so the
+    # plain-Tk half (treectrl, text, listbox) agrees with the ttk half
+    # instead of arguing with it. The WM's own colors stay the
+    # fallback for anything a theme does not name.
+    foreach {key style opt} {
+        bg     TFrame  -background
+        fg     TLabel  -foreground
+        field  TEntry  -fieldbackground
+        select TEntry  -selectbackground
+        trough TScrollbar -troughcolor
+    } {
+        if {![catch {ttk::style lookup $style $opt} v] && $v ne ""} {
+            dict set ::ui_palette $key $v
+        }
+    }
+    set st $::ui_palette
     foreach {opt key} {
         background bg foreground fg activeBackground select
         selectBackground select highlightBackground bg
@@ -72,6 +102,7 @@ proc ui-style-sync {} {
     option add *font DeskFont widgetDefault
     option add *Entry.background [dict get $st field] widgetDefault
     option add *Text.background [dict get $st field] widgetDefault
+    option add *Listbox.background [dict get $st field] widgetDefault
 }
 proc ui-color {key} {
     expr {[dict exists $::ui_palette $key]

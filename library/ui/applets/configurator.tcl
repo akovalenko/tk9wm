@@ -42,7 +42,11 @@ proc cfg-build {W} {
         -selectmode single -itemheight $ih \
         -background [ui-color field] -yscrollcommand [list cfg-yscroll $W.sb]
     ui-focusable $W.t
-    scrollbar $W.sb -orient vertical -command [list $W.t yview]
+    # Out of the focus cycle: Tk's heuristic puts a scrollbar in it
+    # (it has key bindings), and a stop with nothing to show for it —
+    # the ring lands on something invisible — is worse than no stop
+    # (the owner's review).
+    scrollbar $W.sb -orient vertical -command [list $W.t yview] -takefocus 0
     set T $W.t
     $T column create -text knob         -tags Cname
     $T column create -text value        -tags Cval
@@ -68,11 +72,11 @@ proc cfg-build {W} {
     grid $T $W.sb -sticky nsew
     grid rowconfigure $W 0 -weight 1
     grid columnconfigure $W 0 -weight 1
-    frame $W.b
+    frame $W.b -takefocus 0
     button $W.b.save   -text Save   -underline 0 -command cfg-save
     button $W.b.revert -text Revert -underline 0 -command cfg-revert
     foreach b [list $W.b.save $W.b.revert] { ui-focusable $b; ui-accel $b }
-    label  $W.b.note -text "Return/F2 edits · double-click too ·\
+    label  $W.b.note -takefocus 0 -text "Return/F2 edits · double-click too ·\
  a change previews at once · Save makes it stick" \
         -foreground [ui-color link]
     pack $W.b.save $W.b.revert -side left -padx 4 -pady 4
@@ -100,8 +104,22 @@ proc cfg-yscroll {sb a b} {
     $sb set $a $b
 }
 
+# A refresh REBUILDS the tree, and the user's place in it must
+# survive that (the owner: a Revert threw the navigation back to the
+# top). What is remembered is what the user arranged — the selected
+# knob and which groups stand folded — and it is restored by NAME,
+# so it holds even if the registry itself changed underneath.
 proc cfg-refresh {} {
     set T $::cfg_T
+    set was_sel [expr {[cfg-selected] eq "" ? "" : [cfg-name-of [cfg-selected]]}]
+    set was_folded {}
+    # `open` is one of treectrl's built-in item states — the expanded
+    # flag lives there, not in an option
+    foreach g [$T item children root] {
+        if {![$T item state get $g open]} {
+            lappend was_folded [$T item element cget $g Cname eGrp -text]
+        }
+    }
     $T item delete all
     set ::cfg_table [wm-call knob-table]
     set ::cfg_cfgkeys [wm-call {layer-touched config}]
@@ -125,10 +143,15 @@ proc cfg-refresh {} {
             $T item lastchild $g $it
             dict set ::cfg_item $name $it
         }
+        if {$group in $was_folded} { $T collapse $g }
     }
     cfg-fit
-    set first [lindex [dict values $::cfg_item] 0]
-    if {$first ne ""} { cfg-select $first }
+    if {$was_sel ne "" && [dict exists $::cfg_item $was_sel]} {
+        cfg-select [dict get $::cfg_item $was_sel]
+    } else {
+        set first [lindex [dict values $::cfg_item] 0]
+        if {$first ne ""} { cfg-select $first }
+    }
 }
 
 # No wrapping anywhere, so everything MEASURES: each column asks the
@@ -145,7 +168,10 @@ proc cfg-fit {} {
         set v [$T item element cget $it Cval eVal -text]
         set wval [expr {max($wval, [font measure DeskFont $v])}]
     }
-    set wval [expr {max($wval, 140)}]   ;# room to type into
+    # room to type into, and a ceiling: one long value must not open
+    # the column past reading width (a list already summarizes, but a
+    # font name or a path can still run)
+    set wval [expr {max(min($wval, [font measure DeskFont [string repeat 0 34]]), 140)}]
     $T column configure Cname -width [expr {$wname + 32}]
     $T column configure Cval  -width [expr {$wval + 16}]
     $T column configure Cflag -width [expr {[font measure DeskFont "•cfg"] + 12}]
@@ -160,14 +186,26 @@ proc cfg-fit {} {
         -height [expr {min($hall, [winfo screenheight $T] * 4 / 5)}]
 }
 
+# What a value LOOKS like in its cell. A list says how many it holds
+# and of what — «[2 directories]» — rather than spelling itself out
+# and blowing the column open (the owner's review); the whole of it
+# lives in the sub-editor, one line per entry.
+proc cfg-value-text {name value} {
+    set kind [dict get $::cfg_table $name kind]
+    switch -- [lindex $kind 0] {
+        font { return "[dict get $value -family] [dict get $value -size]\
+ [dict get $value -weight]" }
+        list {
+            set noun [lindex $kind 1]
+            if {$noun eq ""} { set noun entries }
+            return "\[[llength $value] $noun\]"
+        }
+    }
+    return $value
+}
 proc cfg-show-value {it name value} {
     set T $::cfg_T
-    set kind [dict get $::cfg_table $name kind]
-    if {[lindex $kind 0] eq "font"} {
-        set value "[dict get $value -family] [dict get $value -size]\
- [dict get $value -weight]"
-    }
-    $T item element configure $it Cval eVal -text $value
+    $T item element configure $it Cval eVal -text [cfg-value-text $name $value]
     set flags {}
     if {[dict exists $::cfg_pending $name]} { lappend flags • }
     if {$name in $::cfg_cfgkeys} { lappend flags cfg }
@@ -223,6 +261,7 @@ proc cfg-activate {} {
             if {$c ne ""} { cfg-set $name $c }
         }
         font  { cfg-font-dialog $name }
+        list  { cfg-list-dialog $name }
         default {
             # after the event sequence, so nothing steals the focus
             # back from the entry (the invariant above)
@@ -286,6 +325,45 @@ proc cfg-entry-done {how} {
     if {$how eq "commit"} { cfg-set $name $v }
     focus $T
 }
+# The sub-editor a list deserves: one entry per line, which is the
+# only shape in which a path list is readable and editable at all.
+# Keyboard-first like the rest — the text has the focus from the
+# start, Escape leaves, Alt+O and Alt+C are on the buttons; Return
+# is a NEWLINE here (the list is multi-line by nature), so the
+# commit is the button or its accelerator.
+proc cfg-list-dialog {name} {
+    set w .cfg-list
+    catch {destroy $w}
+    toplevel $w -class Tk9wmUi
+    wm title $w "tk9wm: $name"
+    wm transient $w [winfo toplevel $::cfg_T]
+    set noun [lindex [dict get $::cfg_table $name kind] 1]
+    label $w.l -takefocus 0 -anchor w -text "$name — one [string range $noun 0 end-1] per line"
+    text $w.t -font DeskFont -width 60 -height 10 -wrap none \
+        -background [ui-color field] -foreground [ui-color fg] \
+        -insertbackground [ui-color fg]
+    ui-focusable $w.t
+    foreach v [cfg-cur $name] { $w.t insert end "$v\n" }
+    frame $w.b -takefocus 0
+    button $w.b.ok     -text OK     -underline 0 \
+        -command [list cfg-list-commit $name]
+    button $w.b.cancel -text Cancel -underline 0 -command [list destroy $w]
+    foreach b [list $w.b.ok $w.b.cancel] { ui-focusable $b; ui-accel $b }
+    pack $w.b.ok $w.b.cancel -side left -padx 4 -pady 4
+    pack $w.l -fill x -padx 6 -pady {6 2}
+    pack $w.t -expand 1 -fill both -padx 6
+    pack $w.b -fill x
+    bind $w <Escape> [list destroy $w]
+    focus $w.t
+}
+proc cfg-list-commit {name} {
+    set out {}
+    foreach line [split [string trim [.cfg-list.t get 1.0 end]] \n] {
+        set line [string trim $line]
+        if {$line ne ""} { lappend out $line }
+    }
+    if {[cfg-set $name $out]} { destroy .cfg-list }
+}
 proc cfg-font-dialog {name} {
     tk fontchooser configure -font [list \
         [dict get $::cfg_table $name value -family] \
@@ -316,6 +394,7 @@ proc cfg-set {name value} {
         terminal { set cmd [list $name {*}$value] }
         default  { set cmd [list $name $value] }
     }
+    # a list travels as ONE argument (set-icon-path takes the list)
     if {[catch {wm-call $cmd} err]} {
         puts "UI: configurator: preview of «$cmd» refused: $err"
         bell

@@ -5859,7 +5859,7 @@ knob set-panel-preset {group panel kind {choice row stack}
 knob set-panel-icon-size {group panel kind int
                       get {panel-cfg default icon_size}
                       doc {the button face size when any face is iconic}}
-knob set-icon-path   {group panel kind text get {set ::icon_path}
+knob set-icon-path   {group panel kind {list directories} get {set ::icon_path}
                       doc {directories bare icon names are searched in}}
 knob set-winlist-cycle {group keys kind bool
                       get {expr {$::winlist_cycle_opt ? "on" : "off"}}
