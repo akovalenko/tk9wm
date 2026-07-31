@@ -247,7 +247,27 @@ proc cfg-owner {name} {
     expr {[dict exists $::cfg_table $name owner]
           ? [dict get $::cfg_table $name owner] : "code"}
 }
+# A REFRESH IS NOT RE-ENTRANT, though the event loop makes it look
+# so: wm-call is a Tk send, and a send SPINS THE EVENT LOOP — so in
+# the middle of a refresh (between the delete and the rebuild)
+# another refresh can arrive: the desk answering a preview, a second
+# gesture, a timer. Run at once it would read a half-built tree and
+# build a second one over it. The guard folds every such arrival
+# into ONE deferred re-run after the current pass — the late caller
+# wanted the freshest tree, and the re-run is exactly that.
+set cfg_refreshing 0
+set cfg_refresh_again 0
 proc cfg-refresh {} {
+    if {$::cfg_refreshing} { set ::cfg_refresh_again 1; return }
+    set ::cfg_refreshing 1
+    set rc [catch cfg-refresh-body err opts]
+    set ::cfg_refreshing 0
+    set again $::cfg_refresh_again
+    set ::cfg_refresh_again 0
+    if {$rc} { return -options $opts $err }
+    if {$again} cfg-refresh
+}
+proc cfg-refresh-body {} {
     set T $::cfg_T
     # the selection survives as a DESCRIPTOR: a knob by its name, a
     # collection row by what it describes — never by item number
@@ -630,6 +650,11 @@ proc cfg-show-value {it name value} {
 
 proc cfg-select {it} {
     set T $::cfg_T
+    # an item id remembered across a refresh may name a corpse — the
+    # rebuild is free to have deleted it, and the rememberer (a timer,
+    # a gesture that slept through a reload) cannot know. Selecting
+    # nothing quietly beats erroring out of whatever gesture this is.
+    if {$it eq "" || [catch {$T item id $it} live] || $live eq ""} return
     $T selection clear all
     $T selection add $it
     $T activate $it

@@ -190,6 +190,27 @@ W2=$(qu 'cfg-refresh; winfo reqwidth [winfo toplevel $::cfg_T]')
 sleep 0.4
 W3=$(qu 'cfg-refresh; winfo reqwidth [winfo toplevel $::cfg_T]')
 if [ "$W1" = "$W2" ] && [ "$W2" = "$W3" ]; then STABLE=stable; else STABLE="$W1 $W2 $W3"; fi
+# a refresh arriving INSIDE a refresh (a send spins the event loop
+# mid-body) must DEFER, not run over the half-built tree: the log
+# says fit, after-nested, fit — the nested call returned at once and
+# its re-run came after the outer pass, not inside it
+REENTER=$(qu 'rename cfg-fit cfg-fit-real
+    set ::cfg_log {}
+    proc cfg-fit {} {
+        lappend ::cfg_log fit
+        if {[llength $::cfg_log] == 1} {
+            cfg-refresh
+            lappend ::cfg_log after-nested
+        }
+        cfg-fit-real
+    }
+    set rc [catch {cfg-refresh} e]
+    rename cfg-fit {}
+    rename cfg-fit-real cfg-fit
+    list rc $rc log $::cfg_log sel [expr {[cfg-selected] ne ""}]')
+# ...and a dead item id — a fact of life around reloads — selects
+# nothing quietly instead of erroring out of the gesture
+DEADSEL=$(qu 'list rc [catch {cfg-select 999999} e] kept [expr {[cfg-selected] ne ""}]')
 # an UNEXPECTED error in the apply path (not a refusal) must roll the
 # desk back to its layers and explain itself, never throw a dialog
 qu 'cfg-set set-drag-slop 11' >/dev/null
@@ -522,6 +543,15 @@ if [ "$STABLE" = stable ]; then
 else
     echo "FAIL: widths across three refreshes: $STABLE"
 fi
+case $REENTER in
+    "rc 0 log {fit after-nested fit} sel 1")
+        echo "OK: a nested refresh defers into one re-run after the pass" ;;
+    *) echo "FAIL: re-entry: $REENTER" ;;
+esac
+case $DEADSEL in
+    "rc 0 kept 1") echo "OK: selecting a dead item is a quiet no-op" ;;
+    *) echo "FAIL: dead select: $DEADSEL" ;;
+esac
 case $HANDSIZED in
     "sized 1 geom 700x400"*)
         echo "OK: a window sized by hand keeps its size through a refresh" ;;
