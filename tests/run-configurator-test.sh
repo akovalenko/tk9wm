@@ -109,13 +109,36 @@ SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
 # an UNEXPECTED error in the apply path (not a refusal) must roll the
 # desk back to its layers and explain itself, never throw a dialog
 qu 'cfg-set set-drag-slop 11' >/dev/null
+# the sabotage throws ONCE and repairs itself, so the recovery path
+# it triggers is the real one and not a second victim
 BOOM=$(qu 'rename cfg-show-value cfg-show-value-real
-           proc cfg-show-value {it name value} { error "boom in the renderer" }
+           proc cfg-show-value {it name value} {
+               rename cfg-show-value {}
+               rename cfg-show-value-real cfg-show-value
+               error "boom in the renderer"
+           }
            set rc [cfg-set set-edge-resist 21]
-           rename cfg-show-value {}
-           rename cfg-show-value-real cfg-show-value
-           list rc $rc pending [dict size $::cfg_pending] \
-                slop [wm-call {set ::drag_slop}] \
+           list rc $rc mine [dict exists $::cfg_pending set-edge-resist] \
+                others [expr {[dict size $::cfg_pending] > 0}] \
+                resist [wm-call {set ::edge_resist}] \
+                msg [[winfo toplevel $::cfg_T].b.note cget -text]')
+# ...and when the undo ITSELF fails, the configurator gives up
+SURRENDER=$(qu 'rename cfg-show-value cfg-show-value-real
+           proc cfg-show-value {it name value} {
+               rename cfg-show-value {}
+               rename cfg-show-value-real cfg-show-value
+               error "boom again"
+           }
+           rename cfg-restore cfg-restore-real
+           proc cfg-restore {name} { error "the undo broke too" }
+           cfg-set set-edge-resist 22
+           rename cfg-restore {}
+           rename cfg-restore-real cfg-restore
+           set grim [[winfo toplevel $::cfg_T].b.note cget -text]
+           list broken $::cfg_broken refused [cfg-set set-drag-slop 6] \
+                grim $grim')
+RESCUED=$(qu 'cfg-revert
+           list broken $::cfg_broken \
                 msg [[winfo toplevel $::cfg_T].b.note cget -text]')
 
 q 'welcome-font-bump up' >/dev/null
@@ -238,9 +261,19 @@ case "$BADCURSOR|$BADCURSORMSG|$GOODCURSOR|$CURSORLIVE" in
     *) echo "FAIL: cursor: bad=$BADCURSOR msg «$BADCURSORMSG» good=$GOODCURSOR live=$CURSORLIVE" ;;
 esac
 case $BOOM in
-    "rc 0 pending 0 slop 4 msg "*"back"*"saved layers"*)
-        echo "OK: an error rolled the desk back and explained itself" ;;
-    *) echo "FAIL: recovery: $BOOM" ;;
+    "rc 0 mine 0 others 1 resist 3 msg "*"back on its saved value"*)
+        echo "OK: an error put THAT knob back and left the rest pending" ;;
+    *) echo "FAIL: narrow recovery: $BOOM" ;;
+esac
+case $SURRENDER in
+    "broken 1 refused 0 grim "*"stopped touching"*)
+        echo "OK: a failed undo makes it give up, loudly and completely" ;;
+    *) echo "FAIL: surrender: $SURRENDER" ;;
+esac
+case $RESCUED in
+    "broken 0 msg "*"working again"*)
+        echo "OK: Revert is the way back out of the give-up state" ;;
+    *) echo "FAIL: rescue: $RESCUED" ;;
 esac
 case $GOODMSG in
     *"Save makes it stick"*) echo "OK: a good value clears the error line" ;;

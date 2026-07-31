@@ -632,22 +632,57 @@ proc cfg-font-picked {name spec} {
 # same undo Revert uses — drops the pending previews with it, and
 # says so on the status line instead of throwing a dialog at
 # somebody who was only typing.
+set cfg_broken 0     ;# the give-up state: we have stopped touching things
 proc cfg-set {name value} {
+    if {$::cfg_broken} {
+        cfg-status "this configurator has given up — Revert, or restart\
+ the desk; nothing here will touch the desk until then" error
+        return 0
+    }
     if {[catch {cfg-apply $name $value} r opts]} {
-        cfg-recover "setting $name" $r $opts
+        cfg-recover $name $r $opts
         return 0
     }
     return $r
 }
-proc cfg-recover {what err {opts {}}} {
-    puts "UI: configurator: $what FAILED: $err"
+# THE NARROW UNDO FIRST. A knob that threw mid-apply is put back to
+# what it is SAVED as — that one knob, not the whole desk, and the
+# other pending previews are none of this accident's business (the
+# owner's refinement). Only a knob whose value is the CODE's default
+# needs the wide one: a default is not written down anywhere and a
+# reload is the only way to re-state it.
+proc cfg-restore {name} {
+    set meta [dict get $::cfg_table $name]
+    if {[dict get $meta owner] eq "code"} {
+        wm-call reload-config
+    } else {
+        wm-call [cfg-command $name [dict get $meta value]]
+    }
+    cfg-refresh
+}
+# ...AND IF THE UNDO ITSELF FAILS, WE STOP. There is nothing left to
+# try that would not be guessing with the user's live desk, so the
+# configurator says exactly that and touches nothing further: no
+# previews, no writes. Revert stays available — it is the user
+# ASKING for the wide undo, which is a different thing from us
+# reaching for it.
+proc cfg-recover {name err {opts {}}} {
+    puts "UI: configurator: setting $name FAILED: $err"
     if {[dict exists $opts -errorinfo]} { puts [dict get $opts -errorinfo] }
     catch {cfg-entry-close}
-    set ::cfg_pending {}
-    catch {wm-call reload-config}
-    catch {cfg-refresh}
-    cfg-status "$what went wrong ([cfg-brief $err]) — the desk is back\
- on its saved layers, unsaved changes are gone" error
+    dict unset ::cfg_pending $name
+    if {[catch {cfg-restore $name} err2 opts2]} {
+        set ::cfg_broken 1
+        puts "UI: configurator: PUTTING $name BACK ALSO FAILED: $err2"
+        if {[dict exists $opts2 -errorinfo]} { puts [dict get $opts2 -errorinfo] }
+        catch {cfg-status "$name broke ([cfg-brief $err]) and could not be\
+ put back either ([cfg-brief $err2]). The desk's live configuration may\
+ be inconsistent and we have stopped touching it — Revert to re-read\
+ the saved layers, or restart the desk." error}
+        return
+    }
+    cfg-status "$name went wrong ([cfg-brief $err]) — that knob is back\
+ on its saved value; anything else you had pending is untouched" error
 }
 proc cfg-apply {name value} {
     set kind [dict get $::cfg_table $name kind]
@@ -677,22 +712,14 @@ proc cfg-apply {name value} {
     # threw the parse error at the user as a stack trace (the owner
     # typed one into the terminal field). Ask FIRST, and say so.
     switch -- [lindex $kind 0] {
-        font - terminal {
-            if {[catch {llength $value}]} {
-                return [cfg-refuse "$name wants a list of words —\
- «$value» has an unmatched quote or brace"]
-            }
-            set cmd [list $name {*}$value]
-        }
-        list {
+        font - terminal - list {
             if {[catch {llength $value}]} {
                 return [cfg-refuse "$name wants a list —\
  «$value» has an unmatched quote or brace"]
             }
-            set cmd [list $name $value]   ;# ...as ONE argument
         }
-        default { set cmd [list $name $value] }
     }
+    set cmd [cfg-command $name $value]
     # And the DESK's own refusal is the user's to read: the knobs
     # validate (a bad place spec, an unknown terminal), and their
     # message says exactly what is wrong — far better than anything
@@ -705,6 +732,16 @@ proc cfg-apply {name value} {
     cfg-show-value [dict get $::cfg_item $name] $name $value
     cfg-status ""
     return 1
+}
+# How a knob's value becomes its command: the multi-argument kinds
+# SPREAD (set-desk-font -family X -size N), a list travels whole as
+# one argument, everything else is one word. The restore path builds
+# the same way, which is what makes a saved value re-appliable.
+proc cfg-command {name value} {
+    switch -- [lindex [dict get $::cfg_table $name kind] 0] {
+        font - terminal { return [list $name {*}$value] }
+        default         { return [list $name $value] }
+    }
 }
 # The desk answers with an error, sometimes a multi-line one; the
 # status line wants its first sentence.
@@ -743,5 +780,10 @@ proc cfg-revert {} {
     set ::cfg_pending {}
     wm-call reload-config
     cfg-refresh
+    if {$::cfg_broken} {
+        set ::cfg_broken 0
+        cfg-status "the layers were re-read and this configurator is\
+ working again"
+    }
     puts "UI: configurator: reverted to the desk's own layers"
 }
