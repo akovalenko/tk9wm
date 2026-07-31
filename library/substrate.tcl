@@ -3013,6 +3013,19 @@ proc keysym-name {ks} {
     if {$name ne ""} { return $name }
     format 0x%x $ks
 }
+# A BARE MODIFIER MASK, SPELLED THE WAY IT IS WRITTEN. The desk keeps
+# modifiers as a bit mask, which is the right thing to compare and the
+# wrong thing to show: the configurator offered «64» where the config
+# says «<Super>» (the owner). This is the inverse of parse-mods, and
+# its output is legal input to it — the rule every spelling on this
+# desk follows.
+proc mods-name {mods} {
+    set out {}
+    foreach {name bit} {Ctrl 4 Alt 8 Super 64 Mod2 16 Mod3 32 Mod5 128 Shift 1} {
+        if {$mods & $bit} { append out "<$name>" }
+    }
+    return $out
+}
 proc chord-name {mods ks} {
     set parts {}
     foreach {name bit} {Ctrl 4 Alt 8 Super 64 Mod3 32 Mod5 128 Shift 1} {

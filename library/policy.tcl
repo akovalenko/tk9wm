@@ -6160,7 +6160,7 @@ knob set-maximize    {group windows kind {choice drop keep}
 knob set-workarea-follow {group windows kind {choice stick max off}
                       get {set ::workarea_follow}
                       doc {which windows follow a moving workarea}}
-knob set-drag-modifier {group windows kind text get {set ::drag_mods}
+knob set-drag-modifier {group windows kind text get {mods-name $::drag_mods}
                       doc {the modifier that carries a window from anywhere}}
 knob set-drag-slop   {group windows kind int get {set ::drag_slop}
                       doc {pixels a title press may travel and still be a click}}
@@ -6837,7 +6837,12 @@ proc drag-move {t w X Y} {
 # the grab is also where a cursor over a foreign window can come from.
 keep drag_mods 64                ;# <Super>
 proc set-drag-modifier {spec} {
-    set ::drag_mods [parse-mods $spec]
+    set mods [parse-mods $spec]
+    if {$mods == 0} {
+        error "set-drag-modifier: «$spec» names no modifier —\
+ <Shift> <Ctrl> <Alt> <Super> <Mod2>..<Mod5>, or several together"
+    }
+    set ::drag_mods $mods
 }
 
 # ---- the cursor over the desk itself ----

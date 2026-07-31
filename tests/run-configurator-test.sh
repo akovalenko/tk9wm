@@ -157,6 +157,15 @@ ENDS=$(qu 'set T $::cfg_T
            set firstalt [cfg-name-of [cfg-selected]]
            list $first $last [expr {$first eq $firstalt && $last eq $lastalt}]')
 
+# a modifier mask is not a value for a human: it reads back as it is
+# written, and what it writes is legal input
+MODS=$(qu 'set t [wm-call knob-table]
+           set shown [dict get $t set-drag-modifier value]
+           list shown $shown \
+                round [wm-call [list set-drag-modifier $shown]] \
+                same [wm-call {expr {$::drag_mods == 64}}] \
+                refused [wm-call {catch {set-drag-modifier zzz}}]')
+
 HEAD=$(qu 'set W [winfo toplevel $::cfg_T]
            focus $W.b.save
            event generate $W <Alt-Key-k>
@@ -348,6 +357,11 @@ case $ENDS in
     "set-desk-background set-workarea-follow 1")
         echo "OK: Home/End and Alt+< / Alt+> reach the same two ends" ;;
     *) echo "FAIL: ends: $ENDS" ;;
+esac
+case $MODS in
+    "shown <Super> round 64 same 1 refused 1")
+        echo "OK: the drag modifier shows as <Super> and takes it back" ;;
+    *) echo "FAIL: modifier: $MODS" ;;
 esac
 case $HEAD in
     "text {Knobs — everything this desk can be told} under 0 focus "*.t)
