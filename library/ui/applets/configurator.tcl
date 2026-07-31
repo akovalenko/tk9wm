@@ -34,7 +34,7 @@ set cfg_table {}     ;# knob-table, as last fetched
 set cfg_pending {}   ;# name -> the command previewed but not saved
 set cfg_item {}      ;# name -> tree item
 set cfg_T ""
-set cfg_hint "Return or F2 edits · ▾ in the field opens the picker ·\
+set cfg_hint "Return or double-click opens the picker · F2 types ·\
  a change previews at once · Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
@@ -67,10 +67,11 @@ proc cfg-build {W} {
     # (the owner's review).
     ttk::scrollbar $W.sb -orient vertical -command [list $W.t yview] -takefocus 0
     set T $W.t
-    $T column create -text knob         -tags Cname
-    $T column create -text value        -tags Cval
-    $T column create -text ""           -tags Cflag
-    $T column create -text "what it is" -squeeze yes -expand yes -tags Cdoc
+    $T column create -text knob         -resize yes -tags Cname
+    $T column create -text value        -resize yes -tags Cval
+    $T column create -text ""           -resize no  -tags Cflag
+    $T column create -text "what it is" -squeeze yes -expand yes \
+        -resize yes -tags Cdoc
     $T configure -treecolumn Cname
     $T element create eTxt  text -fill [ui-color fg] -lines 1 -font DeskFont
     $T element create eVal  text -fill [ui-color link] -lines 1 -font DeskFont
@@ -101,14 +102,18 @@ proc cfg-build {W} {
     pack $W.b.note -side left -padx 12
     grid $W.b -columnspan 2 -sticky ew
 
-    bind $T <ButtonPress-1>        {cfg-click %x %y; break}
-    bind $T <Double-ButtonPress-1> {cfg-doubleclick %x %y; break}
+    # CONDITIONAL breaks: a plain `break` swallowed the class bindings
+    # too, and with them treectrl's own header work — column drags and
+    # resizes stopped (the owner's report). The helpers answer whether
+    # the press was theirs; a press on the header is not.
+    bind $T <ButtonPress-1>        {if {[cfg-click %x %y]} break}
+    bind $T <Double-ButtonPress-1> {if {[cfg-doubleclick %x %y]} break}
     foreach k {Up k p} { bind $T <KeyPress-$k> {cfg-move above; break} }
     foreach k {Down j n} { bind $T <KeyPress-$k> {cfg-move below; break} }
     bind $T <Control-p> {cfg-move above; break}
     bind $T <Control-n> {cfg-move below; break}
-    bind $T <KeyPress-Return> {cfg-activate; break}
-    bind $T <KeyPress-F2>     {cfg-activate; break}
+    bind $T <KeyPress-Return> {cfg-activate primary; break}
+    bind $T <KeyPress-F2>     {cfg-activate text; break}
     bind $T <KeyPress-Left>   {cfg-fold collapse; break}
     bind $T <KeyPress-Right>  {cfg-fold expand; break}
     cfg-refresh
@@ -193,7 +198,9 @@ proc cfg-fit {} {
     $T column configure Cname -width [expr {$wname + 32}]
     $T column configure Cval  -width [expr {$wval + 16}]
     $T column configure Cflag -width [expr {[font measure DeskFont "•cfg"] + 12}]
-    $T column configure Cdoc  -width [expr {$wdoc + 16}]
+    # the last column takes what is left, so it is a MINIMUM here: a
+    # pinned -width would fight both the expand and the hand
+    $T column configure Cdoc  -width {} -minwidth [expr {$wdoc + 16}]
     set ih [expr {[font metrics DeskFont -linespace] + 6}]
     set rows [expr {[llength [dict keys $::cfg_item]]
                     + [llength [$T item children root]]}]
@@ -268,13 +275,16 @@ proc cfg-fold {way} {
 # A single click SELECTS and focuses the tree — nothing more; the
 # double click and the keys activate.
 proc cfg-click {x y} {
-    focus $::cfg_T
     set id [$::cfg_T identify $x $y]
-    if {[lindex $id 0] eq "item"} { cfg-select [lindex $id 1] }
+    if {[lindex $id 0] ne "item"} { return 0 }   ;# the header is treectrl's
+    focus $::cfg_T
+    cfg-select [lindex $id 1]
+    return 1
 }
 proc cfg-doubleclick {x y} {
-    cfg-click $x $y
-    cfg-activate
+    if {![cfg-click $x $y]} { return 0 }
+    cfg-activate primary
+    return 1
 }
 # ACTIVATION IS EDITING, and a picker is reachable FROM the editor
 # (the owner's shape: F2 is text wherever text makes sense; a simple
@@ -283,7 +293,7 @@ proc cfg-doubleclick {x y} {
 # double click all mean the same thing — open the editor — except
 # for the two kinds with no text to edit: a bool toggles, a choice
 # drops its menu.
-proc cfg-activate {} {
+proc cfg-activate {{how primary}} {
     set it [cfg-selected]
     if {$it eq ""} return
     set name [cfg-name-of $it]
@@ -293,6 +303,11 @@ proc cfg-activate {} {
         bool   { cfg-set $name [expr {[cfg-cur $name] eq "on" ? "off" : "on"}] }
         choice { cfg-choice-menu $it $name [lrange $kind 1 end] }
         default {
+            set picker [cfg-picker-of $name]
+            if {$how eq "primary" && $picker ne ""} {
+                cfg-entry-pick $picker $name
+                return
+            }
             # after the event sequence, so nothing steals the focus
             # back from the entry (the invariant above)
             after idle [list cfg-entry $it $name]
@@ -352,7 +367,10 @@ proc cfg-entry {it name} {
     if {$picker ne ""} {
         # the combobox-like way into the dialog: the button, or Down
         # from the keyboard — a gesture that costs nothing to guess
-        ttk::button $T.edit.pick -text ▾ -takefocus 0 -width 2 -style Toolbutton \
+        # "..." and not a triangle glyph: the desk font may simply
+        # not have one, and an invisible affordance is no affordance
+        # (the owner saw nothing where the arrow was meant to be)
+        ttk::button $T.edit.pick -text ... -takefocus 0 -width 3 \
             -command [list cfg-entry-pick $picker $name]
         pack $T.edit.pick -side right -fill y
         bind $T.edit.e <Down> [list cfg-entry-pick $picker $name]
