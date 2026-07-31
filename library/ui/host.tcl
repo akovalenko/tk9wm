@@ -120,13 +120,15 @@ proc ui-load-applets {} {
     set ::ui_loaded_gen [expr {[dict exists $::ui_palette generation]
                                ? [dict get $::ui_palette generation] : ""}]
 }
-proc ui-fresh-applets {} {
-    if {![dict exists $::ui_palette generation]} return
-    set gen [dict get $::ui_palette generation]
-    if {$gen ne $::ui_loaded_gen} {
-        puts "UI: re-sourcing applets (generation $gen)"
-        ui-load-applets
-    }
+# Is this host's CODE — its own included — still the code on disk?
+# The generation is an mtime fingerprint of library/ui, riding in on
+# ui-style. A stale host answers so and LEAVES; the WM respawns a
+# fresh one and retries. The reply must go out before the death — a
+# send whose target dies mid-conversation never returns (the
+# restart-wm lesson).
+proc ui-stale? {} {
+    expr {[dict exists $::ui_palette generation]
+          && [dict get $::ui_palette generation] ne $::ui_loaded_gen}
 }
 ui-style-sync    ;# know the generation before the first load...
 ui-load-applets  ;# ...so an unchanged desk never re-sources on open
@@ -141,7 +143,11 @@ proc ui-open {name} {
         return
     }
     ui-style-sync
-    ui-fresh-applets
+    if {[ui-stale?]} {
+        puts "UI: stale — the ui files changed; leaving for a fresh host"
+        after idle exit
+        return stale
+    }
     set top .tk9wm-$name
     if {[winfo exists $top]} {
         wm deiconify $top

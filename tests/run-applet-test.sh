@@ -59,6 +59,18 @@ H4=$(hosts)
 q 'applet about' >/dev/null
 sleep 1
 
+# The stale protocol: any ui file younger than the running host makes
+# the next open answer "stale", the host leaves, the WM respawns — an
+# edit under library/ui is one close-and-open away, no Reread involved.
+printf 'destroy .tk9wm-about\n' > "$HERE/applet-config/qh.tcl"
+"$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm-ui "$HERE/applet-config/qh.tcl" >/dev/null
+sleep 1
+touch "$ROOT/library/ui/applets/about.tcl"
+q 'applet about' >/dev/null
+sleep 3
+H5=$(hosts)
+CID=$(xdotool search --classname '^tk9wm-about$' | head -1)
+
 kill $WM 2>/dev/null
 pkill -f 'ui/host.tcl' 2>/dev/null
 
@@ -103,5 +115,12 @@ if grep -q 'UI: applet about up' "$HERE/wm-applet.log"; then
     echo "OK: the host reported the build"
 else
     echo "FAIL: no build line from the host"
+fi
+if grep -q 'the ui world changed — respawning the host' "$HERE/wm-applet.log" \
+        && grep -q 'UI: stale' "$HERE/wm-applet.log" \
+        && [ "$H5" = 1 ] && [ -n "$CID" ]; then
+    echo "OK: a touched ui file turned into a fresh host on the next open"
+else
+    echo "FAIL: stale path (hosts=$H5, window=$CID)"
 fi
 check_invariants "$HERE/wm-applet.log"

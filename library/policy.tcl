@@ -6068,8 +6068,37 @@ proc ui-style {} {
         deskfont  [font actual DeskFont] \
         titlefont [font actual TitleFont] \
         scheme    [expr {$light ? "light" : "dark"}] \
-        generation [expr {[info exists ::ui_generation] ? $::ui_generation : 0}] \
+        generation [ui-generation] \
         {*}$palette
+}
+# The ui world's cache key: an MTIME FINGERPRINT of everything under
+# library/ui — the host included, which is the point (the owner: a
+# changed host.tcl had no way to arrive; a re-source counter could
+# never cover the host's own code). The host learns it for free
+# riding ui-style, answers "stale" at the next open when it differs,
+# and the WM respawns — so any edit under ui/ is one close-and-open
+# away, no Reread involved, while a WM restart (mtimes untouched)
+# leaves the resident host in peace.
+#
+# Mtimes are the CHECKOUT's truth and only that (the owner's caveat):
+# a kit or archive built deterministically pins them on purpose, and
+# worse, an UPDATED kit with pinned mtimes would be indistinguishable
+# from the old one. So the family rule applies once more — a wrapper
+# that KNOWS says so: a packaged build sets ::tk9wm_uigen to its own
+# build id (a git rev, a version — anything that changes with the
+# build), next to the ::tk9wm_reexec/::tk9wm_uiexec it already
+# carries, and the fingerprint is simply that.
+proc ui-generation {} {
+    if {[info exists ::tk9wm_uigen]} { return $::tk9wm_uigen }
+    set g 0
+    set n 0
+    foreach f [glob -nocomplain \
+            [file join $::tk9wm_library ui *.tcl] \
+            [file join $::tk9wm_library ui applets *.tcl]] {
+        incr n
+        catch {set g [expr {max($g, [file mtime $f])}]}
+    }
+    return "$n:$g"
 }
 
 # The welcome mat's first QUICK KNOBS (the owner's order): all the
@@ -6096,7 +6125,7 @@ proc welcome-font-bump {dir} {
 #   is the HOST alive?  ask it to open the applet (Tk send — a stale
 #     registry entry fails the send and falls through to the spawn);
 #   else  spawn the host with the applet's name on its command line.
-proc applet {name} {
+proc applet {name {retry 0}} {
     set pred [list filter -class [list tk9wm-$name Tk9wmUi]]
     set hit [lindex [panel-matches "applet $name" \
         [dict create match $pred]] 0]
@@ -6106,7 +6135,22 @@ proc applet {name} {
         return
     }
     if {"tk9wm-ui" in [winfo interps]} {
-        if {![catch {send -- tk9wm-ui [list ui-open $name]}]} {
+        if {![catch {send -- tk9wm-ui [list ui-open $name]} r]} {
+            if {$r eq "stale"} {
+                # the host saw newer ui files than it was born from,
+                # answered so and is leaving; give it a beat and come
+                # back — the dead registry entry then falls through to
+                # the spawn. Once: a host that will not leave is a
+                # thing to say, not to spin on.
+                if {$retry} {
+                    puts "WM: applet $name: the stale host would not leave"
+                    return
+                }
+                puts "WM: applet $name: the ui world changed —\
+ respawning the host"
+                after 400 [list applet $name 1]
+                return
+            }
             puts "WM: applet $name: asked the running host"
             return
         }

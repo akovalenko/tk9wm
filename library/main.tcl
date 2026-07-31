@@ -156,13 +156,6 @@ proc library-files {} {
     lappend l [file join $::tk9wm_library main.tcl]
     return $l
 }
-# The ui world's cache key: the host re-sources its applet files when
-# this differs from what it loaded under (it learns the number for
-# free, riding ui-style). A Reread BUMPS it — the dev loop's "close
-# and reopen picks up the new code" — and ordinary operation never
-# does, so an applet reopen costs no re-sourcing (the owner's ask,
-# both halves).
-keep ui_generation 0
 proc reread-layers {} {
     puts "WM: re-sourcing the library"
     foreach path [library-files] {
@@ -173,9 +166,7 @@ proc reread-layers {} {
             return 0
         }
     }
-    incr ::ui_generation
-    puts "WM: re-sourced (procs replaced; state, grabs and clients untouched;\
- ui generation $::ui_generation)"
+    puts "WM: re-sourced (procs replaced; state, grabs and clients untouched)"
     return 1
 }
 
