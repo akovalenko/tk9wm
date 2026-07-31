@@ -43,8 +43,17 @@
 #     and wants the next sync to start from nothing. A dying widget
 #     forgets itself: the engine binds <Destroy> on first meeting.
 namespace eval treesync {
-    variable map {}      ;# {T parent} -> {key -> item}
-    variable bound {}    ;# T -> 1 once its <Destroy> is armed
+    # Reread re-sources this file like any library file, and the
+    # desk's contract for a Reread is «procs replaced, state
+    # untouched». An unconditional initializer here would WIPE the
+    # projection maps while every synced tree still stands — the
+    # next sync then MAKES each row again beside the survivors, and
+    # the owner's strip wore two of every button (2026-07-31). So
+    # the state is created only when it does not exist yet.
+    variable map         ;# {T parent} -> {key -> item}
+    variable bound       ;# T -> 1 once its <Destroy> is armed
+    if {![info exists map]} { set map {} }
+    if {![info exists bound]} { set bound {} }
 }
 proc treesync::sync {T view rows {parent 0}} {
     variable map

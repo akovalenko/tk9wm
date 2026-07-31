@@ -51,6 +51,17 @@ ask "$HERE/reread-config/q-reread.tcl" >/dev/null
 sleep 0.5
 W3=$(ask "$HERE/reread-config/q-weight.tcl")
 
+# treesync's maps are STATE and must ride a Reread like the rest: a
+# re-source that wiped them made the next same-signature build MAKE
+# every row again beside the survivors — two of every button on the
+# owner's strip (2026-07-31), after exactly this alternation
+cat > "$HERE/reread-config/q-strip.tcl" <<'EOF'
+set T [panel-window default].t
+list items [llength [$T item children 0]] \
+     shown [llength [panel-cfg default shown]]
+EOF
+STRIP=$(ask "$HERE/reread-config/q-strip.tcl")
+
 rm -f "$HERE/reread-config/rebound-fired"
 xdotool key alt+space
 sleep 1
@@ -83,4 +94,9 @@ if [ -e "$HERE/reread-config/rebound-fired" ]; then
 else
     echo "FAIL: alt+space fell back to the default after Reread"
 fi
+case $STRIP in
+    "items 1 shown 1")
+        echo "OK: the strip holds one item per button through the alternation" ;;
+    *) echo "FAIL: strip after the alternation: $STRIP" ;;
+esac
 check_invariants "$HERE/wm-reread.log"
