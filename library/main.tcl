@@ -169,7 +169,7 @@ proc reload-config {} {
 # same list the same way, and the order is explained there.
 proc library-files {} {
     set l {}
-    foreach f {fut.tcl substrate.tcl policy.tcl widget.tcl} {
+    foreach f {fut.tcl treesync.tcl substrate.tcl policy.tcl widget.tcl} {
         lappend l [file join $::tk9wm_library $f]
     }
     foreach w [lsort [glob -nocomplain [file join $::tk9wm_library widgets *.tcl]]] {

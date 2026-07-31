@@ -19,6 +19,8 @@
 # walks the same order for the same reason.
 set _tk9wm_load [list source -encoding utf-8 [file join $dir fut.tcl]]
 append _tk9wm_load \n \
+    [list source -encoding utf-8 [file join $dir treesync.tcl]]
+append _tk9wm_load \n \
     [list source -encoding utf-8 [file join $dir substrate.tcl]]
 set _tk9wm_files [list policy.tcl widget.tcl]
 foreach _w [lsort [glob -nocomplain -tails -directory [file join $dir widgets] *.tcl]] {

@@ -4629,8 +4629,13 @@ array set panel_zone {}    ;# name -> its reserved arrow strip, set per build
 # aims at a button — a flash, a re-judged match, a click, the
 # winlist anchoring itself by the arrow's button — asks this map,
 # never «button i = item i+1». An item number is not a position
-# promise: reconciliation will move items without renumbering them.
+# promise: reconciliation moves items without renumbering them.
 array set panel_items {}
+# name -> the last build's STRUCTURE signature (panel-geometry sans
+# faces, plus the side): same signature — the tree stands and its
+# items reconcile; changed — the tree is built from nothing, its
+# styles being the structure. See panel-build.
+array set panel_sig {}
 # The block form. `panel NAME BODY` points the knobs at NAME for the
 # length of BODY and puts them back afterwards — uplevel, so the body
 # is ordinary config code that can call anything, and the target is
@@ -5276,6 +5281,7 @@ proc panels-build {} {
         unset ::panel_win($name)
         array unset ::panel_zone $name
         array unset ::panel_items $name
+        array unset ::panel_sig $name
         set claimed 0
         foreach b $built {
             if {$::panel_win($b) eq $w} { set claimed 1; break }
@@ -5328,23 +5334,38 @@ proc panel-build {name idx} {
     # the pad, the item is exactly face + 2*fgap and the edge is one
     # number in both.
     set fgap [dict get $g fgap]
-    # RECONCILIATION (the owner's ask, 2026-07-31): the band is a
-    # MAPPED X window, and tearing it down per rebuild was the
-    # flicker — the desk shows through, the new window maps and
-    # restacks, once per build. A surviving panel keeps its toplevel:
-    # only the CONTENT (the treectrl) is built from nothing, and the
-    # band itself just moves or resizes in place below, when it moves
-    # at all. The window is torn down only when the path changed
-    # hands (the declaration order moved) — rare, and honestly a
-    # different panel then.
+    # RECONCILIATION (the owner's ask, 2026-07-31), two storeys. The
+    # band is a MAPPED X window, and tearing it down per rebuild was
+    # the flicker — a surviving panel keeps its toplevel, and the
+    # band moves or resizes in place below, when it moves at all;
+    # torn down only when the path changed hands (the declaration
+    # order moved) — rare, and honestly a different panel then. One
+    # storey further, the TREE inside survives too when the strip's
+    # STRUCTURE stands: everything panel-geometry decides — heights,
+    # thickness, orientation, the zone, which styles exist and their
+    # baked pads — plus the side, folded into one signature. Same
+    # signature: the items are reconciled through treesync (two
+    # buttons swapping places is two items changing places, the
+    # owner's dream case). Signature moved: the tree is honestly
+    # built from nothing — its styles ARE the structure — and
+    # treesync starts over with it (its map dies with the widget).
     if {$old ne "" && $old ne $P} { destroy $old }
+    set sig [list [dict remove $g faces] $side]
     if {[winfo exists $P]} {
-        destroy $P.t
         $P configure -background $::OUTLINE
     } else {
         toplevel $P -background $::OUTLINE
         wm overrideredirect $P 1
     }
+    if {[winfo exists $P.t] && [info exists ::panel_sig($name)]
+            && $::panel_sig($name) eq $sig} {
+        set T $P.t
+        panel-items-sync $T $name $buttons $faces $iconic
+        panel-place $name $P $T $g $side [llength $buttons]
+        return
+    }
+    set ::panel_sig($name) $sig
+    destroy $P.t
     set T [treectrl $P.t -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
         -background #2e3436 -itemheight $itemh \
@@ -5492,36 +5513,63 @@ proc panel-build {name idx} {
                 -visible {yes multi no {}}
         }
     }
-    set items {}
+    panel-items-sync $T $name $buttons $faces $iconic
+    bind $T <ButtonPress-1> [list panel-click $name %x %y]
+    panel-place $name $P $T $g $side [llength $buttons]
+}
+# The items, reconciled through treesync — the same call dresses a
+# fresh tree (every row a make) and refreshes a surviving one
+# (updates and moves): two buttons swapping places is two items
+# changing places, nothing else stirs. The returned map IS
+# panel_items — what every flash, click and re-judgement asks.
+proc panel-items-sync {T name buttons faces iconic} {
+    set rows {}
     foreach b $buttons f $faces {
         lassign $b aname label settings
-        set item [$T item create]
-        if {!$iconic} {
-            $T item style set $item C0 sBtn
-        } elseif {$f ne ""} {
-            $T item style set $item C0 sBtnI
-            $T item element configure $item C0 eBIcon -image $f
-        } else {
-            $T item style set $item C0 sBtnB
-            lassign [pseudo-badge $label] letters color
-            $T item element configure $item C0 ePRect -fill $color
-            $T item element configure $item C0 ePTxt -text $letters
-        }
-        $T item element configure $item C0 eBTxt -text $label
-        $T item lastchild root $item
-        dict set items $aname $item
+        lappend rows [list $aname [list $label $f $iconic]]
     }
-    set ::panel_items($name) $items
-    bind $T <ButtonPress-1> [list panel-click $name %x %y]
-    # WHERE the strip goes is not this proc's arithmetic any more: it
-    # asks for its band (carved in declaration order out of what the
-    # panels before it left) and takes the edge-hugging part of it that
-    # is its own thickness — a band widened by a fat tray is not the
-    # panel's to fill.
-    #
-    # The tray strip sits at the FAR end of this same band, in its own
-    # top-level above ours: the button row stops short of it so a
-    # button can never end up hidden under an icon.
+    set ::panel_items($name) [treesync::sync $T \
+        {make panel-btn-make update panel-btn-update} $rows]
+}
+# One dresser for a fresh item and a survivor alike: which of the
+# three styles a button wears and what its elements show is ROW
+# data, never item history.
+proc panel-btn-dress {T item label face iconic} {
+    if {!$iconic} {
+        $T item style set $item C0 sBtn
+    } elseif {$face ne ""} {
+        $T item style set $item C0 sBtnI
+        $T item element configure $item C0 eBIcon -image $face
+    } else {
+        $T item style set $item C0 sBtnB
+        lassign [pseudo-badge $label] letters color
+        $T item element configure $item C0 ePRect -fill $color
+        $T item element configure $item C0 ePTxt -text $letters
+    }
+    $T item element configure $item C0 eBTxt -text $label
+}
+proc panel-btn-make {T parent key data} {
+    set item [$T item create]
+    panel-btn-dress $T $item {*}$data
+    return $item
+}
+proc panel-btn-update {T item key data} {
+    panel-btn-dress $T $item {*}$data
+}
+# WHERE the strip goes is not the builder's arithmetic: it asks for
+# its band (carved in declaration order out of what the panels
+# before it left) and takes the edge-hugging part of it that is its
+# own thickness — a band widened by a fat tray is not the panel's to
+# fill. Shared by the full build and the items-only sync: the band
+# can move under an unchanged strip (another panel grew), and moving
+# in place is exactly what the reused window is for.
+#
+# The tray strip sits at the FAR end of this same band, in its own
+# top-level above ours: the button row stops short of it so a button
+# can never end up hidden under an icon.
+proc panel-place {name P T g side n} {
+    set thick [dict get $g thick]
+    set vert [dict get $g vert]
     set band [strip-band $name]
     if {$band eq ""} { set band [list 0 0 {*}[screen-size]] }
     # THE WINDOW COVERS ITS PASSENGERS. A widget riding this panel is a
@@ -5554,9 +5602,9 @@ proc panel-build {name idx} {
     }
     wm geometry $P $geo
     raise $P
-    panel-reeval     ;# a rebuild starts stateless — judge the matches now
-    puts "WM: panel $name up ([llength $buttons] buttons, $thick px,\
- $side/$preset, $geo)"
+    panel-reeval     ;# a build starts stateless — judge the matches now
+    puts "WM: panel $name up ($n buttons, $thick px,\
+ $side/[dict get $g preset], $geo)"
 }
 # What "focus the hit" means, shared by the plain fire and by activate
 # hooks that do more around it (the emacs layer's, so far).

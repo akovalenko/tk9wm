@@ -97,12 +97,32 @@ proc live-single2 {} {
     lchk {... but the standing match keeps live} 1 [has-state 1 live]
     puts "LIVE BATTERY single2 done"
 }
+# The owner's dream case (treesync): two buttons swap places -> the
+# same two treectrl ITEMS swap places in the same tree — nothing is
+# destroyed, the structure signature stood.
+proc live-swap {} {
+    set T [panel-tree default]
+    set was $::panel_items(default)
+    panel-buttons-own default
+    panel-button пусто
+    panel-button жилец
+    update            ;# the idle rebuild — the items-only sync path
+    lchk {swap: the tree widget survived} $T [panel-tree default]
+    lchk {swap: both items survived by id} \
+        [list [dict get $was жилец] [dict get $was пусто]] \
+        [list [dict get $::panel_items(default) жилец] \
+              [dict get $::panel_items(default) пусто]]
+    lchk {swap: пусто leads the strip now} \
+        [dict get $was пусто] [[panel-tree default] item firstchild root]
+    puts "LIVE BATTERY swap done"
+}
 wm-bind {<Super>1} live-empty
 wm-bind {<Super>2} live-one
 wm-bind {<Super>3} live-two
 wm-bind {<Super>4} live-drop
 wm-bind {<Super>6} live-multi2
 wm-bind {<Super>7} live-single2
+wm-bind {<Super>8} live-swap
 EOF
 
 XDG_CONFIG_HOME="$HERE/panellive-config" \
@@ -137,6 +157,7 @@ sleep 1.2              # managed as жилец-C, matches again
 key super+6
 sleep 2.5              # it renamed itself out of the match by now
 key super+7
+key super+8            # the swap: items move, nothing is destroyed
 
 kill $WM $CA $CC 2>/dev/null
 
@@ -153,16 +174,16 @@ else
     echo "OK: no battery failures"
 fi
 PASS=$(grep -c 'LIVE PASS' "$HERE/wm-panellive.log")
-if [ "$PASS" = 17 ]; then
-    echo "OK: all 17 checks passed"
+if [ "$PASS" = 20 ]; then
+    echo "OK: all 20 checks passed"
 else
-    echo "FAIL: $PASS PASS lines, want 17"
+    echo "FAIL: $PASS PASS lines, want 20"
 fi
 DONE=$(grep -c 'LIVE BATTERY .* done' "$HERE/wm-panellive.log")
-if [ "$DONE" = 6 ]; then
-    echo "OK: all six batteries ran to completion"
+if [ "$DONE" = 7 ]; then
+    echo "OK: all seven batteries ran to completion"
 else
-    echo "FAIL: $DONE battery-done lines, want 6"
+    echo "FAIL: $DONE battery-done lines, want 7"
 fi
 if grep -q 'panel жилец: arrow — 2 matches' "$HERE/wm-panellive.log"; then
     echo "OK: the arrow logged its two matches"
