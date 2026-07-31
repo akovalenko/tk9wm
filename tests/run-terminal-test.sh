@@ -1,6 +1,7 @@
 #!/bin/sh
 # Regression for the terminal layer: a semantic `terminal` button —
-# match and launch derived from {name run ...}, the beast-keyed args
+# match derived from the terminal's name and the launch from the
+# action's own run (which the terminal answers), the beast-keyed args
 # branches (the active beast's applied, the foreign one not), env
 # reaching the terminal's child, the title flag, the nameless
 # `terminal {}` button matching a terminal it did not launch, and the
@@ -22,13 +23,13 @@ action mutt {
         name muttx
         title "именованный терминал"
         env {TERMTEST env-arrived}
-        run {sh -c "printenv TERMTEST > __HERE__/terminal-config/envout; exec sleep 30"}
         args {xterm {-bg #223344} kitty {--utterly-bogus-flag}}
     }
+    run {sh -c "printenv TERMTEST > __HERE__/terminal-config/envout; exec sleep 30"}
     key {<Super>m}
 }
 action anyterm {terminal {} key {<Super>n}}
-action ghost {launch {exec sleep 30 &} needs no-such-cmd-xyzzy}
+action ghost {launch {Run sleep 30} needs no-such-cmd-xyzzy}
 panel-button mutt
 panel-button anyterm
 panel-button ghost

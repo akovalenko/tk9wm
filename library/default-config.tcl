@@ -320,10 +320,9 @@
 # optional:
 #   run    — the command as RAW ARGV, no exec wrapping: {firefox
 #            --new-window}. One spelling whether it runs bare or
-#            inside a terminal; the wrapping is the machinery's
-#            business (run-argv — one door, so error monitoring or
-#            an environment registry can land there someday without
-#            a config changing a word)
+#            inside a terminal — SUGAR for `launch {Run firefox
+#            --new-window}` and nothing besides, so everything said
+#            about Run below is said about run too
 #   match  — predicate command prefix (same vocabulary as wm-style);
 #            without one the action is a plain launcher
 #   icon   — a face, for whatever panel may some day carry it:
@@ -336,8 +335,29 @@
 #            unset
 #   style  — a style rule for the windows the match finds, the
 #            filter said once instead of twice
-#   launch — the low-level escape: any Tcl script, for the launch
-#            `run` cannot say; an explicit launch beats the derived
+#   launch — the general form `run` is sugar for: any Tcl script, run
+#            at fire time. Say ONE of the two — both together is an
+#            error, and an empty value un-says the one you no longer
+#            mean (`run {}`)
+#
+# `Run words…` is how a launch script starts something, and it is
+# Capitalized like every other word here that ACTS. It does not read
+# its words — no tilde, no expansion: the script is evaluated when
+# the deed fires, at the global level like every callback here, so
+# Tcl has already substituted and `$env(HOME)` means what it says.
+# What the words BECOME is the context's business: bare they are a
+# command, and beside a `terminal` word the same line means "start
+# this in a terminal" — the script never learns about `xterm -e`.
+#
+#   action Log {
+#       terminal {name log}
+#       launch {Run tail -f $env(HOME)/log}
+#   }
+#
+# Two `Run`s in one launch are two launches — under a terminal word,
+# two terminals. And a launch script runs in the desk's own event
+# loop: `Run` returns at once, but a synchronous `exec` in there
+# freezes every window on the screen until it comes back.
 #
 #   action xterm {
 #       match {filter -class xterm} run {xterm} key {<Super>x}
@@ -435,9 +455,8 @@
 #   action mutt {terminal {name mutt} run {mutt} key {<Super>m}}
 #
 # The `terminal` key derives both halves of the idempotent action —
-# and it runs the action's own `run` inside the terminal (a `run`
-# inside the terminal dict overrides, for the rare button whose
-# terminal should run something else):
+# and it answers the action's `Run` (its own, or the one `run` is
+# sugar for) by opening the terminal around those words:
 # the match — `filter -class mutt`, a single pattern, so either half
 # of WM_CLASS answers — and the launch, built for the ACTIVE terminal
 # by its adapter (xterm gets `-name mutt -e mutt`, kitty gets
@@ -459,12 +478,12 @@
 # best-loved first — kitty, alacritty, urxvt, st, xterm, and the DE
 # terminals last. The log says what was picked and on whose word.
 #
-# The full spec, every key optional:
+# The full spec, every key optional — and the COMMAND is not among
+# them: it comes from the action's own run/launch, which is the whole
+# point of the arrangement (a spec that named a command too would be
+# a second place to say the same thing, and the two would disagree):
 #   name   the window's name (WM_CLASS instance; on xterm/urxvt also
 #          the xrdb branch — mutt*background: darkblue just works)
-#   run    the command, an exec-style list. Wrappers are argv
-#          concatenation, no grammar needed:
-#          run {uim-fep -e ssh -t host "tmux attach || tmux"}
 #   title  the window title (every beast has a word for it)
 #   env    environment for the TERMINAL process itself:
 #          env {XMODIFIERS {}} cuts uim-xim off an xterm. An empty
@@ -473,8 +492,9 @@
 #          the active beast (a beast name, a list of them, or *):
 #          args {xterm {-bg darkblue} kitty {-o background=darkblue}}
 #          This is your terminal's own dialect, said out loud — the WM
-#          translates name/run/title and NOTHING else, so a shared
-#          button stays terminal-agnostic with goodies for some.
+#          translates name/title and the command and NOTHING else, so
+#          a shared button stays terminal-agnostic with goodies for
+#          some.
 #
 # ...and with `needs` (see the actions section) the whole thing
 # waits until mutt exists in PATH — the full declaration, worn by
@@ -689,22 +709,22 @@
 # chord as Super+t / Ctrl+h, and wm-bind takes that form too, so a line
 # read off the screen can be typed straight back here.
 #
-#   wm-bind {Super+t Ctrl+j} {exec xterm &}   ;# same as {<Super>t <Ctrl>j}
+#   wm-bind {Super+t Ctrl+j} {Run xterm}      ;# same as {<Super>t <Ctrl>j}
 #
 # A third argument NAMES the binding for the help list, for when the
 # script is not a fit thing to read. Nothing needs it usually — winops,
-# Quit or the first words of an exec say enough — and a panel button
+# Quit or the first words of a Run say enough — and a panel button
 # fills it in for you with the button's own label.
 #
-#   wm-bind {<Super>Return} {exec urxvtc -e tmux new -As0} "a terminal"
+#   wm-bind {<Super>Return} {Run urxvtc -e tmux new -As0} "a terminal"
 #
 # A SHIFTED SYMBOL IS SPELLED BY THE KEY IT SITS ON. The lookup asks
 # the keymap for group 0 level 0, which is what makes a chord Latin on
 # any layout — and it means `?` never arrives as `?`. Bind <Shift>slash
 # (or whichever key prints it for you), not `question`.
 #
-#   wm-bind {<Super>Return} {exec xterm &}
-#   wm-bind {<Super>t w x}  {exec xterm &}
+#   wm-bind {<Super>Return} {Run xterm}
+#   wm-bind {<Super>t w x}  {Run xterm}
 #
 # A TOP CHORD IS ALWAYS LIVE: pressed inside a sequence that does not
 # bind it, <Super>t starts over instead of failing, and <Alt>space

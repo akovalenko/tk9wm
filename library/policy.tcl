@@ -4219,7 +4219,16 @@ proc spawn-terminal {spec} {
         set argv [list env {*}$pre {*}$argv]
     }
     puts "WM: terminal: spawn $argv"
-    exec {*}$argv &
+    run-argv $argv
+}
+
+# What `Run` means while a terminal action fires: the words are the
+# command the terminal is opened AROUND. The spec is the action's own
+# terminal word — name, title, env, beast dialect — and the command is
+# the only part of it that comes from the launch.
+proc spawn-terminal-run {spec argv} {
+    dict set spec run $argv
+    spawn-terminal $spec
 }
 
 # The predicate behind a nameless `terminal {}` button: is this window
@@ -4736,6 +4745,17 @@ proc action {name settings} {
     foreach k [dict keys $raw] {
         if {$k ne "terminal" && [dict get $raw $k] eq ""} { dict unset raw $k }
     }
+    # One slot, two spellings — and no way to say both. It used to be
+    # decided silently in favour of the launch, which is the worst
+    # place for a silence: an owner editing the command watched the
+    # button keep running the old script and heard nothing about it.
+    # Judged on the RAW words, because the derived spec always has a
+    # launch; and the way out is the same as anywhere else here — an
+    # empty value un-says the one you no longer mean.
+    if {[dict exists $raw run] && [dict exists $raw launch]} {
+        error "action $name: run and launch both said — say one\
+ (run {} or launch {} un-says the other)"
+    }
     dict set ::action_raw $name $raw
     action-realize $name
     # style is a shorthand landing WHEN SAID — this call's word, not
@@ -4752,20 +4772,22 @@ proc action {name settings} {
         }
     }
 }
-# Derive what the machinery runs on. The adapters go first (a
-# terminal word picks the action's own `run` up unless it carries
-# one); then a bare `run` becomes the launch through the one door.
-# An explicit `launch` is the low-level escape and always wins.
+# Derive what the machinery runs on. `run` is SUGAR and desugars
+# first: `run {mutt}` is `launch {Run mutt}` and nothing else, so
+# there is one runtime form and two spellings of it. The adapters
+# then see a launch that already stands and leave it alone — which is
+# how a terminal action stopped needing a rule of its own about
+# whose command goes inside the terminal. `Run` is answered by the
+# context the adapter sets up (spec-derive's runvia); the script
+# says WHAT, the words beside it say WHERE.
+#
+# The two cannot both be said — that is judged on the raw words, in
+# `action`, before anything derived exists.
 proc action-derive {name raw} {
-    if {[dict exists $raw terminal] && [dict exists $raw run]
-            && ![dict exists $raw terminal run]} {
-        dict set raw terminal run [dict get $raw run]
+    if {[dict exists $raw run]} {
+        dict set raw launch [list Run {*}[dict get $raw run]]
     }
-    set spec [spec-derive "action $name" $raw]
-    if {![dict exists $spec launch] && [dict exists $spec run]} {
-        dict set spec launch [list run-argv [dict get $spec run]]
-    }
-    return $spec
+    return [spec-derive "action $name" $raw]
 }
 # Alive or waiting — needs is the gate, judged NOW: every replay
 # re-judges, which is what lets a declared action surface by itself
@@ -4813,6 +4835,48 @@ proc run-argv {argv} {
     exec {*}$argv &
 }
 
+# ---- Run — the door said out loud, and what the context makes of it ----
+# `Run words…` is how a launch SCRIPT starts something, and it is
+# Capitalized for the reason every window command is: it acts, now.
+# What it does not do is read its words — no tilde, no expansion of
+# any kind (the owner, 2026-08-01). It needs none: a launch script is
+# evaluated at fire time, at the global level like every callback
+# here, so Tcl's own substitution has already run and `$env(HOME)`
+# means what it says.
+#
+# What the words become is the CONTEXT's business, which is what
+# collapsed three ways of saying "what this button starts" into one.
+# Bare, they are a command. Under an adapter that knows how to wrap a
+# command — a terminal — the same line means "start this THERE":
+#
+#     action Log {
+#         terminal {name log}
+#         launch {Run tail -f $env(HOME)/log}
+#     }
+#
+# The script never learns about `xterm -e`, and the adapter never
+# learns what it is wrapping. `run {tail -f …}` is the same thing said
+# shorter: sugar for exactly this launch (action-derive).
+keep run_via {}    ;# a STACK: the innermost fire decides, and unwinds
+proc run-via {via script} {
+    lappend ::run_via $via
+    try {
+        uplevel #0 $script
+    } finally {
+        set ::run_via [lrange $::run_via 0 end-1]
+    }
+}
+proc Run {args} {
+    set via [lindex $::run_via end]
+    if {$via eq ""} {
+        puts "WM: Run $args"
+        run-argv $args
+        return
+    }
+    puts "WM: Run via [lindex $via 0]: $args"
+    uplevel #0 [list {*}$via $args]
+}
+
 # Fire by NAME — run-or-raise, panel or no panel: the match's most
 # recent window gets the focus (or the action's own activate hook),
 # otherwise the launch runs under the action's env. Any panel that
@@ -4848,7 +4912,9 @@ proc action-fire {name} {
         if {[dict exists $spec env]} {
             set script [list with-env [dict get $spec env] $script]
         }
-        if {[catch {uplevel #0 $script} err]} {
+        set via ""
+        if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
+        if {[catch {run-via $via $script} err]} {
             puts "WM: action $name: launch FAILED: $err"
         }
     } else {
@@ -4959,9 +5025,9 @@ proc spec-derive {who settings} {
     if {[dict exists $settings terminal]} {
         set t [dict get $settings terminal]
         foreach k [dict keys $t] {
-            if {$k ni {name run title env args}} {
+            if {$k ni {name title env args}} {
                 error "$who: unknown terminal key \"$k\"\
- (name run title env args)"
+ (name title env args) — the command is the action's own run/launch"
             }
         }
         dict-shaped "$who: terminal env" $t env
@@ -4974,6 +5040,12 @@ proc spec-derive {who settings} {
                 dict set settings match terminal-window
             }
         }
+        # What a `Run` inside this action's launch means: open the
+        # terminal AROUND those words. Set whether or not a launch
+        # was said, so a hand-written script gets the same answer the
+        # sugar does.
+        dict set settings runvia [list spawn-terminal-run $t]
+        # ...and with nothing to run at all, the deed IS the terminal.
         if {![dict exists $settings launch]} {
             dict set settings launch [list spawn-terminal $t]
         }
@@ -6642,7 +6714,8 @@ collection actions {
     doc {named deeds — run-or-raise by name, prior to any button}
     list collection-actions
     fields {
-        run      {kind list  doc {raw argv — what to start, through the one door}}
+        run      {kind list  doc {raw argv — sugar for a launch that says Run}}
+        launch   {kind text  doc {the general form: a Tcl script. Say this OR run}}
         match    {kind text  doc {predicate: which window means already-running}}
         icon     {kind text  doc {a face, for whatever panel carries it}}
         key      {kind chord doc {the chord that does it — panel or no panel}}

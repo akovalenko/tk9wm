@@ -2,7 +2,7 @@
 # Regression for the ACTION registry (the actions-first turn): a
 # named deed binds its chord by name, panel or no panel; the name is
 # the primary key and a second declaration refines; `run` is raw argv
-# through the one door (run-argv), and a terminal word picks it up;
+# through the one door (Run), and a terminal word answers that Run;
 # an unmet needs leaves the action waiting — visible, unbound — and
 # it comes alive by itself on the reload after the command appears;
 # the custom layer refines actions and an erase falls back honestly.
@@ -35,17 +35,23 @@ q() { printf '%s\n' "$1" > "$HERE/action-config/q.tcl"
 BOUND=$(q 'chord-of {action-fire ed}')
 WAITING=$(q 'list state [dict get $::action_spec w8 state] \
                   bound [expr {[chord-of {action-fire w8}] ne ""}]')
-# the adapters: a terminal word picks the action's run up, derives
-# the match from its name, and the bare run goes through the one door
+# the vocabulary: `run` is sugar for a launch that says Run, the
+# terminal word answers that Run by opening a terminal around it, and
+# a bare run goes through the same door with nobody to answer it
 DERIVED=$(q 'list match [dict get $::action_spec term1 match] \
-    term [dict get [lindex [dict get $::action_spec term1 launch] 1] run] \
+    launch [dict get $::action_spec term1 launch] \
+    via [lindex [dict get $::action_spec term1 runvia] 0] \
     door [lindex [dict get $::action_spec probe launch] 0]')
+# ...and the two spellings of the one slot cannot both be said, nor
+# can a command hide inside the terminal word any more
+BOTH=$(q 'action clash {run {true} launch {Run true}}')
+TERMRUN=$(q 'action clash2 {terminal {name X run {true}}}')
 # refine by name: a later word merges, the unsaid stand
 q 'action ed {icon X}' >/dev/null
 MERGED=$(q 'list icon [dict get $::action_raw ed icon] \
                  run [dict get $::action_raw ed run] \
                  key [dict get $::action_raw ed key]')
-# fire the launch path — the mark lands through run-argv
+# fire the launch path — the mark lands through Run
 q 'action-fire probe' >/dev/null
 sleep 1
 FIRED=$(test -f "$HERE/action-mark" && echo mark || echo none)
@@ -99,9 +105,19 @@ else
     echo "FAIL: waiting: $WAITING"
 fi
 case $DERIVED in
-    "match {filter -class T1} term {sh -c {sleep 9}} door run-argv")
-        echo "OK: the terminal adapter picks run up; a bare run takes the one door" ;;
+    "match {filter -class T1} launch {Run sh -c {sleep 9}} via spawn-terminal-run door Run")
+        echo "OK: run desugars to a Run, and the terminal word answers it" ;;
     *) echo "FAIL: derived: $DERIVED" ;;
+esac
+case $BOTH in
+    *"run and launch both said"*)
+        echo "OK: run and launch together are refused, not silently ranked" ;;
+    *) echo "FAIL: run+launch said «$BOTH»" ;;
+esac
+case $TERMRUN in
+    *"unknown terminal key"*)
+        echo "OK: the terminal word carries no command of its own" ;;
+    *) echo "FAIL: terminal {run …} said «$TERMRUN»" ;;
 esac
 if [ "$MERGED" = "icon X run true key <Super>F5" ]; then
     echo "OK: the name is the key — a later word refines, the unsaid stand"
@@ -109,7 +125,7 @@ else
     echo "FAIL: merged: $MERGED"
 fi
 if [ "$FIRED" = mark ]; then
-    echo "OK: action-fire launched through run-argv"
+    echo "OK: action-fire launched through Run"
 else
     echo "FAIL: no mark after action-fire"
 fi

@@ -1050,7 +1050,8 @@ frames a client and shows a panel has proved both libraries loaded.
   edges (`set-panel-side top|bottom|left|right`: only the orientation
   and the band's geometry change — the button logic does not see the
   side). It exists only when the config declares buttons
-  (`panel-button LABEL {match … launch … icon … key … style …}`), and
+  (`panel-button NAME ?{label … icon …}?` — a REFERENCE to an action,
+  which is where `run`/`launch`, `match`, `key` and the rest live), and
   there can be **more than one**: `panel NAME BODY` declares a named
   instance, and everything said outside such a block belongs to the
   one named `default`, so a config that never heard of the plural
@@ -1063,8 +1064,11 @@ frames a client and shows a panel has proved both libraries loaded.
   declaration, so priority reads top-down through the config, and a
   `style` with no `match` is an error. A button is **idempotent,
   wmaker-fashion**: a click or a chord focuses the most recent window
-  found by the `match` predicate, and failing that runs the `launch`
-  script, with the button flashing its verdict (green "found" / orange
+  found by the `match` predicate, and failing that runs the action's
+  `launch` script — `Run words…` inside it is the one door every launch
+  walks through, and what those words become is the context's business
+  (bare a command; beside a `terminal` word, that command in a
+  terminal). The button flashes its verdict (green "found" / orange
   "launching").
 
   The `icon` value (both on panel-button and on the winlist style key)
