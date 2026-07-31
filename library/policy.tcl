@@ -4372,25 +4372,10 @@ proc emacs-plain? {spec} {
     expr {$::emacs_daemons eq "off"
           || ([dict exists $spec daemon] && [dict get $spec daemon] eq "none")}
 }
-proc emacs-spec-check {who spec} {
-    foreach k [dict keys $spec] {
-        if {$k ni {daemon frame eval via autodaemon env}} {
-            error "$who: unknown emacs key \"$k\"\
- (daemon frame eval via autodaemon env)"
-        }
-    }
-    if {![dict exists $spec frame] || [dict get $spec frame] eq ""} {
-        error "$who: the emacs spec needs a frame name (the match hangs off it)"
-    }
-    if {[dict exists $spec via] && [dict get $spec via] ni {gui terminal}} {
-        error "$who: via is gui or terminal"
-    }
-    if {[dict exists $spec autodaemon]
-            && [dict get $spec autodaemon] ni {on off}} {
-        error "$who: autodaemon is on or off"
-    }
-    dict-shaped "$who: emacs env" $spec env
-}
+# What used to be emacs-spec-check lives in the spec registry now:
+# the key list, the frame it cannot do without, the two words `via`
+# and `autodaemon` may be, and the env's shape are all things the
+# table says, and spec-check reads them at the declaration.
 # The styleguard lesson, applied everywhere a config hands us a dict:
 # an odd list must die at ITS declaration, not inside a dict call at
 # some later use with a stack that names nobody.
@@ -4745,17 +4730,15 @@ proc action {name settings} {
     foreach k [dict keys $raw] {
         if {$k ne "terminal" && [dict get $raw $k] eq ""} { dict unset raw $k }
     }
-    # One slot, two spellings — and no way to say both. It used to be
-    # decided silently in favour of the launch, which is the worst
-    # place for a silence: an owner editing the command watched the
-    # button keep running the old script and heard nothing about it.
-    # Judged on the RAW words, because the derived spec always has a
-    # launch; and the way out is the same as anywhere else here — an
-    # empty value un-says the one you no longer mean.
-    if {[dict exists $raw run] && [dict exists $raw launch]} {
-        error "action $name: run and launch both said — say one\
- (run {} or launch {} un-says the other)"
-    }
+    # Read before it is believed, against the table that says what an
+    # action may carry (spec-check): a key nobody registered is a
+    # typo, and `run` beside `launch` is one slot said twice — which
+    # used to be settled silently in favour of the launch, the worst
+    # place for a silence, since an owner editing the command would
+    # watch the button keep running the old script and hear nothing.
+    # On the RAW words, before any deriving: the derived spec always
+    # has a launch, sugar or not.
+    spec-check "action $name" action $raw
     dict set ::action_raw $name $raw
     action-realize $name
     # style is a shorthand landing WHEN SAID — this call's word, not
@@ -5020,18 +5003,132 @@ proc panel-resolve {name {say 0}} {
 # no name word stays possible — simply never matches, which IS the
 # launch-only degradation, and spawn-terminal says so when it
 # drops the name.
-proc spec-derive {who settings} {
-    dict-shaped "$who: env" $settings env
-    if {[dict exists $settings terminal]} {
-        set t [dict get $settings terminal]
-        foreach k [dict keys $t] {
-            if {$k ni {name title env args}} {
-                error "$who: unknown terminal key \"$k\"\
- (name title env args) — the command is the action's own run/launch"
+# ---- the spec registry: what a declaration may SAY ----
+# The knobs have had this since the configurator was built:
+# ::knob_registry says what each knob IS, and knob-table is "the
+# configurator's whole worldview". The specs — what an `action` and
+# its adapter words may carry — had no such table. Every key was
+# checked by hand where it happened to be consumed (and the ACTION's
+# own keys were not checked at all: a typo declared a deed that
+# quietly did nothing), while the configurator's field list said the
+# same things over again in another file, with nothing keeping the
+# two honest. This is that table, and three things live off it: the
+# check below, the collection's fields (spec-fields), and the linter
+# when it lands — the same walk with softer verdicts.
+#
+# Per key: `kind` — what it is in the CONFIG's terms (the editor's
+# kinds are a MAPPING of these, not the same list, which is the seam
+# that lets a script get a real editor without the language moving);
+# `doc` — the short label a field wears, the prose staying in
+# default-config.tcl where it has room and a voice; `xor` — the key
+# it cannot be said beside; `of` — whose table describes a subspec;
+# `required` — a subspec key that must be there when the word is.
+proc spec-keys {name table} { dict set ::spec_registry $name $table }
+set spec_registry {}
+
+spec-keys action {
+    run      {kind words     xor launch
+              doc {raw argv — sugar for a launch that says Run}}
+    launch   {kind script    xor run
+              doc {a Tcl script, run when the deed fires}}
+    match    {kind predicate doc {which window counts as already-running}}
+    activate {kind script    doc {what a found window gets instead of the focus}}
+    icon     {kind icon      doc {a face, for whatever panel carries it}}
+    key      {kind chord     doc {the chord that does it — panel or no panel}}
+    needs    {kind commands  doc {commands this deed waits for}}
+    style    {kind text      doc {a style rule for the windows it finds}}
+    env      {kind envdict   doc {environment around the launch}}
+    terminal {kind subspec of terminal doc {do it in a terminal}}
+    emacs    {kind subspec of emacs    doc {do it in emacs}}
+}
+spec-keys terminal {
+    name  {kind text      doc {the window's name — the WM_CLASS instance}}
+    title {kind text      doc {the window title}}
+    env   {kind envdict   doc {environment for the terminal process itself}}
+    args  {kind beastdict doc {beast-keyed extras, applied verbatim}}
+}
+spec-keys emacs {
+    daemon     {kind text doc {which daemon (-s); unsaid is the default one}}
+    frame      {kind text required 1
+                doc {the frame name — the match hangs off it}}
+    eval       {kind text doc {elisp for the frame it makes}}
+    via        {kind {choice gui terminal} doc {a gui frame, or one in a terminal}}
+    autodaemon {kind {choice on off} doc {start a missing daemon, or refuse}}
+    env        {kind envdict doc {environment for the daemon it may start}}
+}
+
+# What a declaration is CHECKED against, and deliberately only the
+# shallow half of the table: a key nobody registered is a typo, an
+# xor pair said together is a choice not made, a dict-kinded word
+# that is not a dict is the missing-braces mistake, and a subspec is
+# read by its own table. The deeper judgements — does this chord
+# parse, is that command on this machine — are the LINTER's: they
+# are advice about a declaration that can be read, and this is the
+# gate for one that cannot.
+#
+# Said at the declaration (in `action`), on the words the layers
+# actually SAID — never on a derived spec, where `run` has already
+# become the launch it is sugar for and the xor would fire on the
+# machinery's own doing.
+proc spec-check {who name settings} {
+    set table [dict get $::spec_registry $name]
+    foreach k [dict keys $settings] {
+        if {![dict exists $table $k]} {
+            error "$who: unknown $name key \"$k\"\
+ ([join [dict keys $table] { }])"
+        }
+        set meta [dict get $table $k]
+        set kind [dict get $meta kind]
+        if {[dict exists $meta xor]} {
+            foreach other [dict get $meta xor] {
+                if {[dict exists $settings $other]} {
+                    error "$who: $k and $other cannot both be said —\
+ say one ($k {} un-says it)"
+                }
             }
         }
-        dict-shaped "$who: terminal env" $t env
-        dict-shaped "$who: terminal args" $t args
+        switch -- [lindex $kind 0] {
+            envdict - beastdict { dict-shaped "$who: $k" $settings $k }
+            choice {
+                if {[dict get $settings $k] ni [lrange $kind 1 end]} {
+                    error "$who: $k is [join [lrange $kind 1 end] { or }]"
+                }
+            }
+            subspec {
+                spec-check "$who: $k" [dict get $meta of] [dict get $settings $k]
+            }
+        }
+    }
+    dict for {k meta} $table {
+        if {[dict exists $meta required] && ![dict exists $settings $k]} {
+            error "$who: the $name spec needs $k\
+ ([dict get $meta doc])"
+        }
+    }
+}
+
+# The configurator's field list, said ONCE: the language's kinds
+# mapped onto the editors this tree actually has. A script is `text`
+# until it has an editor of its own — the mapping is where that
+# arrives, and the language does not move when it does.
+proc spec-fields {name} {
+    set editor {words list  commands list  envdict dict  beastdict dict
+                subspec dict  chord chord  script text  predicate text
+                icon text  text text}
+    set out {}
+    dict for {k meta} [dict get $::spec_registry $name] {
+        set kind [dict get $meta kind]
+        dict set out $k [dict create \
+            kind [expr {[lindex $kind 0] eq "choice"
+                        ? $kind : [dict get $editor $kind]}] \
+            doc [dict get $meta doc]]
+    }
+    return $out
+}
+
+proc spec-derive {who settings} {
+    if {[dict exists $settings terminal]} {
+        set t [dict get $settings terminal]
         if {![dict exists $settings match]} {
             if {[dict exists $t name] && [dict get $t name] ne ""} {
                 dict set settings match \
@@ -5059,7 +5156,6 @@ proc spec-derive {who settings} {
     # on top of its tty.
     if {[dict exists $settings emacs]} {
         set e [dict get $settings emacs]
-        emacs-spec-check $who $e
         if {![dict exists $settings match]} {
             dict set settings match \
                 [list filter -class [dict get $e frame]]
@@ -6709,23 +6805,15 @@ proc custom-reorder {keys} {
 proc collection {name meta} { dict set ::collection_registry $name $meta }
 set collection_registry {}
 
-collection actions {
-    key name ordered no
-    doc {named deeds — run-or-raise by name, prior to any button}
-    list collection-actions
-    fields {
-        run      {kind list  doc {raw argv — sugar for a launch that says Run}}
-        launch   {kind text  doc {the general form: a Tcl script. Say this OR run}}
-        match    {kind text  doc {predicate: which window means already-running}}
-        icon     {kind text  doc {a face, for whatever panel carries it}}
-        key      {kind chord doc {the chord that does it — panel or no panel}}
-        needs    {kind list  doc {commands this action waits for}}
-        style    {kind text  doc {a style rule for the windows it finds}}
-        terminal {kind dict  doc {terminal adapter: name title env args}}
-        emacs    {kind dict  doc {emacs adapter: daemon frame eval via}}
-        env      {kind dict  doc {environment around the launch}}
-    }
-}
+# The one family whose fields are not written here: an action's keys
+# ARE the spec registry's, and saying them again would be a second
+# truth about the same language (spec-fields maps the language's
+# kinds onto this tree's editors).
+collection actions [list \
+    key name ordered no \
+    doc {named deeds — run-or-raise by name, prior to any button} \
+    list collection-actions \
+    fields [spec-fields action]]
 collection panel {
     key name ordered yes
     doc {the default panel — references to actions, in strip order}

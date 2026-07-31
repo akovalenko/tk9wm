@@ -339,6 +339,14 @@
 #            at fire time. Say ONE of the two — both together is an
 #            error, and an empty value un-says the one you no longer
 #            mean (`run {}`)
+#   activate — the other escape, for the found half: a command prefix
+#            the found window is appended to, instead of plain focus
+#            (the emacs adapter derives one; say your own and it wins)
+#
+# A key nobody knows is REFUSED where it is written. There is a table
+# of what an action and its adapter words may carry (spec-keys), and
+# every declaration is read against it — a mistyped word used to
+# declare a deed that quietly did nothing at all.
 #
 # `Run words…` is how a launch script starts something, and it is
 # Capitalized like every other word here that ACTS. It does not read

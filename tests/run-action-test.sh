@@ -46,6 +46,12 @@ DERIVED=$(q 'list match [dict get $::action_spec term1 match] \
 # can a command hide inside the terminal word any more
 BOTH=$(q 'action clash {run {true} launch {Run true}}')
 TERMRUN=$(q 'action clash2 {terminal {name X run {true}}}')
+TYPO=$(q 'action clash3 {ruN {true}}')
+# the family the configurator draws is the SPEC TABLE, mapped onto
+# this tree's editors — one source, and the mapping is the only seam
+FIELDS=$(q 'set f [dict get $::collection_registry actions fields]
+    list run [dict get $f run kind] launch [dict get $f launch kind] \
+         key [dict get $f key kind] terminal [dict get $f terminal kind]')
 # refine by name: a later word merges, the unsaid stand
 q 'action ed {icon X}' >/dev/null
 MERGED=$(q 'list icon [dict get $::action_raw ed icon] \
@@ -110,10 +116,20 @@ case $DERIVED in
     *) echo "FAIL: derived: $DERIVED" ;;
 esac
 case $BOTH in
-    *"run and launch both said"*)
+    *"cannot both be said"*)
         echo "OK: run and launch together are refused, not silently ranked" ;;
     *) echo "FAIL: run+launch said «$BOTH»" ;;
 esac
+case $TYPO in
+    *"unknown action key"*)
+        echo "OK: a key nobody registered is a typo, said so at once" ;;
+    *) echo "FAIL: the typo said «$TYPO»" ;;
+esac
+if [ "$FIELDS" = "run list launch text key chord terminal dict" ]; then
+    echo "OK: the actions family is the spec table, mapped to editors"
+else
+    echo "FAIL: fields: $FIELDS"
+fi
 case $TERMRUN in
     *"unknown terminal key"*)
         echo "OK: the terminal word carries no command of its own" ;;
