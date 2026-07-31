@@ -70,20 +70,38 @@ proc load-config {} {
     set conf [config-path]
     set ::config_is_default \
         [string equal $conf [file join $::tk9wm_library default-config.tcl]]
-    lassign [layer-source config $conf] code err
+    lassign [layer-source config $conf] code err info
     if {$code} {
         puts "WM: config $conf FAILED: $err — running on what it managed to set"
+        layer-blame $conf $info
         return 0
     }
     puts "WM: config $conf"
     return 1
 }
+# The one sentence above names WHAT died; this is the WHERE — the
+# error's own stack, which carries the failing statement and the
+# file and line it sits on (the owner's ask, 2026-07-31: the
+# sentence alone sent him hunting inside `action Claude` — the last
+# casualty of the dead tail — when the corpse was a style two
+# actions up, and only a line number says so). The stack is printed
+# down to the LOADER'S OWN FRAME and no further: everything from
+# `source $path` on is this file's plumbing, the same in every
+# error, and noise under a blame that ends, as it should, on the
+# config's own line.
+proc layer-blame {path info} {
+    set lines [split [string trimright $info] \n]
+    set i [lsearch -exact [lmap l $lines {string trim $l}] "\"source $path\""]
+    if {$i >= 2} { set lines [lrange $lines 0 [expr {$i - 2}]] }
+    foreach line $lines { puts "WM:   $line" }
+}
 proc load-custom {} {
     set path [custom-path]
     if {![file exists $path]} { return 1 }
-    lassign [layer-source custom $path] code err
+    lassign [layer-source custom $path] code err info
     if {$code} {
         puts "WM: custom $path FAILED: $err — running on what it managed to set"
+        layer-blame $path $info
         return 0
     }
     puts "WM: custom $path"
@@ -160,8 +178,9 @@ proc reread-layers {} {
     puts "WM: re-sourcing the library"
     foreach path [library-files] {
         set f [file tail $path]
-        if {[catch {uplevel #0 [list source $path]} err]} {
+        if {[catch {uplevel #0 [list source $path]} err opts]} {
             puts "WM: re-source $f FAILED: $err"
+            layer-blame $path [dict get $opts -errorinfo]
             puts "WM: the desk is running on a HALF-LOADED layer — fix and re-source again"
             return 0
         }

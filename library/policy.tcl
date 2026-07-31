@@ -6812,12 +6812,15 @@ proc layer-source {layer path} {
         }
     }
     set ::knob_layer $layer
-    set code [catch {uplevel #0 [list source $path]} err]
+    set code [catch {uplevel #0 [list source $path]} err opts]
     set ::knob_layer ""
     foreach p $::knob_vocab {
         catch {trace remove execution $p enter knob-touched}
     }
-    list $code $err
+    # ...and the WHERE along with the what: the stack's tail names the
+    # file and line of the statement that threw, which is what a
+    # failed load must put in the log (see load-config).
+    list $code $err [expr {$code ? [dict get $opts -errorinfo] : ""}]
 }
 proc layer-touched {layer} {
     expr {[dict exists $::layer_knobs $layer]

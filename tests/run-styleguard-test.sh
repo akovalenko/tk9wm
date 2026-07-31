@@ -44,6 +44,11 @@ if grep -q 'FAILED: wm-style: settings is not a dict' "$HERE/wm-styleguard.log";
 else
     echo "FAIL: no declaration-time error for the malformed rule"
 fi
+if grep -q 'styleguard-config/tk9wm.tcl" line 3' "$HERE/wm-styleguard.log"; then
+    echo "OK: ...and the log names the file and the LINE of the corpse"
+else
+    echo "FAIL: no file-and-line blame in the log"
+fi
 if grep -q 'managed 0x' "$HERE/wm-styleguard.log"; then
     echo "OK: the desk still manages windows"
 else
