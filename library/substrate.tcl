@@ -3089,13 +3089,13 @@ proc keymap-set {node keys entry} {
 }
 
 # The optional NAME is for the help list, and one case showed how
-# general it is: a panel button binds its chord to `panel-fire dock 2`,
-# and a list of those is nonsense to read (the owner, 2026-07-30). The
-# number is right for the machinery — it addresses the button's CELL,
-# which is the thing that gets flashed, and two buttons may carry the
-# same label — so the answer is not to change what is CALLED but to let
-# the caller say what it IS. Nothing has to reverse a name out of a
-# command after the fact.
+# general it is: a chord used to bind to `panel-fire dock 2`, and a
+# list of those is nonsense to read (the owner, 2026-07-30). The
+# script is right for the machinery, and the answer is not to change
+# what is CALLED but to let the caller say what it IS — nothing has
+# to reverse a name out of a command after the fact. (The actions
+# turn later made the scripts readable too — `action-fire mutt` —
+# but a wm-bind's raw script still needs the word.)
 #
 # For an ordinary config binding there is nothing to synthesize and
 # nothing is: the script speaks for itself (winops, Quit, or the first

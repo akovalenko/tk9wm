@@ -82,7 +82,7 @@ proc panels-battery {} {
         [list [expr {"live" in [$DT item state get 1]}] \
               [expr {"live" in [$BT item state get 1]}]]
     # --- a fire reaches one panel and not the other
-    panel-fire dock 0
+    action-fire левая
     update; update idletasks
     pchk {a fire flashes the panel it was aimed at, alone} [list 1 0] \
         [list [expr {"found" in [$DT item state get 1]}] \

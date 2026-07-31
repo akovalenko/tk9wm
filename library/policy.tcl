@@ -2754,7 +2754,7 @@ proc winlist {} {
 }
 # The list itself, reusable: winlist passes every window and centers;
 # a panel button's arrow zone passes its matches and anchors the
-# popup by the button. The anchor is "center" or {panel NAME I} — the
+# popup by the button. The anchor is "center" or {panel NAME ACTION} — the
 # panel's name, because which strip the button is on decides which way
 # the list opens off it (see below); only the
 # centered full list may enter cycle mode and preselects the SECOND
@@ -2850,10 +2850,15 @@ proc winlist-open {wins anchor} {
         # opens over the desk, never off the screen edge the strip is
         # glued to: over a bottom panel, under a top one, beside a
         # vertical one. (popup-show clamps to the screen either way.)
-        lassign $anchor - pname bi
+        # The button is named by its ACTION and found through the item
+        # map — an item number is not a position promise (panel_items).
+        lassign $anchor - pname aname
         set P [panel-window $pname]
         set T [panel-tree $pname]
-        lassign [$T item bbox [expr {$bi + 1}]] bx by
+        set bitem [expr {[info exists ::panel_items($pname)]
+                         && [dict exists $::panel_items($pname) $aname]
+                         ? [dict get $::panel_items($pname) $aname] : 1}]
+        lassign [$T item bbox $bitem] bx by
         switch -- [panel-cfg $pname side] {
             bottom { set X [expr {[winfo rootx $T] + $bx}]
                      set Y [expr {[winfo y $P] - $H}] }
@@ -4619,6 +4624,13 @@ keep panels {}
 keep panel_target default   ;# whose knobs the config is turning right now
 array set panel_win {}     ;# name -> the live top-level, absent = not built
 array set panel_zone {}    ;# name -> its reserved arrow strip, set per build
+# name -> {action-name -> treectrl item}, set per build. THE one
+# bridge between the model and the strip's items: everything that
+# aims at a button — a flash, a re-judged match, a click, the
+# winlist anchoring itself by the arrow's button — asks this map,
+# never «button i = item i+1». An item number is not a position
+# promise: reconciliation will move items without renumbering them.
+array set panel_items {}
 # The block form. `panel NAME BODY` points the knobs at NAME for the
 # length of BODY and puts them back afterwards — uplevel, so the body
 # is ordinary config code that can call anything, and the target is
@@ -4840,8 +4852,7 @@ proc action-fire {name} {
 }
 proc action-flash {name state} {
     dict for {pname p} $::panels {
-        set i [panel-index $pname $name]
-        if {$i >= 0} { panel-flash $pname $i $state }
+        panel-flash $pname $name $state
     }
 }
 
@@ -5035,16 +5046,14 @@ proc panels-held {script} {
         panels-build
     }
 }
-# Every SHOWN button of every panel, as {panel index name label
-# settings} — the sweeps (re-judging matches, counting for a log
-# line) say what they do to a button and not which panel it is on.
+# Every SHOWN button of every panel, as {panel name label settings}
+# — the sweeps (re-judging matches, counting for a log line) say
+# what they do to a button and not which panel it is on.
 proc panel-all-buttons {} {
     set out {}
     dict for {name p} $::panels {
-        set i 0
         foreach b [dict get $p shown] {
-            lappend out [list $name $i {*}$b]
-            incr i
+            lappend out [list $name {*}$b]
         }
     }
     return $out
@@ -5081,11 +5090,13 @@ proc panel-match-kick {} {
 }
 proc panel-reeval {} {
     foreach b [panel-all-buttons] {
-        lassign $b name i aname label settings
+        lassign $b name aname label settings
         set T [panel-tree $name]
         if {$T eq ""} continue
+        if {![info exists ::panel_items($name)]
+                || ![dict exists $::panel_items($name) $aname]} continue
         set n [llength [panel-matches $label $settings]]
-        $T item state set [expr {$i + 1}] \
+        $T item state set [dict get $::panel_items($name) $aname] \
             [list [expr {$n >= 1 ? "live" : "!live"}] \
                   [expr {$n >= 2 ? "multi" : "!multi"}]]
     }
@@ -5264,6 +5275,7 @@ proc panels-build {} {
         set w $::panel_win($name)
         unset ::panel_win($name)
         array unset ::panel_zone $name
+        array unset ::panel_items $name
         set claimed 0
         foreach b $built {
             if {$::panel_win($b) eq $w} { set claimed 1; break }
@@ -5480,6 +5492,7 @@ proc panel-build {name idx} {
                 -visible {yes multi no {}}
         }
     }
+    set items {}
     foreach b $buttons f $faces {
         lassign $b aname label settings
         set item [$T item create]
@@ -5496,7 +5509,9 @@ proc panel-build {name idx} {
         }
         $T item element configure $item C0 eBTxt -text $label
         $T item lastchild root $item
+        dict set items $aname $item
     }
+    set ::panel_items($name) $items
     bind $T <ButtonPress-1> [list panel-click $name %x %y]
     # WHERE the strip goes is not this proc's arithmetic any more: it
     # asks for its band (carved in declaration order out of what the
@@ -5564,32 +5579,29 @@ proc panel-index {name aname} {
     }
     return -1
 }
-# A button press IS the action's fire: everything a click means —
-# run-or-raise, the activate hook, the env around the launch, the
-# flash on every panel carrying the name — is action-fire's one
-# story, and the button adds nothing of its own.
-proc panel-fire {name i} {
-    set b [lindex [panel-cfg $name shown] $i]
-    if {$b eq ""} {
-        puts "WM: panel $name: no button $i — nothing to fire"
-        return
-    }
-    action-fire [lindex $b 0]
-}
 # The arrow zone: the winlist filtered to this button's matches,
 # anchored by the button — picking focuses (winlist-pick). Fewer
 # than two matches means the arrow is stale (the debounce window):
-# degrade to the plain fire.
-proc panel-arrow {name i} {
-    lassign [lindex [panel-cfg $name shown] $i] aname label settings
+# degrade to the plain fire. A button press itself IS the action's
+# fire — run-or-raise, the activate hook, the env, the flash on
+# every panel carrying the name are action-fire's one story, and
+# the button adds nothing of its own (see panel-click).
+proc panel-arrow {name aname} {
+    set i [panel-index $name $aname]
+    if {$i < 0} return
+    lassign [lindex [panel-cfg $name shown] $i] - label settings
     set wins [panel-matches $label $settings]
-    if {[llength $wins] < 2} { panel-fire $name $i; return }
+    if {[llength $wins] < 2} { action-fire $aname; return }
     puts "WM: panel $label: arrow — [llength $wins] matches"
-    winlist-open $wins [list panel $name $i]
+    winlist-open $wins [list panel $name $aname]
 }
-proc panel-flash {name i state} {
-    # items are created in declaration order: button i = item i+1
-    set item [expr {$i + 1}]
+# BY NAME, through the build's item map — a strip that does not carry
+# the name simply does not flash, which is what lets action-flash ask
+# every panel without asking first.
+proc panel-flash {name aname state} {
+    if {![info exists ::panel_items($name)]
+            || ![dict exists $::panel_items($name) $aname]} return
+    set item [dict get $::panel_items($name) $aname]
     set T [panel-tree $name]
     if {$T eq ""} return
     soft "panel flash" {
@@ -5604,15 +5616,24 @@ proc panel-click {name x y} {
     set T [panel-tree $name]
     if {$T eq ""} return
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
-    set i [expr {$A(item) - 1}]
+    # WHOSE button was hit is the item map's answer, read backwards —
+    # a strip holds a dozen buttons at most, and the reverse walk is
+    # cheaper to keep honest than a second map
+    set aname ""
+    if {[info exists ::panel_items($name)]} {
+        dict for {an it} $::panel_items($name) {
+            if {$it == $A(item)} { set aname $an; break }
+        }
+    }
+    if {$aname eq ""} return
     # the whole reserved east strip is the arrow's click target, not
     # the glyph — but only while the arrow is armed (multi)
     set zone [expr {[info exists ::panel_zone($name)] ? $::panel_zone($name) : 0}]
     if {$zone > 0 && "multi" in [$T item state get $A(item)]} {
         lassign [$T item bbox $A(item)] _x _y x2 _y2
-        if {$x >= $x2 - 2 - $zone} { panel-arrow $name $i; return }
+        if {$x >= $x2 - 2 - $zone} { panel-arrow $name $aname; return }
     }
-    panel-fire $name $i
+    action-fire $aname
 }
 proc panel-on-top {} {
     foreach name [panel-names] {
