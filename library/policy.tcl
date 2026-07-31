@@ -6465,6 +6465,20 @@ proc set-drag-modifier {spec} {
 # empty string to keep hands off and leave whatever is there.
 keep root_cursor left_ptr
 proc set-root-cursor {name} {
+    # VALIDATED, and by the only authority there is: Tk's own cursor
+    # table. Unchecked, a typo went down into x-attrs and died inside
+    # `soft` — logged, survived, and silent to whoever asked (the
+    # owner: "не валидируется, не знаю применяется ли"). The probe
+    # borrows this interpreter's own main window and puts its cursor
+    # back, so nothing on the desk flickers.
+    if {$name ne ""} {
+        set prev [. cget -cursor]
+        if {[catch {. configure -cursor $name}]} {
+            error "set-root-cursor: no cursor named «$name» —\
+ X cursor names are the ones in cursorfont.h (left_ptr, watch, …)"
+        }
+        . configure -cursor $prev
+    }
     set ::root_cursor $name
     root-cursor-apply
 }

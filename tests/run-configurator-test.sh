@@ -86,6 +86,10 @@ THEME=$(qu 'ttk::style theme use')
 # list-shaped kind, and a place spec the desk itself rejects
 BADLIST=$(qu 'cfg-set set-terminal {kitty "unclosed}')
 BADLISTMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
+BADCURSOR=$(qu 'cfg-set set-root-cursor no-such-cursor')
+BADCURSORMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
+GOODCURSOR=$(qu 'cfg-set set-root-cursor watch')
+CURSORLIVE=$(q 'set ::root_cursor')
 BADPLACE=$(qu 'cfg-set set-key-echo-place {bla bla bla}')
 BADPLACEMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 GOODMSG=$(qu 'cfg-set set-drag-slop 5; set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
@@ -189,6 +193,11 @@ esac
 case "$ERASEDOWNER|$ERASEDLIVE|$ERASEDFILE" in
     "code|normal|0") echo "OK: Erase took the click back — knob, file and desk" ;;
     *) echo "FAIL: after erase owner=$ERASEDOWNER live=$ERASEDLIVE file lines=$ERASEDFILE" ;;
+esac
+case "$BADCURSOR|$BADCURSORMSG|$GOODCURSOR|$CURSORLIVE" in
+    "0|"*"no cursor named"*"|1|watch")
+        echo "OK: a bad cursor name is refused by name, a good one applies" ;;
+    *) echo "FAIL: cursor: bad=$BADCURSOR msg «$BADCURSORMSG» good=$GOODCURSOR live=$CURSORLIVE" ;;
 esac
 case $GOODMSG in
     *"Save makes it stick"*) echo "OK: a good value clears the error line" ;;
