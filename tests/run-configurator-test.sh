@@ -67,6 +67,13 @@ sleep 1
 KEPT=$(qu 'cfg-name-of [cfg-selected]')
 FOLD=$(qu 'expr {[$::cfg_T item state get [$::cfg_T item id {root child 0}] open] ? 0 : 1}')
 THEME=$(qu 'ttk::style theme use')
+# a refusal must SAY why — and must not throw: an unmatched quote in a
+# list-shaped kind, and a place spec the desk itself rejects
+BADLIST=$(qu 'cfg-set set-terminal {kitty "unclosed}')
+BADLISTMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
+BADPLACE=$(qu 'cfg-set set-key-echo-place {bla bla bla}')
+BADPLACEMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
+GOODMSG=$(qu 'cfg-set set-drag-slop 5; set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
 
 q 'welcome-font-bump up' >/dev/null
@@ -141,4 +148,16 @@ if [ "$SBFOCUS" = 0 ]; then
 else
     echo "FAIL: scrollbar takefocus = $SBFOCUS"
 fi
+case "$BADLIST|$BADLISTMSG" in
+    "0|"*unmatched*) echo "OK: an unmatched quote is refused with a sentence, not a stack" ;;
+    *) echo "FAIL: bad list gave rc=$BADLIST msg «$BADLISTMSG»" ;;
+esac
+case "$BADPLACE|$BADPLACEMSG" in
+    "0|"*bla*|"0|"*place*|"0|"*keyecho*) echo "OK: the desk's own refusal reaches the status line" ;;
+    *) echo "FAIL: bad place gave rc=$BADPLACE msg «$BADPLACEMSG»" ;;
+esac
+case $GOODMSG in
+    *"Save makes it stick"*) echo "OK: a good value clears the error line" ;;
+    *) echo "FAIL: after a good value the line says «$GOODMSG»" ;;
+esac
 check_invariants "$HERE/wm-cfg.log"

@@ -125,9 +125,21 @@ proc ui-accel {btn} {
 # ...and the keyboard-first dress code: the focus must be VISIBLE.
 # Applied by builders to their focusable widgets.
 proc ui-focusable {w} {
-    $w configure -highlightthickness 2 \
-        -highlightcolor [ui-color link] \
-        -highlightbackground [ui-color bg]
+    # plain Tk: the highlight ring is an option
+    if {![catch {$w configure -highlightthickness 2 \
+            -highlightcolor [ui-color link] \
+            -highlightbackground [ui-color bg]}]} return
+    # ttk: no such option — the theme draws its own focus, and not
+    # loudly enough for a keyboard-first desk, so the widget swaps to
+    # a ringed variant of its own style while it holds the focus
+    set base [$w cget -style]
+    if {$base eq ""} { set base [winfo class $w] }
+    set ring Focus.$base
+    catch {ttk::style configure $ring -bordercolor [ui-color link] \
+        -lightcolor [ui-color link] -darkcolor [ui-color link] \
+        -focuscolor [ui-color link]}
+    bind $w <FocusIn>  [list $w configure -style $ring]
+    bind $w <FocusOut> [list $w configure -style $base]
 }
 
 proc ui-applet {name meta} { dict set ::ui_applets $name $meta }
