@@ -1071,6 +1071,7 @@ proc dispatch-event {ev} {
                     }
                 } else {
                     puts "WM: client 0x[format %x $B] withdrew itself"
+                    close-answered $B
                     unmanage $B
                 }
             }
@@ -2206,6 +2207,7 @@ proc tell-where-you-are {w} {
 }
 
 proc unmanage {w {dead 0}} {
+    close-answered $w      ;# gone is gone: nothing left to wink at
     if {![info exists ::managed($w)]} return
     # Decide the refocus candidate BEFORE the teardown: the policy's pick
     # rests on facts it keeps per-frame (the dialog's leader, the focus
@@ -2499,11 +2501,16 @@ proc close-client {w} {
         puts "WM: close 0x[format %x $w]: sending WM_DELETE_WINDOW"
         send-protocol $w $::WM_DELETE_WINDOW 0
         # The polite path has no acknowledgement: a client that honors
-        # the request unmaps or dies, a hung one does NOTHING — check
-        # back after a grace period and let the policy show the user
-        # the silence. A repeated close re-arms the one check.
-        after cancel [list close-unanswered $w]
-        after 2000 [list close-unanswered $w]
+        # the request unmaps or dies, a hung one does NOTHING — so we
+        # WAIT FOR AN ANSWER, and the answer is the window going away.
+        # As a future, which is what turns "start a timer, remember to
+        # cancel it in three places" into one errand that either gets
+        # its answer or times out (the owner asked for both halves:
+        # any unmap must disarm the wink, and the timer belongs on the
+        # substrate we now have).
+        close-answered $w cancel        ;# a repeated close re-arms
+        set ::close_wait($w) [fut::new]
+        wm-errand "close 0x[format %x $w]" [list close-await $w]
     } else {
         puts "WM: close 0x[format %x $w]: no WM_DELETE_WINDOW, XKillClient"
         x-kill-client $w
@@ -2515,10 +2522,31 @@ proc close-client {w} {
 # answering (hung, or minding a modal question of its own) — the
 # policy decides what the user sees. A window that closed in time
 # fails the guard and the check dissolves silently.
-proc close-unanswered {w} {
-    if {![info exists ::managed($w)]} return
-    puts "WM: close 0x[format %x $w]: unanswered after 2 s"
-    policy-close-unanswered $w
+# The wait itself: two seconds for the window to go. Whichever
+# arrives first settles it — the client's own unmap (or its death,
+# which unmanages it too) fulfills the future, and the timeout is the
+# silence the user is shown.
+proc close-await {w} {
+    if {![info exists ::close_wait($w)]} return
+    if {[catch {fut::take [fut::timeout $::close_wait($w) 2000]}]} {
+        unset -nocomplain ::close_wait($w)
+        if {![info exists ::managed($w)]} return
+        puts "WM: close 0x[format %x $w]: unanswered after 2 s"
+        policy-close-unanswered $w
+        return
+    }
+    unset -nocomplain ::close_wait($w)
+}
+# ANY UNMAP OF A WINDOW WE ASKED TO CLOSE IS AN ANSWER (the owner: an
+# applet that withdraws on WM_DELETE_WINDOW was being winked at for
+# obeying). Called on the withdrawal path and on unmanage, so a
+# client that hides and a client that dies both count as having
+# answered.
+proc close-answered {w {how done}} {
+    if {![info exists ::close_wait($w)]} return
+    set f $::close_wait($w)
+    unset ::close_wait($w)
+    if {$how eq "cancel"} { fut::discard $f } else { fut::fulfill $f 1 }
 }
 
 # The unconditional kill — the ops menu's "destroy" for a client that

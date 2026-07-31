@@ -45,6 +45,9 @@ H2=$(hosts)
 q "close-client $AID" >/dev/null
 sleep 1.5
 WITHDRAWN=$(q "info exists ::managed($AID)")
+sleep 2.5   # past the close grace period: an obedient withdraw must
+            # not be winked at for obeying
+WINKED=$(grep -c "close $AID: unanswered" "$HERE/wm-applet.log" || true)
 # ...and the reopen must be QUICK: the WM's call is async, so it must
 # not sit waiting while the host asks it for the style back
 REOPENMS=$(q 'set t0 [clock milliseconds]; applet about; expr {[clock milliseconds] - $t0}')
@@ -107,6 +110,11 @@ if [ -n "$REOPENMS" ] && [ "$REOPENMS" -lt 300 ]; then
     echo "OK: the reopen call returned at once (${REOPENMS}ms — no nested send)"
 else
     echo "FAIL: the reopen call took ${REOPENMS}ms"
+fi
+if [ "${WINKED:-0}" = 0 ]; then
+    echo "OK: withdrawing counted as an answer — no wink at an obedient applet"
+else
+    echo "FAIL: the desk winked at a window that did close ($WINKED times)"
 fi
 if [ "$WITHDRAWN" = 0 ] && [ "$BID" = "$AID" ]; then
     echo "OK: the close withdrew it, and the reopen is the same window back"
