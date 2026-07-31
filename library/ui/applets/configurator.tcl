@@ -300,15 +300,18 @@ proc cfg-value-text {name value} {
     set kind [dict get $::cfg_table $name kind]
     switch -- [lindex $kind 0] {
         font {
-            # A DERIVED font's value is what the config SAID — a delta
-            # such as «-weight bold», family and size inherited — and
-            # that is what belongs in the cell and in the editor (the
-            # owner: the whole point of deriving is not to repeat the
-            # family). Only a font stated whole shows a summary.
-            if {[catch {dict get $value -family} fam]} {
-                return [expr {$value eq "" ? "(derived, unchanged)" : $value}]
-            }
-            return "$fam [dict get $value -size] [dict get $value -weight]"
+            # A font's value is whatever the config SAID, and that may
+            # be the whole font or ANY SUBSET of it: «-weight bold» on
+            # a derived font, «-family {Dejavu Sans}» on the desk font
+            # (both are overrides, which is the point of both). Only a
+            # spec carrying all three parts is summarized; anything
+            # else shows itself, because a partial spec is exactly
+            # what its author wrote and nothing is missing from it.
+            # Reaching for -size in a spec that has none was a crash,
+            # not a subtlety (the owner, on -family alone).
+            set sum [cfg-font-summary $value]
+            if {$sum ne ""} { return $sum }
+            return [expr {$value eq "" ? "(derived, unchanged)" : $value}]
         }
         list {
             set noun [lindex $kind 1]
@@ -322,13 +325,23 @@ proc cfg-value-text {name value} {
 # font's actual dict is a mouthful of options; its family and size
 # are what a hand wants to touch (and set-desk-font takes exactly
 # that form back).
+# Is this font spec the whole story — family, size and weight? Then
+# it can be said in three words; anything less is its own answer.
+proc cfg-font-summary {value} {
+    if {[catch {dict size $value}]} { return "" }
+    foreach k {-family -size -weight} {
+        if {![dict exists $value $k]} { return "" }
+    }
+    return "[dict get $value -family] [dict get $value -size]\
+ [dict get $value -weight]"
+}
 proc cfg-value-typed {name value} {
     if {[lindex [dict get $::cfg_table $name kind] 0] eq "font"
-            && ![catch {dict get $value -family} fam]} {
-        return "-family [list $fam] -size [dict get $value -size]\
- -weight [dict get $value -weight]"
+            && [cfg-font-summary $value] ne ""} {
+        return "-family [list [dict get $value -family]]\
+ -size [dict get $value -size] -weight [dict get $value -weight]"
     }
-    return $value   ;# a derived font's delta, verbatim
+    return $value   ;# a partial spec is what its author wrote
 }
 proc cfg-show-value {it name value} {
     set T $::cfg_T
@@ -588,6 +601,10 @@ proc cfg-color-dialog {name} {
 # draws with — even when the configured value is a two-word delta: a
 # chooser has to start somewhere real.
 proc cfg-font-dialog {name} {
+    if {![dict exists $::cfg_table $name computed]} {
+        cfg-status "$name has no computed font to start a chooser from" error
+        return
+    }
     set seed [dict get $::cfg_table $name computed]
     tk fontchooser configure \
         -parent [winfo toplevel $::cfg_T] \

@@ -74,6 +74,10 @@ sleep 0.5
 # a PENDING multi-word value must offer itself back whole to the next
 # edit (it used to come back as its last word)
 PENDBACK=$(qu 'cfg-set set-title-font {-weight bold}; cfg-cur set-title-font')
+# a PARTIAL font spec — one option, no size — must render and apply
+PARTIAL=$(qu 'cfg-set set-desk-font {-family {DejaVu Sans}}')
+PARTIALCELL=$(qu 'cfg-value-text set-desk-font {-family {DejaVu Sans}}')
+PARTIALLIVE=$(q 'font actual DeskFont -family')
 FONTCELL=$(qu 'cfg-value-text set-title-font [dict get $::cfg_table set-title-font value]')
 FONTOWNER=$(qu 'cfg-owner set-title-font')
 FONTLIVE=$(q 'font actual TitleFont -weight')
@@ -192,6 +196,11 @@ case "$FONTCELL|$FONTOWNER|$FONTLIVE|$FONTFAM" in
     "-weight bold|custom|bold|1")
         echo "OK: a derived font shows its delta, and inherits the family" ;;
     *) echo "FAIL: font cell «$FONTCELL» owner=$FONTOWNER live=$FONTLIVE family-inherited=$FONTFAM" ;;
+esac
+case "$PARTIAL|$PARTIALCELL|$PARTIALLIVE" in
+    "1|-family {DejaVu Sans}|DejaVu Sans")
+        echo "OK: a partial font spec renders as itself and applies" ;;
+    *) echo "FAIL: partial font: rc=$PARTIAL cell «$PARTIALCELL» live «$PARTIALLIVE»" ;;
 esac
 if [ "$PENDBACK" = "-weight bold" ]; then
     echo "OK: a pending multi-word value comes back whole"
