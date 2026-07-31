@@ -201,7 +201,14 @@ proc ui-open {name} {
     }
     ui-style-sync
     if {[ui-stale?]} {
+        # Take the well-known name off FIRST, then ask the WM for a
+        # successor: by the time it looks, the registry no longer
+        # offers this host and the request lands on a spawn. Nobody
+        # waits for anybody — the WM's call was async, and this one is
+        # too.
         puts "UI: stale — the ui files changed; leaving for a fresh host"
+        catch {tk appname tk9wm-ui-retired}
+        catch {send -async -- $::ui_wmapp [list applet $name]}
         after idle exit
         return stale
     }

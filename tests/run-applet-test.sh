@@ -45,7 +45,9 @@ H2=$(hosts)
 q "close-client $AID" >/dev/null
 sleep 1.5
 WITHDRAWN=$(q "info exists ::managed($AID)")
-q 'applet about' >/dev/null
+# ...and the reopen must be QUICK: the WM's call is async, so it must
+# not sit waiting while the host asks it for the style back
+REOPENMS=$(q 'set t0 [clock milliseconds]; applet about; expr {[clock milliseconds] - $t0}')
 sleep 2
 H3=$(hosts)
 BID=$(xdotool search --classname '^tk9wm-about$' | head -1)
@@ -101,6 +103,11 @@ if grep -q 'applet about: asked the running host' "$HERE/wm-applet.log" \
 else
     echo "FAIL: reopen path (hosts=$H3, window=$BID)"
 fi
+if [ -n "$REOPENMS" ] && [ "$REOPENMS" -lt 300 ]; then
+    echo "OK: the reopen call returned at once (${REOPENMS}ms — no nested send)"
+else
+    echo "FAIL: the reopen call took ${REOPENMS}ms"
+fi
 if [ "$WITHDRAWN" = 0 ] && [ "$BID" = "$AID" ]; then
     echo "OK: the close withdrew it, and the reopen is the same window back"
 else
@@ -122,8 +129,10 @@ if grep -q 'UI: applet about up' "$HERE/wm-applet.log"; then
 else
     echo "FAIL: no build line from the host"
 fi
-if grep -q 'the ui world changed — respawning the host' "$HERE/wm-applet.log" \
-        && grep -q 'UI: stale' "$HERE/wm-applet.log" \
+# the stale host hands over by itself now: it says so, takes its name
+# off the registry and asks the WM, whose next line is the spawn
+if grep -q 'UI: stale' "$HERE/wm-applet.log" \
+        && [ "$(grep -c 'spawning the ui host' "$HERE/wm-applet.log")" = 2 ] \
         && [ "$H5" = 1 ] && [ -n "$CID" ]; then
     echo "OK: a touched ui file turned into a fresh host on the next open"
 else

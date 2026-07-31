@@ -4143,6 +4143,65 @@ proc terminal-window {w} {
     expr {$cls in {UXTerm KOI8RXTerm}}
 }
 
+# ---- errands: work the desk waits for without stopping ----
+# The event loop IS the desk: a handler that blocks freezes every
+# window on the screen. So anything that talks to the world outside
+# runs as an ERRAND — a coroutine over the future substrate (fut.tcl,
+# vendored) — and reads top to bottom instead of scattering itself
+# over a channel callback, a state variable and a guard timer, which
+# is what the emacs round trip was before this.
+#
+# The body is a COMMAND, not a script fragment: an errand outlives
+# the frame that started it, so anything it needs must be baked into
+# the command word by word ([list something $cmd]) rather than left
+# as a variable that will not be there. An errand that throws says so
+# and dies alone; a cancelled one (a timeout is a cancel) is not an
+# error to report twice.
+keep errand_seq 0
+proc wm-errand {label body} {
+    set name ::errand[incr ::errand_seq]
+    coroutine $name apply [list {label body} {
+        if {[catch {uplevel #0 $body} err opts]} {
+            if {[lrange [dict get $opts -errorcode] 0 1] eq {FUT CANCELLED}} {
+                puts "WM: errand «$label» timed out"
+            } else {
+                puts "WM: errand «$label» FAILED: $err"
+            }
+        }
+    }] $label $body
+}
+# A command's output as a future: the pipe is read by the event loop,
+# the future settles at eof, and a cancel (fut::timeout's, say) kills
+# the pipe rather than leaving it draining into nobody.
+proc pipe-output {cmd} {
+    set f [fut::new]
+    if {[catch {open |[list {*}$cmd 2>@1] r} ch]} {
+        fut::fail $f $ch
+        return $f
+    }
+    chan configure $ch -blocking 0
+    set ::pipe_buf($ch) {}
+    fut::oncancel $f [list pipe-output-close $ch]
+    fileevent $ch readable [list pipe-output-read $ch $f]
+    return $f
+}
+proc pipe-output-read {ch f} {
+    append ::pipe_buf($ch) [read $ch]
+    if {![eof $ch]} return
+    set out $::pipe_buf($ch)
+    fileevent $ch readable {}
+    unset ::pipe_buf($ch)
+    # a non-zero exit is not a failure here: emacsclient says what is
+    # wrong ON the pipe, and that text is the answer worth having
+    if {[catch {close $ch} err] && [string trim $out] eq ""} { set out $err }
+    fut::fulfill $f $out
+}
+proc pipe-output-close {ch} {
+    catch {fileevent $ch readable {}}
+    unset -nocomplain ::pipe_buf($ch)
+    catch {close $ch}
+}
+
 # ---- the emacs layer ----
 # A button that means "the telega frame of the telega daemon" — on the
 # desk the owner actually keeps: dedicated daemons (emacs --daemon=telega
@@ -4381,29 +4440,11 @@ proc emacs-activate {spec w} {
 # not leak channels, and must say so.
 proc emacs-eval-bg {spec expr} {
     set cmd [concat [emacs-client-cmd $spec] [list -e $expr]]
-    if {[catch {open |[list {*}$cmd 2>@1] r} ch]} {
-        puts "WM: emacs: eval failed to start: $ch"
-        return
-    }
-    chan configure $ch -blocking 0
-    set ::emacs_eval($ch) {}
-    set guard [after 5000 [list emacs-eval-done $ch "TIMED OUT"]]
-    fileevent $ch readable [list emacs-eval-read $ch $guard]
+    wm-errand "emacs eval" [list emacs-eval-run $cmd]
 }
-proc emacs-eval-read {ch guard} {
-    append ::emacs_eval($ch) [read $ch]
-    if {[eof $ch]} {
-        after cancel $guard
-        emacs-eval-done $ch ""
-    }
-}
-proc emacs-eval-done {ch tag} {
-    set out [string trim $::emacs_eval($ch)]
-    unset ::emacs_eval($ch)
-    catch {fileevent $ch readable {}}
-    if {[catch {close $ch} err] && $out eq ""} { set out $err }
-    if {$tag ne ""} { set out "$tag $out" }
-    puts "WM: emacs: verdict: $out"
+proc emacs-eval-run {cmd} {
+    set out [fut::take [fut::timeout [pipe-output $cmd] 5000]]
+    puts "WM: emacs: verdict: [string trim $out]"
 }
 
 # ---- the panel ----
@@ -6074,7 +6115,11 @@ keep welcome on
 proc set-welcome {mode} {
     if {$mode ni {on off}} { error "set-welcome: on or off" }
     set ::welcome $mode
-    if {$mode eq "off"} { dict unset ::widgets __welcome }
+    if {$mode eq "off"} {
+        dict unset ::widgets __welcome
+    } else {
+        welcome-inject      ;# ...and back ON puts the mat back NOW
+    }
     if {[llength [info commands widgets-build]]} { widgets-build }
 }
 proc welcome-inject {} {
@@ -6186,7 +6231,7 @@ proc welcome-font-bump {dir} {
 #   is the HOST alive?  ask it to open the applet (Tk send — a stale
 #     registry entry fails the send and falls through to the spawn);
 #   else  spawn the host with the applet's name on its command line.
-proc applet {name {retry 0}} {
+proc applet {name} {
     set pred [list filter -class [list tk9wm-$name Tk9wmUi]]
     set hit [lindex [panel-matches "applet $name" \
         [dict create match $pred]] 0]
@@ -6196,22 +6241,16 @@ proc applet {name {retry 0}} {
         return
     }
     if {"tk9wm-ui" in [winfo interps]} {
-        if {![catch {send -- tk9wm-ui [list ui-open $name]} r]} {
-            if {$r eq "stale"} {
-                # the host saw newer ui files than it was born from,
-                # answered so and is leaving; give it a beat and come
-                # back — the dead registry entry then falls through to
-                # the spawn. Once: a host that will not leave is a
-                # thing to say, not to spin on.
-                if {$retry} {
-                    puts "WM: applet $name: the stale host would not leave"
-                    return
-                }
-                puts "WM: applet $name: the ui world changed —\
- respawning the host"
-                after 400 [list applet $name 1]
-                return
-            }
+        # ASYNC, and that is the whole of the latency story: the host
+        # answers a ui-open by asking US for ui-style, and a
+        # synchronous send here left the WM waiting inside its own
+        # send while the host waited inside its reply. Tk survives
+        # that — by TIMERS — which is why a deiconify cost as much as
+        # a cold start (the owner, measured on his desk). Nothing here
+        # wants an answer: a stale host now takes itself off the
+        # registry and asks the WM for a fresh one, so even that
+        # decision needs no round trip.
+        if {![catch {send -async -- tk9wm-ui [list ui-open $name]}]} {
             puts "WM: applet $name: asked the running host"
             return
         }
