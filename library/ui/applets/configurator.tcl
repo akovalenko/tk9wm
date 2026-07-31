@@ -260,8 +260,17 @@ proc cfg-fit {} {
         -minwidth [expr {[font measure DeskFont "• custom"] + 12}]
     $T column configure Cdoc  -width {} -minwidth [expr {$wdoc + 16}]
     update idletasks
+    # THE SUM MUST NOT CONTAIN ITS OWN ANSWER. Cdoc EXPANDS — its
+    # current width is whatever was left over last time — so adding
+    # that to the total and then handing the total back as the new
+    # width grows the window by the slack on every refresh. On the
+    # owner's desk each Alt+S walked the window a step wider, and
+    # left, because it was against the right edge and the clamp kept
+    # pulling it in. The expanding column contributes what it NEEDS
+    # (its measured minimum), never what it currently occupies.
     set wall 0
-    foreach c {Cname Cval Cflag Cdoc} { incr wall [$T column width $c] }
+    foreach c {Cname Cval Cflag} { incr wall [$T column width $c] }
+    incr wall [$T column cget Cdoc -minwidth]
     set ih [expr {[font metrics DeskFont -linespace] + 6}]
     set rows [expr {[llength [dict keys $::cfg_item]]
                     + [llength [$T item children root]]}]

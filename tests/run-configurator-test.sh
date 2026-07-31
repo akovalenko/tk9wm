@@ -122,6 +122,18 @@ BADPLACE=$(qu 'cfg-set set-key-echo-place {bla bla bla}')
 BADPLACEMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 GOODMSG=$(qu 'cfg-set set-drag-slop 5; set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
+# a refresh must not GROW the window: the fit fed on its own leftover
+# once, and every Save walked the window wider (and left, against the
+# right edge)
+STABLE=$(qu 'set W [winfo toplevel $::cfg_T]
+             set a [list]
+             for {set i 0} {$i < 3} {incr i} {
+                 cfg-refresh
+                 update idletasks
+                 lappend a [winfo reqwidth $W]
+             }
+             expr {[lindex $a 0] eq [lindex $a 1]
+                   && [lindex $a 1] eq [lindex $a 2] ? "stable" : $a}')
 # an UNEXPECTED error in the apply path (not a refusal) must roll the
 # desk back to its layers and explain itself, never throw a dialog
 qu 'cfg-set set-drag-slop 11' >/dev/null
@@ -277,6 +289,11 @@ case "$SPECFORM|$SPECWORDS|$SPECDELTA" in
         echo "OK: a Tk font spec is legal, in one word or several, whole or partial" ;;
     *) echo "FAIL: font specs: {$SPECFORM} {$SPECWORDS} {$SPECDELTA}" ;;
 esac
+if [ "$STABLE" = stable ]; then
+    echo "OK: refreshing does not grow the window"
+else
+    echo "FAIL: widths across three refreshes: $STABLE"
+fi
 case $DESKWIN in
     "gone 0 back 1") echo "OK: the desk window comes and goes on the spot" ;;
     *) echo "FAIL: desk window: $DESKWIN" ;;
