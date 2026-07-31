@@ -245,7 +245,17 @@ frames a client and shows a panel has proved both libraries loaded.
   colormap era).
 
   Restart in place (`TK9WM_RESTART` ClientMessage → release the clients
-  → execv itself; fresh code off the disk, the same pid). The key-grab
+  → execv itself; fresh code off the disk, the same pid). The same pid
+  keeps the same CHILDREN, while Tcl's record of them dies with the old
+  image — so the fresh one reads `/proc` for what it inherited and
+  waits for those itself (`adopt-orphans`, polled a minute at a time by
+  `reap-orphans`): without it every terminal, browser and ui host the
+  desk had ever launched turned into a zombie on the day it exited — 38
+  of them over one uptime of the owner's desk, which restarts dozens of
+  times a day. It waits for NAMED pids and never for -1: what this
+  image spawns is Tcl's to reap inside the next `exec`, and a stolen
+  exit status is how a pipe's `close` starts failing with "no child
+  processes". The key-grab
   machinery (`wm-bind` — chord sequences with stumpwm semantics:
   XGrabKey on the first chord only, as a quadruple over Caps/Num; the
   tail runs under a temporary XGrabKeyboard, Esc or an unknown key
@@ -1346,7 +1356,11 @@ runs as a single shell call:
   maximizing and button 3 opening the ops menu; and a CONFIG saying all
   three kinds of thing — declaring a button with its own glyph, binding
   it to a window command, and putting Destroy on button 3 of close), `run-restart-test.sh` (restart in place: the
-  same pid, the client picked back up), `run-resource-test.sh` (sourcing
+  same pid, the client picked back up), `run-orphan-test.sh` (what a
+  restart leaves us holding: a child of the old image dies unwaited-for
+  after the exec and the fresh one buries it, while the child it
+  spawned itself stays off that list — Tcl's to reap, not ours to
+  steal), `run-resource-test.sh` (sourcing
   both layers on a live desk: the in-code chords and the CONFIG's own
   still answer, a client mapped afterwards is still framed, the
   selection is still ours, a reload still rebuilds — and the same

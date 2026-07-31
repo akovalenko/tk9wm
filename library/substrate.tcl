@@ -480,6 +480,9 @@ proc x-error-text {code}        { tkwmx::server error-text $code }
 proc x-error-handler {cmd}      { tkwmx::server error-handler $cmd }
 # replace this process with a fresh copy of itself (see restart-wm)
 proc x-exec-self {path arglist} { tkwmx::exec-self $path $arglist }
+# wait, without blocking, for the children a restart left us holding —
+# the pids that are done come back (see adopt-orphans)
+proc x-reap {pids} { tkwmx::reap {*}$pids }
 
 # ---------------- the X error sink ----------------
 # Xlib's default error handler exits the process; for a WM, BadWindow
@@ -3692,6 +3695,70 @@ proc restart-wm {} {
         x-exec-self [lindex $head 0] [list {*}[lrange $head 1 end] {*}$av]
     } err]} { puts "WM: restart FAILED: $err" }
 }
+
+# ---------------- the children that came with the pid ----------------
+# A restart keeps the pid, and keeping the pid means keeping the
+# CHILDREN: execv replaces the image under them, so everything the desk
+# had launched — terminals, browsers, the ui host — is still ours,
+# while Tcl's record of them is not (its detached list lived in the
+# memory execv threw away). Nothing waits for them any more, and each
+# becomes a zombie for good on its way out. Measured on the owner's
+# desk 2026-07-31: 38 of them after a day of restarts, one whale among
+# them for every stale ui host that handed its applets over and left —
+# which is why the ui LOOKED like the culprit. It was only the most
+# regular victim; the restart chord was the cause.
+#
+# So the fresh image ADOPTS them. What /proc calls our children at
+# startup is exactly the inherited set, because this image has not
+# spawned anything yet; everything spawned later stays Tcl's business,
+# reaped inside the next exec as always. The two sets cannot overlap,
+# and that is what makes waiting safe here: this waits for NAMED pids
+# and never for -1, so it can never take the exit status an `exec` or
+# a pipe's `close` is about to ask for. Nor can a pid go stale under
+# us — an unreaped child holds its pid slot, so the number stays the
+# one we adopted until we are the ones who let it go.
+proc adopt-orphans {} {
+    set kids {}
+    # per THREAD, which is how the kernel files them: ours are all the
+    # main one's, but the glob costs nothing and asks no questions
+    # about which thread of which build did the spawning.
+    foreach f [glob -nocomplain /proc/self/task/*/children] {
+        soft "read $f" {
+            set ch [open $f r]
+            append kids " " [read $ch]
+            close $ch
+        }
+    }
+    set ::orphans [lsort -integer -unique $kids]
+    if {[llength $::orphans]} {
+        puts "WM: [llength $::orphans] child(ren) came with the pid —\
+              this image will wait for them"
+        reap-orphans
+    }
+}
+
+# They are alive when we adopt them, so all that is left is to ask, now
+# and then, whether they still are. A minute is a generous interval for
+# a thing with all day: what a poll's delay costs is one pid slot per
+# dead orphan, and the desk's own habits — a restart every so often —
+# put a fresh set here far more often than this timer runs out of work.
+proc reap-orphans {} {
+    if {![llength $::orphans]} return
+    set done [x-reap $::orphans]
+    if {[llength $done]} {
+        set left {}
+        foreach p $::orphans { if {$p ni $done} { lappend left $p } }
+        set ::orphans $left
+        puts "WM: reaped [llength $done] inherited child(ren),\
+              [llength $::orphans] still going"
+    }
+    if {[llength $::orphans]} { after 60000 reap-orphans }
+}
+
+# Once per image, and the guard is the point: a second pass would call
+# the children we have spawned SINCE inherited ones, and waiting for
+# those is exactly what must not happen here.
+unless-already {[info exists ::orphans]} { adopt-orphans }
 
 # Leave for good — the same release a restart does, and then simply
 # stop. With .Xsession exec'ing the window manager this ends the X

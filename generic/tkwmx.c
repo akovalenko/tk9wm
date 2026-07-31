@@ -21,7 +21,9 @@
  *     the global namespace stays clean.
  */
 
+#include <errno.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <tcl.h>
@@ -2695,6 +2697,56 @@ ExecSelfObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 }
 
 /* ------------------------------------------------------------------ */
+/* ::tkwmx::reap                                                       */
+
+/*
+ * Wait — without blocking — for children we INHERITED rather than
+ * spawned. execv keeps the pid, and keeping the pid means keeping the
+ * children; what it does not keep is Tcl's list of the processes it
+ * detached, which dies with the old image. Nobody is left to wait for
+ * them, so each one becomes a zombie for good on its way out, and the
+ * restart chord runs dozens of times a day (measured on the owner's
+ * desk 2026-07-31: 38 of them over a day of uptime, everything the
+ * desk had ever launched — terminals, browsers, the ui host).
+ *
+ * Takes the pids to wait for, and that is the whole of its safety.
+ * Waiting for ANY child (-1) would also collect the ones Tcl still
+ * tracks, and an `exec` or a pipe's `close` that finds its status
+ * already taken fails outright with "no child processes" —
+ * TclCleanupChildren treats ECHILD as an error, unlike Tcl's own
+ * reaper, which quietly drops such an entry. Naming the pids keeps
+ * the two sets apart by construction rather than by timing.
+ *
+ * Returns the pids that are done with: reaped here, or not ours to
+ * wait for at all (ECHILD) — either way the caller stops watching.
+ */
+static int
+ReapObjCmd(void *clientData, Tcl_Interp *interp, int objc,
+	   Tcl_Obj *const objv[])
+{
+    Tcl_Obj *done;
+    int i, status;
+    (void)clientData;
+
+    done = Tcl_NewListObj(0, NULL);
+    for (i = 1; i < objc; i++) {
+	Tcl_WideInt pid;
+	pid_t got;
+
+	if (Tcl_GetWideIntFromObj(interp, objv[i], &pid) != TCL_OK) {
+	    Tcl_DecrRefCount(done);
+	    return TCL_ERROR;
+	}
+	got = waitpid((pid_t)pid, &status, WNOHANG);
+	if (got > 0 || (got == -1 && errno == ECHILD)) {
+	    Tcl_ListObjAppendElement(NULL, done, objv[i]);
+	}
+    }
+    Tcl_SetObjResult(interp, done);
+    return TCL_OK;
+}
+
+/* ------------------------------------------------------------------ */
 
 int
 Tkwmx_Init(Tcl_Interp *interp)
@@ -2725,5 +2777,6 @@ Tkwmx_Init(Tcl_Interp *interp)
     Tcl_CreateObjCommand(interp, "::tkwmx::atom", AtomObjCmd, tkMain, NULL);
     Tcl_CreateObjCommand(interp, "::tkwmx::server", ServerObjCmd, tkMain, NULL);
     Tcl_CreateObjCommand(interp, "::tkwmx::exec-self", ExecSelfObjCmd, tkMain, NULL);
+    Tcl_CreateObjCommand(interp, "::tkwmx::reap", ReapObjCmd, tkMain, NULL);
     return Tcl_PkgProvide(interp, "tkwmx", "0.1");
 }
