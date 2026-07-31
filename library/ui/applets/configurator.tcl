@@ -138,7 +138,20 @@ proc cfg-build {W} {
     bind $T <KeyPress-Left>   {cfg-fold collapse; break}
     bind $T <KeyPress-Right>  {cfg-fold expand; break}
     cfg-refresh
+    # ...and AGAIN once the window is really on the screen. Before
+    # the first map a treectrl has no realized geometry to measure —
+    # its column widths and the toplevel's requested height are both
+    # provisional — so the first open after a fresh host came up
+    # narrow AND too tall, while every later one, measured warm, was
+    # right (the owner's report: "не ловится при перезапусках"). One
+    # shot: the binding takes itself off.
+    bind $W <Map> {cfg-fit-mapped %W}
     focus $T
+}
+proc cfg-fit-mapped {W} {
+    if {$W ne [winfo toplevel $::cfg_T]} return
+    bind $W <Map> {}
+    cfg-fit
 }
 
 # Any scroll ends an open editor (as a commit attempt): the entry is
@@ -214,10 +227,21 @@ proc cfg-fit {} {
     # the window past reading width, and the window's own size from
     # what the columns then ask for.
     set cap [font measure DeskFont [string repeat 0 34]]
+    # Auto-width is right for the columns that hold their own text —
+    # and blind for the two that do not. A SQUEEZED column asks for
+    # almost nothing (measured: 24px against 374px of the longest
+    # doc), and a column whose text appears only later (the flags)
+    # asks for the width of the nothing it holds now. Both get an
+    # honest minimum, measured from the content they WILL carry.
+    set wdoc 0
+    dict for {- meta} $::cfg_table {
+        set wdoc [expr {max($wdoc, [font measure DeskFont [dict get $meta doc]])}]
+    }
     $T column configure Cname -width {} -maxwidth $cap
     $T column configure Cval  -width {} -minwidth 140 -maxwidth $cap
-    $T column configure Cflag -width {}
-    $T column configure Cdoc  -width {}
+    $T column configure Cflag -width {} \
+        -minwidth [expr {[font measure DeskFont "• custom"] + 12}]
+    $T column configure Cdoc  -width {} -minwidth [expr {$wdoc + 16}]
     update idletasks
     set wall 0
     foreach c {Cname Cval Cflag Cdoc} { incr wall [$T column width $c] }
