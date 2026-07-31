@@ -624,7 +624,32 @@ proc cfg-font-picked {name spec} {
 # cfg-set NAME VALUE — validate by kind, PREVIEW on the live desk,
 # remember as pending. The programmatic door too (tests drive it by
 # send), which is why it answers 1/0 instead of beeping alone.
+# THE BOUNDARY. A refusal is an answer (0 and a sentence); an
+# unexpected ERROR is something else — the knob may have run halfway
+# before it threw, and a half-applied setting is a desk nobody asked
+# for (the owner). So the whole apply path is fenced: anything that
+# escapes puts the desk BACK to what its layers say — a reload, the
+# same undo Revert uses — drops the pending previews with it, and
+# says so on the status line instead of throwing a dialog at
+# somebody who was only typing.
 proc cfg-set {name value} {
+    if {[catch {cfg-apply $name $value} r opts]} {
+        cfg-recover "setting $name" $r $opts
+        return 0
+    }
+    return $r
+}
+proc cfg-recover {what err {opts {}}} {
+    puts "UI: configurator: $what FAILED: $err"
+    if {[dict exists $opts -errorinfo]} { puts [dict get $opts -errorinfo] }
+    catch {cfg-entry-close}
+    set ::cfg_pending {}
+    catch {wm-call reload-config}
+    catch {cfg-refresh}
+    cfg-status "$what went wrong ([cfg-brief $err]) — the desk is back\
+ on its saved layers, unsaved changes are gone" error
+}
+proc cfg-apply {name value} {
     set kind [dict get $::cfg_table $name kind]
     switch -- [lindex $kind 0] {
         int {

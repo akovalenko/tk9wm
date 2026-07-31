@@ -101,6 +101,17 @@ BADPLACE=$(qu 'cfg-set set-key-echo-place {bla bla bla}')
 BADPLACEMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 GOODMSG=$(qu 'cfg-set set-drag-slop 5; set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
+# an UNEXPECTED error in the apply path (not a refusal) must roll the
+# desk back to its layers and explain itself, never throw a dialog
+qu 'cfg-set set-drag-slop 11' >/dev/null
+BOOM=$(qu 'rename cfg-show-value cfg-show-value-real
+           proc cfg-show-value {it name value} { error "boom in the renderer" }
+           set rc [cfg-set set-edge-resist 21]
+           rename cfg-show-value {}
+           rename cfg-show-value-real cfg-show-value
+           list rc $rc pending [dict size $::cfg_pending] \
+                slop [wm-call {set ::drag_slop}] \
+                msg [[winfo toplevel $::cfg_T].b.note cget -text]')
 
 q 'welcome-font-bump up' >/dev/null
 sleep 0.5
@@ -215,6 +226,11 @@ case "$BADCURSOR|$BADCURSORMSG|$GOODCURSOR|$CURSORLIVE" in
     "0|"*"no cursor named"*"|1|watch")
         echo "OK: a bad cursor name is refused by name, a good one applies" ;;
     *) echo "FAIL: cursor: bad=$BADCURSOR msg «$BADCURSORMSG» good=$GOODCURSOR live=$CURSORLIVE" ;;
+esac
+case $BOOM in
+    "rc 0 pending 0 slop 4 msg "*"back"*"saved layers"*)
+        echo "OK: an error rolled the desk back and explained itself" ;;
+    *) echo "FAIL: recovery: $BOOM" ;;
 esac
 case $GOODMSG in
     *"Save makes it stick"*) echo "OK: a good value clears the error line" ;;

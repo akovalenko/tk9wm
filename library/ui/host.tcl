@@ -156,6 +156,16 @@ proc ui-focusable {w} {
     bind $w <FocusOut> [list $w configure -style $base]
 }
 
+# Background errors go to the LOG, not to a dialog. Tk's stock
+# bgerror pops a window over the desk for something the user did not
+# ask about and cannot act on; the desk's log is where the desk's
+# accidents belong (and the applet that caused it says its own piece
+# on its own status line).
+proc bgerror {msg} {
+    puts "UI: background error: $msg"
+    if {[info exists ::errorInfo]} { puts $::errorInfo }
+}
+
 proc ui-applet {name meta} { dict set ::ui_applets $name $meta }
 set ui_applets {}
 # The applet files, and WHEN they are read again: normally never — a
