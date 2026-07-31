@@ -78,6 +78,17 @@ PENDBACK=$(qu 'cfg-set set-title-font {-weight bold}; cfg-cur set-title-font')
 PARTIAL=$(qu 'cfg-set set-desk-font {-family {DejaVu Sans}}')
 PARTIALCELL=$(qu 'cfg-value-text set-desk-font {-family {DejaVu Sans}}')
 PARTIALLIVE=$(q 'font actual DeskFont -family')
+# THE OTHER FORM: a Tk font spec, which is what a non-Tcl hand writes
+SPECFORM=$(q 'set-desk-font {DejaVu Sans 13 bold}
+              list [font actual DeskFont -family] [font actual DeskFont -size] \
+                   [font actual DeskFont -weight]')
+SPECWORDS=$(q 'set-desk-font DejaVu Sans 11
+               list [font actual DeskFont -family] [font actual DeskFont -size]')
+SPECDELTA=$(q 'set-title-font {Liberation Serif}
+               list [font actual TitleFont -family] \
+                    [expr {[font actual TitleFont -size]
+                           eq [font actual DeskFont -size]}]')
+SPECBAD=$(q 'catch {set-desk-font { }} e; set e')
 # ...and SAVED, it must still read as what was said, not as what the
 # desk computed from it
 qu 'cfg-save' >/dev/null
@@ -141,10 +152,15 @@ RESCUED=$(qu 'cfg-revert
            list broken $::cfg_broken \
                 msg [[winfo toplevel $::cfg_T].b.note cget -text]')
 
+# a bump must KEEP what stands beside the size in the record: the
+# owner lost his -family to it once
+q 'custom-write {set-desk-font -family Iosevka -size 11}' >/dev/null
+sleep 0.3
 q 'welcome-font-bump up' >/dev/null
 sleep 0.5
+KEPTFAM=$(grep -c 'set-desk-font -family Iosevka -size 12' "$HERE/cfg-config/tk9wm.custom.tcl" 2>/dev/null)
 BUMPED=$(q 'font actual DeskFont -size')
-BUMPFILE=$(grep -c 'set-desk-font -size' "$HERE/cfg-config/tk9wm.custom.tcl" 2>/dev/null)
+BUMPFILE=$(grep -c 'set-desk-font' "$HERE/cfg-config/tk9wm.custom.tcl" 2>/dev/null)
 
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
@@ -198,10 +214,15 @@ if [ "$BAD" = 0 ]; then
 else
     echo "FAIL: cfg-set accepted fade 7"
 fi
-if [ "$BUMPED" = "$((WMFONT + 1))" ] && [ "$BUMPFILE" = 1 ]; then
+if [ "$BUMPED" = 12 ] && [ "$BUMPFILE" = 1 ]; then
     echo "OK: the mat's font button turned the desk font and persisted"
 else
-    echo "FAIL: bumped=$BUMPED (want $((WMFONT + 1))), file lines=$BUMPFILE"
+    echo "FAIL: bumped=$BUMPED (want 12), file lines=$BUMPFILE"
+fi
+if [ "$KEPTFAM" = 1 ]; then
+    echo "OK: the bump kept the family standing beside the size"
+else
+    echo "FAIL: the record after a bump: $(grep set-desk-font "$HERE/cfg-config/tk9wm.custom.tcl")"
 fi
 if [ "$LISTCELL" = "[2 directories]" ] && [ "$LISTLIVE" = 3 ]; then
     echo "OK: a list summarizes in its cell and edits whole"
@@ -245,6 +266,15 @@ case "$PARTIAL|$PARTIALCELL|$PARTIALLIVE" in
     "1|-family {DejaVu Sans}|DejaVu Sans")
         echo "OK: a partial font spec renders as itself and applies" ;;
     *) echo "FAIL: partial font: rc=$PARTIAL cell «$PARTIALCELL» live «$PARTIALLIVE»" ;;
+esac
+case "$SPECFORM|$SPECWORDS|$SPECDELTA" in
+    "{DejaVu Sans} 13 bold|{DejaVu Sans} 11|{Liberation Serif} 1")
+        echo "OK: a Tk font spec is legal, in one word or several, whole or partial" ;;
+    *) echo "FAIL: font specs: {$SPECFORM} {$SPECWORDS} {$SPECDELTA}" ;;
+esac
+case $SPECBAD in
+    *"names no family"*) echo "OK: an empty font spec is refused by name" ;;
+    *) echo "FAIL: empty spec said «$SPECBAD»" ;;
 esac
 if [ "$PENDBACK" = "-weight bold" ]; then
     echo "OK: a pending multi-word value comes back whole"

@@ -83,8 +83,64 @@ unless-already {[lsearch -exact [font names] DeskFont] >= 0} {
     }
 }
 keep font_kin {}   ;# NAME -> {from BASE opts {...}}, in declaration order
+
+# THE OTHER NATURAL FORM (the owner, 2026-08-01): «DejaVu Sans 10
+# bold» — Tk's own font spec, and the one a person who does not write
+# Tcl reaches for. Both forms are legal wherever this desk takes a
+# font, and the spec is read into the SAME options, naming only the
+# parts it mentions: «DejaVu Sans» sets a family and leaves the size
+# where it was, which is what makes it usable as a delta on a derived
+# font just like -family is.
+#
+# The grammar Tk uses and this follows: family, then an optional
+# SIZE, then any number of style words. Read from the right — styles
+# first, then a numeric size — because a family may be several words
+# and cannot be told from the rest by position alone.
+proc font-spec-opts {spec} {
+    set weight ""; set slant ""; set under ""; set over ""; set size ""
+    set words $spec
+    while {[llength $words] > 1} {
+        set w [string tolower [lindex $words end]]
+        switch -- $w {
+            normal - bold        { set weight $w }
+            roman - italic       { set slant $w }
+            underline            { set under 1 }
+            overstrike           { set over 1 }
+            default { break }
+        }
+        set words [lrange $words 0 end-1]
+    }
+    if {[llength $words] > 1 && [string is integer -strict [lindex $words end]]} {
+        set size [lindex $words end]
+        set words [lrange $words 0 end-1]
+    }
+    if {![llength $words]} {
+        error "a font is «FAMILY ?SIZE? ?STYLES?» — «$spec» names no family"
+    }
+    set opts [dict create -family [join $words " "]]
+    if {$size ne ""}   { dict set opts -size $size }
+    if {$weight ne ""} { dict set opts -weight $weight }
+    if {$slant ne ""}  { dict set opts -slant $slant }
+    if {$under ne ""}  { dict set opts -underline $under }
+    if {$over ne ""}   { dict set opts -overstrike $over }
+    return $opts
+}
+# Either form in, options out. The dash is the tell: a first word
+# that starts with one is the option form, anything else is a spec —
+# given as one argument («{DejaVu Sans 10 bold}») or as several,
+# because both are how one naturally types it.
+proc font-args {who args} {
+    if {![llength $args]} { return {} }
+    if {[string index [lindex $args 0] 0] eq "-"} {
+        if {[llength $args] % 2} { error "$who: options come in pairs" }
+        return $args
+    }
+    set spec [expr {[llength $args] == 1 ? [lindex $args 0] : $args}]
+    if {[catch {font-spec-opts $spec} opts]} { error "$who: $opts" }
+    return $opts
+}
 proc wm-font {name args} {
-    if {[llength $args] % 2} { error "wm-font $name: options come in pairs" }
+    set args [font-args "wm-font $name" {*}$args]
     set from DeskFont
     set opts {}
     foreach {o v} $args {
@@ -140,7 +196,7 @@ proc fonts-derive {} {
 unless-already {[dict exists $::font_kin TitleFont]} { wm-font TitleFont }
 unless-already {[dict exists $::font_kin PanelFont]} { wm-font PanelFont }
 proc set-desk-font {args} {
-    font configure DeskFont {*}$args
+    font configure DeskFont {*}[font-args set-desk-font {*}$args]
     fonts-derive
     retitle-frames
 }
@@ -390,6 +446,19 @@ proc retitle-frames {} {
     }
     update idletasks
     foreach {w t} [array get ::frameof] {
+        # A TALLER TITLEBAR IS A TALLER FRAME, and this growth is
+        # OURS: no client asked for it, so the resize path's clamp
+        # never sees it, and a window standing at the bottom edge
+        # ends up four pixels under the panel (measured, after the
+        # desk font grew by one). The origin follows the same rule as
+        # everywhere else: move it in, never shrink it, and leave a
+        # window that state owns — fullscreen — alone.
+        if {![info exists ::fullscreen($w)]
+                && [regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
+                        [wm geometry $t] -> fw fh fx fy]} {
+            lassign [clamp-to-workarea $fx $fy $fw $fh] nx ny
+            if {$nx != $fx || $ny != $fy} { wm geometry $t +$nx+$ny }
+        }
         send-synthetic-configure $w
         publish-frame-extents $w   ;# the strip's height just moved
     }
@@ -6441,8 +6510,27 @@ proc welcome-font-bump {dir} {
     set step [expr {$dir eq "up" ? 1 : -1}]
     set mag [expr {max(6, abs($size) + $step)}]
     set new [expr {$size < 0 ? -$mag : $mag}]
-    custom-write [list set-desk-font -size $new]
+    custom-write [list set-desk-font {*}[knob-merge-opts set-desk-font \
+        [list -size $new]]]
     if {[llength [info commands widgets-build]]} { widgets-build }
+}
+# A PROGRAMMATIC WRITER MUST MERGE, not replace. The custom layer's
+# record for a knob IS its command, so writing «set-desk-font -size
+# 11» throws away the -family that stood beside it — the owner lost
+# his Iosevka to the mat's font buttons that way, and did not see it
+# because the LIVE font keeps what it is not told to change; only the
+# record was poorer. So a writer of one option asks what the layers
+# already say and hands back the whole word.
+proc knob-merge-opts {name opts} {
+    set base {}
+    foreach layer {custom config} {
+        if {![dict exists $::layer_knobs $layer $name]} continue
+        set said [lrange [dict get $::layer_knobs $layer $name] 1 end]
+        if {[catch {font-args $name {*}$said} said]} { set said {} }
+        set base $said
+        break
+    }
+    return [dict merge $base $opts]
 }
 
 # applet NAME — the panel button's idempotent semantics one storey
