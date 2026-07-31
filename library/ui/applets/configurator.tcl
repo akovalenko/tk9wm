@@ -72,6 +72,17 @@ proc cfg-build {W} {
     $T column create -text ""           -resize no  -tags Cflag
     $T column create -text "what it is" -squeeze yes -expand yes \
         -resize yes -tags Cdoc
+    # THE HEADER WEARS THE THEME TOO (the owner): treectrl paints its
+    # own, and left alone it is the toolkit's grey against a themed
+    # desk. Its normal, active and pressed faces come from the same
+    # palette the rest of the applet is dressed in.
+    foreach c {Cname Cval Cflag Cdoc} {
+        $T column configure $c -font TitleFont \
+            -textcolor [ui-color fg] \
+            -background [list [ui-color select] {active} \
+                              [ui-color trough] {}] \
+            -borderwidth 1 -arrowgravity right
+    }
     $T configure -treecolumn Cname
     $T element create eTxt  text -fill [ui-color fg] -lines 1 -font DeskFont
     $T element create eVal  text -fill [ui-color link] -lines 1 -font DeskFont
@@ -213,9 +224,31 @@ proc cfg-fit {} {
     set ih [expr {[font metrics DeskFont -linespace] + 6}]
     set rows [expr {[llength [dict keys $::cfg_item]]
                     + [llength [$T item children root]]}]
+    # The ceiling is the WORKAREA minus what this window wears and
+    # carries — the frame the desk will put around it and the button
+    # box below the tree. Measured against the screen instead, the
+    # window came up taller than the desk had room for and its bottom
+    # went under the panel (the owner's report): a resize a client
+    # asks for is honored as asked, and the WM's own clamp can only
+    # move a window, not shrink it.
+    set W [winfo toplevel $T]
+    lassign [ui-workarea] - - ww wh
+    lassign [ui-chrome] B top
+    set maxw [expr {$ww - 2*$B - [winfo reqwidth $W.sb] - 8}]
+    set maxh [expr {$wh - $top - $B - [winfo reqheight $W.b] - 8}]
     $T configure \
-        -width  [expr {min($wall + 24, [winfo screenwidth $T] * 9 / 10)}] \
-        -height [expr {min(($rows + 2) * $ih, [winfo screenheight $T] * 4 / 5)}]
+        -width  [expr {min($wall + 24, $maxw)}] \
+        -height [expr {min(($rows + 2) * $ih, $maxh)}]
+    # ...and then ASK, because arithmetic about a widget's chrome is
+    # a guess: a treectrl's -height buys the content, not the header
+    # above it, and the difference put the window two pixels past the
+    # workarea (measured). The whole toplevel says what it wants; the
+    # tree gives back whatever hangs over.
+    update idletasks
+    set over [expr {[winfo reqheight $W] + $top + 2*$B - $wh}]
+    if {$over > 0} { $T configure -height [expr {[$T cget -height] - $over}] }
+    set over [expr {[winfo reqwidth $W] + 2*$B - $ww}]
+    if {$over > 0} { $T configure -width [expr {[$T cget -width] - $over}] }
 }
 
 # What a value LOOKS like in its cell. A list says how many it holds

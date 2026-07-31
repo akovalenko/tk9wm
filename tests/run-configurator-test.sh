@@ -96,6 +96,16 @@ sleep 0.5
 BUMPED=$(q 'font actual DeskFont -size')
 BUMPFILE=$(grep -c 'set-desk-font -size' "$HERE/cfg-config/tk9wm.custom.tcl" 2>/dev/null)
 
+# the window must SIT INSIDE the workarea: a tall tree used to be
+# born with its bottom edge under the panel
+GEO=$(q 'set w [lindex [array names ::frameof] 0]
+         set t $::frameof($w)
+         regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fw fh fx fy
+         lassign [workarea] wax way ww wh
+         list [wm geometry $t] wa [workarea] fits \
+              [expr {$fx >= $wax && $fy >= $way
+                     && $fx + $fw <= $wax + $ww && $fy + $fh <= $way + $wh}]')
+
 kill $WM 2>/dev/null
 pkill -f 'ui/host[.]tcl' 2>/dev/null
 
@@ -183,5 +193,10 @@ esac
 case $GOODMSG in
     *"Save makes it stick"*) echo "OK: a good value clears the error line" ;;
     *) echo "FAIL: after a good value the line says «$GOODMSG»" ;;
+esac
+echo "--- geometry: $GEO"
+case $GEO in
+    *"fits 1") echo "OK: the applet window sits inside the workarea" ;;
+    *) echo "FAIL: window vs workarea: $GEO" ;;
 esac
 check_invariants "$HERE/wm-cfg.log"

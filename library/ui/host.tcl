@@ -108,6 +108,20 @@ proc ui-color {key} {
     expr {[dict exists $::ui_palette $key]
           ? [dict get $::ui_palette $key] : "#888888"}
 }
+# The desk's usable rectangle {x y w h} and what a frame costs around
+# a client {border decotop} — an applet that sizes itself must fit
+# INSIDE the workarea, decoration included, or it is born with its
+# bottom edge under the panel (the owner's report). Screen dimensions
+# are the wrong measure and the WM is the only honest source.
+proc ui-workarea {} {
+    expr {[dict exists $::ui_palette workarea]
+          ? [dict get $::ui_palette workarea]
+          : [list 0 0 [winfo screenwidth .] [winfo screenheight .]]}
+}
+proc ui-chrome {} {
+    expr {[dict exists $::ui_palette chrome]
+          ? [dict get $::ui_palette chrome] : {2 28}}
+}
 
 # Generic Alt-accelerator support (the owner's pick over hand-rolled
 # bindings): a button declaring -underline N gets Alt+<that letter>

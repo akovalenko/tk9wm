@@ -1181,8 +1181,27 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
 
 # The decoration follows the client's new size (position stays put).
 proc policy-resize {w cw ch} {
-    frame-layout $::frameof($w) $cw $ch
+    set t $::frameof($w)
+    frame-layout $t $cw $ch
     update idletasks
+    # A WINDOW THAT GREW MUST NOT GROW OFF THE DESK. The placement
+    # clamp runs once, at birth, and a client that resizes ITSELF
+    # afterwards was landing wherever its old origin plus its new
+    # size reached — the configurator, grown by a refresh, ended up
+    # with its bottom edge under the panel (the owner, 2026-08-01).
+    # Only the ORIGIN is touched, and only inwards: a window bigger
+    # than the workarea keeps its size and takes the workarea's
+    # corner, which is the honest best a move can do. A fullscreen or
+    # maximized window is exempt — its geometry is the state's.
+    if {[info exists ::fullscreen($w)]} return
+    if {![regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $t] \
+            -> fw fh fx fy]} return
+    lassign [clamp-to-workarea $fx $fy $fw $fh] nx ny
+    if {$nx != $fx || $ny != $fy} {
+        wm geometry $t +$nx+$ny
+        update idletasks
+        puts "WM: 0x[format %x $w] grew past the workarea — moved to +$nx+$ny"
+    }
 }
 
 # An honored move request: the client named a root position for its
@@ -6106,6 +6125,8 @@ proc ui-style {} {
         titlefont [font actual TitleFont] \
         scheme    [expr {$light ? "light" : "dark"}] \
         generation [ui-generation] \
+        workarea  [workarea] \
+        chrome    [list $::border $::decotop] \
         {*}$palette
 }
 # The ui world's cache key: an MTIME FINGERPRINT of everything under
