@@ -7298,7 +7298,13 @@ proc policy-apply {} {
     # under the other until somebody says otherwise.
     panel-on-top
     panel-match-kick
-    puts "WM: config applied ([llength [panel-all-buttons]] buttons on\
+    # DECLARED buttons, not shown ones: under panels-held the strips
+    # have not rebuilt yet and the shown lists are stale — the summary
+    # was reading «0 buttons» on every reload. What the config APPLIED
+    # is its declarations; the per-panel «up» lines say what shows.
+    set nrefs 0
+    foreach p [panel-names] { incr nrefs [dict size [panel-cfg $p refs]] }
+    puts "WM: config applied ($nrefs buttons on\
  [llength [panel-names]] panel(s), [llength $::style_rules] style rules,\
  tray [expr {$::tray_on ? {on} : {off}}])"
 }
