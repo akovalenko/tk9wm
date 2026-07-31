@@ -22,6 +22,8 @@
 # what makes `applet NAME` idempotent on the WM side and the window
 # manageable by any panel button.
 package require Tk
+package require treectrl   ;# the desk's own widget of choice, and the
+                            # configurator's tree; whale carries it
 wm withdraw .
 
 lassign $argv ui_wmapp ui_first
@@ -42,6 +44,40 @@ chan configure stdout -buffering line
 # host should not guess.
 proc wm-call {script} { send -- $::ui_wmapp $script }
 
+# The style bridge, host side: fetch the desk's fonts and palette
+# (ui-style in the WM) and wear them. Named fonts re-CONFIGURE, so a
+# sync restyles windows already up; the option database covers the
+# widgets built after it; and the palette itself is kept for applet
+# builders that color by hand ([ui-color KEY]). Synced at every
+# ui-open — the desk may have changed its type since, and an applet
+# should arrive dressed for today.
+set ui_palette {}
+proc ui-style-sync {} {
+    if {[catch {wm-call ui-style} st]} {
+        puts "UI: style sync failed: $st"
+        return
+    }
+    set ::ui_palette $st
+    foreach {name key} {DeskFont deskfont TitleFont titlefont} {
+        if {[lsearch -exact [font names] $name] < 0} { font create $name }
+        font configure $name {*}[dict get $st $key]
+    }
+    foreach {opt key} {
+        background bg foreground fg activeBackground select
+        selectBackground select highlightBackground bg
+        troughColor trough insertBackground fg
+    } {
+        option add *$opt [dict get $st $key] widgetDefault
+    }
+    option add *font DeskFont widgetDefault
+    option add *Entry.background [dict get $st field] widgetDefault
+    option add *Text.background [dict get $st field] widgetDefault
+}
+proc ui-color {key} {
+    expr {[dict exists $::ui_palette $key]
+          ? [dict get $::ui_palette $key] : "#888888"}
+}
+
 proc ui-applet {name meta} { dict set ::ui_applets $name $meta }
 set ui_applets {}
 foreach f [lsort [glob -nocomplain [file join $ui_library applets *.tcl]]] {
@@ -59,6 +95,7 @@ proc ui-open {name} {
         puts "UI: no applet named $name ([dict keys $::ui_applets])"
         return
     }
+    ui-style-sync
     set top .tk9wm-$name
     if {[winfo exists $top]} {
         wm deiconify $top

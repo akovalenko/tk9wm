@@ -5941,6 +5941,10 @@ proc layer-source {layer path} {
     }
     list $code $err
 }
+proc layer-touched {layer} {
+    expr {[dict exists $::layer_knobs $layer]
+          ? [dict keys [dict get $::layer_knobs $layer]] : {}}
+}
 proc layer-overlaps {} {
     set out {}
     if {![dict exists $::layer_knobs config]
@@ -6045,6 +6049,44 @@ proc ui-exec-head {} {
     if {[llength $head] == 1} { return {} }
     list [lindex $head 0]
 }
+# ui-style — the bridge from the desk's look to the applets' (the
+# owner's ask: the fonts must ARRIVE; and at least one light scheme).
+# The host asks over the send door and applies what it is told, so an
+# applet is set in the desk's own fonts — and the palette comes in two
+# schemes picked automatically: the luminance of set-desk-background
+# decides whether the applets dress light or dark. The WM's own chrome
+# keeps its colors for now; a full set-theme is its own future step.
+proc ui-style {} {
+    lassign [winfo rgb . $::desk_background] r g b
+    set light [expr {(0.2126*$r + 0.7152*$g + 0.0722*$b) / 65535.0 > 0.5}]
+    set palette [expr {$light
+        ? {bg #f2f1ef fg #1c1c1c field #ffffff link #1a4a8a
+           select #cfe0f5 trough #e4e2de}
+        : {bg #2e3436 fg #eeeeec field #22272a link #8ab4f8
+           select #204a87 trough #3a4144}}]
+    dict create \
+        deskfont  [font actual DeskFont] \
+        titlefont [font actual TitleFont] \
+        scheme    [expr {$light ? "light" : "dark"}] \
+        {*}$palette
+}
+
+# The welcome mat's first QUICK KNOBS (the owner's order): all the
+# desk's type bigger or smaller in one press. What it really turns is
+# the ONE font everything derives from — set-desk-font — and it
+# persists like any click: through custom-write, one standing entry
+# rewritten per press. The sign is the unit (Tk: points positive,
+# pixels negative), so "bigger" grows the magnitude whichever unit
+# the desk measures in.
+proc welcome-font-bump {dir} {
+    set size [font actual DeskFont -size]
+    set step [expr {$dir eq "up" ? 1 : -1}]
+    set mag [expr {max(6, abs($size) + $step)}]
+    set new [expr {$size < 0 ? -$mag : $mag}]
+    custom-write [list set-desk-font -size $new]
+    if {[llength [info commands widgets-build]]} { widgets-build }
+}
+
 # applet NAME — the panel button's idempotent semantics one storey
 # up, three questions in order:
 #   is the applet's WINDOW on the desk?  focus it (the window wears

@@ -45,12 +45,20 @@ proc welcome-widget-build {w opts} {
     $w.t insert end "See every key this desk answers to" {link keys}
     $w.t insert end " — the same list Super+h shows, from the top\
  (Super is the key most keyboards label Win).\n\n"
+    $w.t insert end "All type bigger" {link fup}
+    $w.t insert end "  /  "
+    $w.t insert end "smaller" {link fdn}
+    $w.t insert end " — one press turns the one font everything\
+ derives from, and it sticks (a customization, like any click\
+ here).\n\n"
     $w.t insert end "Hide this forever" {link hide}
     $w.t insert end " — the desk writes your first customization and\
  this note never returns."
     $w.t tag bind cfg   <ButtonRelease-1> {applet configurator}
     $w.t tag bind about <ButtonRelease-1> {applet about}
     $w.t tag bind keys  <ButtonRelease-1> {key-help-open}
+    $w.t tag bind fup   <ButtonRelease-1> {welcome-font-bump up}
+    $w.t tag bind fdn   <ButtonRelease-1> {welcome-font-bump down}
     $w.t tag bind hide <ButtonRelease-1> {welcome-hide}
     $w.t configure -state disabled
     pack $w.t -expand 1 -fill both
