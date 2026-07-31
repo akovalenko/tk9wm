@@ -6068,6 +6068,7 @@ proc ui-style {} {
         deskfont  [font actual DeskFont] \
         titlefont [font actual TitleFont] \
         scheme    [expr {$light ? "light" : "dark"}] \
+        generation [expr {[info exists ::ui_generation] ? $::ui_generation : 0}] \
         {*}$palette
 }
 

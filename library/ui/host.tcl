@@ -78,13 +78,58 @@ proc ui-color {key} {
           ? [dict get $::ui_palette $key] : "#888888"}
 }
 
+# Generic Alt-accelerator support (the owner's pick over hand-rolled
+# bindings): a button declaring -underline N gets Alt+<that letter>
+# bound on its toplevel to its own invoke. Call it once per button;
+# the underline is already the visible promise, this makes it true.
+proc ui-accel {btn} {
+    set u [$btn cget -underline]
+    # modern Tk defaults -underline to the EMPTY STRING, not -1 (the
+    # owner has been bitten before) — treat anything non-numeric as
+    # "no underline declared"
+    if {![string is integer -strict $u] || $u < 0} return
+    set ch [string tolower [string index [$btn cget -text] $u]]
+    bind [winfo toplevel $btn] <Alt-Key-$ch> [list $btn invoke]
+}
+# ...and the keyboard-first dress code: the focus must be VISIBLE.
+# Applied by builders to their focusable widgets.
+proc ui-focusable {w} {
+    $w configure -highlightthickness 2 \
+        -highlightcolor [ui-color link] \
+        -highlightbackground [ui-color bg]
+}
+
 proc ui-applet {name meta} { dict set ::ui_applets $name $meta }
 set ui_applets {}
-foreach f [lsort [glob -nocomplain [file join $ui_library applets *.tcl]]] {
-    if {[catch {source $f} err]} {
-        puts "UI: applet file [file tail $f] FAILED: $err"
+# The applet files, and WHEN they are read again: normally never — a
+# reopen must not pay for a re-source — but a Reread on the WM bumps
+# ui_generation (it rides in on ui-style), and the mismatch here is
+# the dev loop's "close and reopen picks up the new code".
+set ui_loaded_gen ""
+proc ui-load-applets {} {
+    foreach f [lsort [glob -nocomplain \
+            [file join $::ui_library applets *.tcl]]] {
+        # at the GLOBAL level: an applet file's top-level `set`s are
+        # its state variables, and a plain source inside this proc
+        # made them locals that died with the call (measured: the
+        # first build crashed on a variable the file had just set)
+        if {[catch {uplevel #0 [list source $f]} err]} {
+            puts "UI: applet file [file tail $f] FAILED: $err"
+        }
+    }
+    set ::ui_loaded_gen [expr {[dict exists $::ui_palette generation]
+                               ? [dict get $::ui_palette generation] : ""}]
+}
+proc ui-fresh-applets {} {
+    if {![dict exists $::ui_palette generation]} return
+    set gen [dict get $::ui_palette generation]
+    if {$gen ne $::ui_loaded_gen} {
+        puts "UI: re-sourcing applets (generation $gen)"
+        ui-load-applets
     }
 }
+ui-style-sync    ;# know the generation before the first load...
+ui-load-applets  ;# ...so an unchanged desk never re-sources on open
 
 # ui-open NAME — the send-facing verb: build the applet's toplevel,
 # or show the one it already has. The WM prefers finding the WINDOW
@@ -96,6 +141,7 @@ proc ui-open {name} {
         return
     }
     ui-style-sync
+    ui-fresh-applets
     set top .tk9wm-$name
     if {[winfo exists $top]} {
         wm deiconify $top
