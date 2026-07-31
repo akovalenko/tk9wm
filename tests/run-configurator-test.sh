@@ -85,6 +85,14 @@ qu 'cfg-revert' >/dev/null
 sleep 1
 KEPT=$(qu 'cfg-name-of [cfg-selected]')
 FOLD=$(qu 'expr {[$::cfg_T item state get [$::cfg_T item id {root child 0}] open] ? 0 : 1}')
+# ...and not by restaging: a refresh RECONCILES, so the rows
+# themselves survive it — the same item ids, knob and field alike —
+# which is what the selection and the fold above actually rode on
+SAMEID=$(qu 'set k0 [dict get $::cfg_item set-edge-resist]
+    set f0 [dict get $::cfg_fitem {@field panel dummy label}]
+    cfg-refresh
+    list knob [expr {[dict get $::cfg_item set-edge-resist] == $k0}] \
+         field [expr {[dict get $::cfg_fitem {@field panel dummy label}] == $f0}]')
 THEME=$(qu 'ttk::style theme use')
 # a derived font is shown AS CONFIGURED — a delta, not the computed font
 qu 'cfg-set set-title-font {-weight bold}' >/dev/null
@@ -499,6 +507,11 @@ if [ "$KEPT" = "set-tray-icon-size" ] && [ "$FOLD" = 1 ]; then
 else
     echo "FAIL: after refresh selection=$KEPT folded=$FOLD"
 fi
+case $SAMEID in
+    "knob 1 field 1")
+        echo "OK: a refresh reconciles — the items themselves survive" ;;
+    *) echo "FAIL: item survival: $SAMEID" ;;
+esac
 case $THEME in
     awdark|awlight) echo "OK: ttk wears the matching aw theme ($THEME)" ;;
     clam) echo "OK: ttk fell back to clam (awthemes absent)" ;;

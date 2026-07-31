@@ -28,6 +28,11 @@ wm withdraw .
 
 lassign $argv ui_wmapp ui_first
 set ui_library [file dirname [file normalize [info script]]]
+# treesync lives one storey up, beside fut.tcl: the host loads no
+# tk9wm package, so the shared engine is sourced straight out of the
+# library both worlds read — the configurator reconciles its tree
+# through the same treesync the WM's strip does.
+source [file join [file dirname $ui_library] treesync.tcl]
 
 # Claim the name; a LIVE host already holding it means we are the
 # loser of a race — hand it the request and leave.
