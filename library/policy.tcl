@@ -6025,11 +6025,59 @@ proc welcome-inject {} {
         -background $bg -foreground [contrast-fg $bg]
 }
 
-# The applet door, wearing its final name before the ui host exists:
-# a panel button or a welcome link says `applet configurator` today
-# and keeps saying it when the host arrives.
+# ---- applets: the ui host and the door to it ----
+# One host process, one Tk, every applet a toplevel — see
+# library/ui/host.tcl for the host's own contract (disposable
+# resident: survives a WM restart on purpose, holds nothing durable).
+#
+# HOW THE HOST IS EXEC'D reuses the self-exec machinery's answer
+# (the owner's instruction): reexec-head already knows what
+# interpreter this desk runs on, in the form the four measured
+# startup shapes require — and whatever whale carries the WM
+# certainly carries the ui. The interpreter+script form hands us the
+# interpreter; a bare-executable form (starpack, zipfs image) re-runs
+# its own baked script and cannot run ours — such an image provides
+# ::tk9wm_uiexec, the mirror of ::tk9wm_reexec, same contract: a
+# wrapper that KNOWS says so.
+proc ui-exec-head {} {
+    if {[info exists ::tk9wm_uiexec]} { return $::tk9wm_uiexec }
+    set head [reexec-head]
+    if {[llength $head] == 1} { return {} }
+    list [lindex $head 0]
+}
+# applet NAME — the panel button's idempotent semantics one storey
+# up, three questions in order:
+#   is the applet's WINDOW on the desk?  focus it (the window wears
+#     {tk9wm-NAME Tk9wmUi} — a match, not a memory: it survives a WM
+#     restart because adoption re-finds it);
+#   is the HOST alive?  ask it to open the applet (Tk send — a stale
+#     registry entry fails the send and falls through to the spawn);
+#   else  spawn the host with the applet's name on its command line.
 proc applet {name} {
-    puts "WM: applet $name — the ui host is not built yet"
+    set pred [list filter -class [list tk9wm-$name Tk9wmUi]]
+    set hit [lindex [panel-matches "applet $name" \
+        [dict create match $pred]] 0]
+    if {$hit ne ""} {
+        puts "WM: applet $name: found 0x[format %x $hit]"
+        panel-focus-hit $hit
+        return
+    }
+    if {"tk9wm-ui" in [winfo interps]} {
+        if {![catch {send -- tk9wm-ui [list ui-open $name]}]} {
+            puts "WM: applet $name: asked the running host"
+            return
+        }
+        # a corpse in the registry: fall through and spawn
+    }
+    set head [ui-exec-head]
+    if {![llength $head]} {
+        puts "WM: applet $name: no way to exec the ui host —\
+ this image should set ::tk9wm_uiexec"
+        return
+    }
+    set script [file join $::tk9wm_library ui host.tcl]
+    puts "WM: applet $name: spawning the ui host"
+    exec {*}$head $script [tk appname] $name &
 }
 
 # ---- the config layer: defaults, reset, apply ----
