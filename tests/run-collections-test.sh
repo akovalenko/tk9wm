@@ -68,6 +68,17 @@ q reload-config >/dev/null
 sleep 0.5
 T2=$(tblq)
 
+# the step-C meta: cards (empty here — every described button is on
+# the panel), the widget type catalogue, and a bundle member knowing
+# its family
+META=$(q 'set t [collection-table]
+    set ab {}
+    foreach e [dict get $t bindings elements] {
+        if {[dict get $e key] eq "Alt+Tab"} { set ab [dict get $e bundle] }
+    }
+    list cards [dict keys [dict get $t buttons cards]] \
+         types [lsort [dict get $t widgets types]] bundle $ab')
+
 kill $WM 2>/dev/null
 
 echo "--- table: $T1"
@@ -84,5 +95,10 @@ if [ "$T2" = "$T1" ]; then
     echo "OK: the table replays the same after a reload"
 else
     echo "FAIL: after reload {$T2}"
+fi
+if [ "$META" = "cards {} types {clock welcome} bundle windows" ]; then
+    echo "OK: cards, the type catalogue and bundle membership are served"
+else
+    echo "FAIL: meta is {$META}"
 fi
 check_invariants "$HERE/wm-coll.log"

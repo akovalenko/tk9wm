@@ -280,6 +280,85 @@ BINDROWS=$(qu 'set live {}; set dead {}
     }
     list live $live dead $dead')
 
+# ---- step C: the composition gestures ----
+# Delete leaves a card behind and Insert brings it back; Alt reorders
+# through custom-reorder; Ctrl+Enter disassembles a bundle whose off
+# REPLAYS before the kept binds; a needs not yet met SAVES and waits
+# as a card; windows carries no per-member params
+qu 'proc cfg-confirm {msg} {return 1}
+    proc t-sel {coll key} {
+        dict for {i d} $::cfg_node {
+            if {[dict get $d what] eq "elem" && [dict get $d coll] eq $coll
+                    && [dict get $d key] eq $key
+                    && ![dict exists $d dead]} { cfg-select $i; return $i }
+        }
+        return none
+    }
+    list armed' >/dev/null
+qu 't-sel buttons dummy; cfg-delete; list deleted' >/dev/null
+sleep 1
+DELBTN=$(q 'llength [panel-cfg default buttons]')
+CARD=$(qu 'dict keys [dict get $::cfg_coll buttons cards]')
+qu 'cfg-insert-button dummy' >/dev/null
+sleep 0.5
+BACK=$(q 'set b [lindex [panel-cfg default buttons] 0]
+          list [lindex $b 0] [dict exists [lindex $b 1] launch]')
+qu 'cfg-insert-button second' >/dev/null
+sleep 0.5
+ORDER0=$(q 'lmap b [panel-cfg default buttons] {lindex $b 0}')
+qu 't-sel buttons second; cfg-move-elem above; list moved' >/dev/null
+sleep 1
+ORDER1=$(q 'lmap b [panel-cfg default buttons] {lindex $b 0}')
+FILEORD=$(awk '/^panel-button /{printf "%s ",$2}' "$HERE/cfg-config/tk9wm.custom.tcl")
+qu 'set sel {}
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] eq "elem" && [dict get $d coll] eq "bindings"
+                && [dict get $d key] in {{Super+t q} Super+h}} {
+            lappend sel $i
+        }
+    }
+    $::cfg_T selection clear all
+    foreach i $sel { $::cfg_T selection add $i }
+    cfg-take
+    llength $sel' >/dev/null
+sleep 0.5
+TAKEN=$(q 'list accords [dict exists $::key_bundles accords] \
+               quit [chord-of Quit] winops [chord-of winops] \
+               help [chord-of key-help-open]')
+q reload-config >/dev/null
+sleep 1
+REPLAY=$(q 'list quit [chord-of Quit] accords [dict exists $::key_bundles accords]')
+qu 'cfg-refresh; cfg-insert-widget пульс clock' >/dev/null
+sleep 0.5
+NEWWIDGET=$(q 'dict get $::widgets пульс -type')
+qu 'cfg-insert-bind {<Super>F9} {list niner}' >/dev/null
+sleep 0.5
+NEWBIND=$(q 'lindex [keymap-payload $::keymap \
+                         [list [join [parse-chord <Super>F9] ,]]] 0')
+qu 't-sel bindings Super+5; cfg-delete; list deleted' >/dev/null
+sleep 1
+FIVEBACK=$(q 'lindex [keymap-payload $::keymap \
+                          [list [join [parse-chord Super+5] ,]]] 0')
+# a needs not yet met is a legitimate word: the edit is ACCEPTED with
+# a sentence, Save keeps it, the desk skips the button on replay, the
+# card says it is waiting — and Insert refuses to clobber the word
+NEEDSRC=$(qu 'cfg-set {@field buttons dummy needs} {/bin/nonexistent}')
+NEEDSMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
+qu 'cfg-save' >/dev/null
+sleep 0.5
+qu 'cfg-revert' >/dev/null
+sleep 1
+STANDBY=$(q 'lmap b [panel-cfg default buttons] {lindex $b 0}')
+WAITCARD=$(qu 'dict get $::cfg_coll buttons cards dummy waiting')
+qu 'cfg-insert-button dummy' >/dev/null
+sleep 0.3
+KEPTWORD=$(grep -c '^panel-button dummy {needs /bin/nonexistent}$' "$HERE/cfg-config/tk9wm.custom.tcl")
+WPARAMS=$(q 'dict get $::key_bundle_defs windows params')
+WPREFUSE=$(q 'catch {wm-keys windows -switcher {<Super>Tab}}')
+qu 't-sel widgets часы; cfg-delete; list deleted' >/dev/null
+sleep 0.5
+WGONE=$(q 'dict exists $::widgets часы')
+
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
 GEO=$(q 'set w [lindex [array names ::frameof] 0]
@@ -507,6 +586,54 @@ case $BINDROWS in
     "live custom dead {{✗ cfg}}")
         echo "OK: the buried config bind wears ✗ beside the live custom one" ;;
     *) echo "FAIL: bind rows: $BINDROWS" ;;
+esac
+case "$NEEDSRC|$NEEDSMSG" in
+    "1|"*"stand by"*)
+        echo "OK: a needs not yet met is accepted with a sentence, not refused" ;;
+    *) echo "FAIL: needs edit: rc=$NEEDSRC msg «$NEEDSMSG»" ;;
+esac
+case "$STANDBY|$WAITCARD|$KEPTWORD" in
+    "second|yes|1")
+        echo "OK: the standing-by button waits as a card, unclobberable" ;;
+    *) echo "FAIL: standby: panel=«$STANDBY» card=$WAITCARD word=$KEPTWORD" ;;
+esac
+case "$DELBTN|$CARD" in
+    "0|dummy") echo "OK: Delete emptied the owned set and left the card behind" ;;
+    *) echo "FAIL: after delete: buttons=$DELBTN cards=«$CARD»" ;;
+esac
+case $BACK in
+    "dummy 1") echo "OK: Insert brought the card back, description and all" ;;
+    *) echo "FAIL: resurrection: $BACK" ;;
+esac
+case "$ORDER0|$ORDER1|$FILEORD" in
+    "dummy second|second dummy|second dummy ")
+        echo "OK: Alt moved the button — the file order IS the panel order" ;;
+    *) echo "FAIL: move: $ORDER0 -> $ORDER1, file: $FILEORD" ;;
+esac
+case $TAKEN in
+    "accords 0 quit {Super+t q} winops {} help Super+h")
+        echo "OK: the taken binds live on their own, the bundle fell silent" ;;
+    *) echo "FAIL: take: $TAKEN" ;;
+esac
+case $REPLAY in
+    "quit {Super+t q} accords 0")
+        echo "OK: the taken binds survive the replay — off speaks before them" ;;
+    *) echo "FAIL: replay: $REPLAY" ;;
+esac
+case "$NEWWIDGET|$NEWBIND" in
+    "clock|list niner")
+        echo "OK: Insert made a widget from its type and a bind from a chord" ;;
+    *) echo "FAIL: inserts: widget=«$NEWWIDGET» bind=«$NEWBIND»" ;;
+esac
+case $FIVEBACK in
+    "list config-five")
+        echo "OK: deleting the custom bind stood the config's word back up" ;;
+    *) echo "FAIL: after bind delete: «$FIVEBACK»" ;;
+esac
+case "$WPARAMS|$WPREFUSE|$WGONE" in
+    "|1|0")
+        echo "OK: windows has no per-member params, and the widget dropped" ;;
+    *) echo "FAIL: wparams=«$WPARAMS» refuse=$WPREFUSE widget-gone=$WGONE" ;;
 esac
 echo "--- geometry: $GEO"
 case $GEO in

@@ -6110,13 +6110,18 @@ key-bundle accords {prefix {<Super>t} help {<Super>h}} {
 # which is why they are a bundle one can turn off, and why the ones
 # that CLOSE things are named separately from the ones that only
 # look.
-key-bundle windows {
-    switcher {<Alt>Tab} menu {<Alt>space} close {<Alt>F4} hide {<Super>d}
-} {
-    bundle-bind [dict get $params switcher] winlist
-    bundle-bind [dict get $params menu] winops
-    bundle-bind [dict get $params close] Close "close the active window"
-    bundle-bind [dict get $params hide] {Apply-To-Matching always Minimize} \
+#
+# NO parameters, deliberately (the owner, 2026-07-31): a parameter
+# per member is not a family parameter, it is the member list spelled
+# twice — accords' prefix moves a whole tree, these would each move
+# one key. The way to keep two reflexes and drop the rest is decision
+# 4: take the keepers into the custom layer as plain wm-bind and turn
+# the family off.
+key-bundle windows {} {
+    bundle-bind {<Alt>Tab} winlist
+    bundle-bind {<Alt>space} winops
+    bundle-bind {<Alt>F4} Close "close the active window"
+    bundle-bind {<Super>d} {Apply-To-Matching always Minimize} \
         "minimize everything"
 }
 
@@ -6321,6 +6326,38 @@ proc custom-erase {name} {
     reload-config
     return 1
 }
+# custom-reorder KEYS — the named entries take the order KEYS says:
+# they are permuted among their own positions in the custom record,
+# everything else stays where it stood. Order is meaning for the
+# sectioned declarations (an owned panel IS its buttons' order), and
+# the file is the only place that order lives — so this rewrites the
+# file and leaves the LIVE order to the caller's reload: only a
+# replay honors how the layers interleave.
+proc custom-reorder {keys} {
+    if {![dict exists $::layer_knobs custom]} {
+        error "custom-reorder: the custom layer holds nothing"
+    }
+    set entries [dict get $::layer_knobs custom]
+    set all [dict keys $entries]
+    set slots [lmap k $all {expr {$k in $keys ? "yes" : "no"}}]
+    if {[llength [lsearch -all $slots yes]] != [llength $keys]} {
+        error "custom-reorder: keys and standing entries disagree:\
+ $keys against [dict keys $entries]"
+    }
+    set i 0
+    foreach here $slots {
+        if {$here eq "yes"} {
+            lset all $i [lindex $keys 0]
+            set keys [lrange $keys 1 end]
+        }
+        incr i
+    }
+    set new {}
+    foreach k $all { dict set new $k [dict get $entries $k] }
+    dict set ::layer_knobs custom $new
+    custom-save
+    puts "WM: custom: reordered"
+}
 
 # ---- the collection registry ----
 # The knobs' sibling: a COLLECTION is a configurable FAMILY — panel
@@ -6406,7 +6443,34 @@ proc collection-buttons {} {
         }
         lappend out $e
     }
-    dict create elements $out owned [expr {[dict exists \
+    # The CARDS: labels the layers described that are NOT on the
+    # panel. Two kinds, told apart by `waiting`: a raw memory the set
+    # dropped (a deleted button — Insert brings it back by its bare
+    # label), and the custom layer's own word the desk is SKIPPING —
+    # unmet needs, a button declared ahead of its software (the
+    # owner's case): it stands by, and appears by itself when the
+    # command does. Either way the button stays VISIBLE here; a
+    # customization must never need the file dug out by hand.
+    set cards {}
+    set live [lmap b [panel-cfg default buttons] {lindex $b 0}]
+    if {[dict exists $::panels default raw]} {
+        dict for {label raw} [dict get $::panels default raw] {
+            if {$label ni $live} {
+                dict set cards $label [dict create values $raw waiting no]
+            }
+        }
+    }
+    if {[dict exists $::layer_knobs custom]} {
+        dict for {k cmd} [dict get $::layer_knobs custom] {
+            if {[lindex $k 0] ne "panel-button"} continue
+            if {[lindex $cmd 0] ne "panel-button"} continue
+            set label [lindex $cmd 1]
+            if {$label in $live} continue
+            dict set cards $label \
+                [dict create values [lindex $cmd 2] waiting yes]
+        }
+    }
+    dict create elements $out cards $cards owned [expr {[dict exists \
         $::layer_knobs custom "panel-buttons-own default"] ? "yes" : "no"}]
 }
 proc collection-widgets {} {
@@ -6426,7 +6490,9 @@ proc collection-widgets {} {
         lappend out [dict create key $name values $values \
                          owner [knob-owner "wm-widget $name"]]
     }
-    dict create elements $out
+    # ...and the TYPES: what a new widget can be — the Insert dialog's
+    # catalogue, which for widgets has existed all along
+    dict create elements $out types [dict keys $::widget_types]
 }
 proc collection-keys {} {
     set out {}
@@ -6451,7 +6517,18 @@ proc collection-keys {} {
 # `ineffectual` — the tree gets to mark the bind that does nothing
 # instead of pretending it was never written.
 proc collection-bindings {} {
-    set out [keymap-elements $::keymap {} {}]
+    # which chord paths belong to a standing bundle — the disassembly
+    # gesture (decision 4) needs to know whose family a bind is in
+    set bundles {}
+    dict for {bn inst} $::key_bundles {
+        foreach spec [dict get $inst chords] {
+            if {[catch {lmap tok $spec {join [parse-chord $tok] ,}} pk]} {
+                continue
+            }
+            dict set bundles $pk $bn
+        }
+    }
+    set out [keymap-elements $::keymap {} {} $bundles]
     foreach layer {custom config} {
         if {![dict exists $::layer_knobs $layer]} continue
         dict for {k cmd} [dict get $::layer_knobs $layer] {
@@ -6468,12 +6545,12 @@ proc collection-bindings {} {
                 key [join [lmap c $pk {chord-name {*}[split $c ,]}] " "] \
                 values [dict create script [lindex $cmd 2] \
                             name [lindex $cmd 3]] \
-                owner $layer ineffectual 1]
+                owner $layer lkey $k ineffectual 1]
         }
     }
     dict create elements $out
 }
-proc keymap-elements {node path disp} {
+proc keymap-elements {node path disp bundles} {
     set out {}
     dict for {k entry} $node {
         lassign [split $k ,] mods ks
@@ -6481,23 +6558,33 @@ proc keymap-elements {node path disp} {
         set d2 [concat $disp [list [chord-name $mods $ks]]]
         lassign $entry kind payload
         if {$kind eq "map"} {
-            lappend out {*}[keymap-elements $payload $p2 $d2]
+            lappend out {*}[keymap-elements $payload $p2 $d2 $bundles]
         } else {
             # a leaf is {action SCRIPT ?NAME?}
             lassign $entry - script bname
-            lappend out [dict create key [join $d2 " "] \
+            lassign [binding-word $p2 $script] owner lkey
+            set e [dict create key [join $d2 " "] \
                 values [dict create script $script name $bname] \
-                owner [binding-owner $p2 $script]]
+                owner $owner]
+            # the layer's own key — spelled as the writer spelled the
+            # chords, which is what an erase must be addressed by
+            if {$lkey ne ""} { dict set e lkey $lkey }
+            if {[dict exists $bundles $p2]} {
+                dict set e bundle [dict get $bundles $p2]
+            }
+            lappend out $e
         }
     }
     return $out
 }
-# WHOSE WORD is this live binding: the layer whose wm-bind for this
-# very chord sequence is what the keymap answers with — custom
-# outranks config, and nobody's word means the code's floor. Parsed
-# chords, not spec spellings: <Super>9 and <super>9 are one chord,
-# and the layer key holds whichever spelling the writer used.
-proc binding-owner {keys script} {
+# WHOSE WORD is this live binding — the layer whose wm-bind for this
+# very chord sequence is what the keymap answers with (custom
+# outranks config, nobody's word means the code's floor), AND under
+# which key that layer holds it. Parsed chords, not spec spellings:
+# <Super>9 and <super>9 are one chord, and the layer key holds
+# whichever spelling the writer used — which is exactly why the key
+# has to be handed back rather than reconstructed.
+proc binding-word {keys script} {
     foreach layer {custom config} {
         if {![dict exists $::layer_knobs $layer]} continue
         dict for {k cmd} [dict get $::layer_knobs $layer] {
@@ -6506,10 +6593,10 @@ proc binding-owner {keys script} {
             if {[catch {lmap tok [lindex $cmd 1] \
                             {join [parse-chord $tok] ,}} pk]} continue
             if {$pk eq $keys && [string trim [lindex $cmd 2]] \
-                    eq [string trim $script]} { return $layer }
+                    eq [string trim $script]} { return [list $layer $k] }
         }
     }
-    return code
+    list code ""
 }
 # The keymap's word at a chord sequence: {SCRIPT ?NAME?} with the
 # action tag stripped, or empty — absent, pruned, or a map where a
@@ -6649,7 +6736,18 @@ proc custom-save {} {
             lappend sorted $key
         }
     }
-    foreach key [lsort $sorted] { puts $ch [dict get $entries $key] }
+    # A BUNDLE FALLS SILENT BEFORE SINGLE WORDS SPEAK: a disassembled
+    # family (decision 4) is `wm-keys B off` plus the kept binds as
+    # plain wm-bind — and replayed alphabetically the binds landed
+    # first and the off then swept their chords away with the family's
+    # (an off unbinds whatever the previous instance bound). So the
+    # wm-keys words go out ahead of everything else in the map.
+    foreach key [lsort $sorted] {
+        if {[lindex $key 0] eq "wm-keys"} { puts $ch [dict get $entries $key] }
+    }
+    foreach key [lsort $sorted] {
+        if {[lindex $key 0] ne "wm-keys"} { puts $ch [dict get $entries $key] }
+    }
     set ordered [concat $section(wm-font) $section(wm-widget) \
                      $section(panel-buttons-own) $section(panel-button)]
     if {[llength $ordered]} {

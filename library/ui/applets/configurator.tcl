@@ -40,8 +40,9 @@ set cfg_item {}      ;# knob name -> tree item
 set cfg_node {}      ;# tree item -> collection descriptor (coll/elem/field)
 set cfg_fitem {}     ;# field address -> tree item
 set cfg_T ""
-set cfg_hint "Return, F4 or double-click opens the picker · F2 types ·\
- Home/End or Alt+< / Alt+> for the ends · Save makes it stick"
+set cfg_hint "Return or F4 opens the picker · F2 types · Ins adds,\
+ Del drops · Alt+↑/↓ move a button · Ctrl+Enter takes ·\
+ Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
 # commit and explained nothing). Every rejection — ours by kind, or
@@ -63,8 +64,12 @@ proc cfg-refuse {msg} {
 proc cfg-build {W} {
     set ::cfg_T $W.t
     set ih [expr {[font metrics DeskFont -linespace] + 6}]
+    # extended, for ONE gesture's sake: taking several of a bundle's
+    # binds at once (decision 4). Everything else still works on the
+    # first selected row, and plain clicks and arrows still select
+    # singly — Ctrl+click is the way in.
     treectrl $W.t -showheader yes -showroot no -showbuttons yes \
-        -selectmode single -itemheight $ih \
+        -selectmode extended -itemheight $ih \
         -background [ui-color field] -yscrollcommand [list cfg-yscroll $W.sb]
     ui-focusable $W.t
     # Out of the focus cycle: Tk's heuristic puts a scrollbar in it
@@ -146,6 +151,10 @@ proc cfg-build {W} {
     # the press was theirs; a press on the header is not.
     bind $T <ButtonPress-1>        {if {[cfg-click %x %y]} break}
     bind $T <Double-ButtonPress-1> {if {[cfg-doubleclick %x %y]} break}
+    # Ctrl+click is NOT ours: the empty binding lets treectrl's own
+    # class binding run, which in extended mode toggles the row into
+    # the selection — the mouse half of the multi-take gesture.
+    bind $T <Control-ButtonPress-1> {;}
     foreach k {Up k p} { bind $T <KeyPress-$k> {cfg-move above; break} }
     foreach k {Down j n} { bind $T <KeyPress-$k> {cfg-move below; break} }
     bind $T <Control-p> {cfg-move above; break}
@@ -167,6 +176,15 @@ proc cfg-build {W} {
     # Up and Down (the owner's ask — vi hands)
     foreach k {Left h} { bind $T <KeyPress-$k> {cfg-fold collapse; break} }
     foreach k {Right l} { bind $T <KeyPress-$k> {cfg-fold expand; break} }
+    # the composition gestures (plan step C): Insert adds an element,
+    # Delete drops one, Alt moves a button through its set, and
+    # Ctrl+Enter TAKES — the panel whole, or the selected binds out
+    # of their bundle
+    bind $T <KeyPress-Insert> {cfg-insert; break}
+    bind $T <KeyPress-Delete> {cfg-delete; break}
+    bind $T <Alt-Up>   {cfg-move-elem above; break}
+    bind $T <Alt-Down> {cfg-move-elem below; break}
+    bind $T <Control-Return> {cfg-take; break}
     cfg-refresh
     # ...and AGAIN once the window is really on the screen. Before
     # the first map a treectrl has no realized geometry to measure —
@@ -337,8 +355,11 @@ proc cfg-coll-build {was_folded was_open} {
             }
             $T item element configure $it Cflag eFlag -text [join $flags " "]
             $T item lastchild $g $it
-            dict set ::cfg_node $it \
-                [dict create what elem coll $cname key $key]
+            # dead in the descriptor: a buried bind and the live one
+            # SHARE a key, and a gesture must know which row it is on
+            set desc [dict create what elem coll $cname key $key]
+            if {$dead} { dict set desc dead 1 }
+            dict set ::cfg_node $it $desc
             if {$dead} continue
             dict for {f fmeta} [dict get $cmeta fields] {
                 set addr [list @field $cname $key $f]
@@ -998,6 +1019,21 @@ proc cfg-apply {name value} {
     } else {
         cfg-show-value [dict get $::cfg_item $name] $name $value
     }
+    # A needs the machine cannot meet yet is a LEGITIMATE word (the
+    # owner, 2026-07-31): declaring a button ahead of its software is
+    # the point — the desk skips it quietly and the button appears by
+    # itself when the command does. The applet accepts, and only SAYS
+    # what will happen, so a vanished button is never a surprise.
+    if {[cfg-field? $name] && [lindex $name 1] eq "buttons"
+            && [lindex $name 3] eq "needs"} {
+        foreach c $value {
+            if {[wm-call [list auto_execok $c]] eq ""} {
+                cfg-status "«$c» is not on this machine — the button\
+ will stand by (its card stays) until it appears"
+                return 1
+            }
+        }
+    }
     cfg-status ""
     return 1
 }
@@ -1087,27 +1123,37 @@ proc cfg-save {} {
 # ADOPTION (the owner's decision 2). A set custom already owns takes
 # the touched buttons as said+delta — the standing custom word with
 # the edits over it, so an older delta survives this one. A set it
-# does not yet own is taken WHOLE: own the panel, then every button
-# in panel order — the touched ones as their delta, the untouched by
-# BARE LABEL, whose empty word the raw memory answers with the whole
-# config description.
+# does not yet own is taken WHOLE — cfg-adopt-buttons below.
 proc cfg-save-buttons {deltas} {
     set c [dict get $::cfg_coll buttons]
-    set owned [expr {[dict get $c owned] eq "yes"}]
-    if {!$owned} {
-        wm-call [list custom-write {panel-buttons-own default}]
+    if {[dict get $c owned] ne "yes"} {
+        cfg-adopt-buttons $deltas
+        return
     }
     foreach e [dict get $c elements] {
         set key [dict get $e key]
+        if {![dict exists $deltas $key]} continue
+        set said [expr {[dict exists $e said] ? [dict get $e said] : ""}]
+        wm-call [list custom-write [list panel-button $key \
+            [dict merge $said [dict get $deltas $key]]]]
+    }
+}
+# Taking the set whole: own the panel, then every button in panel
+# order — a touched one as said+delta, an untouched one by its
+# standing word (usually {}: the BARE LABEL, whose empty word the raw
+# memory answers with the whole config description), and a skipped
+# one not at all — which is what a Delete is.
+proc cfg-adopt-buttons {deltas {skip {}}} {
+    set c [dict get $::cfg_coll buttons]
+    wm-call [list custom-write {panel-buttons-own default}]
+    foreach e [dict get $c elements] {
+        set key [dict get $e key]
+        if {$skip ne "" && $key eq $skip} continue
         set said [expr {[dict exists $e said] ? [dict get $e said] : ""}]
         if {[dict exists $deltas $key]} {
-            set word [dict merge $said [dict get $deltas $key]]
-        } elseif {$owned} {
-            continue            ;# custom's word already stands
-        } else {
-            set word $said      ;# usually {}: the bare label
+            set said [dict merge $said [dict get $deltas $key]]
         }
-        wm-call [list custom-write [list panel-button $key $word]]
+        wm-call [list custom-write [list panel-button $key $said]]
     }
 }
 # Erase the selected knob's customization: the click taken back, the
@@ -1138,4 +1184,366 @@ proc cfg-revert {} {
  working again"
     }
     puts "UI: configurator: reverted to the desk's own layers"
+}
+
+# ---- the composition gestures (plan step C) ----
+# What a knob never needed: elements COME AND GO and change places.
+# Delete drops one out of its family, Insert brings one in (from a
+# card, a type, or thin air), Alt moves a button through its owned
+# set, Ctrl+Enter TAKES — the panel whole (decision 2) or chosen
+# binds out of their bundle (decision 4).
+
+# One question, one honest dialog — and a seam the tests stub out.
+proc cfg-confirm {msg} {
+    expr {[tk_messageBox -type yesno -icon question -default no \
+               -parent [winfo toplevel $::cfg_T] \
+               -title "tk9wm configurator" -message $msg] eq "yes"}
+}
+# The element the gesture is aimed at, or "" with a sentence.
+proc cfg-elem-of {it} {
+    if {$it eq "" || ![dict exists $::cfg_node $it]} { return "" }
+    set d [dict get $::cfg_node $it]
+    expr {[dict get $d what] eq "elem" ? $d : ""}
+}
+# The element's record as the table served it. The dead flag picks
+# between a buried bind and the live one on the same chord — two
+# rows, one key.
+proc cfg-elem-rec {coll key {dead 0}} {
+    foreach e [dict get $::cfg_coll $coll elements] {
+        if {[dict get $e key] eq $key
+                && [dict exists $e ineffectual] == $dead} { return $e }
+    }
+    return ""
+}
+
+proc cfg-delete {} {
+    set d [cfg-elem-of [cfg-selected]]
+    if {$d eq ""} return
+    set coll [dict get $d coll]
+    set key [dict get $d key]
+    set e [cfg-elem-rec $coll $key [dict exists $d dead]]
+    # the rows a delete cannot serve go first, before any question
+    if {$coll eq "keys"} {
+        cfg-status "a bundle is not deleted — turn its state off,\
+ or take the binds you want and the rest goes with it"
+        return
+    }
+    if {[dict exists $e ineffectual] && [dict get $e owner] ne "custom"} {
+        cfg-status "$key is the config's buried word — the file that\
+ says it is yours to edit, not this applet's"
+        return
+    }
+    # taking back what a layer WROTE deserves a question; dropping
+    # your own click does not (the plan's confirmation, for the
+    # element the config declared)
+    if {[dict get $e owner] ne "custom"
+            && ![cfg-confirm "Drop $key from $coll? Its description\
+ survives and Insert can bring it back."]} return
+    switch -- $coll {
+        buttons {
+            if {[dict get $::cfg_coll buttons owned] eq "yes"} {
+                # the owned set loses its entry; the reload inside the
+                # erase replays the set without it
+                wm-call [list custom-erase "panel-button $key"]
+            } else {
+                # adoption minus one: the first edit of the SET is
+                # still an edit of the set
+                cfg-adopt-buttons {} $key
+            }
+        }
+        bindings {
+            if {[dict get $e owner] eq "custom"} {
+                # the click taken back — and the config's buried word,
+                # if any, stands up again on the reload
+                wm-call [list custom-erase [dict get $e lkey]]
+            } else {
+                wm-call [list custom-write \
+                    [list wm-unbind [split $key " "]]]
+            }
+        }
+        widgets {
+            wm-call [list custom-write [list wm-widget-remove $key]]
+        }
+    }
+    cfg-refresh
+    cfg-status "$key dropped from $coll — Insert brings elements back"
+}
+
+# Alt+Up / Alt+Down — the owned set's order is the custom file's
+# order (decision 2), so a move is: own the set if config still
+# rules it, permute the entries (custom-reorder), and replay — only
+# a reload honors how the layers interleave.
+proc cfg-move-elem {dir} {
+    set d [cfg-elem-of [cfg-selected]]
+    if {$d eq ""} return
+    if {[dict get $d coll] ne "buttons"} {
+        cfg-status "only the panel's buttons move today: a widget's\
+ place follows the layers' declaration order"
+        return
+    }
+    set key [dict get $d key]
+    set order [lmap e [dict get $::cfg_coll buttons elements] \
+                   {dict get $e key}]
+    set i [lsearch -exact $order $key]
+    set j [expr {$dir eq "above" ? $i - 1 : $i + 1}]
+    if {$i < 0 || $j < 0 || $j >= [llength $order]} return   ;# the edge
+    if {[dict get $::cfg_coll buttons owned] ne "yes"} {
+        cfg-adopt-buttons {}
+    }
+    set order [linsert [lreplace $order $i $i] $j $key]
+    wm-call [list custom-reorder \
+                 [lmap l $order {string cat "panel-button " $l}]]
+    wm-call reload-config
+    cfg-refresh
+    cfg-status "$key moved — the set's order is the custom layer's now"
+}
+
+# Ctrl+Enter. On the buttons family (its node or any element): take
+# the panel set whole — decision 2's one action. On bindings: take
+# the selected binds into the custom layer as plain wm-bind; any
+# bundle they came out of falls silent (decision 4), the off written
+# FIRST so the replay cannot sweep the kept binds.
+proc cfg-take {} {
+    set items [$::cfg_T selection get]
+    if {![llength $items]} return
+    set what ""
+    foreach it $items {
+        if {![dict exists $::cfg_node $it]} continue
+        set d [dict get $::cfg_node $it]
+        if {[dict get $d coll] eq "buttons"} { set what buttons; break }
+        if {[dict get $d what] eq "elem"
+                && [dict get $d coll] eq "bindings"} {
+            set what bindings
+            break
+        }
+    }
+    switch -- $what {
+        buttons {
+            if {[dict get $::cfg_coll buttons owned] eq "yes"} {
+                cfg-status "the panel set is already yours"
+                return
+            }
+            cfg-adopt-buttons {}
+            cfg-refresh
+            cfg-status "the panel set is yours now — its order and\
+ members are the custom layer's word"
+        }
+        bindings {
+            set taken {}
+            set bundles {}
+            foreach it $items {
+                if {![dict exists $::cfg_node $it]} continue
+                set d [dict get $::cfg_node $it]
+                if {[dict get $d what] ne "elem"
+                        || [dict get $d coll] ne "bindings"} continue
+                set e [cfg-elem-rec bindings [dict get $d key]]
+                if {[dict get $e owner] eq "custom"} continue
+                if {[dict exists $e ineffectual]} continue
+                lappend taken $e
+                if {[dict exists $e bundle]} {
+                    dict set bundles [dict get $e bundle] 1
+                }
+            }
+            if {![llength $taken]} {
+                cfg-status "nothing here to take: select the binds\
+ you want as your own (Ctrl+click adds to the selection)"
+                return
+            }
+            foreach b [dict keys $bundles] {
+                wm-call [list custom-write [list wm-keys $b off]]
+            }
+            foreach e $taken {
+                wm-call [list custom-write [list wm-bind \
+                    [split [dict get $e key] " "] \
+                    [dict get $e values script] \
+                    [dict get $e values name]]]
+            }
+            cfg-refresh
+            if {[dict size $bundles]} {
+                cfg-status "[llength $taken] binds are yours; the\
+ [join [dict keys $bundles] {, }] bundle went off with the rest"
+            } else {
+                cfg-status "[llength $taken] binds are yours now"
+            }
+        }
+        default {
+            cfg-status "Ctrl+Enter takes: the panel set whole, or\
+ selected binds out of their bundle"
+        }
+    }
+}
+
+# Insert — what CAN come in, per family: a button from a card (a
+# description a layer left that is not on the panel — this is where
+# a deleted button comes back) or from thin air by a label; a widget
+# from its type catalogue; a binding from a chord and a script. The
+# keys family is closed — its members are fixed in code.
+proc cfg-insert {} {
+    set it [cfg-selected]
+    if {$it eq "" || ![dict exists $::cfg_node $it]} {
+        cfg-status "Insert works inside a collection — stand on a\
+ family or one of its elements"
+        return
+    }
+    switch -- [dict get $::cfg_node $it coll] {
+        buttons  { cfg-insert-buttons-dialog }
+        widgets  { cfg-insert-widgets-dialog }
+        bindings { cfg-insert-binding-dialog }
+        keys     { cfg-status "the bundles are fixed in code — turn\
+ them on and off, or take their binds" }
+    }
+}
+
+# The commit half of each Insert, dialogless — the programmatic door
+# the tests drive, like cfg-set beside the editors.
+proc cfg-insert-button {label} {
+    if {$label eq ""} { return 0 }
+    # a WAITING card is already declared — its needs are not met yet,
+    # and a bare label here would clobber the very word that waits
+    set cards [dict get $::cfg_coll buttons cards]
+    if {[dict exists $cards $label]
+            && [dict get $cards $label waiting] eq "yes"} {
+        cfg-status "$label is already declared — it stands by until\
+ what it needs appears on this machine"
+        return 1
+    }
+    if {[dict get $::cfg_coll buttons owned] ne "yes"} {
+        cfg-adopt-buttons {}
+    }
+    # the bare label: a card's word comes back whole from the raw
+    # memory; a fresh label is born empty and edited into shape
+    if {[catch {wm-call [list custom-write \
+                             [list panel-button $label {}]]} err]} {
+        return [cfg-refuse [cfg-brief $err]]
+    }
+    cfg-refresh
+    cfg-status "$label is on the panel — fill its fields in"
+    return 1
+}
+proc cfg-insert-widget {name type} {
+    if {$name eq "" || $type eq ""} { return 0 }
+    if {[cfg-elem-rec widgets $name] ne ""} {
+        return [cfg-refuse "a widget named $name already stands —\
+ pick another name"]
+    }
+    if {[catch {wm-call [list custom-write \
+                             [list wm-widget $name -type $type]]} err]} {
+        return [cfg-refuse [cfg-brief $err]]
+    }
+    cfg-refresh
+    cfg-status "$name is up — place it with its fields"
+    return 1
+}
+proc cfg-insert-bind {spec script} {
+    if {$spec eq "" || $script eq ""} { return 0 }
+    if {[catch {wm-call [list custom-write \
+                             [list wm-bind [split $spec " "] $script]]} err]} {
+        return [cfg-refuse [cfg-brief $err]]
+    }
+    cfg-refresh
+    cfg-status "[join $spec " "] is bound"
+    return 1
+}
+
+# The dialogs: keyboard-first like the list sub-editor — a listbox
+# of what there is, an entry for what there is not, OK and Cancel
+# with their accelerators.
+proc cfg-insert-buttons-dialog {} {
+    set cards [dict keys [dict get $::cfg_coll buttons cards]]
+    cfg-pick-dialog "new panel button" $cards "or a fresh label" \
+        cfg-insert-button
+}
+proc cfg-insert-widgets-dialog {} {
+    set types [dict get $::cfg_coll widgets types]
+    cfg-pick-dialog "new widget — pick its type" $types \
+        "name for the new widget" cfg-insert-widget-picked
+}
+proc cfg-insert-widget-picked {choice entry} {
+    # for widgets the LIST is the type and the ENTRY is the name
+    cfg-insert-widget $entry $choice
+}
+# One shape serves buttons and widgets: a list to pick from, an entry
+# beside it. The commit callback gets what was picked and what was
+# typed; buttons use one of the two, widgets need both.
+proc cfg-pick-dialog {title choices entrylabel commit} {
+    set w .cfg-insert
+    catch {destroy $w}
+    toplevel $w -class Tk9wmUi
+    wm title $w "tk9wm: $title"
+    wm transient $w [winfo toplevel $::cfg_T]
+    label $w.l -takefocus 0 -anchor w -text $title
+    listbox $w.list -font DeskFont -height [expr {max(3, min(10,
+        [llength $choices]))}] \
+        -background [ui-color field] -foreground [ui-color fg] \
+        -selectbackground [ui-color select]
+    ui-focusable $w.list
+    foreach c $choices { $w.list insert end $c }
+    label $w.el -takefocus 0 -anchor w -text $entrylabel
+    entry $w.e -font DeskFont -background [ui-color field] \
+        -foreground [ui-color fg] -insertbackground [ui-color fg]
+    ui-focusable $w.e
+    frame $w.b -takefocus 0
+    ttk::button $w.b.ok -text OK -underline 0 \
+        -command [list cfg-pick-commit $w $commit]
+    ttk::button $w.b.cancel -text Cancel -underline 0 \
+        -command [list destroy $w]
+    foreach b [list $w.b.ok $w.b.cancel] { ui-focusable $b; ui-accel $b }
+    pack $w.b.ok $w.b.cancel -side left -padx 4 -pady 4
+    pack $w.l -fill x -padx 6 -pady {6 2}
+    pack $w.list -expand 1 -fill both -padx 6
+    pack $w.el -fill x -padx 6 -pady {6 2}
+    pack $w.e -fill x -padx 6
+    pack $w.b -fill x
+    bind $w <Escape> [list destroy $w]
+    bind $w.list <Double-ButtonPress-1> [list cfg-pick-commit $w $commit]
+    bind $w.list <Return> [list cfg-pick-commit $w $commit]
+    bind $w.e <Return> [list cfg-pick-commit $w $commit]
+    focus [expr {[llength $choices] ? "$w.list" : "$w.e"}]
+}
+proc cfg-pick-commit {w commit} {
+    set choice ""
+    if {[llength [$w.list curselection]]} {
+        set choice [$w.list get [lindex [$w.list curselection] 0]]
+    }
+    set typed [string trim [$w.e get]]
+    destroy $w
+    if {$commit eq "cfg-insert-button"} {
+        # picked wins; typed is the fresh-label road
+        cfg-insert-button [expr {$choice ne "" ? $choice : $typed}]
+    } else {
+        $commit $choice $typed
+    }
+}
+proc cfg-insert-binding-dialog {} {
+    set w .cfg-insert
+    catch {destroy $w}
+    toplevel $w -class Tk9wmUi
+    wm title $w "tk9wm: new binding"
+    wm transient $w [winfo toplevel $::cfg_T]
+    label $w.cl -takefocus 0 -anchor w \
+        -text "chord sequence — as the desk shows them: <Super>j, Super+t w"
+    entry $w.chord -font DeskFont -background [ui-color field] \
+        -foreground [ui-color fg] -insertbackground [ui-color fg]
+    label $w.sl -takefocus 0 -anchor w -text "what it runs"
+    entry $w.script -font DeskFont -background [ui-color field] \
+        -foreground [ui-color fg] -insertbackground [ui-color fg]
+    ui-focusable $w.chord
+    ui-focusable $w.script
+    frame $w.b -takefocus 0
+    ttk::button $w.b.ok -text OK -underline 0 -command [list cfg-bind-commit $w]
+    ttk::button $w.b.cancel -text Cancel -underline 0 \
+        -command [list destroy $w]
+    foreach b [list $w.b.ok $w.b.cancel] { ui-focusable $b; ui-accel $b }
+    pack $w.b.ok $w.b.cancel -side left -padx 4 -pady 4
+    foreach x {cl chord sl script} { pack $w.$x -fill x -padx 6 -pady 2 }
+    pack $w.b -fill x
+    bind $w <Escape> [list destroy $w]
+    bind $w.script <Return> [list cfg-bind-commit $w]
+    focus $w.chord
+}
+proc cfg-bind-commit {w} {
+    set spec [string trim [$w.chord get]]
+    set script [string trim [$w.script get]]
+    destroy $w
+    cfg-insert-bind $spec $script
 }
