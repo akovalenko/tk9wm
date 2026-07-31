@@ -2631,7 +2631,17 @@ proc set-winlist-cycle {onoff} {
 # cached per {spec size}: panel rebuilds reuse, nothing leaks.
 keep icon_path [list ~/.local/share/icons/hicolor/48x48/apps \
     /usr/share/icons/hicolor/48x48/apps /usr/share/pixmaps]
-proc set-icon-path {dirs} { set ::icon_path $dirs }
+proc set-icon-path {dirs} {
+    set ::icon_path $dirs
+    # ...and the cache of what the OLD path resolved to goes with it,
+    # or a button keeps the icon it found under a directory that is no
+    # longer searched. The panels then re-resolve as they rebuild.
+    foreach {k img} [array get ::resolvedicon] {
+        if {$img ne ""} { soft "drop a cached icon" [list image delete $img] }
+    }
+    array unset ::resolvedicon
+    if {[llength [info commands panel-rebuild-soon]]} { panel-rebuild-soon }
+}
 proc resolve-icon {spec size} {
     if {$spec in [image names]} { return $spec }
     set key [list $spec $size]

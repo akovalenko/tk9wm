@@ -89,6 +89,11 @@ SPECDELTA=$(q 'set-title-font {Liberation Serif}
                     [expr {[font actual TitleFont -size]
                            eq [font actual DeskFont -size]}]')
 SPECBAD=$(q 'catch {set-desk-font { }} e; set e')
+# every knob that touches something VISIBLE must act at once, not at
+# the next apply — the desk window was the last one that did not
+DESKWIN=$(qu 'cfg-set set-desk-window off
+              list gone [wm-call {expr {[winfo exists .desk] ? 1 : 0}}] \
+                   back [wm-call {set-desk-window on; expr {[winfo exists .desk] ? 1 : 0}}]')
 # ...and SAVED, it must still read as what was said, not as what the
 # desk computed from it
 qu 'cfg-save' >/dev/null
@@ -271,6 +276,10 @@ case "$SPECFORM|$SPECWORDS|$SPECDELTA" in
     "{DejaVu Sans} 13 bold|{DejaVu Sans} 11|{Liberation Serif} 1")
         echo "OK: a Tk font spec is legal, in one word or several, whole or partial" ;;
     *) echo "FAIL: font specs: {$SPECFORM} {$SPECWORDS} {$SPECDELTA}" ;;
+esac
+case $DESKWIN in
+    "gone 0 back 1") echo "OK: the desk window comes and goes on the spot" ;;
+    *) echo "FAIL: desk window: $DESKWIN" ;;
 esac
 case $SPECBAD in
     *"names no family"*) echo "OK: an empty font spec is refused by name" ;;

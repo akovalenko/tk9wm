@@ -263,6 +263,15 @@ proc set-desk-window {on} {
         error "set-desk-window: on or off"
     }
     set ::desk_window [expr {$on ? 1 : 0}]
+    # LIVE, like every knob that touches something visible: waiting
+    # for the next apply made this one look half-broken from the
+    # configurator, where a preview is the whole point (the owner,
+    # twice now — the desk colour was the first). The widgets follow
+    # because the desk window is their HOST: switching it off has to
+    # give each desk-layer area a toplevel of its own, and switching
+    # it on takes them back inside.
+    if {[llength [info commands desk-window-build]]} { desk-window-build }
+    if {[llength [info commands widgets-build]]} { widgets-build }
 }
 # Applied ON THE SPOT, like every knob that touches something the
 # user can see: waiting for the next reload made the configurator's
