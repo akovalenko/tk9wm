@@ -78,6 +78,11 @@ PENDBACK=$(qu 'cfg-set set-title-font {-weight bold}; cfg-cur set-title-font')
 PARTIAL=$(qu 'cfg-set set-desk-font {-family {DejaVu Sans}}')
 PARTIALCELL=$(qu 'cfg-value-text set-desk-font {-family {DejaVu Sans}}')
 PARTIALLIVE=$(q 'font actual DeskFont -family')
+# ...and SAVED, it must still read as what was said, not as what the
+# desk computed from it
+qu 'cfg-save' >/dev/null
+sleep 0.5
+SAVEDSPEC=$(qu 'cfg-refresh; dict get $::cfg_table set-desk-font value')
 FONTCELL=$(qu 'cfg-value-text set-title-font [dict get $::cfg_table set-title-font value]')
 FONTOWNER=$(qu 'cfg-owner set-title-font')
 FONTLIVE=$(q 'font actual TitleFont -weight')
@@ -208,6 +213,11 @@ case "$FONTCELL|$FONTOWNER|$FONTLIVE|$FONTFAM" in
         echo "OK: a derived font shows its delta, and inherits the family" ;;
     *) echo "FAIL: font cell «$FONTCELL» owner=$FONTOWNER live=$FONTLIVE family-inherited=$FONTFAM" ;;
 esac
+if [ "$SAVEDSPEC" = "-family {DejaVu Sans}" ]; then
+    echo "OK: a saved knob reads back as what was said, not as computed"
+else
+    echo "FAIL: after save the knob reads «$SAVEDSPEC»"
+fi
 case "$PARTIAL|$PARTIALCELL|$PARTIALLIVE" in
     "1|-family {DejaVu Sans}|DejaVu Sans")
         echo "OK: a partial font spec renders as itself and applies" ;;

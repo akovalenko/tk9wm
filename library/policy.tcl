@@ -5959,11 +5959,33 @@ knob set-emacs-autodaemon {group emacs kind bool get {set ::emacs_autodaemon}
 proc font-kin-opts {name} {
     expr {[dict exists $::font_kin $name] ? [dict get $::font_kin $name opts] : {}}
 }
+# WHAT A KNOB IS SET TO is what the LAYERS SAID, when either of them
+# said anything: the argument of the last command recorded for it.
+# The `get` script answers what the desk COMPUTED from that, which is
+# a different question and not the one an editor should show — save
+# «-family {Dejavu Sans}» and the cell must still read that, not the
+# whole font it resolved to (the owner, 2026-08-01). Nobody spoke:
+# the computed value IS the answer, because the code's default is not
+# written down anywhere else.
+proc knob-said {name kind} {
+    foreach layer {custom config} {
+        if {![dict exists $::layer_knobs $layer $name]} continue
+        set cmd [dict get $::layer_knobs $layer $name]
+        # the multi-argument kinds spread their value into the
+        # command; the rest carry it whole in one word
+        if {[lindex $kind 0] in {font terminal}} {
+            return [list 1 [lrange $cmd 1 end]]
+        }
+        return [list 1 [lindex $cmd 1]]
+    }
+    return [list 0 ""]
+}
 proc knob-table {} {
     set out {}
     dict for {name meta} $::knob_registry {
         set value ""
-        catch {set value [uplevel #0 [dict get $meta get]]}
+        lassign [knob-said $name [dict get $meta kind]] said value
+        if {!$said} { catch {set value [uplevel #0 [dict get $meta get]]} }
         set extra [dict create value $value owner [knob-owner $name]]
         # a font also answers what it COMPUTES to — the number a
         # chooser must start from, and the truth about what is drawn
