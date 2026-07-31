@@ -2,7 +2,10 @@
 # nothing more: every row comes from knob-table, fetched live, so this
 # applet has no opinion about what knobs exist. treectrl (the owner's
 # standing preference, and a tree of groups IS a tree), one row per
-# knob under its group node.
+# knob under its group node. The COLLECTIONS below the knob groups
+# are the same contract over collection-table: a node per family, an
+# element per child, a field per grandchild, edited by the same
+# kind-editors — see cfg-coll-build and the field address.
 #
 # KEYBOARD-FIRST, by the owner's review of the first cut:
 #   - the tree takes focus on open, and the focus is VISIBLE — a
@@ -31,8 +34,11 @@
 ui-applet configurator {title "tk9wm configurator" build cfg-build}
 
 set cfg_table {}     ;# knob-table, as last fetched
+set cfg_coll {}      ;# collection-table, as last fetched
 set cfg_pending {}   ;# name -> the command previewed but not saved
-set cfg_item {}      ;# name -> tree item
+set cfg_item {}      ;# knob name -> tree item
+set cfg_node {}      ;# tree item -> collection descriptor (coll/elem/field)
+set cfg_fitem {}     ;# field address -> tree item
 set cfg_T ""
 set cfg_hint "Return, F4 or double-click opens the picker · F2 types ·\
  Home/End or Alt+< / Alt+> for the ends · Save makes it stick"
@@ -223,13 +229,31 @@ proc cfg-owner {name} {
 }
 proc cfg-refresh {} {
     set T $::cfg_T
-    set was_sel [expr {[cfg-selected] eq "" ? "" : [cfg-name-of [cfg-selected]]}]
+    # the selection survives as a DESCRIPTOR: a knob by its name, a
+    # collection row by what it describes — never by item number
+    set was_sel {}
+    set it [cfg-selected]
+    if {$it ne ""} {
+        if {[cfg-name-of $it] ne ""} {
+            set was_sel [list knob [cfg-name-of $it]]
+        } elseif {[dict exists $::cfg_node $it]} {
+            set was_sel [list node [dict get $::cfg_node $it]]
+        }
+    }
     set was_folded {}
     # `open` is one of treectrl's built-in item states — the expanded
     # flag lives there, not in an option
     foreach g [$T item children root] {
         if {![$T item state get $g open]} {
             lappend was_folded [$T item element cget $g Cname eGrp -text]
+        }
+    }
+    # ...and which ELEMENTS stand unfolded: an element is born folded,
+    # so what is remembered is the exception
+    set was_open {}
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] eq "elem" && [$T item state get $i open]} {
+            lappend was_open [list [dict get $d coll] [dict get $d key]]
         }
     }
     $T item delete all
@@ -256,13 +280,100 @@ proc cfg-refresh {} {
         }
         if {$group in $was_folded} { $T collapse $g }
     }
+    cfg-coll-build $was_folded $was_open
     cfg-fit
-    if {$was_sel ne "" && [dict exists $::cfg_item $was_sel]} {
-        cfg-select [dict get $::cfg_item $was_sel]
+    if {[lindex $was_sel 0] eq "knob"
+            && [dict exists $::cfg_item [lindex $was_sel 1]]} {
+        cfg-select [dict get $::cfg_item [lindex $was_sel 1]]
+    } elseif {[lindex $was_sel 0] eq "node"} {
+        set sel ""
+        dict for {i d} $::cfg_node {
+            if {$d eq [lindex $was_sel 1]} { set sel $i; break }
+        }
+        if {$sel ne ""} { cfg-select $sel } else { cfg-select-first }
     } else {
-        set first [lindex [dict values $::cfg_item] 0]
-        if {$first ne ""} { cfg-select $first }
+        cfg-select-first
     }
+}
+proc cfg-select-first {} {
+    set first [lindex [dict values $::cfg_item] 0]
+    if {$first ne ""} { cfg-select $first }
+}
+
+# ---- the collections below the knob groups ----
+# Four more top nodes — buttons, bindings, widgets, keys — served by
+# collection-table exactly as the knobs are by knob-table. A child is
+# an ELEMENT: its key, a summary of what the layers said, and a flag
+# with the owner badge — plus ✗ for a bind a later word buried
+# (decision 5 made visible). An element's children are its FIELDS,
+# edited by the same kind-editors the knobs use; a buried bind has no
+# children at all — re-binding it is capture-chord's day, not a field
+# edit here.
+proc cfg-coll-build {was_folded was_open} {
+    set T $::cfg_T
+    set ::cfg_coll [wm-call collection-table]
+    set ::cfg_node {}
+    set ::cfg_fitem {}
+    dict for {cname cmeta} $::cfg_coll {
+        set g [$T item create -button yes]
+        $T item style set $g Cname sGrp Cdoc sDoc
+        $T item element configure $g Cname eGrp -text $cname
+        $T item element configure $g Cdoc eDoc -text [dict get $cmeta doc]
+        $T item lastchild root $g
+        dict set ::cfg_node $g [dict create what coll coll $cname]
+        foreach e [dict get $cmeta elements] {
+            set key [dict get $e key]
+            set dead [dict exists $e ineffectual]
+            set it [$T item create -button [expr {!$dead}]]
+            $T item style set $it Cname sName Cval sVal Cflag sFlag
+            $T item element configure $it Cname eTxt -text $key
+            $T item element configure $it Cval eVal \
+                -text [cfg-elem-summary $cname $e]
+            set flags {}
+            if {$dead} { lappend flags ✗ }
+            switch -- [dict get $e owner] {
+                custom { lappend flags custom }
+                config { lappend flags cfg }
+            }
+            $T item element configure $it Cflag eFlag -text [join $flags " "]
+            $T item lastchild $g $it
+            dict set ::cfg_node $it \
+                [dict create what elem coll $cname key $key]
+            if {$dead} continue
+            dict for {f fmeta} [dict get $cmeta fields] {
+                set addr [list @field $cname $key $f]
+                set fit [$T item create]
+                $T item style set $fit \
+                    Cname sName Cval sVal Cflag sFlag Cdoc sDoc
+                $T item element configure $fit Cname eTxt -text $f
+                $T item element configure $fit Cval eVal \
+                    -text [cfg-value-text $addr [cfg-cur $addr]]
+                if {[dict exists $::cfg_pending $addr]} {
+                    $T item element configure $fit Cflag eFlag -text •
+                }
+                $T item element configure $fit Cdoc eDoc \
+                    -text [dict get $fmeta doc]
+                $T item lastchild $it $fit
+                dict set ::cfg_node $fit [dict create what field \
+                    coll $cname key $key field $f]
+                dict set ::cfg_fitem $addr $fit
+            }
+            if {[list $cname $key] ni $was_open} { $T collapse $it }
+        }
+        if {$cname in $was_folded} { $T collapse $g }
+    }
+}
+# What an element is AT A GLANCE, per family: a button says which
+# fields speak, a binding shows its script, a bundle whether it
+# stands, a widget its own words.
+proc cfg-elem-summary {cname e} {
+    set v [dict get $e values]
+    switch -- $cname {
+        buttons  { return [join [dict keys $v] " "] }
+        bindings { return [dict get $v script] }
+        keys     { return [dict get $v state] }
+    }
+    return $v
 }
 
 # No wrapping anywhere, so everything MEASURES: each column asks the
@@ -308,6 +419,11 @@ proc cfg-fit {} {
     set ih [expr {[font metrics DeskFont -linespace] + 6}]
     set rows [expr {[llength [dict keys $::cfg_item]]
                     + [llength [$T item children root]]}]
+    # ...and the collection elements, visible under their open nodes
+    # (their fields stand folded and do not count)
+    dict for {- cmeta} $::cfg_coll {
+        incr rows [llength [dict get $cmeta elements]]
+    }
     # The ceiling is the WORKAREA minus what this window wears and
     # carries — the frame the desk will put around it and the button
     # box below the tree. Measured against the screen instead, the
@@ -338,12 +454,59 @@ proc cfg-fit {} {
     set ::cfg_fit_size [list [winfo reqwidth $W] [winfo reqheight $W]]
 }
 
+# ---- the field address ----
+# A collection element's field is addressed as {@field COLL KEY FIELD}
+# — a list, where a knob is a bare name, and the first word is how
+# every routing proc tells the two apart. The address is what
+# cfg-set, cfg-cur and the pending dict carry; its kind comes from
+# the collection registry's field meta instead of the knob table.
+proc cfg-field? {name} { expr {[lindex $name 0] eq "@field"} }
+proc cfg-kind-of {name} {
+    if {[cfg-field? $name]} {
+        return [dict get $::cfg_coll [lindex $name 1] \
+                    fields [lindex $name 3] kind]
+    }
+    dict get $::cfg_table $name kind
+}
+# ...and how a sentence names it: the address minus its marker
+proc cfg-pretty {name} {
+    expr {[cfg-field? $name] ? [join [lrange $name 1 end] " "] : $name}
+}
+# What the layers' word holds for an element — and for one field of
+# it, "" when unsaid (which is how a field is ADDED: editing the
+# nothing it holds).
+proc cfg-elem-values {coll key} {
+    foreach e [dict get $::cfg_coll $coll elements] {
+        if {[dict get $e key] eq $key && ![dict exists $e ineffectual]} {
+            return [dict get $e values]
+        }
+    }
+    return {}
+}
+proc cfg-field-stored {name} {
+    set v [cfg-elem-values [lindex $name 1] [lindex $name 2]]
+    set f [lindex $name 3]
+    expr {[dict exists $v $f] ? [dict get $v $f] : ""}
+}
+proc cfg-node-addr {it} {
+    set d [dict get $::cfg_node $it]
+    list @field [dict get $d coll] [dict get $d key] [dict get $d field]
+}
+proc cfg-show-field {addr} {
+    if {![dict exists $::cfg_fitem $addr]} return
+    set it [dict get $::cfg_fitem $addr]
+    $::cfg_T item element configure $it Cval eVal \
+        -text [cfg-value-text $addr [cfg-cur $addr]]
+    $::cfg_T item element configure $it Cflag eFlag \
+        -text [expr {[dict exists $::cfg_pending $addr] ? "•" : ""}]
+}
+
 # What a value LOOKS like in its cell. A list says how many it holds
 # and of what — «[2 directories]» — rather than spelling itself out
 # and blowing the column open (the owner's review); the whole of it
 # lives in the sub-editor, one line per entry.
 proc cfg-value-text {name value} {
-    set kind [dict get $::cfg_table $name kind]
+    set kind [cfg-kind-of $name]
     switch -- [lindex $kind 0] {
         font {
             # A font's value is whatever the config SAID, and that may
@@ -382,7 +545,7 @@ proc cfg-font-summary {value} {
  [dict get $value -weight]"
 }
 proc cfg-value-typed {name value} {
-    if {[lindex [dict get $::cfg_table $name kind] 0] eq "font"
+    if {[lindex [cfg-kind-of $name] 0] eq "font"
             && [cfg-font-summary $value] ne ""} {
         return "-family [list [dict get $value -family]]\
  -size [dict get $value -size] -weight [dict get $value -weight]"
@@ -475,8 +638,18 @@ proc cfg-activate {{how primary}} {
     set it [cfg-selected]
     if {$it eq ""} return
     set name [cfg-name-of $it]
-    if {$name eq ""} { $::cfg_T toggle $it; return }   ;# a group folds
-    set kind [dict get $::cfg_table $name kind]
+    if {$name eq ""} {
+        # a collection FIELD edits; every other nameless row folds —
+        # a group, a family node, an element, a buried bind
+        if {[dict exists $::cfg_node $it]
+                && [dict get $::cfg_node $it what] eq "field"} {
+            set name [cfg-node-addr $it]
+        } else {
+            $::cfg_T toggle $it
+            return
+        }
+    }
+    set kind [cfg-kind-of $name]
     switch -- [lindex $kind 0] {
         bool   { cfg-set $name [expr {[cfg-cur $name] eq "on" ? "off" : "on"}] }
         choice { cfg-choice-menu $it $name [lrange $kind 1 end] }
@@ -494,7 +667,7 @@ proc cfg-activate {{how primary}} {
 }
 # Which kinds have a picker behind the ▾ — and what it is.
 proc cfg-picker-of {name} {
-    switch -- [lindex [dict get $::cfg_table $name kind] 0] {
+    switch -- [lindex [cfg-kind-of $name] 0] {
         color { return cfg-color-dialog }
         font  { return cfg-font-dialog }
         list  { return cfg-list-dialog }
@@ -507,9 +680,11 @@ proc cfg-picker-of {name} {
 # to the next edit as «bold» (the owner, on set-title-font). A command
 # is not a value and cannot be read as one.
 proc cfg-cur {name} {
-    expr {[dict exists $::cfg_pending $name]
-          ? [dict get $::cfg_pending $name value]
-          : [dict get $::cfg_table $name value]}
+    if {[dict exists $::cfg_pending $name]} {
+        return [dict get $::cfg_pending $name value]
+    }
+    if {[cfg-field? $name]} { return [cfg-field-stored $name] }
+    dict get $::cfg_table $name value
 }
 
 # A choice is a MENU at its cell, not a cycle to click blind through
@@ -620,10 +795,12 @@ proc cfg-list-dialog {name} {
     set w .cfg-list
     catch {destroy $w}
     toplevel $w -class Tk9wmUi
-    wm title $w "tk9wm: $name"
+    wm title $w "tk9wm: [cfg-pretty $name]"
     wm transient $w [winfo toplevel $::cfg_T]
-    set noun [lindex [dict get $::cfg_table $name kind] 1]
-    label $w.l -takefocus 0 -anchor w -text "$name — one [string range $noun 0 end-1] per line"
+    set noun [lindex [cfg-kind-of $name] 1]
+    if {$noun eq ""} { set noun entries }
+    label $w.l -takefocus 0 -anchor w \
+        -text "[cfg-pretty $name] — one [string range $noun 0 end-1] per line"
     text $w.t -font DeskFont -width 60 -height 10 -wrap none \
         -background [ui-color field] -foreground [ui-color fg] \
         -insertbackground [ui-color fg]
@@ -718,6 +895,13 @@ proc cfg-set {name value} {
 # needs the wide one: a default is not written down anywhere and a
 # reload is the only way to re-state it.
 proc cfg-restore {name} {
+    # a FIELD's narrow undo is the wide one: only the layers know
+    # what the element said before the preview touched it
+    if {[cfg-field? $name]} {
+        wm-call reload-config
+        cfg-refresh
+        return
+    }
     set meta [dict get $::cfg_table $name]
     if {[dict get $meta owner] eq "code"} {
         wm-call reload-config
@@ -751,25 +935,31 @@ proc cfg-recover {name err {opts {}}} {
  on its saved value; anything else you had pending is untouched" error
 }
 proc cfg-apply {name value} {
-    set kind [dict get $::cfg_table $name kind]
+    set kind [cfg-kind-of $name]
+    set who [cfg-pretty $name]
     switch -- [lindex $kind 0] {
         int {
             if {![string is integer -strict $value]} {
-                return [cfg-refuse "$name wants a whole number, not «$value»"]
+                return [cfg-refuse "$who wants a whole number, not «$value»"]
             }
         }
         float {
             lassign $kind - lo hi
             if {![string is double -strict $value]} {
-                return [cfg-refuse "$name wants a number, not «$value»"]
+                return [cfg-refuse "$who wants a number, not «$value»"]
             }
             if {$value < $lo || $value > $hi} {
-                return [cfg-refuse "$name wants a number between $lo and $hi"]
+                return [cfg-refuse "$who wants a number between $lo and $hi"]
             }
         }
         color {
             if {[catch {winfo rgb . $value}]} {
                 return [cfg-refuse "«$value» is not a color this display knows"]
+            }
+        }
+        choice {
+            if {$value ni [lrange $kind 1 end]} {
+                return [cfg-refuse "$who is one of: [lrange $kind 1 end]"]
             }
         }
     }
@@ -778,12 +968,20 @@ proc cfg-apply {name value} {
     # threw the parse error at the user as a stack trace (the owner
     # typed one into the terminal field). Ask FIRST, and say so.
     switch -- [lindex $kind 0] {
-        font - terminal - list {
+        font - terminal - list - chord - dict {
             if {[catch {llength $value}]} {
-                return [cfg-refuse "$name wants a list —\
+                return [cfg-refuse "$who wants a list —\
  «$value» has an unmatched quote or brace"]
             }
         }
+    }
+    # A bundle that stands OFF has nowhere to hold new parameters —
+    # wm-keys can only speak them while declaring the family up.
+    if {[cfg-field? $name] && [lindex $name 1] eq "keys"
+            && [lindex $name 3] eq "params"
+            && [cfg-cur [list @field keys [lindex $name 2] state]] eq "off"} {
+        return [cfg-refuse "$who: turn the bundle on first — off, it\
+ keeps only its declaration defaults"]
     }
     set cmd [cfg-command $name $value]
     # And the DESK's own refusal is the user's to read: the knobs
@@ -795,7 +993,11 @@ proc cfg-apply {name value} {
         return [cfg-refuse [cfg-brief $err]]
     }
     dict set ::cfg_pending $name [dict create cmd $cmd value $value]
-    cfg-show-value [dict get $::cfg_item $name] $name $value
+    if {[cfg-field? $name]} {
+        cfg-show-field $name
+    } else {
+        cfg-show-value [dict get $::cfg_item $name] $name $value
+    }
     cfg-status ""
     return 1
 }
@@ -804,9 +1006,54 @@ proc cfg-apply {name value} {
 # one argument, everything else is one word. The restore path builds
 # the same way, which is what makes a saved value re-appliable.
 proc cfg-command {name value} {
+    if {[cfg-field? $name]} { return [cfg-field-command $name $value] }
     switch -- [lindex [dict get $::cfg_table $name kind] 0] {
         font - terminal { return [list $name {*}$value] }
         default         { return [list $name $value] }
+    }
+}
+# ...and how a FIELD edit becomes one — per family, because each verb
+# has its own grammar:
+#   buttons  — panel-button KEY {FIELD V}: the verb MERGES, so the
+#              delta alone is the whole edit;
+#   bindings — wm-bind re-states the pair, the other half riding
+#              along from the element;
+#   widgets  — wm-widget replaces WHOLE: the element's standing
+#              options, its other pendings, then this edit;
+#   keys     — off is a word of its own; anything else re-declares
+#              the bundle from its params.
+proc cfg-field-command {name value} {
+    lassign $name - coll key f
+    switch -- $coll {
+        buttons { return [list panel-button $key [list $f $value]] }
+        bindings {
+            set script [expr {$f eq "script" ? $value
+                : [cfg-cur [list @field bindings $key script]]}]
+            set bname [expr {$f eq "name" ? $value
+                : [cfg-cur [list @field bindings $key name]]}]
+            return [list wm-bind [split $key " "] $script $bname]
+        }
+        widgets {
+            set opts [cfg-elem-values widgets $key]
+            dict for {a p} $::cfg_pending {
+                if {[cfg-field? $a] && [lindex $a 1] eq "widgets"
+                        && [lindex $a 2] eq $key} {
+                    dict set opts [lindex $a 3] [dict get $p value]
+                }
+            }
+            dict set opts $f $value
+            return [list wm-widget $key {*}$opts]
+        }
+        keys {
+            if {$f eq "state" && $value eq "off"} {
+                return [list wm-keys $key off]
+            }
+            set params [expr {$f eq "params" ? $value
+                : [cfg-cur [list @field keys $key params]]}]
+            set cmd [list wm-keys $key]
+            dict for {k v} $params { lappend cmd -$k $v }
+            return $cmd
+        }
     }
 }
 # The desk answers with an error, sometimes a multi-line one; the
@@ -817,12 +1064,51 @@ proc cfg-brief {err} {
     return $one
 }
 proc cfg-save {} {
+    # The BUTTON fields do not write their preview commands: the panel
+    # set is custom's whole or not custom's at all (the owner's
+    # decision 2), so their pendings fold into one adoption below.
+    # Everything else persists its own preview command — for a
+    # binding, widget or bundle that command already re-states the
+    # whole element.
+    set deltas {}
     dict for {name pend} $::cfg_pending {
-        wm-call [list custom-write [dict get $pend cmd]]
+        if {[cfg-field? $name] && [lindex $name 1] eq "buttons"} {
+            dict set deltas [lindex $name 2] [lindex $name 3] \
+                [dict get $pend value]
+        } else {
+            wm-call [list custom-write [dict get $pend cmd]]
+        }
     }
+    if {[dict size $deltas]} { cfg-save-buttons $deltas }
     set ::cfg_pending {}
     cfg-refresh
     puts "UI: configurator: saved"
+}
+# ADOPTION (the owner's decision 2). A set custom already owns takes
+# the touched buttons as said+delta — the standing custom word with
+# the edits over it, so an older delta survives this one. A set it
+# does not yet own is taken WHOLE: own the panel, then every button
+# in panel order — the touched ones as their delta, the untouched by
+# BARE LABEL, whose empty word the raw memory answers with the whole
+# config description.
+proc cfg-save-buttons {deltas} {
+    set c [dict get $::cfg_coll buttons]
+    set owned [expr {[dict get $c owned] eq "yes"}]
+    if {!$owned} {
+        wm-call [list custom-write {panel-buttons-own default}]
+    }
+    foreach e [dict get $c elements] {
+        set key [dict get $e key]
+        set said [expr {[dict exists $e said] ? [dict get $e said] : ""}]
+        if {[dict exists $deltas $key]} {
+            set word [dict merge $said [dict get $deltas $key]]
+        } elseif {$owned} {
+            continue            ;# custom's word already stands
+        } else {
+            set word $said      ;# usually {}: the bare label
+        }
+        wm-call [list custom-write [list panel-button $key $word]]
+    }
 }
 # Erase the selected knob's customization: the click taken back, the
 # file rewritten without it, and the desk reloaded so the knob falls

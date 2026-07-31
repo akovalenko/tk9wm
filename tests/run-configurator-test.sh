@@ -4,7 +4,9 @@
 # through custom-write, Revert is the desk's own reload — and the
 # welcome mat's font buttons turn the one font everything derives
 # from, persistently. The style bridge is asserted by the host
-# wearing the desk's DeskFont.
+# wearing the desk's DeskFont. Below the knob groups, the COLLECTIONS
+# (collection-table): field edits preview per family's own verb, and
+# Save adopts the panel set whole (own + buttons in order).
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:94
 rm -f /tmp/.X94-lock /tmp/.X11-unix/X94
@@ -18,6 +20,8 @@ mkdir -p "$HERE/cfg-config"
 cat > "$HERE/cfg-config/tk9wm.tcl" <<'EOF'
 set-edge-resist 3
 panel-button dummy {launch {exec true &}}
+wm-bind {<Super>5} {list config-five}
+wm-widget часы -type clock
 EOF
 
 XDG_CONFIG_HOME="$HERE/cfg-config" \
@@ -228,6 +232,54 @@ KEPTFAM=$(grep -c 'set-desk-font -family Iosevka -size 12' "$HERE/cfg-config/tk9
 BUMPED=$(q 'font actual DeskFont -size')
 BUMPFILE=$(grep -c 'set-desk-font' "$HERE/cfg-config/tk9wm.custom.tcl" 2>/dev/null)
 
+# ---- the collections below the knob groups (plan step B) ----
+# four family nodes; an element born folded; a field edit previews
+# through the same door as a knob's; Save ADOPTS the panel set — own
+# above the buttons in order — while the other families each write
+# their whole element; the buried config bind wears ✗ in the tree
+COLLNODES=$(qu 'set n {}
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] eq "coll"} { lappend n [dict get $d coll] }
+    }
+    lsort $n')
+ELEMFOLD=$(qu 'set i [dict get $::cfg_fitem {@field buttons dummy key}]
+    expr {[$::cfg_T item state get [$::cfg_T item parent $i] open]
+          ? "open" : "folded"}')
+BTNPREV=$(qu 'cfg-set {@field buttons dummy key} {<Super>9}')
+sleep 0.5
+BTNLIVE=$(q 'chord-of {panel-fire-labelled default dummy}')
+WPREV=$(qu 'cfg-set {@field widgets часы -padding} 7')
+sleep 0.3
+WLIVE=$(q 'dict get $::widgets часы -padding')
+BPREV=$(qu 'cfg-set {@field bindings Super+5 script} {list custom-five}')
+sleep 0.3
+BLIVE=$(q 'lindex [keymap-payload $::keymap \
+                       [list [join [parse-chord Super+5] ,]]] 0')
+KOFFPREV=$(qu 'cfg-set {@field keys windows state} off')
+sleep 0.3
+KLIVE=$(q 'dict exists $::key_bundles windows')
+KPARREFUSED=$(qu 'cfg-set {@field keys windows params} {switcher {<Super>Tab}}')
+qu 'cfg-save' >/dev/null
+sleep 1
+OWNSAVED=$(grep -c '^panel-buttons-own default$' "$HERE/cfg-config/tk9wm.custom.tcl")
+BTNSAVED=$(grep -c '^panel-button dummy {key <Super>9}$' "$HERE/cfg-config/tk9wm.custom.tcl")
+BINDSAVED=$(grep -c '^wm-bind Super+5 {list custom-five} {}$' "$HERE/cfg-config/tk9wm.custom.tcl")
+WSAVED=$(grep -c '^wm-widget часы -type clock -padding 7$' "$HERE/cfg-config/tk9wm.custom.tcl")
+KSAVED=$(grep -c '^wm-keys windows off$' "$HERE/cfg-config/tk9wm.custom.tcl")
+AFTERSAVE=$(qu 'set c [dict get $::cfg_coll buttons]
+    set b [lindex [dict get $c elements] 0]
+    list owned [dict get $c owned] owner [dict get $b owner] \
+         key [dict get $b values key]')
+BINDROWS=$(qu 'set live {}; set dead {}
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] ne "elem"
+            || [dict get $d coll] ne "bindings"} continue
+        if {[dict get $d key] ne "Super+5"} continue
+        set f [$::cfg_T item element cget $i Cflag eFlag -text]
+        if {[string match {*✗*} $f]} { lappend dead $f } else { lappend live $f }
+    }
+    list live $live dead $dead')
+
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
 GEO=$(q 'set w [lindex [array names ::frameof] 0]
@@ -408,6 +460,53 @@ esac
 case $GOODMSG in
     *"Save makes it stick"*) echo "OK: a good value clears the error line" ;;
     *) echo "FAIL: after a good value the line says «$GOODMSG»" ;;
+esac
+case $COLLNODES in
+    "bindings buttons keys widgets")
+        echo "OK: the four families stand in the tree" ;;
+    *) echo "FAIL: collection nodes: $COLLNODES" ;;
+esac
+if [ "$ELEMFOLD" = folded ]; then
+    echo "OK: an element is born folded — the tree is an overview first"
+else
+    echo "FAIL: element state: $ELEMFOLD"
+fi
+case "$BTNPREV|$BTNLIVE" in
+    "1|Super+9")
+        echo "OK: a chord field previews — the button answers to the new key" ;;
+    *) echo "FAIL: button field: rc=$BTNPREV chord=«$BTNLIVE»" ;;
+esac
+case "$WPREV|$WLIVE" in
+    "1|7") echo "OK: a widget field previews by re-declaring the widget whole" ;;
+    *) echo "FAIL: widget field: rc=$WPREV padding=$WLIVE" ;;
+esac
+case "$BPREV|$BLIVE" in
+    "1|list custom-five")
+        echo "OK: a binding's script previews, its other half riding along" ;;
+    *) echo "FAIL: binding field: rc=$BPREV script=«$BLIVE»" ;;
+esac
+case "$KOFFPREV|$KLIVE|$KPARREFUSED" in
+    "1|0|0") echo "OK: a bundle turns off, and params on an off bundle are refused" ;;
+    *) echo "FAIL: keys: off=$KOFFPREV live=$KLIVE params-rc=$KPARREFUSED" ;;
+esac
+case "$OWNSAVED|$BTNSAVED" in
+    "1|1") echo "OK: Save adopted the panel — own above the touched button's delta" ;;
+    *) echo "FAIL: adoption: own=$OWNSAVED button=$BTNSAVED:\
+ $(grep panel "$HERE/cfg-config/tk9wm.custom.tcl")" ;;
+esac
+case "$BINDSAVED|$WSAVED|$KSAVED" in
+    "1|1|1") echo "OK: bind, widget and bundle wrote their whole element each" ;;
+    *) echo "FAIL: saved: bind=$BINDSAVED widget=$WSAVED keys=$KSAVED" ;;
+esac
+case $AFTERSAVE in
+    "owned yes owner custom key <Super>9")
+        echo "OK: after Save the set is owned and the button custom's" ;;
+    *) echo "FAIL: after save: $AFTERSAVE" ;;
+esac
+case $BINDROWS in
+    "live custom dead {{✗ cfg}}")
+        echo "OK: the buried config bind wears ✗ beside the live custom one" ;;
+    *) echo "FAIL: bind rows: $BINDROWS" ;;
 esac
 echo "--- geometry: $GEO"
 case $GEO in
