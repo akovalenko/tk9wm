@@ -37,6 +37,18 @@ HOSTFONT=$(qu 'font actual DeskFont -size')
 WMFONT=$(q 'font actual DeskFont -size')
 CFGBADGE=$(qu 'cfg-owner set-edge-resist')
 
+# ONCE THE USER HAS SIZED IT, the fit steps aside — asserted early,
+# before the scenes that deliberately break procs, and undone right
+# after so the later size checks still measure the fit.
+qu 'wm geometry [winfo toplevel $::cfg_T] 700x400; list asked' >/dev/null
+sleep 1
+qu 'cfg-refresh; list refreshed' >/dev/null
+sleep 0.5
+HANDSIZED=$(qu 'list sized $::cfg_user_sized \
+                     geom [wm geometry [winfo toplevel $::cfg_T]]')
+qu 'set ::cfg_user_sized 0; cfg-fit; list refitted' >/dev/null
+sleep 0.5
+
 qu 'cfg-set set-fade 0.42' >/dev/null
 sleep 0.5
 PREVIEW=$(q 'set ::fade')
@@ -125,15 +137,15 @@ SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
 # a refresh must not GROW the window: the fit fed on its own leftover
 # once, and every Save walked the window wider (and left, against the
 # right edge)
-STABLE=$(qu 'set W [winfo toplevel $::cfg_T]
-             set a [list]
-             for {set i 0} {$i < 3} {incr i} {
-                 cfg-refresh
-                 update idletasks
-                 lappend a [winfo reqwidth $W]
-             }
-             expr {[lindex $a 0] eq [lindex $a 1]
-                   && [lindex $a 1] eq [lindex $a 2] ? "stable" : $a}')
+# NO event-loop re-entry inside a send: an `update` in a send handler
+# while the WM is resizing the same window hangs the pair (measured —
+# this very scene did it before it was split into steps).
+W1=$(qu 'cfg-refresh; winfo reqwidth [winfo toplevel $::cfg_T]')
+sleep 0.4
+W2=$(qu 'cfg-refresh; winfo reqwidth [winfo toplevel $::cfg_T]')
+sleep 0.4
+W3=$(qu 'cfg-refresh; winfo reqwidth [winfo toplevel $::cfg_T]')
+if [ "$W1" = "$W2" ] && [ "$W2" = "$W3" ]; then STABLE=stable; else STABLE="$W1 $W2 $W3"; fi
 # an UNEXPECTED error in the apply path (not a refusal) must roll the
 # desk back to its layers and explain itself, never throw a dialog
 qu 'cfg-set set-drag-slop 11' >/dev/null
@@ -289,11 +301,17 @@ case "$SPECFORM|$SPECWORDS|$SPECDELTA" in
         echo "OK: a Tk font spec is legal, in one word or several, whole or partial" ;;
     *) echo "FAIL: font specs: {$SPECFORM} {$SPECWORDS} {$SPECDELTA}" ;;
 esac
+# ...and once the USER has sized it, the fit steps aside entirely
 if [ "$STABLE" = stable ]; then
     echo "OK: refreshing does not grow the window"
 else
     echo "FAIL: widths across three refreshes: $STABLE"
 fi
+case $HANDSIZED in
+    "sized 1 geom 700x400"*)
+        echo "OK: a window sized by hand keeps its size through a refresh" ;;
+    *) echo "FAIL: hand-sized: $HANDSIZED" ;;
+esac
 case $DESKWIN in
     "gone 0 back 1") echo "OK: the desk window comes and goes on the spot" ;;
     *) echo "FAIL: desk window: $DESKWIN" ;;

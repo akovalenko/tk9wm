@@ -163,12 +163,31 @@ proc cfg-fit-mapped {W} {
     cfg-fit
 }
 
+# ONCE THE USER HAS SIZED IT, IT IS THEIR WINDOW (the owner). Our fit
+# is a first guess at a size nobody has an opinion about yet; a hand
+# on the border ends that, and every later refresh leaves the walls
+# alone — the columns still re-measure, the tree still fills whatever
+# it was given, but nothing asks for a new geometry.
+#
+# Telling the two apart: after a fit we remember the size we asked
+# for, and a Configure that reports something else is somebody else's
+# doing.
+set cfg_user_sized 0
+set cfg_fit_size {}
 proc cfg-note-wrap {W w} {
     if {$W ne [winfo toplevel $::cfg_T]} return
     set l $W.b.note
-    if {![winfo exists $l]} return
-    set room [expr {$w - [winfo x $l] - 12}]
-    if {$room > 80} { $l configure -wraplength $room }
+    if {[winfo exists $l]} {
+        set room [expr {$w - [winfo x $l] - 12}]
+        if {$room > 80} { $l configure -wraplength $room }
+    }
+    if {!$::cfg_user_sized && [llength $::cfg_fit_size]} {
+        lassign $::cfg_fit_size fw fh
+        if {abs($w - $fw) > 2 || abs([winfo height $W] - $fh) > 2} {
+            set ::cfg_user_sized 1
+            puts "UI: configurator: sized by hand — the fit steps aside"
+        }
+    }
 }
 
 # Any scroll ends an open editor (as a commit attempt): the entry is
@@ -282,6 +301,7 @@ proc cfg-fit {} {
     # asks for is honored as asked, and the WM's own clamp can only
     # move a window, not shrink it.
     set W [winfo toplevel $T]
+    if {$::cfg_user_sized} return     ;# their window now, not ours
     lassign [ui-workarea] - - ww wh
     lassign [ui-chrome] B top
     set maxw [expr {$ww - 2*$B - [winfo reqwidth $W.sb] - 8}]
@@ -299,6 +319,8 @@ proc cfg-fit {} {
     if {$over > 0} { $T configure -height [expr {[$T cget -height] - $over}] }
     set over [expr {[winfo reqwidth $W] + 2*$B - $ww}]
     if {$over > 0} { $T configure -width [expr {[$T cget -width] - $over}] }
+    update idletasks
+    set ::cfg_fit_size [list [winfo reqwidth $W] [winfo reqheight $W]]
 }
 
 # What a value LOOKS like in its cell. A list says how many it holds
