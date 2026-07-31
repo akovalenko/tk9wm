@@ -100,8 +100,13 @@ proc cfg-build {W} {
         $T style layout $st eSel -detach yes -iexpand xy
         $T style layout $st [lindex $els 1] -expand ns -padx 5 -squeeze x
     }
-    grid $T $W.sb -sticky nsew
-    grid rowconfigure $W 0 -weight 1
+    # The tree says what it is, and its underline leads to it: Alt+k
+    # from anywhere in this window puts the focus back on the knobs.
+    ui-label $W.head "&Knobs — everything this desk can be told" $T \
+        -foreground [ui-color link] -padx 6 -pady 4
+    grid $W.head -row 0 -column 0 -columnspan 2 -sticky ew
+    grid $T $W.sb -row 1 -sticky nsew
+    grid rowconfigure $W 1 -weight 1
     grid columnconfigure $W 0 -weight 1
     frame $W.b -takefocus 0
     ttk::button $W.b.save   -text Save   -underline 0 -command cfg-save
@@ -115,7 +120,7 @@ proc cfg-build {W} {
         -foreground [ui-color link]
     pack $W.b.save $W.b.revert $W.b.erase -side left -padx 4 -pady 4
     pack $W.b.note -side left -padx 12
-    grid $W.b -columnspan 2 -sticky ew
+    grid $W.b -row 2 -columnspan 2 -sticky ew
     # ...and the box stops propagating its children's appetite: a
     # longer or shorter status line used to resize the whole window
     # under the owner's hands as he typed (a short refusal SHRANK it).

@@ -134,6 +134,13 @@ BADPLACE=$(qu 'cfg-set set-key-echo-place {bla bla bla}')
 BADPLACEMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 GOODMSG=$(qu 'cfg-set set-drag-slop 5; set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
+# the heading names the tree, underlines its letter, and Alt+k leads
+# there — the host's facility, not this applet's flourish
+HEAD=$(qu 'set W [winfo toplevel $::cfg_T]
+           focus $W.b.save
+           event generate $W <Alt-Key-k>
+           list text [$W.head cget -text] under [$W.head cget -underline] \
+                focus [focus]')
 # a refresh must not GROW the window: the fit fed on its own leftover
 # once, and every Save walked the window wider (and left, against the
 # right edge)
@@ -311,6 +318,11 @@ case $HANDSIZED in
     "sized 1 geom 700x400"*)
         echo "OK: a window sized by hand keeps its size through a refresh" ;;
     *) echo "FAIL: hand-sized: $HANDSIZED" ;;
+esac
+case $HEAD in
+    "text {Knobs — everything this desk can be told} under 0 focus "*.t)
+        echo "OK: the heading underlines its letter and Alt+k lands on the tree" ;;
+    *) echo "FAIL: heading: $HEAD" ;;
 esac
 case $DESKWIN in
     "gone 0 back 1") echo "OK: the desk window comes and goes on the spot" ;;

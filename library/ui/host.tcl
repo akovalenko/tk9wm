@@ -123,11 +123,44 @@ proc ui-chrome {} {
           ? [dict get $::ui_palette chrome] : {2 28}}
 }
 
+# MNEMONICS, marked in the text itself: "&Knobs" shows Knobs with the
+# K underlined and answers to Alt+k. One notation for every applet —
+# a keyboard-first desk cannot have each of them inventing its own —
+# and it works for the things that are NOT buttons too: a label can
+# lead to the widget it names, which is the only way a tree or a
+# list gets a hotkey of its own (the owner's ask, made general).
+proc ui-mnemonic {text} {
+    set i [string first & $text]
+    if {$i < 0} { return [list $text -1] }
+    return [list [string replace $text $i $i] $i]
+}
+# ui-label PATH TEXT ?TARGET? ?options...? — the label, and the
+# promise its underline makes: Alt+letter puts the focus where the
+# label points.
+proc ui-label {path text {target ""} args} {
+    lassign [ui-mnemonic $text] shown idx
+    label $path -text $shown -underline $idx -takefocus 0 -anchor w {*}$args
+    if {$idx >= 0 && $target ne ""} {
+        set ch [string tolower [string index $shown $idx]]
+        bind [winfo toplevel $path] <Alt-Key-$ch> [list ui-focus-target $target]
+    }
+    return $path
+}
+# ...and the focus lands VISIBLY: a target that was never given a
+# ring would take the focus and say nothing about it.
+proc ui-focus-target {w} {
+    if {![winfo exists $w]} return
+    focus $w
+}
 # Generic Alt-accelerator support (the owner's pick over hand-rolled
 # bindings): a button declaring -underline N gets Alt+<that letter>
 # bound on its toplevel to its own invoke. Call it once per button;
 # the underline is already the visible promise, this makes it true.
+# A button whose TEXT carries an & is marked up first, so both
+# notations are available and only one has to be remembered.
 proc ui-accel {btn} {
+    lassign [ui-mnemonic [$btn cget -text]] shown idx
+    if {$idx >= 0} { $btn configure -text $shown -underline $idx }
     set u [$btn cget -underline]
     # modern Tk defaults -underline to the EMPTY STRING, not -1 (the
     # owner has been bitten before) — treat anything non-numeric as
