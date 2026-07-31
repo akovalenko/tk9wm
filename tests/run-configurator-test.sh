@@ -399,6 +399,13 @@ WPREFUSE=$(q 'catch {wm-keys windows -switcher {<Super>Tab}}')
 qu 't-sel widgets часы; cfg-delete; list deleted' >/dev/null
 sleep 0.5
 WGONE=$(q 'dict exists $::widgets часы')
+# ...and the navigation LANDS beside the deleted row, not at the top
+# of the tree: the family's first element leaves the selection on the
+# family node; one with a neighbour above leaves it on that neighbour
+LANDPARENT=$(qu 'dict get $::cfg_node [cfg-selected]')
+qu 't-sel panel dummy; cfg-delete; list deleted' >/dev/null
+sleep 1
+LANDPREV=$(qu 'dict get $::cfg_node [cfg-selected]')
 # a column dragged by hand (the drag sets a fixed -width) is the
 # user's: the fit stops touching it, and no -maxwidth clamps it
 COLDRAG=$(qu 'set T $::cfg_T
@@ -724,6 +731,11 @@ case "$WPARAMS|$WPREFUSE|$WGONE" in
     "|1|0")
         echo "OK: windows has no per-member params, and the widget dropped" ;;
     *) echo "FAIL: wparams=«$WPARAMS» refuse=$WPREFUSE widget-gone=$WGONE" ;;
+esac
+case "$LANDPARENT|$LANDPREV" in
+    "what coll coll widgets|what elem coll panel key probe")
+        echo "OK: a delete lands on the neighbour above, else the family node" ;;
+    *) echo "FAIL: landing after a delete: parent=«$LANDPARENT» prev=«$LANDPREV»" ;;
 esac
 case $COLDRAG in
     "w 400 user 1 name {}")

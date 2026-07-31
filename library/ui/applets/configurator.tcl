@@ -280,6 +280,19 @@ proc cfg-refresh-body {} {
     # «the tree stands empty» phase for it to fall into.
     set ::cfg_table [wm-call knob-table]
     set ::cfg_coll [wm-call collection-table]
+    # where to LAND if the selected row does not survive this pass —
+    # a Delete is exactly that: beside where it stood, the previous
+    # sibling, else the parent (the owner's ask, 2026-07-31 — being
+    # thrown to the top of the tree is a lost place). Captured as
+    # items: a survivor keeps its id, and cfg-select quietly skips a
+    # candidate that died along with the selection.
+    set fall {}
+    set sel [cfg-selected]
+    if {$sel ne ""} {
+        foreach f [list [$T item prevsibling $sel] [$T item parent $sel]] {
+            if {$f ne "" && $f != 0} { lappend fall $f }
+        }
+    }
     set ::cfg_item {}
     set ::cfg_node {}
     set ::cfg_fitem {}
@@ -355,8 +368,16 @@ proc cfg-refresh-body {} {
     # survivor keeps whatever the user made of it, which is the point
     foreach it $::cfg_fresh { $T collapse $it }
     cfg-fit
-    # the selection rode its item; only a selection whose item died —
-    # or a first build — stands empty, and gets the first knob
+    # the selection rode its item; if its row is gone, land beside
+    # where it stood (the fallbacks above, first survivor wins), and
+    # only with nowhere at all to land — a first build — take the
+    # first knob
+    if {[cfg-selected] eq ""} {
+        foreach f $fall {
+            cfg-select $f
+            if {[cfg-selected] ne ""} break
+        }
+    }
     if {[cfg-selected] eq ""} { cfg-select-first }
 }
 proc cfg-select-first {} {
