@@ -136,6 +136,14 @@ GOODMSG=$(qu 'cfg-set set-drag-slop 5; set l [winfo toplevel $::cfg_T].b.note; $
 SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
 # the heading names the tree, underlines its letter, and Alt+k leads
 # there — the host's facility, not this applet's flourish
+# the desk font MOVES and the applet follows — it used to keep the
+# type it was born with — and the chooser seeds from what the font is
+# NOW, not from the table's snapshot
+q 'set-desk-font {DejaVu Sans 14}' >/dev/null
+sleep 1
+FOLLOW=$(qu 'list host [font actual DeskFont -size] \
+                  seed [wm-call {font actual DeskFont -size}]')
+
 HEAD=$(qu 'set W [winfo toplevel $::cfg_T]
            focus $W.b.save
            event generate $W <Alt-Key-k>
@@ -318,6 +326,10 @@ case $HANDSIZED in
     "sized 1 geom 700x400"*)
         echo "OK: a window sized by hand keeps its size through a refresh" ;;
     *) echo "FAIL: hand-sized: $HANDSIZED" ;;
+esac
+case $FOLLOW in
+    "host 14 seed 14") echo "OK: the applet followed the desk font, live" ;;
+    *) echo "FAIL: font follow: $FOLLOW" ;;
 esac
 case $HEAD in
     "text {Knobs — everything this desk can be told} under 0 focus "*.t)

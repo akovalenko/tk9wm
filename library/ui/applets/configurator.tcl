@@ -637,11 +637,16 @@ proc cfg-color-dialog {name} {
 # draws with — even when the configured value is a two-word delta: a
 # chooser has to start somewhere real.
 proc cfg-font-dialog {name} {
-    if {![dict exists $::cfg_table $name computed]} {
-        cfg-status "$name has no computed font to start a chooser from" error
+    # ASKED NOW, not remembered: the table was fetched when the tree
+    # was last built, and the desk font may have moved several times
+    # since — the chooser opened on «Iosevka 11» long after the desk
+    # had stopped being that (the owner). The kind names the font;
+    # the desk knows what it currently IS.
+    set which [lindex [dict get $::cfg_table $name kind] 1]
+    if {[catch {wm-call [list font actual $which]} seed]} {
+        cfg-status "$name: the desk did not answer what $which is now" error
         return
     }
-    set seed [dict get $::cfg_table $name computed]
     tk fontchooser configure \
         -parent [winfo toplevel $::cfg_T] \
         -title "tk9wm: $name" \

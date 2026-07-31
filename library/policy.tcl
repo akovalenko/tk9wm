@@ -406,6 +406,7 @@ proc set-title-font {args} {
 }
 proc retitle-frames {} {
     title-metrics
+    after idle ui-restyle   ;# the applets are set in this desk's fonts
     panels-build  ;# the strip height follows the font too
     foreach {w t} [array get ::frameof] {
         # Re-asking the style, not just re-reading the metrics: this is
@@ -6453,6 +6454,17 @@ proc ui-exec-head {} {
     set head [reexec-head]
     if {[llength $head] == 1} { return {} }
     list [lindex $head 0]
+}
+# ...AND THE BRIDGE IS PUSHED, not only pulled. The host syncs when
+# it opens an applet, which is enough for what it opens NEXT and
+# nothing at all for what is already on the screen: the owner changed
+# the desk font four times over and the configurator kept the type it
+# was born with. So every change that alters ui-style tells the host
+# to re-read it — asynchronously, because a WM that waits on an
+# applet is a desk that stops.
+proc ui-restyle {} {
+    if {"tk9wm-ui" ni [winfo interps]} return
+    catch {send -async -- tk9wm-ui ui-style-sync}
 }
 # ui-style — the bridge from the desk's look to the applets' (the
 # owner's ask: the fonts must ARRIVE; and at least one light scheme).
