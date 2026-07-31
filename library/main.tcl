@@ -25,7 +25,11 @@ set ::tk9wm_library [file dirname [file normalize [info script]]]
 # is first read, and a second one — taken on a live desk — would freeze
 # the config's own values as the defaults it is reset to, which is a
 # reload that can no longer undo anything.
-unless-already {[array exists ::config_default]} { policy-snapshot-defaults }
+# Unconditional: the snapshot is incremental (each missing entry taken
+# when first seen), so a re-source fills in defaults for config_vars a
+# newer library brought — without it, the first Reload after such a
+# Reread died on the missing entry.
+policy-snapshot-defaults
 
 # The customization layer: ONE Tcl file, sourced after both layers are
 # in and before the first window is managed — the user's

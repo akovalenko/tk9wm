@@ -5804,8 +5804,20 @@ set config_vars {
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
 }
 proc policy-snapshot-defaults {} {
-    foreach v $::config_vars { set ::config_default($v) [set ::$v] }
-    set ::config_default(DeskFont) [font actual DeskFont]
+    # Incremental on purpose: a Reread may bring NEW config_vars into
+    # a running desk, and the reset must find a default for every one
+    # of them — each missing entry is snapshotted when first seen
+    # (its keep just established the code default), and the entries
+    # already taken stay as first taken: a config may have spoken
+    # since, and its values are not defaults.
+    foreach v $::config_vars {
+        if {![info exists ::config_default($v)]} {
+            set ::config_default($v) [set ::$v]
+        }
+    }
+    if {![info exists ::config_default(DeskFont)]} {
+        set ::config_default(DeskFont) [font actual DeskFont]
+    }
 }
 proc policy-reset {} {
     # The tray is deliberately NOT torn down here, only WISHED away:
