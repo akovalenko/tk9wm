@@ -21,8 +21,13 @@ export HOME="$HERE/emacs-config/home"
 export XDG_RUNTIME_DIR="$HERE/emacs-config/rt"
 cat > "$HERE/emacs-config/tk9wm.tcl" <<'EOF'
 set-terminal xterm
-panel-button tg  {emacs {daemon emtest frame TELEGA eval {(setq tg-evaled 42)}} key {<Super>g}}
+panel-button tg  {emacs {daemon emtest frame TELEGA eval {(setq tg-evaled 42)}
+                         env {EMTEST via-env}} key {<Super>g}}
 panel-button tgt {emacs {daemon emtest frame TTYEM eval {(setq tty-evaled t)} via terminal} key {<Super>h}}
+panel-button pl  {emacs {frame PLAINF daemon none eval {(setq plain t)}} key {<Super>j}}
+panel-button na  {emacs {daemon ghostd frame GHOSTF autodaemon off} key {<Super>k}}
+panel-button eb  {launch {exec sh -c "printenv BENV > $::env(HOME)/../benv-out" &}
+                  env {BENV yes} key {<Super>l}}
 EOF
 
 XDG_CONFIG_HOME="$HERE/emacs-config" \
@@ -76,8 +81,29 @@ REBUILT=$(ec '(and (seq-find (lambda (f) (equal (frame-parameter f (quote name))
 TOP=$(ec '(frame-parameter (tty-top-frame (frame-terminal (seq-find (lambda (f) (frame-parameter f (quote tty))) (frame-list)))) (quote name))')
 REEVAL=$(ec 'tty-evaled')
 GEVAL=$(ec 'tg-evaled')
+DENV=$(ec '(getenv "EMTEST")')
+
+echo "--- the plain life: daemon none"
+key super+j
+wait_for 20 xdotool search --classname '^PLAINF$'
+sleep 1
+PID2=$(xdotool search --classname '^PLAINF$' | head -1)
+PCLS=$(xprop -id "$PID2" WM_CLASS 2>/dev/null | sed 's/.*= //')
+key super+j            # must FIND, and stay silent toward any daemon
+
+echo "--- autodaemon off on a dead socket"
+key super+k
+sleep 3
+NASOCK=no
+[ -e "$XDG_RUNTIME_DIR/emacs/ghostd" ] && NASOCK=yes
+
+echo "--- a button's own env around a plain launch"
+key super+l
+sleep 1
+BENV=$(cat "$HERE/emacs-config/benv-out" 2>/dev/null)
 
 ec '(kill-emacs)' >/dev/null 2>&1
+xdotool windowkill "$PID2" 2>/dev/null
 kill $WM 2>/dev/null
 
 echo "--- emacs lines:"
@@ -106,10 +132,10 @@ if [ "$TEVAL2" = t ]; then
 else
     echo "FAIL: after the tty hit tty-evaled is $TEVAL2, want t again"
 fi
-if [ "$(grep -c 'WM: emacs: launch' "$HERE/wm-emacs.log")" = 1 ]; then
+if [ "$(grep -c 'WM: emacs: launch.*TELEGA' "$HERE/wm-emacs.log")" = 1 ]; then
     echo "OK: exactly one gui launch — the second fire found the frame"
 else
-    echo "FAIL: want exactly one gui launch line"
+    echo "FAIL: want exactly one TELEGA launch line"
 fi
 if grep -q 'panel tg: found' "$HERE/wm-emacs.log"; then
     echo "OK: the gui hit was a find"
@@ -140,6 +166,37 @@ if [ "$REEVAL" = t ]; then
     echo "OK: the rebuild re-ran the button's eval"
 else
     echo "FAIL: tty-evaled after rebuild is $REEVAL"
+fi
+if [ "$DENV" = '"via-env"' ]; then
+    echo "OK: the auto-started daemon inherited the spec's env"
+else
+    echo "FAIL: EMTEST in the daemon is $DENV, want via-env"
+fi
+if [ "$PCLS" = '"PLAINF", "Emacs"' ]; then
+    echo "OK: the plain-life button ran a bare emacs, named"
+else
+    echo "FAIL: plain frame WM_CLASS is $PCLS"
+fi
+if grep -q 'emacs: launch env.*emacsclient.*TELEGA' "$HERE/wm-emacs.log" \
+        && grep -qE 'emacs: launch emacs --name PLAINF' "$HERE/wm-emacs.log"; then
+    echo "OK: daemon launch went env+emacsclient, plain went bare emacs"
+else
+    echo "FAIL: launch lines do not show the two shapes"
+fi
+if grep -q 'panel pl: found' "$HERE/wm-emacs.log"; then
+    echo "OK: the plain hit was a find (same match, no server talk)"
+else
+    echo "FAIL: no found-line for the plain button"
+fi
+if [ "$NASOCK" = no ] && grep -q "can't find socket" "$HERE/wm-emacs.log"; then
+    echo "OK: autodaemon off left the dead socket dead, and the error is in the log"
+else
+    echo "FAIL: autodaemon off: socket spawned=$NASOCK"
+fi
+if [ "$BENV" = yes ]; then
+    echo "OK: a button's env wrapped its plain launch"
+else
+    echo "FAIL: benv-out says '$BENV'"
 fi
 if grep -q 'handler error' "$HERE/wm-emacs.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-emacs.log"

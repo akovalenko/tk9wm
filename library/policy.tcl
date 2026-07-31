@@ -4158,14 +4158,45 @@ proc terminal-window {w} {
 # a tty, select-frame-set-input-focus (plus a redisplay) is what moves
 # tty-top-frame; bare raise-frame does not.
 keep emacs_frames gui
+keep emacs_daemons on      ;# off = every emacs button is plain lookup-or-run
+keep emacs_autodaemon on   ;# off = a dead socket is an error, never a spawn
 proc set-emacs-frames {mode} {
     if {$mode ni {gui terminal}} { error "set-emacs-frames: gui or terminal" }
     set ::emacs_frames $mode
 }
+# Whether a missing daemon is STARTED (-a '') or is an error. Default
+# on — the one-command ensure is half the layer's point — but some
+# desks have systemd (or a session script) owning the daemons, and an
+# accidentally auto-started one lives in whatever environment the WM
+# happened to have: the owner's case for the off switch. Per button:
+# the `autodaemon` spec key.
+proc set-emacs-autodaemon {mode} {
+    if {$mode ni {on off}} { error "set-emacs-autodaemon: on or off" }
+    set ::emacs_autodaemon $mode
+}
+# ...and whether there are daemons AT ALL. Off = every emacs button
+# degrades to the simple life: lookup by the same match, run
+# `emacs --name FRAME --eval ...` when nothing lives (emacs puts
+# --name into the WM_CLASS instance exactly like xterm does, so the
+# match never changes). No server means no eval-on-hit and no tty
+# repair — the hit is the whole story; that is the price and it is
+# stated here rather than discovered. Per button: `daemon none`.
+proc set-emacs-daemons {mode} {
+    if {$mode ni {on off}} { error "set-emacs-daemons: on or off" }
+    set ::emacs_daemons $mode
+}
+# Both knobs are consulted AT FIRE TIME, never baked in at the
+# button's declaration — a knob set later in the config must win
+# (the styleof lesson, again).
+proc emacs-plain? {spec} {
+    expr {$::emacs_daemons eq "off"
+          || ([dict exists $spec daemon] && [dict get $spec daemon] eq "none")}
+}
 proc emacs-spec-check {who spec} {
     foreach k [dict keys $spec] {
-        if {$k ni {daemon frame eval via}} {
-            error "$who: unknown emacs key \"$k\" (daemon frame eval via)"
+        if {$k ni {daemon frame eval via autodaemon env}} {
+            error "$who: unknown emacs key \"$k\"\
+ (daemon frame eval via autodaemon env)"
         }
     }
     if {![dict exists $spec frame] || [dict get $spec frame] eq ""} {
@@ -4174,6 +4205,41 @@ proc emacs-spec-check {who spec} {
     if {[dict exists $spec via] && [dict get $spec via] ni {gui terminal}} {
         error "$who: via is gui or terminal"
     }
+    if {[dict exists $spec autodaemon]
+            && [dict get $spec autodaemon] ni {on off}} {
+        error "$who: autodaemon is on or off"
+    }
+    dict-shaped "$who: emacs env" $spec env
+}
+# The styleguard lesson, applied everywhere a config hands us a dict:
+# an odd list must die at ITS declaration, not inside a dict call at
+# some later use with a stack that names nobody.
+proc dict-shaped {who d key} {
+    if {[dict exists $d $key] && [llength [dict get $d $key]] % 2} {
+        error "$who is not a dict (odd length):\
+ «[dict get $d $key]» — values with spaces need their own braces"
+    }
+}
+# The env the launch runs under, applied around a SCRIPT: children of
+# any exec inherit ::env, and the previous values go back whatever
+# happens. An empty value means VAR= (set empty), not unset.
+proc with-env {envd script} {
+    set saved {}
+    dict for {var val} $envd {
+        lappend saved $var [expr {[info exists ::env($var)]
+                                  ? [list [set ::env($var)]] : {}}]
+        set ::env($var) $val
+    }
+    set code [catch {uplevel #0 $script} res opts]
+    foreach {var prev} $saved {
+        if {[llength $prev]} {
+            set ::env($var) [lindex $prev 0]
+        } else {
+            unset -nocomplain ::env($var)
+        }
+    }
+    if {$code} { return -options $opts $res }
+    return $res
 }
 # The name, spelled into elisp. Config-authored, so sane — but a quote
 # or backslash must not silently change the expression's shape.
@@ -4194,16 +4260,51 @@ proc emacs-client-cmd {spec} {
 # terminal name coincide and the shared match keeps holding.
 proc emacs-launch {spec} {
     set frame [dict get $spec frame]
-    set F "((name . [emacs-lisp-string $frame]))"
     set via $::emacs_frames
     if {[dict exists $spec via]} { set via [dict get $spec via] }
-    set cmd [concat [emacs-client-cmd $spec] [list -a {}]]
+    # The spec's env rides the argv (exec env VAR=VAL ...), so an
+    # auto-started daemon inherits it too — the owner's case: a
+    # daemon born of -a '' otherwise lives in whatever environment
+    # the WM happened to have.
+    set pre {}
+    if {[dict exists $spec env] && [dict size [dict get $spec env]]} {
+        set pre [list env]
+        dict for {var val} [dict get $spec env] { lappend pre $var=$val }
+    }
+    if {[emacs-plain? $spec]} {
+        # The simple life, by request: lookup-or-run, no server
+        # anywhere. emacs puts --name into the WM_CLASS instance
+        # exactly like xterm, so the match is untouched; the eval
+        # runs once, at birth — with no server there is no
+        # eval-on-hit and no tty repair, and the hit is the whole
+        # story.
+        if {$via eq "terminal"} {
+            set run [concat $pre [list emacs -nw]]
+            if {[dict exists $spec eval]} {
+                lappend run --eval [dict get $spec eval]
+            }
+            spawn-terminal [list name $frame run $run]
+        } else {
+            set cmd [concat $pre [list emacs --name $frame]]
+            if {[dict exists $spec eval]} {
+                lappend cmd --eval [dict get $spec eval]
+            }
+            puts "WM: emacs: launch $cmd"
+            exec {*}$cmd &
+        }
+        return
+    }
+    set F "((name . [emacs-lisp-string $frame]))"
+    set auto $::emacs_autodaemon
+    if {[dict exists $spec autodaemon]} { set auto [dict get $spec autodaemon] }
+    set cmd [emacs-client-cmd $spec]
+    if {$auto eq "on"} { lappend cmd -a {} }
     if {$via eq "terminal"} {
-        set run [concat $cmd [list -t -F $F]]
+        set run [concat $pre $cmd [list -t -F $F]]
         if {[dict exists $spec eval]} { lappend run --eval [dict get $spec eval] }
         spawn-terminal [list name $frame run $run]
     } else {
-        lappend cmd -c -F $F -n
+        set cmd [concat $pre $cmd [list -c -F $F -n]]
         if {[dict exists $spec eval]} { lappend cmd --eval [dict get $spec eval] }
         puts "WM: emacs: launch $cmd"
         exec {*}$cmd &
@@ -4241,6 +4342,9 @@ proc emacs-activate {spec w} {
     # on the hit too. A smarter policy — "stay put when already in a
     # telega buffer" — is the eval's own business: it runs inside the
     # frame and can ask where it is.
+    # A plain-mode button (set-emacs-daemons off, or daemon none) has
+    # no server to talk to: the hit IS the whole story, by contract.
+    if {[emacs-plain? $spec]} return
     set isgui [expr {[lindex [client-class $w] 1] eq "Emacs"}]
     if {$isgui && ![dict exists $spec eval]} return
     set fix t
@@ -4461,6 +4565,7 @@ proc panel-button {label settings} {
     # no name word stays possible — simply never matches, which IS the
     # launch-only degradation, and spawn-terminal says so when it
     # drops the name.
+    dict-shaped "panel-button $label: env" $settings env
     if {[dict exists $settings terminal]} {
         set t [dict get $settings terminal]
         foreach k [dict keys $t] {
@@ -4469,6 +4574,8 @@ proc panel-button {label settings} {
  (name run title env args)"
             }
         }
+        dict-shaped "panel-button $label: terminal env" $t env
+        dict-shaped "panel-button $label: terminal args" $t args
         if {![dict exists $settings match]} {
             if {[dict exists $t name] && [dict get $t name] ne ""} {
                 dict set settings match \
@@ -5028,7 +5135,15 @@ proc panel-fire {name i} {
     } elseif {[dict exists $settings launch]} {
         puts "WM: panel $label: launch"
         panel-flash $name $i firing
-        if {[catch {uplevel #0 [dict get $settings launch]} err]} {
+        # The button's own env wraps the launch — any button's, the
+        # derived ones included: children of every exec inherit ::env,
+        # and with-env puts the previous values back. Launch only: a
+        # hit's activate path talks to things already running.
+        set script [dict get $settings launch]
+        if {[dict exists $settings env]} {
+            set script [list with-env [dict get $settings env] $script]
+        }
+        if {[catch {uplevel #0 $script} err]} {
             puts "WM: panel $label: launch FAILED: $err"
         }
     } else {
@@ -5686,7 +5801,7 @@ set config_vars {
     key_echo key_echo_place titlebar_buttons titlebar_gestures fade font_kin
     widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
-    terminal_choice terminal_found emacs_frames
+    terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
 }
 proc policy-snapshot-defaults {} {
     foreach v $::config_vars { set ::config_default($v) [set ::$v] }

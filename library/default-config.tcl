@@ -330,6 +330,16 @@
 #       match {filter -class xterm} launch {exec xterm &} key {<Super>x}
 #   }
 #
+# ...and `env`, on ANY button: a VAR VALUE dict applied around the
+# launch — whatever the launch is, a plain exec script or a derived
+# terminal/emacs one — and put back afterwards. An empty value means
+# VAR= (set empty), not unset:
+#   panel-button ff {
+#       match {filter -class firefox}
+#       launch {exec firefox &}
+#       env {GTK_IM_MODULE fcitx}
+#   }
+#
 # The strip's shape. set-panel-side top|bottom|left|right picks the
 # screen edge (default bottom; left and right make it a vertical
 # strip). While no button face resolves to an icon the strip is a thin
@@ -469,8 +479,31 @@
 #       --eval '(telega)' -n
 #
 # Keys: `frame` (required — the identity), `daemon` (the -s socket;
-# omit for the default daemon), `eval`, `via gui|terminal` (this
-# button's answer to the question below).
+# omit for the default daemon; `none` — see the plain life below),
+# `eval`, `via gui|terminal` (this button's answer to the question
+# below), `autodaemon on|off` and `env` (both below).
+#
+# AUTO-STARTING DAEMONS is a choice. Default on — emacsclient -a ''
+# brings the daemon up under the right socket in the same breath —
+# but a desk where systemd (or a session script) owns the daemons
+# wants a missing one to be an ERROR, not a spawn into whatever
+# environment the WM had:
+#   set-emacs-autodaemon off
+# ...and per button, the `autodaemon` key overrides the desk answer.
+# When a daemon IS auto-started, the spec's `env` rides the command
+# line (exec env VAR=VAL emacsclient ...), so the daemon inherits it:
+#   emacs {daemon telega frame TELEGA eval (telega)
+#          env {TELEGA_DATA_DIR /tank/telega}}
+#
+# NO DAEMONS AT ALL is also a choice — the plain life:
+#   set-emacs-daemons off            ;# desk-wide
+#   emacs {frame TELEGA daemon none eval (telega)}   ;# per button
+# A plain button is lookup-or-run: the same match (emacs puts --name
+# into the WM_CLASS instance exactly like xterm), and the launch is
+# simply `emacs --name TELEGA --eval (telega)` — in terminal mode,
+# `emacs -nw ...` inside the named terminal. The stated price: with
+# no server there is no eval-on-hit and no C-x 5 2 repair — a hit
+# focuses the window, full stop.
 #
 # The eval runs in the fresh frame AND on every hit: the frame may
 # have wandered off to other work, and the button means "back to
