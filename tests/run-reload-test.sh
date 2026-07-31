@@ -144,6 +144,16 @@ if [ "$JUST3" = 2 ]; then
 else
     echo "FAIL: $JUST3 «config applied» lines, want 2"
 fi
+# from the first reload on: pass 2 rebuilds its one panel once, pass 3
+# (empty config) builds nothing — a build per config SENTENCE would
+# push this past one (the startup is exempt: its widget pass may
+# honestly rebuild once more when the widgets' thickness first lands)
+BUILDS=$(sed -n '/config reload requested/,$p' "$HERE/wm-reload.log" | grep -c 'panel .* up (')
+if [ "$BUILDS" -le 1 ]; then
+    echo "OK: the reloads rebuilt the strips once in total ($BUILDS), not once per config sentence"
+else
+    echo "FAIL: $BUILDS strip builds across two reloads — the hold leaks"
+fi
 if grep -q 'handler error' "$HERE/wm-reload.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-reload.log"
 fi

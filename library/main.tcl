@@ -130,12 +130,16 @@ proc reload-config {} {
     puts "WM: config reload requested"
     # One transition, not the flapping a rebuild makes on the way — see
     # workarea-held. The clients hear about the workarea once, when the
-    # config has finished saying what it is.
+    # config has finished saying what it is — and the STRIPS rebuild
+    # once too (panels-held): the standing panels ride the load as
+    # they are, and the release builds them from the final word.
     workarea-held {
-        policy-reset
-        load-config
-        load-custom
-        policy-apply
+        panels-held {
+            policy-reset
+            load-config
+            load-custom
+            policy-apply
+        }
     }
 }
 
@@ -207,7 +211,7 @@ proc tk9wm-main {args} {
     # on the way up. Nothing is managed yet, so nothing is hurt — but
     # one publication is the truth and two are noise, and the startup
     # log is where one looks to learn what the shape of a load is.
-    workarea-held { load-config; load-custom; welcome-inject }
+    workarea-held { panels-held { load-config; load-custom; welcome-inject } }
     substrate-start
 
     if {[lindex $args 0] eq "demo"} {

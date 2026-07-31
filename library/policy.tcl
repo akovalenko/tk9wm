@@ -454,7 +454,15 @@ proc retitle-frames {} {
         # desk font grew by one). The origin follows the same rule as
         # everywhere else: move it in, never shrink it, and leave a
         # window that state owns — fullscreen — alone.
-        if {![info exists ::fullscreen($w)]
+        # ...but NOT in the middle of a reload (wa_hold): the workarea
+        # is mid-transition then — half the config spoken, or none —
+        # and a clamp against it moves windows the release's REFLOW
+        # was about to judge from their held positions. The clamp
+        # jumping first is what broke the corner window's re-stick
+        # and moved a column under follow-off (measured, the reflow
+        # suite); held, the one transition at release owns ALL the
+        # moving, which is the reflow's whole design.
+        if {!$::wa_hold && ![info exists ::fullscreen($w)]
                 && [regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
                         [wm geometry $t] -> fw fh fx fy]} {
             lassign [clamp-to-workarea $fx $fy $fw $fh] nx ny
@@ -5007,8 +5015,24 @@ proc wm-widget-remove {name} {
 proc panel-rebuild-soon {} {
     array unset ::panel_geo    ;# the knob that asked may have changed the shape
     if {![info exists ::panel_pending]} {
-        set ::panel_pending 1
-        after idle {unset ::panel_pending; panels-build}
+        set ::panel_pending [after idle panels-build]
+    }
+}
+# The bracket a RELOAD holds the strips in: inside it, panels-build
+# is a note that a build is wanted; the release performs the ONE
+# build the whole load amounts to. The standing strips are left
+# exactly as they are meanwhile — wrong-sized for the half second a
+# load takes, by the owner's own trade (2026-07-31): stale geometry
+# over a teardown flickering after every config sentence that
+# touches a panel.
+set panels_hold 0
+proc panels-held {script} {
+    set ::panels_hold 1
+    try {
+        uplevel 1 $script
+    } finally {
+        set ::panels_hold 0
+        panels-build
     }
 }
 # Every SHOWN button of every panel, as {panel index name label
@@ -5195,12 +5219,17 @@ proc panel-badge-font {name} {
 # index is always a legal component. The mapping is remembered in
 # ::panel_win, which is what every later poke goes through.
 proc panels-build {} {
-    array unset ::panel_geo    ;# fonts, RandR and the config all land here
-    foreach name [array names ::panel_win] {
-        destroy $::panel_win($name)
-        unset ::panel_win($name)
+    # A direct build ABSORBS a scheduled one: half the callers come
+    # through panel-rebuild-soon's idle timer and the other half call
+    # straight here, and a timer left armed past a direct build
+    # rebuilt every strip once more — for nobody (it was one of the
+    # three builds the owner's reload flickered through).
+    if {[info exists ::panel_pending]} {
+        after cancel $::panel_pending
+        unset ::panel_pending
     }
-    array unset ::panel_zone
+    if {$::panels_hold} return
+    array unset ::panel_geo    ;# fonts, RandR and the config all land here
     # a font outlives the panel that asked for it (a reload can drop a
     # panel entirely); collect the orphans rather than leak one per name
     foreach f [font names] {
@@ -5216,9 +5245,30 @@ proc panels-build {} {
         dict set ::panels $name shown [panel-resolve $name 1]
     }
     set idx 0
+    set built {}
     dict for {name p} $::panels {
         incr idx
-        if {[llength [dict get $p shown]]} { panel-build $name $idx }
+        if {[llength [dict get $p shown]]} {
+            panel-build $name $idx
+            lappend built $name
+        }
+    }
+    # The strips nobody rebuilt come down. Reconciliation, not the
+    # old scorched-earth sweep: a surviving panel REUSED its window
+    # inside panel-build, so what dies here is only the window of a
+    # panel that lost its buttons or its whole declaration. A path
+    # may have changed hands when the declaration order moved — a
+    # window a survivor took over is not a leftover.
+    foreach name [array names ::panel_win] {
+        if {$name in $built} continue
+        set w $::panel_win($name)
+        unset ::panel_win($name)
+        array unset ::panel_zone $name
+        set claimed 0
+        foreach b $built {
+            if {$::panel_win($b) eq $w} { set claimed 1; break }
+        }
+        if {!$claimed} { destroy $w }
     }
     tray-layout      ;# a panel's thickness is the tray's too — it follows
     # A strip that just came up is a NEW window, and whatever rode the
@@ -5246,6 +5296,7 @@ proc panel-build {name idx} {
     set ::panel_zone($name) $zone
     set er [expr {8 + $zone}]   ;# the face's east inner pad
     set P .panel$idx
+    set old [panel-window $name]   ;# BEFORE the claim below erases it
     set ::panel_win($name) $P
     # A VERTICAL strip is one column, and a column wants one width: the
     # faces are stretched to the widest button's content so their edges
@@ -5265,8 +5316,23 @@ proc panel-build {name idx} {
     # the pad, the item is exactly face + 2*fgap and the edge is one
     # number in both.
     set fgap [dict get $g fgap]
-    toplevel $P -background $::OUTLINE
-    wm overrideredirect $P 1
+    # RECONCILIATION (the owner's ask, 2026-07-31): the band is a
+    # MAPPED X window, and tearing it down per rebuild was the
+    # flicker — the desk shows through, the new window maps and
+    # restacks, once per build. A surviving panel keeps its toplevel:
+    # only the CONTENT (the treectrl) is built from nothing, and the
+    # band itself just moves or resizes in place below, when it moves
+    # at all. The window is torn down only when the path changed
+    # hands (the declaration order moved) — rare, and honestly a
+    # different panel then.
+    if {$old ne "" && $old ne $P} { destroy $old }
+    if {[winfo exists $P]} {
+        destroy $P.t
+        $P configure -background $::OUTLINE
+    } else {
+        toplevel $P -background $::OUTLINE
+        wm overrideredirect $P 1
+    }
     set T [treectrl $P.t -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
         -background #2e3436 -itemheight $itemh \
@@ -7175,6 +7241,13 @@ proc policy-reset {} {
     # window, which does not always survive being un-embedded (see
     # tray-reconcile).
     foreach v $::config_vars { set ::$v $::config_default($v) }
+    # The geometry memo goes with the variables it was measured from:
+    # left standing, a mid-load workarea question answered with a
+    # FRANKENSTEIN — the RESET panel's default side wearing the OLD
+    # config's memoized thickness — and the retitle clamp then moved
+    # windows against a workarea no config ever declared (measured:
+    # the reflow suite's corner window came off its edge).
+    array unset ::panel_geo
     # The base and the RELATIONS are the resettable state; the derived
     # fonts are a consequence and are recomputed from them.
     font configure DeskFont {*}$::config_default(DeskFont)

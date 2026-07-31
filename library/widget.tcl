@@ -476,6 +476,12 @@ proc widget-tick {name} {
 keep widgets_building 0
 proc widgets-build {} {
     if {$::widgets_building} return
+    # Held with the strips (see panels-held): built in the middle of
+    # a reload, the widgets lay out against strips that have not
+    # rebuilt yet — the owner watched his clock ride to the middle of
+    # the panel and back, once per load — and the release's
+    # panels-build re-runs this pass anyway, on the final strips.
+    if {[info exists ::panels_hold] && $::panels_hold} return
     set ::widgets_building 1
     try {
         foreach name [array names ::widget_top] { destroy $::widget_top($name) }
