@@ -611,6 +611,26 @@
 #
 # ---- key bindings ----
 #
+# KEYS COME IN FAMILIES, and a family is what one turns on, off or
+# MOVES. Two are declared in code and both are on by default:
+#
+#   accords — the stumpwm-shaped prefix tree (window menu, window
+#     list, reload, quit) plus the key that says what is under the
+#     prefix you are standing in. Both are parameters:
+#       wm-keys accords -prefix {<Super>x} -help {<Super>slash}
+#     ...and the whole tree moves, help key and all.
+#   windows — the reflexes hands arrive with, reckless on purpose
+#     because applications want these chords too: the switcher, the
+#     window menu, close, and hide-everything:
+#       wm-keys windows -close {<Ctrl><Alt>w} -hide {<Super>m}
+#
+# Either goes away whole:
+#   wm-keys windows off
+#   wm-keys accords off        ;# ...and with it the help key
+#
+# Re-declaring a bundle UNBINDS what its last instance bound, which is
+# what makes moving a prefix a move and not a copy.
+#
 # wm-bind SPEC SCRIPT binds a chord sequence, stumpwm-style: only the
 # FIRST chord is a global grab; the rest is collected under a temporary
 # keyboard grab (Esc or an unbound key aborts). A chord is any number

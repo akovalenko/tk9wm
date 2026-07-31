@@ -94,6 +94,22 @@ key z           # unbound -> abort (see the note in the header)
 key alt+space   # still alive after the abort
 key Escape
 
+# BUNDLES: the accord tree MOVES when its prefix does, the reflex
+# bundle can be turned off whole, and the desk says where a thing
+# lives instead of assuming it
+qk() { printf '%s\n' "$1" > "$HERE/qk.tcl"
+       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/qk.tcl"; }
+BUNDLE=$(qk 'wm-keys accords -prefix {<Super>x} -help {<Super>slash}
+             list moved [dict exists $::keymap [join [parse-chord {<Super>x}] ,]] \
+                  oldgone [dict exists $::keymap [join [parse-chord {<Super>t}] ,]] \
+                  help [chord-of key-help-open]')
+BUNDLEOFF=$(qk 'wm-keys windows off
+                list alttab [dict exists $::keymap [join [parse-chord {<Alt>Tab}] ,]] \
+                     altf4 [dict exists $::keymap [join [parse-chord {<Alt>F4}] ,]]')
+BUNDLEBACK=$(qk 'wm-keys windows
+                 list alttab [dict exists $::keymap [join [parse-chord {<Alt>Tab}] ,]] \
+                      close [chord-of Close]')
+
 kill $WM $CA $CB 2>/dev/null
 
 # Actors by manage order (the 0.5 s spacing makes it deterministic).
@@ -160,3 +176,15 @@ else
     echo "FAIL: no winops open after the abort"
 fi
 check_invariants "$HERE/wm-key.log"
+
+echo "--- bundles: {$BUNDLE} {$BUNDLEOFF} {$BUNDLEBACK}"
+case "$BUNDLE" in
+    "moved 1 oldgone 0 help Super+slash")
+        echo "OK: the accord tree moved with its prefix, help key and all" ;;
+    *) echo "FAIL: bundle move: $BUNDLE" ;;
+esac
+case "$BUNDLEOFF|$BUNDLEBACK" in
+    "alttab 0 altf4 0|alttab 1 close Alt+F4")
+        echo "OK: the reflex bundle goes off and comes back whole" ;;
+    *) echo "FAIL: bundle off/on: $BUNDLEOFF | $BUNDLEBACK" ;;
+esac

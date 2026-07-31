@@ -5869,27 +5869,143 @@ proc reflow-client {w old new} {
 # reset drops every grab this WM holds (a config is free to bind over a
 # default, and an override cannot be un-bound piecemeal), and then the
 # in-code defaults are laid down again as a fresh floor.
-proc policy-default-bindings {} {
-    wm-bind {<Alt>space} winops
-    wm-bind {<Super>t w m} winops
-    wm-bind {<Alt>Tab} winlist
-    wm-bind {<Super>t w w} winlist
+# ---- key bundles: bindings that come and go together ----
+# A desk's keys are not thirty unrelated declarations; they come in
+# FAMILIES — the stumpwm-flavored prefix tree, the Windows-shaped
+# reflexes one's hands already have — and a family is what a user
+# wants to turn on, off or MOVE (the owner, 2026-08-01: "подставьте
+# своё вместо Win+h и Win+t"). So a bundle is declared once, with
+# parameters, and `wm-keys` is how a config or a click speaks about
+# it:
+#
+#   wm-keys accords -prefix {<Super>x}   ;# the whole tree moves
+#   wm-keys windows off                  ;# the reflexes go away
+#
+# Re-declaring a bundle UNBINDS what its previous instance bound —
+# which is the whole point of parameterizing rather than asking a
+# config layer to move subtrees: the family knows its own members and
+# nothing else has to.
+keep key_bundles {}       ;# name -> {params {...} chords {...}}
+set key_bundle_defs {}    ;# name -> {params {...} body {...}}
+proc key-bundle {name params body} {
+    dict set ::key_bundle_defs $name [dict create params $params body $body]
+}
+# Inside a bundle body: bind, and remember what was bound so the next
+# instance can take it away.
+proc bundle-bind {spec script {label ""}} {
+    wm-bind $spec $script $label
+    dict lappend ::key_bundle_current chords $spec
+}
+proc wm-keys {name args} {
+    if {![dict exists $::key_bundle_defs $name]} {
+        error "wm-keys: no such bundle «$name» —\
+ one of: [dict keys $::key_bundle_defs]"
+    }
+    # what the previous instance bound goes first, whatever happens next
+    if {[dict exists $::key_bundles $name]} {
+        foreach spec [dict get $::key_bundles $name chords] {
+            catch {wm-unbind $spec}
+        }
+        dict unset ::key_bundles $name
+    }
+    if {[lindex $args 0] eq "off"} {
+        puts "WM: keys: bundle $name off"
+        return
+    }
+    set def [dict get $::key_bundle_defs $name]
+    # -prefix on the call, prefix in the declaration: the dash is how
+    # one WRITES an option and not part of its name, and merging the
+    # two spellings quietly gave the body its defaults while the
+    # caller's values sat beside them under other keys (caught by the
+    # regression, which is what a regression is for).
+    set given {}
+    foreach {k v} $args {
+        set k [string trimleft $k -]
+        if {![dict exists [dict get $def params] $k]} {
+            error "wm-keys $name: no parameter «$k» —\
+ one of: [dict keys [dict get $def params]]"
+        }
+        dict set given $k $v
+    }
+    set params [dict merge [dict get $def params] $given]
+    set ::key_bundle_current [dict create params $params chords {}]
+    if {[catch {apply [list {params} [dict get $def body]] $params} err opts]} {
+        # what it managed to bind is still ours to take away later
+        dict set ::key_bundles $name $::key_bundle_current
+        return -options $opts $err
+    }
+    dict set ::key_bundles $name $::key_bundle_current
+    puts "WM: keys: bundle $name on ([llength [dict get $::key_bundle_current chords]]\
+ bindings)"
+}
+# WHICH CHORD DOES THIS? — the keymap read backwards, for anything
+# that wants to TELL the user where a thing lives instead of assuming
+# (the welcome mat asks; a help line could). Empty when nothing is
+# bound to it, which is an answer too.
+proc chord-of {script} {
+    return [keymap-find $::keymap $script {}]
+}
+proc keymap-find {node script path} {
+    dict for {k entry} $node {
+        lassign [split $k ,] mods ks
+        set here [concat $path [list [chord-name $mods $ks]]]
+        lassign $entry kind payload
+        if {$kind eq "map"} {
+            set r [keymap-find $payload $script $here]
+            if {$r ne ""} { return $r }
+        } elseif {[string trim $payload] eq [string trim $script]} {
+            return [join $here " "]
+        }
+    }
+    return ""
+}
+
+# THE ACCORD TREE — stumpwm's shape: one prefix, everything under it,
+# and a key that says what is under the prefix you are standing in.
+# Both are parameters, because a prefix is exactly the thing a user
+# has an opinion about.
+key-bundle accords {prefix {<Super>t} help {<Super>h}} {
+    set p [dict get $params prefix]
+    bundle-bind [concat $p {w m}] winops
+    bundle-bind [concat $p {w w}] winlist
+    bundle-bind [concat $p {w r}] Reload
+    bundle-bind [concat $p q] Quit
     # The keymap from the top — the same key that answers "what is
     # under this prefix" inside a sequence answers "what is there at
     # all" outside one (see key-help-open).
-    wm-bind {<Super>h} key-help-open "every key this desk answers to"
+    bundle-bind [dict get $params help] key-help-open \
+        "every key this desk answers to"
+    set-key-help [dict get $params help]
+}
+# THE REFLEXES one's hands arrive with. Reckless on purpose: these
+# chords belong to applications too, and taking them is a choice —
+# which is why they are a bundle one can turn off, and why the ones
+# that CLOSE things are named separately from the ones that only
+# look.
+key-bundle windows {
+    switcher {<Alt>Tab} menu {<Alt>space} close {<Alt>F4} hide {<Super>d}
+} {
+    bundle-bind [dict get $params switcher] winlist
+    bundle-bind [dict get $params menu] winops
+    bundle-bind [dict get $params close] Close "close the active window"
+    bundle-bind [dict get $params hide] {Apply-To-Matching always Minimize} \
+        "minimize everything"
+}
+
+proc policy-default-bindings {} {
+    wm-keys accords
+    wm-keys windows
     # Re-read the config in place. Deliberately a default: the whole
     # point of the reload is to try a config without restarting, and
     # having to configure the way to reload the config first would be a
     # poor joke. Bind over it like any other default.
-    wm-bind {<Super>t w r} Reload
+
     # The way out, and a default for the same reason: a desk you can
     # only leave by finding another terminal and killing yourself is
     # the "how do I exit vim" joke with a whole login in it. It sits in
     # the Super+t family with the rest, one letter under a prefix — far
     # enough that nobody arrives by accident, and guessable from the
     # others rather than needing to be looked up (owner, 2026-07-29).
-    wm-bind {<Super>t q} Quit
 }
 # Once per process, not per source: the keymap is kept state a config
 # writes into, "later binds win" — so a bare call here made every
@@ -6082,7 +6198,7 @@ proc custom-erase {name} {
 # than rendered as knobs.
 set knob_vocab [concat [dict keys $knob_registry] \
     {wm-font wm-bind wm-unbind wm-widget wm-widget-remove
-     panel-button panel-button-set panel-button-remove}]
+     panel-button panel-button-set panel-button-remove wm-keys}]
 set knob_layer ""
 keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # The key is semantic: a plain knob is one key however often it is
@@ -6096,6 +6212,7 @@ proc knob-key {words} {
             return "panel-button [lindex $words 1]"
         }
         wm-unbind { return "wm-bind [lindex $words 1]" }
+        wm-keys { return "wm-keys [lindex $words 1]" }
         wm-widget-remove { return "wm-widget [lindex $words 1]" }
         default { return $p }
     }
@@ -6401,7 +6518,7 @@ set config_vars {
     widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
-    welcome
+    welcome key_bundles
 }
 proc policy-snapshot-defaults {} {
     # Incremental on purpose: a Reread may bring NEW config_vars into

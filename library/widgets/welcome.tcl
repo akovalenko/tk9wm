@@ -47,9 +47,17 @@ proc welcome-widget-build {w opts} {
     $w.t insert end "About this desk" {link about}
     $w.t insert end " — what is running, from the running desk's own\
  mouth.\n\n"
+    # ASK THE KEYMAP, do not assume: the help key is a parameter of
+    # the accords bundle and a config may have moved it, in which case
+    # advising Super+h would be advice to press nothing (the owner).
+    # Bound to nothing at all — the sentence simply loses its tail.
+    set hk [chord-of key-help-open]
     $w.t insert end "See every key this desk answers to" {link keys}
-    $w.t insert end " — the same list Super+h shows, from the top\
- (Super is the key most keyboards label Win).\n\n"
+    if {$hk eq ""} {
+        $w.t insert end ".\n\n"
+    } else {
+        $w.t insert end " — also on $hk.\n\n"
+    }
     $w.t insert end "All type bigger" {link fup}
     $w.t insert end "  /  "
     $w.t insert end "smaller" {link fdn}
