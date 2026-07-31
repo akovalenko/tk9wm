@@ -42,16 +42,25 @@ sleep 0.5
 FADE=$(q 'set ::fade')
 KT=$(q 'set t [knob-table]; list [dict get $t set-fade value] [dict get $t set-minimize kind] [dict get $t set-panel-side value] [dict get $t set-title-font group]')
 
-# COLLECTIONS: a set REPLACES by label (not adds), a remove takes the
-# button and its chord away, and the file keeps the ordered
-# declarations in the order they were made
-q 'custom-write {panel-button-set dummy {launch {exec false &} key {<Super>9}}}' >/dev/null
-q 'custom-write {panel-button-remove second}' >/dev/null
+# COLLECTIONS: the label is the primary key — a custom word REFINES
+# the config's button instead of adding a second one; owning the set
+# (panel-buttons-own) sweeps the panel, the declarations after it ARE
+# the set, and a swept button is simply absent — no remove verb. The
+# raw memory survives the sweep, so the re-admitted dummy keeps the
+# launch only the config ever said. And it must all REPLAY the same
+# from the file, with the sweep written above the buttons.
+q 'custom-write {panel-button dummy {key {<Super>9}}}' >/dev/null
+q 'custom-write {panel-buttons-own default}' >/dev/null
+q 'custom-write {panel-button dummy {key {<Super>9}}}' >/dev/null
 q 'custom-write {wm-bind {<Super>7} {list seven}}' >/dev/null
 sleep 0.5
-COLL=$(q 'set names {}
+collq() { q 'set names {}
           foreach b [panel-cfg default buttons] { lappend names [lindex $b 0] }
-          list buttons $names                dummykey [dict exists [lindex [lindex [panel-cfg default buttons] 0] 1] key]                secondchord [dict exists $::keymap [join [parse-chord {<Super>2}] ,]]                newchord [dict exists $::keymap [join [parse-chord {<Super>9}] ,]]')
+          list buttons $names                dummylaunch [dict exists [lindex [lindex [panel-cfg default buttons] 0] 1] launch]                secondchord [dict exists $::keymap [join [parse-chord {<Super>2}] ,]]                newchord [dict exists $::keymap [join [parse-chord {<Super>9}] ,]]'; }
+COLL=$(collq)
+q reload-config >/dev/null
+sleep 0.5
+COLL2=$(collq)
 FILEORDER=$(grep -n 'panel-button\|wm-bind\|set-fade' "$HERE/custom-config/tk9wm.custom.tcl" | tr '
 ' ' ')
 
@@ -126,15 +135,22 @@ else
     echo "FAIL: after hide {$AFTERHIDE}, file: $(cat "$HERE/custom-fresh/tk9wm.custom.tcl" 2>/dev/null | tail -1)"
 fi
 echo "--- collections: $COLL"
+echo "--- after reload: $COLL2"
 echo "--- file: $FILEORDER"
+WANTCOLL="buttons dummy dummylaunch 1 secondchord 0 newchord 1"
 case $COLL in
-    "buttons dummy dummykey 1 secondchord 0 newchord 1")
-        echo "OK: set replaced by label, remove took the button and its chord" ;;
+    "$WANTCOLL")
+        echo "OK: the owned set holds one refined button, the swept chord is gone" ;;
     *) echo "FAIL: collections: $COLL" ;;
 esac
+case $COLL2 in
+    "$WANTCOLL")
+        echo "OK: the owned set replays the same from the file" ;;
+    *) echo "FAIL: collections after reload: $COLL2" ;;
+esac
 case $FILEORDER in
-    *set-fade*wm-bind*panel-button*)
-        echo "OK: the file sorts the knobs and binds, then keeps declaration order" ;;
+    *set-fade*wm-bind*"panel-buttons-own default"*"panel-button dummy"*)
+        echo "OK: knobs and binds sorted; the owned set one section, sweep first" ;;
     *) echo "FAIL: file layout: $FILEORDER" ;;
 esac
 check_invariants "$HERE/wm-custom.log"

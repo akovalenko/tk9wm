@@ -4591,9 +4591,12 @@ proc emacs-eval-run {cmd} {
 # (which knows how to put a variable back) covers panels for free.
 # Build products stay OUT of it: the live widget and the arrow zone are
 # per-panel too, but they are what a build produced, not what the user
-# asked for, and a reset has no business restoring them.
+# asked for, and a reset has no business restoring them. Beside the
+# expanded `buttons` sits `raw` — per label, the merged words the
+# layers actually SAID about it; the expansion is derived from that,
+# and the raw is what a refinement merges into (see panel-button).
 proc panel-defaults {} {
-    dict create side bottom preset row icon_size 48 buttons {}
+    dict create side bottom preset row icon_size 48 buttons {} raw {}
 }
 # Empty, and `default` is created on first mention like any other name.
 # That is what makes the dict's order the CONFIG's order: a `default`
@@ -4673,6 +4676,19 @@ proc set-panel-live-colors {bar face} {
     set ::panel_live_face $face
     panel-rebuild-soon
 }
+# THE LABEL IS THE PRIMARY KEY (the owner, 2026-08-01). Saying
+# panel-button Emacs twice does not make two buttons: the second call
+# REFINES the first — the keys it says now merge over what stood, the
+# keys it does not say stand, and the button keeps the position its
+# FIRST declaration gave it. A config that meant two different
+# buttons by one label gets the one merged button; that is the
+# semantics, not a loss. The merge is of RAW settings — what the
+# layers SAID, kept per label beside the expanded list — and the
+# providers re-derive from the merged result, so a later word about
+# `terminal` re-derives match and launch instead of tripping over
+# the derivation the first call left in place. An EMPTY value takes
+# its key out ("no chord after all"): a merge can only ever add
+# words, and un-saying one needs a way to be said.
 proc panel-button {label settings} {
     # A button that NEEDS a command the system does not have is a NOOP
     # with one line in the log — the gate that lets a shared or stock
@@ -4680,7 +4696,8 @@ proc panel-button {label settings} {
     # owner's order). Explicit only, never derived from `run`: a
     # derived gate would make a typo in a hand-written button vanish
     # silently, and a button that silently is not there is worse than
-    # one that fails to launch.
+    # one that fails to launch. THIS call's needs, not the merged
+    # memory's: a replay must skip the same calls the live path did.
     if {[dict exists $settings needs]} {
         foreach c [dict get $settings needs] {
             if {[auto_execok $c] eq ""} {
@@ -4689,22 +4706,72 @@ proc panel-button {label settings} {
             }
         }
     }
-    # `terminal` is a PROVIDER of the two halves, not a third thing: it
-    # fills in match and launch (an explicit one beside it wins) and
-    # the machinery below never hears of it. The derived match is
-    # STATIC — filter with a single pattern, so EITHER half of
-    # WM_CLASS answers: the instance on every beast that names, the
-    # class on the gnome-terminal factory. Deliberately not narrowed
-    # by the resolved beast, twice over: a verdict computed while the
-    # config is still speaking is the styleof lesson (see
-    # policy-apply), and the window found should be "my mutt", not
-    # "my mutt in the terminal I would launch today" — a desk that
-    # switched set-terminal keeps finding yesterday's window instead
-    # of launching a second mutt beside it. A beast that cannot name —
-    # every measured one turned out able to, but a registry entry with
-    # no name word stays possible — simply never matches, which IS the
-    # launch-only degradation, and spawn-terminal says so when it
-    # drops the name.
+    set name $::panel_target
+    panel-ensure $name
+    set raw $settings
+    if {[dict exists $::panels $name raw $label]} {
+        set raw [dict merge [dict get $::panels $name raw $label] $settings]
+    }
+    foreach k [dict keys $raw] {
+        if {[dict get $raw $k] eq ""} { dict unset raw $k }
+    }
+    set expanded [panel-button-derive $label $raw]
+    dict set ::panels $name raw $label $raw
+    set buttons [panel-cfg $name buttons]
+    set i [panel-index $name $label]
+    if {$i < 0} {
+        lappend buttons [list $label $expanded]
+    } else {
+        # the old chord goes with the old settings — otherwise a
+        # button that changed its key would answer to both
+        set old [lindex [lindex $buttons $i] 1]
+        if {[dict exists $old key]} { wm-unbind [dict get $old key] }
+        set buttons [lreplace $buttons $i $i [list $label $expanded]]
+    }
+    dict set ::panels $name buttons $buttons
+    if {[dict exists $expanded key]} {
+        # ...and the binding carries the BUTTON'S name, so the help
+        # list reads "Super+e → emacs" and not "panel-fire dock 2".
+        # BY LABEL, not by index: a collection that can be edited can
+        # be shortened, and every index after the gap would have meant
+        # a different button than the chord was bound to.
+        wm-bind [dict get $expanded key] \
+            [list panel-fire-labelled $name $label] $label
+    }
+    # `style` is a shorthand and nothing more: the button's own match
+    # predicate, handed to wm-style with these settings. It exists
+    # because a button and the windows it finds are usually described by
+    # the SAME filter, and writing it twice (or hoisting it into a proc
+    # to write it once) is bookkeeping the config should not have to do.
+    # The rule lands in the list WHEN THE STYLE IS SAID — this call's
+    # word, not the merged memory's: re-landing a remembered style on
+    # every refinement would stack duplicates of the same rule.
+    if {[dict exists $settings style] && [dict get $settings style] ne ""} {
+        if {![dict exists $expanded match]} {
+            error "panel-button $label: style needs a match to apply to"
+        }
+        wm-style [dict get $expanded match] [dict get $settings style]
+    }
+    panel-rebuild-soon
+}
+# What the panel machinery RUNS ON is the derived form of the raw
+# words. `terminal` is a PROVIDER of the two halves, not a third
+# thing: it fills in match and launch (an explicit one beside it
+# wins) and the machinery never hears of it. The derived match is
+# STATIC — filter with a single pattern, so EITHER half of
+# WM_CLASS answers: the instance on every beast that names, the
+# class on the gnome-terminal factory. Deliberately not narrowed
+# by the resolved beast, twice over: a verdict computed while the
+# config is still speaking is the styleof lesson (see
+# policy-apply), and the window found should be "my mutt", not
+# "my mutt in the terminal I would launch today" — a desk that
+# switched set-terminal keeps finding yesterday's window instead
+# of launching a second mutt beside it. A beast that cannot name —
+# every measured one turned out able to, but a registry entry with
+# no name word stays possible — simply never matches, which IS the
+# launch-only degradation, and spawn-terminal says so when it
+# drops the name.
+proc panel-button-derive {label settings} {
     dict-shaped "panel-button $label: env" $settings env
     if {[dict exists $settings terminal]} {
         set t [dict get $settings terminal]
@@ -4749,67 +4816,28 @@ proc panel-button {label settings} {
             dict set settings activate [list emacs-activate $e]
         }
     }
-    set name $::panel_target
-    panel-ensure $name
-    set buttons [panel-cfg $name buttons]
-    lappend buttons [list $label $settings]
-    dict set ::panels $name buttons $buttons
-    if {[dict exists $settings key]} {
-        # ...and the binding carries the BUTTON'S name, so the help
-        # list reads "Super+e → emacs" and not "panel-fire dock 2".
-        # BY LABEL, not by index: a collection that can be edited can
-        # be shortened, and every index after the gap would have meant
-        # a different button than the chord was bound to.
-        wm-bind [dict get $settings key] \
-            [list panel-fire-labelled $name $label] $label
-    }
-    # `style` is a shorthand and nothing more: the button's own match
-    # predicate, handed to wm-style with these settings. It exists
-    # because a button and the windows it finds are usually described by
-    # the SAME filter, and writing it twice (or hoisting it into a proc
-    # to write it once) is bookkeeping the config should not have to do.
-    # The rule lands in the list AT THIS POINT, so precedence still
-    # reads straight down the config file.
-    if {[dict exists $settings style]} {
-        if {![dict exists $settings match]} {
-            error "panel-button $label: style needs a match to apply to"
-        }
-        wm-style [dict get $settings match] [dict get $settings style]
-    }
-    panel-rebuild-soon
+    return $settings
 }
-# THE COLLECTION VERBS. A knob's second call overwrites, which is
-# what makes "the click is the later word" true for knobs — and a
-# second panel-button does NOT: it adds another button. So the
-# customization layer says what it means: set (replace by label, or
-# append), and remove. Same shape for the other collections; a
-# widget's declaration already replaces by name, so it needs only the
-# removal, and wm-bind already replaces by chord.
-proc panel-button-set {label settings} {
-    set name $::panel_target
+# OWNING THE SET. The customization layer's word about a panel is the
+# WHOLE set or nothing (the owner, 2026-08-01): no deltas over the
+# config's line-up. panel-buttons-own NAME empties panel NAME — every
+# button and its chord — and the ordinary panel-button declarations
+# that follow ARE the set, in the order the panel wears it; a remove
+# verb would be a second way to say what absence already says, so
+# there is none. What the sweep KEEPS is the raw memory of what each
+# label was told: a config's declaration remains the catalogue entry
+# for "how this button works if I want it", and an owned set
+# re-admits it by its bare label — panel-button терм {} — description
+# and all. The other collections keep a removal verb each, where
+# absence cannot say it: a widget's declaration replaces by name and
+# wm-bind by chord, so those two need only the taking-away.
+proc panel-buttons-own {name} {
     panel-ensure $name
-    set i [panel-index $name $label]
-    if {$i < 0} { panel-button $label $settings; return }
-    set buttons [panel-cfg $name buttons]
-    # the old chord goes with the old settings — otherwise a button
-    # that changed its key would answer to both
-    set old [lindex [lindex $buttons $i] 1]
-    if {[dict exists $old key]} { wm-unbind [dict get $old key] }
-    dict set ::panels $name buttons [lreplace $buttons $i $i [list $label $settings]]
-    if {[dict exists $settings key]} {
-        wm-bind [dict get $settings key] \
-            [list panel-fire-labelled $name $label] $label
+    foreach b [panel-cfg $name buttons] {
+        set s [lindex $b 1]
+        if {[dict exists $s key]} { wm-unbind [dict get $s key] }
     }
-    panel-rebuild-soon
-}
-proc panel-button-remove {label} {
-    set name $::panel_target
-    set i [panel-index $name $label]
-    if {$i < 0} return
-    set buttons [panel-cfg $name buttons]
-    set old [lindex [lindex $buttons $i] 1]
-    if {[dict exists $old key]} { wm-unbind [dict get $old key] }
-    dict set ::panels $name buttons [lreplace $buttons $i $i]
+    dict set ::panels $name buttons {}
     panel-rebuild-soon
 }
 proc wm-widget-remove {name} {
@@ -6291,7 +6319,7 @@ proc custom-erase {name} {
 # than rendered as knobs.
 set knob_vocab [concat [dict keys $knob_registry] \
     {wm-font wm-bind wm-unbind wm-widget wm-widget-remove
-     panel-button panel-button-set panel-button-remove wm-keys}]
+     panel-button panel-buttons-own wm-keys}]
 set knob_layer ""
 keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # The key is semantic: a plain knob is one key however often it is
@@ -6300,24 +6328,14 @@ keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 proc knob-key {words} {
     set p [lindex $words 0]
     switch -- $p {
-        wm-font - wm-bind - wm-widget { return "$p [lindex $words 1]" }
-        panel-button - panel-button-set - panel-button-remove {
-            return "panel-button [lindex $words 1]"
+        wm-font - wm-bind - wm-widget - panel-button - panel-buttons-own {
+            return "$p [lindex $words 1]"
         }
         wm-unbind { return "wm-bind [lindex $words 1]" }
         wm-keys { return "wm-keys [lindex $words 1]" }
         wm-widget-remove { return "wm-widget [lindex $words 1]" }
         default { return $p }
     }
-}
-# Which keys keep their DECLARATION ORDER in the custom file, and
-# which are sorted for a stable diff (the owner's call): fonts derive
-# from one another, buttons lay themselves out and widgets share an
-# area in order — those three are ordered. Bindings are a map keyed
-# by chord and nothing about their order is meaningful, so they sort;
-# plain knobs likewise.
-proc knob-ordered? {key} {
-    expr {[lindex $key 0] in {wm-font wm-widget panel-button}}
 }
 proc knob-touched {cmd op} {
     if {$::knob_layer eq ""} return
@@ -6387,12 +6405,30 @@ proc custom-save {} {
     puts $ch "# the configurator rewrites this file whole. Hand-written"
     puts $ch "# configuration belongs in tk9wm.tcl, which loads BEFORE this"
     puts $ch "# file; on overlap the desk says so in its log."
+    # Which entries keep their DECLARATION ORDER, and which are
+    # sorted for a stable diff (the owner's call): fonts derive from
+    # one another, widgets share an area in order, and an owned
+    # panel IS its buttons' order. Those go out in SECTIONS, kind by
+    # kind, with panel-buttons-own directly above the buttons —
+    # replayed, the sweep must come before what it would otherwise
+    # sweep, whenever either was written. Bindings are a map keyed
+    # by chord, plain knobs a map keyed by name — nothing about
+    # their order means anything, so they sort.
     set sorted {}
-    set ordered {}
+    foreach kind {wm-font wm-widget panel-buttons-own panel-button} {
+        set section($kind) {}
+    }
     dict for {key cmd} $entries {
-        if {[knob-ordered? $key]} { lappend ordered $cmd } else { lappend sorted $key }
+        set p [lindex $key 0]
+        if {[info exists section($p)]} {
+            lappend section($p) $cmd
+        } else {
+            lappend sorted $key
+        }
     }
     foreach key [lsort $sorted] { puts $ch [dict get $entries $key] }
+    set ordered [concat $section(wm-font) $section(wm-widget) \
+                     $section(panel-buttons-own) $section(panel-button)]
     if {[llength $ordered]} {
         puts $ch ""
         puts $ch "# ...and the ordered declarations, in the order they were made:"

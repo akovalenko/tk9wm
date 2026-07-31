@@ -18,8 +18,11 @@ proc is-panel-client {w} { expr {[client-title $w] eq "панель-клиент
 panel-button терм {
     match is-panel-client
     launch {exec __LINUX__/whale __HERE__/client.tcl панель-клиент 240x120 #8ae234 {} {} 30 &}
-    key {<Super>z}
 }
+# the label is the primary key: this REFINES the button above (adds
+# its chord) instead of declaring a second one — the panel must come
+# up with 1 button and the chord must fire the merged button
+panel-button терм { key {<Super>z} }
 EOF
 sed -i "s|__LINUX__|$LINUX|; s|__HERE__|$HERE|" "$HERE/panel-config/tk9wm.tcl"
 
@@ -71,6 +74,11 @@ if [ -n "$PH" ]; then
     echo "OK: the panel came up ($PH px)"
 else
     echo "FAIL: no panel-up line"
+fi
+if grep -q 'panel default up (1 buttons' "$HERE/wm-panel.log"; then
+    echo "OK: two declarations of one label merged into one button"
+else
+    echo "FAIL: panel-up says $(grep -o 'up ([0-9]* buttons' "$HERE/wm-panel.log" | head -1), want 1"
 fi
 if [ "$(grep -c "panel терм: launch" "$HERE/wm-panel.log")" = 1 ]; then
     echo "OK: the empty-desk fire launched the client"

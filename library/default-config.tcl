@@ -330,6 +330,12 @@
 #       match {filter -class xterm} launch {exec xterm &} key {<Super>x}
 #   }
 #
+# The LABEL is the button's primary key: saying panel-button xterm
+# again REFINES that button rather than declaring a second one — the
+# keys said now merge over what stood, the rest keep, and the button
+# keeps the position its first declaration gave it. An empty value
+# takes its key away ({key {}} = no chord after all).
+#
 # ...and `env`, on ANY button: a VAR VALUE dict applied around the
 # launch — whatever the launch is, a plain exec script or a derived
 # terminal/emacs one — and put back afterwards. An empty value means
