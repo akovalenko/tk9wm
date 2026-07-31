@@ -5821,8 +5821,8 @@ proc knob {name meta} { dict set ::knob_registry $name $meta }
 set knob_registry {}
 knob set-desk-font   {group fonts kind {font DeskFont}  get {font actual DeskFont}
                       doc {the font this desk is set in; everything derives from it}}
-knob set-title-font  {group fonts kind {font TitleFont} get {font actual TitleFont}
-                      doc {the titlebar font, derived from the desk font}}
+knob set-title-font  {group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
+                      doc {the titlebar font, as a delta from the desk font}}
 knob set-title-justify {group fonts kind {choice left center right}
                       get {set ::titlejust} doc {where the title sits in its bar}}
 knob set-minimize    {group windows kind {choice iconify refuse}
@@ -5891,14 +5891,51 @@ knob set-emacs-autodaemon {group emacs kind bool get {set ::emacs_autodaemon}
                       doc {start a missing daemon, or treat it as an error}}
 # knob-table — the send-facing answer: the registry plus each knob's
 # current value, one dict. The configurator's whole worldview.
+# What a DERIVED font's knob is really set to: the delta the config
+# stated (-weight bold and nothing else), not the font that came out
+# of applying it to the base. Deriving exists so a desk need not
+# repeat the family; showing the computed font would invite exactly
+# that repetition back (the owner, 2026-08-01).
+proc font-kin-opts {name} {
+    expr {[dict exists $::font_kin $name] ? [dict get $::font_kin $name opts] : {}}
+}
 proc knob-table {} {
     set out {}
     dict for {name meta} $::knob_registry {
         set value ""
         catch {set value [uplevel #0 [dict get $meta get]]}
-        dict set out $name [dict merge $meta [dict create value $value]]
+        set extra [dict create value $value owner [knob-owner $name]]
+        # a font also answers what it COMPUTES to — the number a
+        # chooser must start from, and the truth about what is drawn
+        if {[lindex [dict get $meta kind] 0] eq "font"} {
+            catch {dict set extra computed \
+                [font actual [lindex [dict get $meta kind] 1]]}
+        }
+        dict set out $name [dict merge $meta $extra]
     }
     return $out
+}
+# WHOSE VALUE IS THIS — what a knob's row should answer at a glance
+# (the owner: "did I override the default?"): `code` when neither
+# layer has spoken, `config` when the hand-written file did, `custom`
+# when a click did — which outranks the config, and says so.
+proc knob-owner {name} {
+    if {[dict exists $::layer_knobs custom $name]} { return custom }
+    if {[dict exists $::layer_knobs config $name]} { return config }
+    return code
+}
+# ERASE a customization — the click taken back. The entry leaves the
+# custom layer and its file, and the desk re-reads its layers, so the
+# knob falls back to whatever the config, or the code, says. The
+# reload is what makes the erasure honest: nothing here has to know
+# how to undo a knob, which is the same reason Revert is a reload.
+proc custom-erase {name} {
+    if {![dict exists $::layer_knobs custom $name]} { return 0 }
+    dict unset ::layer_knobs custom $name
+    custom-save
+    puts "WM: custom: erased $name"
+    reload-config
+    return 1
 }
 # The traced vocabulary derives from the registry — one list, not two
 # — plus the named declarations, which are traced per name rather

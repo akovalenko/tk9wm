@@ -35,7 +35,7 @@ set cfg_pending {}   ;# name -> the command previewed but not saved
 set cfg_item {}      ;# name -> tree item
 set cfg_T ""
 set cfg_hint "Return or double-click opens the picker · F2 types ·\
- ▾ in the field is the same picker · Save makes it stick"
+ Save makes it stick · Erase takes a saved click back"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
 # commit and explained nothing). Every rejection — ours by kind, or
@@ -95,12 +95,22 @@ proc cfg-build {W} {
     frame $W.b -takefocus 0
     ttk::button $W.b.save   -text Save   -underline 0 -command cfg-save
     ttk::button $W.b.revert -text Revert -underline 0 -command cfg-revert
-    foreach b [list $W.b.save $W.b.revert] { ui-focusable $b; ui-accel $b }
+    ttk::button $W.b.erase  -text "Erase customization" -underline 0 \
+        -command cfg-erase
+    foreach b [list $W.b.save $W.b.revert $W.b.erase] {
+        ui-focusable $b; ui-accel $b
+    }
     label  $W.b.note -takefocus 0 -anchor w -text $::cfg_hint \
         -foreground [ui-color link]
-    pack $W.b.save $W.b.revert -side left -padx 4 -pady 4
+    pack $W.b.save $W.b.revert $W.b.erase -side left -padx 4 -pady 4
     pack $W.b.note -side left -padx 12
     grid $W.b -columnspan 2 -sticky ew
+    # ...and the box stops propagating its children's appetite: a
+    # longer or shorter status line used to resize the whole window
+    # under the owner's hands as he typed (a short refusal SHRANK it).
+    update idletasks
+    $W.b configure -height [winfo reqheight $W.b]
+    pack propagate $W.b 0
 
     # CONDITIONAL breaks: a plain `break` swallowed the class bindings
     # too, and with them treectrl's own header work — column drags and
@@ -132,6 +142,10 @@ proc cfg-yscroll {sb a b} {
 # top). What is remembered is what the user arranged — the selected
 # knob and which groups stand folded — and it is restored by NAME,
 # so it holds even if the registry itself changed underneath.
+proc cfg-owner {name} {
+    expr {[dict exists $::cfg_table $name owner]
+          ? [dict get $::cfg_table $name owner] : "code"}
+}
 proc cfg-refresh {} {
     set T $::cfg_T
     set was_sel [expr {[cfg-selected] eq "" ? "" : [cfg-name-of [cfg-selected]]}]
@@ -145,7 +159,6 @@ proc cfg-refresh {} {
     }
     $T item delete all
     set ::cfg_table [wm-call knob-table]
-    set ::cfg_cfgkeys [wm-call {layer-touched config}]
     set ::cfg_item {}
     set groups {}
     dict for {name meta} $::cfg_table {
@@ -183,32 +196,26 @@ proc cfg-refresh {} {
 # wants every row; both are capped by the screen.
 proc cfg-fit {} {
     set T $::cfg_T
-    set wname 0; set wval 0; set wdoc 0
-    dict for {name meta} $::cfg_table {
-        set wname [expr {max($wname, [font measure DeskFont $name])}]
-        set wdoc  [expr {max($wdoc, [font measure DeskFont [dict get $meta doc]])}]
-        set it [dict get $::cfg_item $name]
-        set v [$T item element cget $it Cval eVal -text]
-        set wval [expr {max($wval, [font measure DeskFont $v])}]
-    }
-    # room to type into, and a ceiling: one long value must not open
-    # the column past reading width (a list already summarizes, but a
-    # font name or a path can still run)
-    set wval [expr {max(min($wval, [font measure DeskFont [string repeat 0 34]]), 140)}]
-    $T column configure Cname -width [expr {$wname + 32}]
-    $T column configure Cval  -width [expr {$wval + 16}]
-    $T column configure Cflag -width [expr {[font measure DeskFont "•cfg"] + 12}]
-    # the last column takes what is left, so it is a MINIMUM here: a
-    # pinned -width would fight both the expand and the hand
-    $T column configure Cdoc  -width {} -minwidth [expr {$wdoc + 16}]
+    # THE TREE SIZES ITS OWN COLUMNS (the owner: its auto-width does
+    # it right, and mine forgot the tree indent — the longest knob
+    # name came out clipped). Ours is only the arithmetic it cannot
+    # do: room to type into, a ceiling so one long value cannot open
+    # the window past reading width, and the window's own size from
+    # what the columns then ask for.
+    set cap [font measure DeskFont [string repeat 0 34]]
+    $T column configure Cname -width {} -maxwidth $cap
+    $T column configure Cval  -width {} -minwidth 140 -maxwidth $cap
+    $T column configure Cflag -width {}
+    $T column configure Cdoc  -width {}
+    update idletasks
+    set wall 0
+    foreach c {Cname Cval Cflag Cdoc} { incr wall [$T column width $c] }
     set ih [expr {[font metrics DeskFont -linespace] + 6}]
     set rows [expr {[llength [dict keys $::cfg_item]]
                     + [llength [$T item children root]]}]
-    set wall [expr {$wname + $wval + $wdoc + [font measure DeskFont "•cfg"] + 96}]
-    set hall [expr {($rows + 2) * $ih}]
     $T configure \
-        -width  [expr {min($wall, [winfo screenwidth $T] * 9 / 10)}] \
-        -height [expr {min($hall, [winfo screenheight $T] * 4 / 5)}]
+        -width  [expr {min($wall + 24, [winfo screenwidth $T] * 9 / 10)}] \
+        -height [expr {min(($rows + 2) * $ih, [winfo screenheight $T] * 4 / 5)}]
 }
 
 # What a value LOOKS like in its cell. A list says how many it holds
@@ -218,8 +225,17 @@ proc cfg-fit {} {
 proc cfg-value-text {name value} {
     set kind [dict get $::cfg_table $name kind]
     switch -- [lindex $kind 0] {
-        font { return "[dict get $value -family] [dict get $value -size]\
- [dict get $value -weight]" }
+        font {
+            # A DERIVED font's value is what the config SAID — a delta
+            # such as «-weight bold», family and size inherited — and
+            # that is what belongs in the cell and in the editor (the
+            # owner: the whole point of deriving is not to repeat the
+            # family). Only a font stated whole shows a summary.
+            if {[catch {dict get $value -family} fam]} {
+                return [expr {$value eq "" ? "(derived, unchanged)" : $value}]
+            }
+            return "$fam [dict get $value -size] [dict get $value -weight]"
+        }
         list {
             set noun [lindex $kind 1]
             if {$noun eq ""} { set noun entries }
@@ -234,19 +250,26 @@ proc cfg-value-text {name value} {
 # that form back).
 proc cfg-value-typed {name value} {
     if {[lindex [dict get $::cfg_table $name kind] 0] eq "font"
-            && [llength $value] > 2 && [dict exists $value -family]} {
-        return "-family [list [dict get $value -family]]\
- -size [dict get $value -size] -weight [dict get $value -weight]"
+            && ![catch {dict get $value -family} fam]} {
+        return "-family [list $fam] -size [dict get $value -size]\
+ -weight [dict get $value -weight]"
     }
-    return $value
+    return $value   ;# a derived font's delta, verbatim
 }
 proc cfg-show-value {it name value} {
     set T $::cfg_T
     $T item element configure $it Cval eVal -text [cfg-value-text $name $value]
+    # WHOSE VALUE IS THIS, at a glance (the owner's ask): a dot for
+    # changed-but-unsaved, then the layer that owns it — `custom` for
+    # a click of yours that stuck (erasable), `cfg` for your
+    # hand-written config, nothing at all for the desk's own default.
     set flags {}
     if {[dict exists $::cfg_pending $name]} { lappend flags • }
-    if {$name in $::cfg_cfgkeys} { lappend flags cfg }
-    $T item element configure $it Cflag eFlag -text [join $flags ""]
+    switch -- [cfg-owner $name] {
+        custom { lappend flags custom }
+        config { lappend flags cfg }
+    }
+    $T item element configure $it Cflag eFlag -text [join $flags " "]
 }
 
 proc cfg-select {it} {
@@ -370,18 +393,20 @@ proc cfg-entry {it name} {
     ui-focusable $T.edit.e
     $T.edit.e insert 0 [cfg-value-typed $name [cfg-cur $name]]
     $T.edit.e selection range 0 end
-    pack $T.edit.e -side left -expand 1 -fill both
+    # GRID, and the button gets a column of its own: PACKED, the
+    # entry (with -expand) claimed the whole cavity before the button
+    # was packed at all — it existed, mapped 0, 1x1 in a corner,
+    # which is why the owner could find no arrow anywhere (measured
+    # on his live desk through the send door).
+    grid $T.edit.e -row 0 -column 0 -sticky nsew
+    grid rowconfigure $T.edit 0 -weight 1
+    grid columnconfigure $T.edit 0 -weight 1
     if {$picker ne ""} {
         # the combobox-like way into the dialog: the button, or Down
         # from the keyboard — a gesture that costs nothing to guess
-        # A plain button, not the flat Toolbutton it started as: the
-        # owner saw no affordance at all where this was meant to be,
-        # and a borderless glyph in a one-line cell is easy to miss
-        # (the glyph itself is fine — his correction; DejaVu and the
-        # terminal fonts all carry it).
         ttk::button $T.edit.pick -text ▾ -takefocus 0 -width 2 \
             -command [list cfg-entry-pick $picker $name]
-        pack $T.edit.pick -side right -fill y
+        grid $T.edit.pick -row 0 -column 1 -sticky ns
         bind $T.edit.e <Down> [list cfg-entry-pick $picker $name]
     }
     place $T.edit -x $x1 -y $y1 -width [expr {$x2 - $x1}] \
@@ -472,15 +497,22 @@ proc cfg-color-dialog {name} {
     set c [tk_chooseColor -initialcolor [cfg-cur $name] -title "tk9wm: $name"]
     if {$c ne ""} { cfg-picked $name $c }
 }
+# The dialog seeds from the COMPUTED font — what the desk actually
+# draws with — even when the configured value is a two-word delta: a
+# chooser has to start somewhere real.
 proc cfg-font-dialog {name} {
-    set cur [cfg-cur $name]
-    tk fontchooser configure -font [expr {[llength $cur] > 2
-        ? [list [dict get $cur -family] [dict get $cur -size]] : $cur}] \
+    set seed [dict get $::cfg_table $name computed]
+    tk fontchooser configure \
+        -font [list [dict get $seed -family] [dict get $seed -size] \
+                    [dict get $seed -weight]] \
         -command [list cfg-font-picked $name]
     tk fontchooser show
 }
 proc cfg-font-picked {name spec} {
-    cfg-picked $name [font actual $spec]
+    # picked by hand means stated whole — family, size and weight
+    set a [font actual $spec]
+    cfg-picked $name [list -family [dict get $a -family] \
+        -size [dict get $a -size] -weight [dict get $a -weight]]
 }
 
 # cfg-set NAME VALUE — validate by kind, PREVIEW on the live desk,
@@ -557,6 +589,24 @@ proc cfg-save {} {
     set ::cfg_pending {}
     cfg-refresh
     puts "UI: configurator: saved"
+}
+# Erase the selected knob's customization: the click taken back, the
+# file rewritten without it, and the desk reloaded so the knob falls
+# back to the config's word or the code's. Also drops a pending
+# preview for that knob — it is the same "never mind".
+proc cfg-erase {} {
+    set it [cfg-selected]
+    if {$it eq ""} return
+    set name [cfg-name-of $it]
+    if {$name eq ""} return
+    dict unset ::cfg_pending $name
+    if {[cfg-owner $name] ne "custom"} {
+        cfg-status "$name carries no customization to erase"
+        return
+    }
+    wm-call [list custom-erase $name]
+    cfg-refresh
+    cfg-status "$name is back to [cfg-owner $name]'s word"
 }
 proc cfg-revert {} {
     set ::cfg_pending {}

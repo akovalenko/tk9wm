@@ -35,7 +35,7 @@ sleep 3
 ROWS=$(qu 'llength [dict keys $::cfg_item]')
 HOSTFONT=$(qu 'font actual DeskFont -size')
 WMFONT=$(q 'font actual DeskFont -size')
-CFGBADGE=$(qu 'expr {"set-edge-resist" in $::cfg_cfgkeys}')
+CFGBADGE=$(qu 'cfg-owner set-edge-resist')
 
 qu 'cfg-set set-fade 0.42' >/dev/null
 sleep 0.5
@@ -66,6 +66,21 @@ qu 'cfg-revert' >/dev/null
 sleep 1
 KEPT=$(qu 'cfg-name-of [cfg-selected]')
 FOLD=$(qu 'expr {[$::cfg_T item state get [$::cfg_T item id {root child 0}] open] ? 0 : 1}')
+THEME=$(qu 'ttk::style theme use')
+# a derived font is shown AS CONFIGURED — a delta, not the computed font
+qu 'cfg-set set-title-font {-weight bold}' >/dev/null
+qu 'cfg-save' >/dev/null
+sleep 0.5
+FONTCELL=$(qu 'cfg-value-text set-title-font [dict get $::cfg_table set-title-font value]')
+FONTOWNER=$(qu 'cfg-owner set-title-font')
+FONTLIVE=$(q 'font actual TitleFont -weight')
+FONTFAM=$(q 'expr {[font actual TitleFont -family] eq [font actual DeskFont -family]}')
+# ...and the customization can be taken back
+qu 'cfg-select [dict get $::cfg_item set-title-font]; cfg-erase' >/dev/null
+sleep 1
+ERASEDOWNER=$(qu 'cfg-owner set-title-font')
+ERASEDLIVE=$(q 'font actual TitleFont -weight')
+ERASEDFILE=$(grep -c 'set-title-font' "$HERE/cfg-config/tk9wm.custom.tcl" 2>/dev/null)
 THEME=$(qu 'ttk::style theme use')
 # a refusal must SAY why — and must not throw: an unmatched quote in a
 # list-shaped kind, and a place spec the desk itself rejects
@@ -98,10 +113,10 @@ if [ -n "$HOSTFONT" ] && [ "$HOSTFONT" = "$WMFONT" ]; then
 else
     echo "FAIL: host font $HOSTFONT vs wm font $WMFONT"
 fi
-if [ "$CFGBADGE" = 1 ]; then
-    echo "OK: the config-touched badge knows set-edge-resist"
+if [ "$CFGBADGE" = config ]; then
+    echo "OK: the owner column knows set-edge-resist came from the config"
 else
-    echo "FAIL: cfg badge = $CFGBADGE"
+    echo "FAIL: owner of set-edge-resist = $CFGBADGE"
 fi
 if [ "$PREVIEW" = 0.42 ]; then
     echo "OK: an edit previews on the live desk at once"
@@ -155,6 +170,15 @@ esac
 case "$BADPLACE|$BADPLACEMSG" in
     "0|"*bla*|"0|"*place*|"0|"*keyecho*) echo "OK: the desk's own refusal reaches the status line" ;;
     *) echo "FAIL: bad place gave rc=$BADPLACE msg «$BADPLACEMSG»" ;;
+esac
+case "$FONTCELL|$FONTOWNER|$FONTLIVE|$FONTFAM" in
+    "-weight bold|custom|bold|1")
+        echo "OK: a derived font shows its delta, and inherits the family" ;;
+    *) echo "FAIL: font cell «$FONTCELL» owner=$FONTOWNER live=$FONTLIVE family-inherited=$FONTFAM" ;;
+esac
+case "$ERASEDOWNER|$ERASEDLIVE|$ERASEDFILE" in
+    "code|normal|0") echo "OK: Erase took the click back — knob, file and desk" ;;
+    *) echo "FAIL: after erase owner=$ERASEDOWNER live=$ERASEDLIVE file lines=$ERASEDFILE" ;;
 esac
 case $GOODMSG in
     *"Save makes it stick"*) echo "OK: a good value clears the error line" ;;
