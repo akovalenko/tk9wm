@@ -74,6 +74,19 @@ if [ -n "$DECOY" ]; then
 fi
 ROOTID=$(xwininfo -root 2>/dev/null | sed -n 's/^xwininfo: Window id: \(0x[0-9a-f]*\).*/\1/p')
 
+# A COLOUR ERASED MUST LEAVE THE STRIP TOO: the icon cells are
+# re-made on the next layout, the strip and its backdrop are not — so
+# a reset that only put the variable back left the space around the
+# icons wearing the old customization.
+qt() { printf '%s\n' "$1" > "$HERE/tray-config/q.tcl"
+       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/tray-config/q.tcl"; }
+qt 'custom-write {set-tray-background #ff00ff}' >/dev/null
+sleep 0.5
+TRAYCOLOR1=$(qt 'list [.tray cget -background] $::tray_bg')
+qt 'custom-erase set-tray-background' >/dev/null
+sleep 1.5
+TRAYCOLOR2=$(qt 'list [.tray cget -background] $::tray_bg')
+
 kill $CA $CB $CD 2>/dev/null
 sleep 1
 kill $WM 2>/dev/null
@@ -149,3 +162,10 @@ fi
 if grep -q 'soft failure' "$HERE/wm-tray.log"; then
     echo "NOTE: soft failures:"; grep 'soft failure' "$HERE/wm-tray.log"
 fi
+
+echo "--- tray colour: after custom {$TRAYCOLOR1}, after erase {$TRAYCOLOR2}"
+case "$TRAYCOLOR1|$TRAYCOLOR2" in
+    "{#ff00ff} #ff00ff|{#2e3436} #2e3436")
+        echo "OK: the strip wears the customization and gives it back on erase" ;;
+    *) echo "FAIL: tray colour: {$TRAYCOLOR1} then {$TRAYCOLOR2}" ;;
+esac

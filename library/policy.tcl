@@ -5611,10 +5611,23 @@ proc tray-refit-cells {} {
 }
 proc set-tray-background {color} {
     set ::tray_bg $color
-    if {[winfo exists .traybg]} { .traybg configure -background $color }
-    if {[winfo exists .tray]} {
-        .tray configure -background $color
-        foreach w $::tray_order { $::tray_slot($w) configure -background $color }
+    tray-recolor
+}
+# APPLYING A COLOUR IS NOT THE SETTER'S PRIVATE BUSINESS. It was, and
+# so a RESET — which puts the variable back and calls nobody — left
+# the strip wearing the colour a customization had given it: the
+# owner erased his and watched the icon cells go back while the space
+# around them stayed (the cells are re-made on the next layout, the
+# strip and its backdrop are not). So the application lives in one
+# proc, and the apply path calls it like any other reconciliation.
+proc tray-recolor {} {
+    if {[winfo exists .traybg]} { .traybg configure -background $::tray_bg }
+    if {![winfo exists .tray]} return
+    .tray configure -background $::tray_bg
+    foreach w $::tray_order {
+        if {[info exists ::tray_slot($w)] && [winfo exists $::tray_slot($w)]} {
+            $::tray_slot($w) configure -background $::tray_bg
+        }
     }
 }
 proc tray-ensure {} {
@@ -6693,6 +6706,7 @@ proc policy-apply {} {
     array unset ::styleof
     panels-build        ;# no buttons declared -> the strip goes away
     tray-reconcile      ;# start, stop or leave the tray exactly alone
+    tray-recolor        ;# ...and wear what the layers say, not what it wore
     desk-window-build   ;# ...on, off, and the colour of it
     welcome-inject      ;# a fresh desk gets its invitation, re-decided per load
     widgets-build       ;# cheap by construction: all of them, from nothing
