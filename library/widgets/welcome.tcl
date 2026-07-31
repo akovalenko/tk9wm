@@ -19,7 +19,7 @@ proc welcome-widget-build {w opts} {
     set link [contrast-link $bg]
     text $w.t -wrap word -borderwidth 0 -highlightthickness 0 \
         -background $bg -foreground $fg -font DeskFont \
-        -cursor left_ptr -width 52 -height 12 -spacing3 4
+        -cursor left_ptr -width 52 -height 14 -spacing3 4
     $w.t tag configure h -font TitleFont
     $w.t tag configure link -foreground $link -underline 1
     $w.t tag bind link <Enter> [list $w.t configure -cursor hand2]
@@ -30,13 +30,17 @@ proc welcome-widget-build {w opts} {
     $w.t insert end "Open the configurator" {link cfg}
     $w.t insert end " to shape the desk by hand: fonts, panels,\
  buttons, the terminal it favors.\n\n"
+    $w.t insert end "About this desk" {link about}
+    $w.t insert end " — what is running, from the running desk's own\
+ mouth.\n\n"
     $w.t insert end "See every key this desk answers to" {link keys}
     $w.t insert end " — the same list Super+h shows, from the top.\n\n"
     $w.t insert end "Hide this forever" {link hide}
     $w.t insert end " — the desk writes your first customization and\
  this note never returns."
-    $w.t tag bind cfg  <ButtonRelease-1> {applet configurator}
-    $w.t tag bind keys <ButtonRelease-1> {key-help-open}
+    $w.t tag bind cfg   <ButtonRelease-1> {applet configurator}
+    $w.t tag bind about <ButtonRelease-1> {applet about}
+    $w.t tag bind keys  <ButtonRelease-1> {key-help-open}
     $w.t tag bind hide <ButtonRelease-1> {welcome-hide}
     $w.t configure -state disabled
     pack $w.t -expand 1 -fill both
