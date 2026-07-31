@@ -144,6 +144,19 @@ sleep 1
 FOLLOW=$(qu 'list host [font actual DeskFont -size] \
                   seed [wm-call {font actual DeskFont -size}]')
 
+# the ends of the list, in both dialects
+ENDS=$(qu 'set T $::cfg_T
+           focus $T
+           event generate $T <KeyPress-End>
+           set last [cfg-name-of [cfg-selected]]
+           event generate $T <KeyPress-Home>
+           set first [cfg-name-of [cfg-selected]]
+           event generate $T <Alt-greater>
+           set lastalt [cfg-name-of [cfg-selected]]
+           event generate $T <Alt-less>
+           set firstalt [cfg-name-of [cfg-selected]]
+           list $first $last [expr {$first eq $firstalt && $last eq $lastalt}]')
+
 HEAD=$(qu 'set W [winfo toplevel $::cfg_T]
            focus $W.b.save
            event generate $W <Alt-Key-k>
@@ -330,6 +343,11 @@ esac
 case $FOLLOW in
     "host 14 seed 14") echo "OK: the applet followed the desk font, live" ;;
     *) echo "FAIL: font follow: $FOLLOW" ;;
+esac
+case $ENDS in
+    "set-desk-background set-workarea-follow 1")
+        echo "OK: Home/End and Alt+< / Alt+> reach the same two ends" ;;
+    *) echo "FAIL: ends: $ENDS" ;;
 esac
 case $HEAD in
     "text {Knobs — everything this desk can be told} under 0 focus "*.t)

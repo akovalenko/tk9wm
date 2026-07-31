@@ -35,7 +35,7 @@ set cfg_pending {}   ;# name -> the command previewed but not saved
 set cfg_item {}      ;# name -> tree item
 set cfg_T ""
 set cfg_hint "Return, F4 or double-click opens the picker · F2 types ·\
- Save makes it stick · Erase takes a saved click back"
+ Home/End or Alt+< / Alt+> for the ends · Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
 # commit and explained nothing). Every rejection — ours by kind, or
@@ -144,6 +144,16 @@ proc cfg-build {W} {
     foreach k {Down j n} { bind $T <KeyPress-$k> {cfg-move below; break} }
     bind $T <Control-p> {cfg-move above; break}
     bind $T <Control-n> {cfg-move below; break}
+    # ...and the ends of the list, in both dialects: Home/End as every
+    # list has them, Alt+< and Alt+> as emacs hands expect (the marker
+    # is a shifted key, so the binding names the key and the shift —
+    # see the chord lesson in the WM's key layer).
+    foreach k {<KeyPress-Home> <Alt-less> <Alt-Key-comma>} {
+        bind $T $k {cfg-end first; break}
+    }
+    foreach k {<KeyPress-End> <Alt-greater> <Alt-Key-period>} {
+        bind $T $k {cfg-end last; break}
+    }
     bind $T <KeyPress-Return> {cfg-activate primary; break}
     bind $T <KeyPress-F4>     {cfg-activate primary; break}
     bind $T <KeyPress-F2>     {cfg-activate text; break}
@@ -408,6 +418,21 @@ proc cfg-move {dir} {
     if {$cur eq ""} return
     set next [$::cfg_T item id [list $cur $dir]]
     if {$next ne "" && $next != $cur} { cfg-select $next }
+}
+# The first and last KNOB, not the first and last row: a group header
+# is a place to fold, not a place to be (and the tree may well open
+# with one at the top).
+proc cfg-end {which} {
+    set names [dict keys $::cfg_item]
+    if {![llength $names]} return
+    set name [expr {$which eq "first" ? [lindex $names 0] : [lindex $names end]}]
+    # ...and the group it lives in has to be open to be seen
+    set it [dict get $::cfg_item $name]
+    set parent [$::cfg_T item parent $it]
+    if {$parent ne "" && ![$::cfg_T item state get $parent open]} {
+        $::cfg_T expand $parent
+    }
+    cfg-select $it
 }
 proc cfg-name-of {it} {
     dict for {n i} $::cfg_item { if {$i == $it} { return $n } }
