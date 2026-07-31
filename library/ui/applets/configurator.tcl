@@ -35,7 +35,7 @@ set cfg_pending {}   ;# name -> the command previewed but not saved
 set cfg_item {}      ;# name -> tree item
 set cfg_T ""
 set cfg_hint "Return or double-click opens the picker · F2 types ·\
- a change previews at once · Save makes it stick"
+ ▾ in the field is the same picker · Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
 # commit and explained nothing). Every rejection — ours by kind, or
@@ -274,9 +274,16 @@ proc cfg-fold {way} {
 
 # A single click SELECTS and focuses the tree — nothing more; the
 # double click and the keys activate.
+# What identify answers, and who owns each answer:
+#   {}                     empty space below the rows — nobody's
+#   {header COLUMN ?side?} the header — treectrl's (drags, resizes)
+#   {item I button}        the expander — treectrl's (folding)
+#   {item I column C ...}  a CELL — ours
+# Claiming anything but the last would swallow a class binding that
+# does real work (the owner's review, twice over).
 proc cfg-click {x y} {
     set id [$::cfg_T identify $x $y]
-    if {[lindex $id 0] ne "item"} { return 0 }   ;# the header is treectrl's
+    if {[lindex $id 0] ne "item" || [lindex $id 2] ne "column"} { return 0 }
     focus $::cfg_T
     cfg-select [lindex $id 1]
     return 1
@@ -367,10 +374,12 @@ proc cfg-entry {it name} {
     if {$picker ne ""} {
         # the combobox-like way into the dialog: the button, or Down
         # from the keyboard — a gesture that costs nothing to guess
-        # "..." and not a triangle glyph: the desk font may simply
-        # not have one, and an invisible affordance is no affordance
-        # (the owner saw nothing where the arrow was meant to be)
-        ttk::button $T.edit.pick -text ... -takefocus 0 -width 3 \
+        # A plain button, not the flat Toolbutton it started as: the
+        # owner saw no affordance at all where this was meant to be,
+        # and a borderless glyph in a one-line cell is easy to miss
+        # (the glyph itself is fine — his correction; DejaVu and the
+        # terminal fonts all carry it).
+        ttk::button $T.edit.pick -text ▾ -takefocus 0 -width 2 \
             -command [list cfg-entry-pick $picker $name]
         pack $T.edit.pick -side right -fill y
         bind $T.edit.e <Down> [list cfg-entry-pick $picker $name]
