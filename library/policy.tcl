@@ -6314,6 +6314,208 @@ proc custom-erase {name} {
     reload-config
     return 1
 }
+
+# ---- the collection registry ----
+# The knobs' sibling: a COLLECTION is a configurable FAMILY — panel
+# buttons, key bindings, widgets, key bundles — whose elements come
+# and go, each addressed by a key of its own (a label, a chord, a
+# name). The registry is the configurator's worldview of them, the
+# exact counterpart of knob-table: what collections exist, what
+# fields an element carries (kind + doc, editors picked by kind —
+# `chord` validates through parse-chord and shows through chord-name,
+# `dict` is a nested dictionary for a sub-editor), whether order is
+# meaningful, and the elements themselves. Per element: its key, the
+# values the layers SAID (the knob-said lesson holds here too — never
+# the desk's expansion of them), and its OWNER — code, config or
+# custom, read off the same per-key layer records the knobs use.
+proc collection {name meta} { dict set ::collection_registry $name $meta }
+set collection_registry {}
+
+collection buttons {
+    key label ordered yes
+    doc {the default panel's buttons, in the order the strip wears them}
+    list collection-buttons
+    fields {
+        match    {kind text  doc {predicate: which window this button seeks}}
+        launch   {kind text  doc {what to run when nothing matches}}
+        icon     {kind text  doc {the button's face}}
+        key      {kind chord doc {the chord that presses it}}
+        needs    {kind list  doc {commands this button refuses to exist without}}
+        style    {kind text  doc {a style rule for the windows it finds}}
+        terminal {kind dict  doc {a semantic terminal button: name run title env args}}
+        emacs    {kind dict  doc {a semantic emacs button: daemon frame eval via}}
+        env      {kind dict  doc {environment around the launch}}
+    }
+}
+collection bindings {
+    key chord ordered no
+    doc {every chord this desk answers to, and what it runs}
+    list collection-bindings
+    fields {
+        script {kind text doc {what the chord runs}}
+        name   {kind text doc {how the help list names it}}
+    }
+}
+collection widgets {
+    key name ordered yes
+    doc {the desk's widgets, sharing their areas in declaration order}
+    list collection-widgets
+    fields {
+        -type    {kind text doc {what the widget IS — see wm-widget-type}}
+        -on      {kind text doc {workarea, screen, or panel NAME}}
+        -place   {kind text doc {edge words of the place grammar}}
+        -padding {kind int  doc {air inside the container, px}}
+    }
+}
+collection keys {
+    key bundle ordered no
+    doc {families of bindings that come and go together — members fixed in code}
+    list collection-keys
+    fields {
+        state  {kind {choice on off} doc {the whole family, present or not}}
+        params {kind dict doc {the bundle's own parameters (prefix, help, …)}}
+    }
+}
+
+proc collection-buttons {} {
+    set out {}
+    foreach b [panel-cfg default buttons] {
+        set label [lindex $b 0]
+        set raw {}
+        catch {set raw [dict get $::panels default raw $label]}
+        lappend out [dict create key $label values $raw \
+                         owner [knob-owner "panel-button $label"]]
+    }
+    return $out
+}
+proc collection-widgets {} {
+    set out {}
+    dict for {name opts} $::widgets {
+        set values $opts
+        # what the layer SAID, when one did: the call's own words, not
+        # the stored merge of defaults over them. The code's widgets
+        # never spoke sparsely — the stored options ARE its word.
+        foreach layer {custom config} {
+            if {[dict exists $::layer_knobs $layer "wm-widget $name"]} {
+                set values [lrange \
+                    [dict get $::layer_knobs $layer "wm-widget $name"] 2 end]
+                break
+            }
+        }
+        lappend out [dict create key $name values $values \
+                         owner [knob-owner "wm-widget $name"]]
+    }
+    return $out
+}
+proc collection-keys {} {
+    set out {}
+    dict for {name def} $::key_bundle_defs {
+        set on [dict exists $::key_bundles $name]
+        # the parameters the family RUNS ON when it is up; the
+        # declaration's defaults when it is off
+        set params [expr {$on ? [dict get $::key_bundles $name params]
+                              : [dict get $def params]}]
+        lappend out [dict create key $name \
+            values [dict create state [expr {$on ? "on" : "off"}] \
+                        params $params] \
+            owner [knob-owner "wm-keys $name"]]
+    }
+    return $out
+}
+# The bindings are TWO lists in one: the keymap walked live — every
+# chord the desk actually answers to — and then the layer words a
+# LATER word buried (the owner's decision 5: last wins, custom over
+# config). A buried wm-bind is not in the keymap at all, but the
+# user's file still says it, so the table serves it flagged
+# `ineffectual` — the tree gets to mark the bind that does nothing
+# instead of pretending it was never written.
+proc collection-bindings {} {
+    set out [keymap-elements $::keymap {} {}]
+    foreach layer {custom config} {
+        if {![dict exists $::layer_knobs $layer]} continue
+        dict for {k cmd} [dict get $::layer_knobs $layer] {
+            # the key says wm-bind; the COMMAND may be the unbind that
+            # replaced it, and an unbind is not a binding to show
+            if {[lindex $k 0] ne "wm-bind"} continue
+            if {[lindex $cmd 0] ne "wm-bind"} continue
+            if {[catch {lmap tok [lindex $cmd 1] \
+                            {join [parse-chord $tok] ,}} pk]} continue
+            set live [keymap-payload $::keymap $pk]
+            if {$live ne "" && [string trim [lindex $live 0]] \
+                    eq [string trim [lindex $cmd 2]]} continue
+            lappend out [dict create \
+                key [join [lmap c $pk {chord-name {*}[split $c ,]}] " "] \
+                values [dict create script [lindex $cmd 2] \
+                            name [lindex $cmd 3]] \
+                owner $layer ineffectual 1]
+        }
+    }
+    return $out
+}
+proc keymap-elements {node path disp} {
+    set out {}
+    dict for {k entry} $node {
+        lassign [split $k ,] mods ks
+        set p2 [concat $path [list $k]]
+        set d2 [concat $disp [list [chord-name $mods $ks]]]
+        lassign $entry kind payload
+        if {$kind eq "map"} {
+            lappend out {*}[keymap-elements $payload $p2 $d2]
+        } else {
+            # a leaf is {action SCRIPT ?NAME?}
+            lassign $entry - script bname
+            lappend out [dict create key [join $d2 " "] \
+                values [dict create script $script name $bname] \
+                owner [binding-owner $p2 $script]]
+        }
+    }
+    return $out
+}
+# WHOSE WORD is this live binding: the layer whose wm-bind for this
+# very chord sequence is what the keymap answers with — custom
+# outranks config, and nobody's word means the code's floor. Parsed
+# chords, not spec spellings: <Super>9 and <super>9 are one chord,
+# and the layer key holds whichever spelling the writer used.
+proc binding-owner {keys script} {
+    foreach layer {custom config} {
+        if {![dict exists $::layer_knobs $layer]} continue
+        dict for {k cmd} [dict get $::layer_knobs $layer] {
+            if {[lindex $k 0] ne "wm-bind"} continue
+            if {[lindex $cmd 0] ne "wm-bind"} continue
+            if {[catch {lmap tok [lindex $cmd 1] \
+                            {join [parse-chord $tok] ,}} pk]} continue
+            if {$pk eq $keys && [string trim [lindex $cmd 2]] \
+                    eq [string trim $script]} { return $layer }
+        }
+    }
+    return code
+}
+# The keymap's word at a chord sequence: {SCRIPT ?NAME?} with the
+# action tag stripped, or empty — absent, pruned, or a map where a
+# binding was asked for.
+proc keymap-payload {node keys} {
+    set k [lindex $keys 0]
+    if {![dict exists $node $k]} { return {} }
+    set entry [dict get $node $k]
+    lassign $entry kind payload
+    if {[llength $keys] == 1} {
+        return [expr {$kind eq "map" ? {} : [lrange $entry 1 end]}]
+    }
+    if {$kind ne "map"} { return {} }
+    return [keymap-payload $payload [lrange $keys 1 end]]
+}
+# collection-table — the send-facing answer, the configurator's whole
+# view of the families: the registry plus each collection's elements,
+# one dict.
+proc collection-table {} {
+    set out {}
+    dict for {name meta} $::collection_registry {
+        dict set out $name [dict merge $meta \
+            [dict create elements [uplevel #0 [dict get $meta list]]]]
+    }
+    return $out
+}
+
 # The traced vocabulary derives from the registry — one list, not two
 # — plus the named declarations, which are traced per name rather
 # than rendered as knobs.
