@@ -6080,9 +6080,12 @@ proc set-welcome {mode} {
 proc welcome-inject {} {
     if {$::welcome ne "on"} return
     if {[dict exists $::widgets __welcome]} return
-    set bg $::desk_background
-    wm-widget __welcome -type welcome -on workarea -place center \
-        -background $bg -foreground [contrast-fg $bg]
+    # No colours in the DECLARATION: they would be frozen at the
+    # moment of injection, and the mat then kept the old ground while
+    # the desk changed under it (the owner, mid-experiment with
+    # set-desk-background). The build reads the desk's colour when it
+    # runs, and a rebuild is what every colour change already does.
+    wm-widget __welcome -type welcome -on workarea -place center
 }
 
 # ---- applets: the ui host and the door to it ----
@@ -6222,6 +6225,12 @@ proc applet {name {retry 0}} {
     }
     set script [file join $::tk9wm_library ui host.tcl]
     puts "WM: applet $name: spawning the ui host"
+    # A WORD WHILE IT COMES UP: a fresh host has a Tk, a treectrl and
+    # a theme to load before anything can be on the screen, and a
+    # desk that says nothing for two seconds looks broken (the
+    # owner). The desk's own echo box is exactly the right size for
+    # this — no new machinery, and it fades on its own.
+    policy-key-echo flash "$name: starting…"
     exec {*}$head $script [tk appname] $name &
 }
 

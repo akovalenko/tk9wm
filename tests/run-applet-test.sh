@@ -38,12 +38,13 @@ q 'applet about' >/dev/null
 sleep 1
 H2=$(hosts)
 
-# Close the applet window at the host itself (wmctrl -c speaks
-# _NET_CLOSE_WINDOW, which this WM does not hear yet — a noted gap);
-# the host must survive its last window.
-printf 'destroy .tk9wm-about\n' > "$HERE/applet-config/qh.tcl"
-"$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm-ui "$HERE/applet-config/qh.tcl" >/dev/null
+# Close it the way a user does — the WM's own close, which speaks
+# WM_DELETE_WINDOW — and the applet must WITHDRAW rather than die:
+# the reopen is then a deiconify of the SAME window, instant and with
+# everything it had.
+q "close-client $AID" >/dev/null
 sleep 1.5
+WITHDRAWN=$(q "info exists ::managed($AID)")
 q 'applet about' >/dev/null
 sleep 2
 H3=$(hosts)
@@ -99,6 +100,11 @@ if grep -q 'applet about: asked the running host' "$HERE/wm-applet.log" \
     echo "OK: after a close the running host reopened it — still one process"
 else
     echo "FAIL: reopen path (hosts=$H3, window=$BID)"
+fi
+if [ "$WITHDRAWN" = 0 ] && [ "$BID" = "$AID" ]; then
+    echo "OK: the close withdrew it, and the reopen is the same window back"
+else
+    echo "FAIL: withdrawn=$WITHDRAWN, id before=$AID after=$BID"
 fi
 if [ "$H4" = 1 ]; then
     echo "OK: the host rode across the WM restart"

@@ -215,6 +215,13 @@ proc ui-open {name} {
     toplevel $top -class Tk9wmUi
     wm title $top [expr {[dict exists $meta title]
                          ? [dict get $meta title] : "tk9wm: $name"}]
+    # CLOSING WITHDRAWS, it does not destroy: an applet holds no
+    # durable state, but rebuilding one costs a visible pause, and
+    # the second open should be instant (the owner's rule for
+    # applets in general — anything else needs a reason). The window
+    # comes back with everything it had; ui-open re-syncs the style
+    # around it.
+    wm protocol $top WM_DELETE_WINDOW [list wm withdraw $top]
     if {[catch {[dict get $meta build] $top} err]} {
         puts "UI: applet $name build FAILED: $err"
         catch {destroy $top}

@@ -264,7 +264,16 @@ proc set-desk-window {on} {
     }
     set ::desk_window [expr {$on ? 1 : 0}]
 }
-proc set-desk-background {colour} { set ::desk_background $colour }
+# Applied ON THE SPOT, like every knob that touches something the
+# user can see: waiting for the next reload made the configurator's
+# preview a lie for this one knob (the owner, 2026-08-01). The build
+# is idempotent and cheap — it recolors the window it already has.
+proc set-desk-background {colour} {
+    set ::desk_background $colour
+    if {[winfo exists .desk]} { .desk configure -background $colour }
+    # a widget on the desk is dressed from this colour too
+    if {[llength [info commands widgets-build]]} { widgets-build }
+}
 proc desk-window {} { expr {[winfo exists .desk] ? ".desk" : ""} }
 proc desk-window-build {} {
     if {!$::desk_window} { destroy .desk; return }

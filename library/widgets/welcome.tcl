@@ -14,9 +14,14 @@
 wm-widget-type welcome {build welcome-widget-build}
 
 proc welcome-widget-build {w opts} {
-    set bg [dict get $opts -background]
-    set fg [dict get $opts -foreground]
+    # THE DESK'S COLOUR AS IT IS NOW, not as it was when this widget
+    # was declared: the mat sits directly on the desk window and must
+    # not drift from it. The ink follows by luminance, so a change of
+    # ground changes the writing with it.
+    set bg $::desk_background
+    set fg [contrast-fg $bg]
     set link [contrast-link $bg]
+    $w configure -background $bg
     text $w.t -wrap word -borderwidth 0 -highlightthickness 0 \
         -background $bg -foreground $fg -font DeskFont \
         -cursor left_ptr -width 52 -height 14 -spacing3 4

@@ -135,8 +135,10 @@ proc cfg-build {W} {
     bind $T <Control-n> {cfg-move below; break}
     bind $T <KeyPress-Return> {cfg-activate primary; break}
     bind $T <KeyPress-F2>     {cfg-activate text; break}
-    bind $T <KeyPress-Left>   {cfg-fold collapse; break}
-    bind $T <KeyPress-Right>  {cfg-fold expand; break}
+    # h/l fold and unfold beside the arrows, the way k/j walk beside
+    # Up and Down (the owner's ask — vi hands)
+    foreach k {Left h} { bind $T <KeyPress-$k> {cfg-fold collapse; break} }
+    foreach k {Right l} { bind $T <KeyPress-$k> {cfg-fold expand; break} }
     cfg-refresh
     # ...and AGAIN once the window is really on the screen. Before
     # the first map a treectrl has no realized geometry to measure —
@@ -550,8 +552,12 @@ proc cfg-list-commit {name} {
     destroy .cfg-list
     cfg-picked $name $out
 }
+# -parent, on both pickers: without it Tk's dialogs are neither
+# transient nor grouped, and they sink behind the window that opened
+# them (the owner watched both do it).
 proc cfg-color-dialog {name} {
-    set c [tk_chooseColor -initialcolor [cfg-cur $name] -title "tk9wm: $name"]
+    set c [tk_chooseColor -parent [winfo toplevel $::cfg_T] \
+        -initialcolor [cfg-cur $name] -title "tk9wm: $name"]
     if {$c ne ""} { cfg-picked $name $c }
 }
 # The dialog seeds from the COMPUTED font — what the desk actually
@@ -560,6 +566,8 @@ proc cfg-color-dialog {name} {
 proc cfg-font-dialog {name} {
     set seed [dict get $::cfg_table $name computed]
     tk fontchooser configure \
+        -parent [winfo toplevel $::cfg_T] \
+        -title "tk9wm: $name" \
         -font [list [dict get $seed -family] [dict get $seed -size] \
                     [dict get $seed -weight]] \
         -command [list cfg-font-picked $name]
