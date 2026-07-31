@@ -71,6 +71,9 @@ THEME=$(qu 'ttk::style theme use')
 qu 'cfg-set set-title-font {-weight bold}' >/dev/null
 qu 'cfg-save' >/dev/null
 sleep 0.5
+# a PENDING multi-word value must offer itself back whole to the next
+# edit (it used to come back as its last word)
+PENDBACK=$(qu 'cfg-set set-title-font {-weight bold}; cfg-cur set-title-font')
 FONTCELL=$(qu 'cfg-value-text set-title-font [dict get $::cfg_table set-title-font value]')
 FONTOWNER=$(qu 'cfg-owner set-title-font')
 FONTLIVE=$(q 'font actual TitleFont -weight')
@@ -190,6 +193,11 @@ case "$FONTCELL|$FONTOWNER|$FONTLIVE|$FONTFAM" in
         echo "OK: a derived font shows its delta, and inherits the family" ;;
     *) echo "FAIL: font cell «$FONTCELL» owner=$FONTOWNER live=$FONTLIVE family-inherited=$FONTFAM" ;;
 esac
+if [ "$PENDBACK" = "-weight bold" ]; then
+    echo "OK: a pending multi-word value comes back whole"
+else
+    echo "FAIL: pending value came back as «$PENDBACK»"
+fi
 case "$ERASEDOWNER|$ERASEDLIVE|$ERASEDFILE" in
     "code|normal|0") echo "OK: Erase took the click back — knob, file and desk" ;;
     *) echo "FAIL: after erase owner=$ERASEDOWNER live=$ERASEDLIVE file lines=$ERASEDFILE" ;;

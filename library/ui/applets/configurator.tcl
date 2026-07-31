@@ -34,7 +34,7 @@ set cfg_table {}     ;# knob-table, as last fetched
 set cfg_pending {}   ;# name -> the command previewed but not saved
 set cfg_item {}      ;# name -> tree item
 set cfg_T ""
-set cfg_hint "Return or double-click opens the picker · F2 types ·\
+set cfg_hint "Return, F4 or double-click opens the picker · F2 types ·\
  Save makes it stick · Erase takes a saved click back"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
@@ -111,7 +111,7 @@ proc cfg-build {W} {
     foreach b [list $W.b.save $W.b.revert $W.b.erase] {
         ui-focusable $b; ui-accel $b
     }
-    label  $W.b.note -takefocus 0 -anchor w -text $::cfg_hint \
+    label  $W.b.note -takefocus 0 -anchor w -justify left -text $::cfg_hint \
         -foreground [ui-color link]
     pack $W.b.save $W.b.revert $W.b.erase -side left -padx 4 -pady 4
     pack $W.b.note -side left -padx 12
@@ -120,8 +120,14 @@ proc cfg-build {W} {
     # longer or shorter status line used to resize the whole window
     # under the owner's hands as he typed (a short refusal SHRANK it).
     update idletasks
-    $W.b configure -height [winfo reqheight $W.b]
+    # Two lines' worth, always: a refusal is a sentence and sometimes
+    # a long one, and it was running off the end (the owner). The box
+    # keeps that height whatever the text does, so the window walls
+    # still do not move; the wrap length follows the window's width.
+    $W.b configure -height [expr {max([winfo reqheight $W.b],
+        2*[font metrics DeskFont -linespace] + 12)}]
     pack propagate $W.b 0
+    bind $W <Configure> {cfg-note-wrap %W %w}
 
     # CONDITIONAL breaks: a plain `break` swallowed the class bindings
     # too, and with them treectrl's own header work — column drags and
@@ -134,6 +140,7 @@ proc cfg-build {W} {
     bind $T <Control-p> {cfg-move above; break}
     bind $T <Control-n> {cfg-move below; break}
     bind $T <KeyPress-Return> {cfg-activate primary; break}
+    bind $T <KeyPress-F4>     {cfg-activate primary; break}
     bind $T <KeyPress-F2>     {cfg-activate text; break}
     # h/l fold and unfold beside the arrows, the way k/j walk beside
     # Up and Down (the owner's ask — vi hands)
@@ -154,6 +161,14 @@ proc cfg-fit-mapped {W} {
     if {$W ne [winfo toplevel $::cfg_T]} return
     bind $W <Map> {}
     cfg-fit
+}
+
+proc cfg-note-wrap {W w} {
+    if {$W ne [winfo toplevel $::cfg_T]} return
+    set l $W.b.note
+    if {![winfo exists $l]} return
+    set room [expr {$w - [winfo x $l] - 12}]
+    if {$room > 80} { $l configure -wraplength $room }
 }
 
 # Any scroll ends an open editor (as a commit attempt): the entry is
@@ -412,9 +427,14 @@ proc cfg-picker-of {name} {
     }
     return ""
 }
+# The pending value is kept AS A VALUE. It used to be dug back out
+# of the command with `lindex ... end`, which is the last WORD — so a
+# multi-word value came back mangled: «-weight bold» offered itself
+# to the next edit as «bold» (the owner, on set-title-font). A command
+# is not a value and cannot be read as one.
 proc cfg-cur {name} {
     expr {[dict exists $::cfg_pending $name]
-          ? [lindex [dict get $::cfg_pending $name] end]
+          ? [dict get $::cfg_pending $name value]
           : [dict get $::cfg_table $name value]}
 }
 
@@ -466,7 +486,11 @@ proc cfg-entry {it name} {
         ttk::button $T.edit.pick -text ▾ -takefocus 0 -width 2 \
             -command [list cfg-entry-pick $picker $name]
         grid $T.edit.pick -row 0 -column 1 -sticky ns
+        # Down and F4 both — the gestures a combobox has taught
+        # every pair of hands (the owner names F4 by its Windows
+        # habit; Down is the X one)
         bind $T.edit.e <Down> [list cfg-entry-pick $picker $name]
+        bind $T.edit.e <F4>   [list cfg-entry-pick $picker $name]
     }
     place $T.edit -x $x1 -y $y1 -width [expr {$x2 - $x1}] \
         -height [expr {$y2 - $y1}]
@@ -635,7 +659,7 @@ proc cfg-set {name value} {
         puts "UI: configurator: preview of «$cmd» refused: $err"
         return [cfg-refuse [cfg-brief $err]]
     }
-    dict set ::cfg_pending $name $cmd
+    dict set ::cfg_pending $name [dict create cmd $cmd value $value]
     cfg-show-value [dict get $::cfg_item $name] $name $value
     cfg-status ""
     return 1
@@ -648,8 +672,8 @@ proc cfg-brief {err} {
     return $one
 }
 proc cfg-save {} {
-    dict for {name cmd} $::cfg_pending {
-        wm-call [list custom-write $cmd]
+    dict for {name pend} $::cfg_pending {
+        wm-call [list custom-write [dict get $pend cmd]]
     }
     set ::cfg_pending {}
     cfg-refresh
