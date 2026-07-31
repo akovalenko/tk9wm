@@ -28,6 +28,7 @@ trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
 # A colour of its own, so a pixel can say "the clock is here" without
 # arguing with the panel's background.
 cat > "$CONF/tk9wm.tcl" <<'EOF'
+set-welcome off
 set-tray on
 panel-button терминал { launch {exec xterm &} }
 wm-widget clock -type clock -on {panel default} -background #4e9a06
@@ -79,6 +80,7 @@ sleep 0.5
 
 # --- the same widget, told to live on the desk instead
 cat > "$CONF/tk9wm.tcl" <<'EOF'
+set-welcome off
 panel-button терминал { launch {exec xterm &} }
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
@@ -90,6 +92,7 @@ DESKWIN=$(xdotool search --onlyvisible --name '^tk9wm-desk$' | head -1)
 
 # --- and with the desk window switched off it falls back to a toplevel
 cat > "$CONF/tk9wm.tcl" <<'EOF'
+set-welcome off
 set-desk-window off
 panel-button терминал { launch {exec xterm &} }
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
@@ -102,6 +105,7 @@ OFFPX=$(here "$(area | sed 's/ .*//')")
 
 # --- a bigger desk font must carry both lines with it
 cat > "$CONF/tk9wm.tcl" <<'EOF'
+set-welcome off
 set-desk-font -size 20
 panel-button терминал { launch {exec xterm &} }
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06

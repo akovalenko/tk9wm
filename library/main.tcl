@@ -43,23 +43,53 @@ policy-snapshot-defaults
 #
 # Resolved AT EVERY LOAD, not once: a config written after the WM
 # started should be found by the next reload, without a restart.
-proc config-path {} {
-    set xdg [expr {[info exists ::env(XDG_CONFIG_HOME)]
+proc config-dir {} {
+    expr {[info exists ::env(XDG_CONFIG_HOME)]
         && $::env(XDG_CONFIG_HOME) ne ""
-        ? $::env(XDG_CONFIG_HOME) : [file join $::env(HOME) .config]}]
-    set conf [file join $xdg tk9wm.tcl]
+        ? $::env(XDG_CONFIG_HOME) : [file join $::env(HOME) .config]}
+}
+proc config-path {} {
+    set conf [file join [config-dir] tk9wm.tcl]
     if {![file exists $conf]} {
         set conf [file join $::tk9wm_library default-config.tcl]
     }
     return $conf
 }
+# The customization layer's file — MACHINE-OWNED: the configurator and
+# the desk's own buttons (the welcome widget's "hide forever") write
+# it whole; nobody edits it by hand. It loads AFTER the config, so a
+# word said by click is the later word of the same user and wins —
+# and the loader says out loud which config knobs it overrode, so the
+# shadowing is lawful rather than mysterious (the owner's design,
+# 2026-07-31).
+proc custom-path {} {
+    file join [config-dir] tk9wm.custom.tcl
+}
 proc load-config {} {
+    set ::layer_knobs {}   ;# a fresh load cycle starts here
     set conf [config-path]
-    if {[catch {uplevel #0 [list source $conf]} err]} {
+    set ::config_is_default \
+        [string equal $conf [file join $::tk9wm_library default-config.tcl]]
+    lassign [layer-source config $conf] code err
+    if {$code} {
         puts "WM: config $conf FAILED: $err — running on what it managed to set"
         return 0
     }
     puts "WM: config $conf"
+    return 1
+}
+proc load-custom {} {
+    set path [custom-path]
+    if {![file exists $path]} { return 1 }
+    lassign [layer-source custom $path] code err
+    if {$code} {
+        puts "WM: custom $path FAILED: $err — running on what it managed to set"
+        return 0
+    }
+    puts "WM: custom $path"
+    foreach key [layer-overlaps] {
+        puts "WM: custom overrides the config: $key"
+    }
     return 1
 }
 
@@ -86,6 +116,7 @@ proc reload-config {} {
     workarea-held {
         policy-reset
         load-config
+        load-custom
         policy-apply
     }
 }
@@ -157,7 +188,7 @@ proc tk9wm-main {args} {
     # on the way up. Nothing is managed yet, so nothing is hurt — but
     # one publication is the truth and two are noise, and the startup
     # log is where one looks to learn what the shape of a load is.
-    workarea-held { load-config }
+    workarea-held { load-config; load-custom; welcome-inject }
     substrate-start
 
     if {[lindex $args 0] eq "demo"} {

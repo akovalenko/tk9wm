@@ -5779,6 +5779,163 @@ unless-already {[info exists ::policy_bindings_up]} {
     policy-default-bindings
 }
 
+# ---- the customization layer: the GUI's word, and whose word wins ----
+# Three storeys, each overriding the one below: the CODE's defaults,
+# the CONFIG (the user speaking deliberately, by hand), and the
+# CUSTOMIZATIONS — the same user speaking by click, through the
+# configurator applet or a desk button. The click is the LATER word
+# and wins; were it the other way, a GUI whose knobs silently lose to
+# a config line would be worse than no GUI (the owner's ruling,
+# 2026-07-31). What keeps the shadowing lawful instead of mysterious
+# is the loader's report: it knows which layer touched which knob and
+# says so, one line per overlap.
+#
+# The bookkeeping: while a layer's file is being sourced, the config
+# VOCABULARY is traced (armed for the load, removed after — nothing
+# in the hot paths), and each call is recorded under a semantic key.
+# The vocabulary is enumerated by hand and says so: a knob missing
+# from the list still works, it just goes unreported — a soft edge,
+# preferred over tracing every set-* including the substrate's
+# internals.
+set knob_vocab {
+    set-desk-font set-title-font set-title-justify set-minimize
+    set-maximize set-workarea-follow set-drag-modifier set-drag-slop
+    set-edge-resist set-root-cursor set-fade set-panel-side
+    set-panel-preset set-panel-icon-size set-panel-live-colors
+    set-tray set-tray-panel set-tray-background set-tray-icon-size
+    set-tray-argb set-key-echo set-key-echo-place set-key-help
+    set-winlist-cycle set-icon-path set-desk-window set-desk-background
+    set-terminal set-emacs-frames set-emacs-daemons set-emacs-autodaemon
+    set-welcome wm-font wm-bind wm-widget
+}
+set knob_layer ""
+keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
+# The key is semantic: a plain knob is one key however often it is
+# called (the last call wins in Tcl exactly as in the file), a named
+# declaration is one key PER NAME.
+proc knob-key {words} {
+    set p [lindex $words 0]
+    switch -- $p {
+        wm-font - wm-bind - wm-widget { return "$p [lindex $words 1]" }
+        default { return $p }
+    }
+}
+proc knob-touched {cmd op} {
+    if {$::knob_layer eq ""} return
+    # Only the file's OWN calls: a knob calling another knob inside
+    # (set-title-font is wm-font TitleFont) fires the trace too, and
+    # recording it would double every overlap line. The callback runs
+    # in the traced command's caller — level 1 here means "called
+    # from the sourced file's top level".
+    if {[info level] != 1} return
+    if {[catch {knob-key $cmd} key]} return
+    dict set ::layer_knobs $::knob_layer $key $cmd
+}
+proc layer-source {layer path} {
+    foreach p $::knob_vocab {
+        if {[llength [info commands $p]]} {
+            trace add execution $p enter knob-touched
+        }
+    }
+    set ::knob_layer $layer
+    set code [catch {uplevel #0 [list source $path]} err]
+    set ::knob_layer ""
+    foreach p $::knob_vocab {
+        catch {trace remove execution $p enter knob-touched}
+    }
+    list $code $err
+}
+proc layer-overlaps {} {
+    set out {}
+    if {![dict exists $::layer_knobs config]
+            || ![dict exists $::layer_knobs custom]} { return $out }
+    foreach key [dict keys [dict get $::layer_knobs custom]] {
+        if {[dict exists $::layer_knobs config $key]} { lappend out $key }
+    }
+    return $out
+}
+# custom-write COMMAND — a customization is born: recorded under its
+# key, persisted, and run on the live desk in the same breath. The
+# file is rewritten WHOLE in a canonical style (one call per line,
+# sorted by key) and moved into place atomically — it is machine-owned
+# and says so in its header, which is what makes rewriting it safe.
+proc custom-write {command} {
+    if {[catch {knob-key $command} key]} {
+        error "custom-write: not a command list: $command"
+    }
+    dict set ::layer_knobs custom $key $command
+    custom-save
+    uplevel #0 $command
+    if {[dict exists $::layer_knobs config $key]} {
+        puts "WM: custom overrides the config: $key"
+    }
+    puts "WM: custom: $command"
+}
+proc custom-save {} {
+    set path [custom-path]
+    file mkdir [file dirname $path]
+    set entries {}
+    if {[dict exists $::layer_knobs custom]} {
+        set entries [dict get $::layer_knobs custom]
+    }
+    set tmp $path.tmp
+    set ch [open $tmp w]
+    puts $ch "# tk9wm customizations — MACHINE-WRITTEN, do not edit by hand:"
+    puts $ch "# the configurator rewrites this file whole. Hand-written"
+    puts $ch "# configuration belongs in tk9wm.tcl, which loads BEFORE this"
+    puts $ch "# file; on overlap the desk says so in its log."
+    foreach key [lsort [dict keys $entries]] {
+        puts $ch [dict get $entries $key]
+    }
+    close $ch
+    file rename -force $tmp $path
+}
+
+# Readable ink for a given background — the two-way fork only (light
+# ink on dark ground, dark ink on light), decided by relative
+# luminance. What it exists for is anything drawn ON the user's own
+# colors: the welcome text sits directly on set-desk-background, and
+# black-on-black is the failure this refuses to have.
+proc contrast-fg {bg} {
+    lassign [winfo rgb . $bg] r g b
+    expr {(0.2126*$r + 0.7152*$g + 0.0722*$b) / 65535.0 > 0.5
+          ? "#1c1c1c" : "#eeeeec"}
+}
+proc contrast-link {bg} {
+    lassign [winfo rgb . $bg] r g b
+    expr {(0.2126*$r + 0.7152*$g + 0.0722*$b) / 65535.0 > 0.5
+          ? "#1a4a8a" : "#8ab4f8"}
+}
+
+# The welcome mat: the desk invites its user to the configurator, in
+# plain text on the desk itself — config or no config (the owner's
+# call: the note is about the configurator existing, not about the
+# desk being fresh). It stays until "hide forever", whose click
+# writes a customization (set-welcome off) — for a fresh user, their
+# very first: the invitation dogfoods the layer it invites you to
+# use. A config may also just say set-welcome off.
+keep welcome on
+proc set-welcome {mode} {
+    if {$mode ni {on off}} { error "set-welcome: on or off" }
+    set ::welcome $mode
+    if {$mode eq "off"} { dict unset ::widgets __welcome }
+    if {[llength [info commands widgets-build]]} { widgets-build }
+}
+proc welcome-inject {} {
+    if {$::welcome ne "on"} return
+    if {[dict exists $::widgets __welcome]} return
+    set bg $::desk_background
+    wm-widget __welcome -type welcome -on workarea -place center \
+        -background $bg -foreground [contrast-fg $bg]
+}
+
+# The applet door, wearing its final name before the ui host exists:
+# a panel button or a welcome link says `applet configurator` today
+# and keeps saying it when the host arrives.
+proc applet {name} {
+    puts "WM: applet $name — the ui host is not built yet"
+}
+
 # ---- the config layer: defaults, reset, apply ----
 # A reload is "put everything back the way the CODE has it, then let the
 # config speak again on that clean floor" — the owner's own contract for
@@ -5802,6 +5959,7 @@ set config_vars {
     widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
+    welcome
 }
 proc policy-snapshot-defaults {} {
     # Incremental on purpose: a Reread may bring NEW config_vars into
@@ -5867,6 +6025,7 @@ proc policy-apply {} {
     panels-build        ;# no buttons declared -> the strip goes away
     tray-reconcile      ;# start, stop or leave the tray exactly alone
     desk-window-build   ;# ...on, off, and the colour of it
+    welcome-inject      ;# a fresh desk gets its invitation, re-decided per load
     widgets-build       ;# cheap by construction: all of them, from nothing
     retitle-frames      ;# live frames follow the metrics and the font
     root-cursor-apply   ;# ...and the desk stops wearing the server's X

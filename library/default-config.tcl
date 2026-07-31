@@ -531,6 +531,28 @@
 # a tty frame sits in, and naming frames to spoof your own desk is
 # your own game.
 
+# ---- the customization layer ----
+#
+# Beside this hand-written file there may be a MACHINE-WRITTEN one:
+# ~/.config/tk9wm.custom.tcl (XDG honored) — the configurator applet
+# and the desk's own buttons write it; nobody edits it by hand, and
+# its header says so. It loads AFTER this file, and on overlap the
+# click wins: a knob set both here and there takes the customization's
+# value, and the desk says so in its log, one line per knob:
+#
+#   WM: custom overrides the config: set-title-font
+#
+# So a config line that "stopped working" is never a mystery — the log
+# names the shadow, and deleting the customization (or the whole
+# custom file) hands the knob back to this file.
+#
+# THE WELCOME NOTE on the desk links to the configurator, config or
+# no config — having written one does not retire it. What retires it
+# is its own "hide forever" link (which writes the customization
+# set-welcome off — for a fresh user, their first), or the same knob
+# said here:
+#   set-welcome off
+
 # ---- re-reading this file without restarting ----
 #
 # Super+t w r (or `whale-cli send-reload.tcl`) re-reads the config on
