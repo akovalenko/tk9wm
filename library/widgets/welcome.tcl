@@ -20,6 +20,15 @@ proc welcome-widget-build {w opts} {
     text $w.t -wrap word -borderwidth 0 -highlightthickness 0 \
         -background $bg -foreground $fg -font DeskFont \
         -cursor left_ptr -width 52 -height 14 -spacing3 4
+    # The height in CHARACTER LINES is a guess the wrap makes wrong
+    # (the owner's mat scrolled by a couple of lines); the truth —
+    # display lines after wrapping — exists once the widget is mapped,
+    # so the first Map re-fits the height to it. The area's layout
+    # follows the new request on its own.
+    bind $w.t <Map> {
+        %W configure -height [expr {[%W count -displaylines 1.0 end] + 1}]
+        bind %W <Map> {}
+    }
     $w.t tag configure h -font TitleFont
     $w.t tag configure link -foreground $link -underline 1
     $w.t tag bind link <Enter> [list $w.t configure -cursor hand2]
@@ -34,7 +43,8 @@ proc welcome-widget-build {w opts} {
     $w.t insert end " — what is running, from the running desk's own\
  mouth.\n\n"
     $w.t insert end "See every key this desk answers to" {link keys}
-    $w.t insert end " — the same list Super+h shows, from the top.\n\n"
+    $w.t insert end " — the same list Super+h shows, from the top\
+ (Super is the key most keyboards label Win).\n\n"
     $w.t insert end "Hide this forever" {link hide}
     $w.t insert end " — the desk writes your first customization and\
  this note never returns."
