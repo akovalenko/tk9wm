@@ -7506,10 +7506,13 @@ proc config-proc {name spec body} {
 proc config-instrument {name} {
     if {![llength [info commands $name]]} { return 0 }
     if {[catch {info body $name} body]} { return 0 }   ;# not a proc: a C command
-    # ...already wearing one? Asked by SUBSTRING, not by a pattern: a
-    # glob for the wrapper would have to carry unbalanced braces, and
-    # Tcl counts braces inside a proc body whatever they are quoted
-    # with (this very line cost a load, 2026-08-01).
+    # ...already wearing one? Asked by SUBSTRING rather than by a glob
+    # of the whole wrapper — which would have to carry an unbalanced
+    # brace, and Tcl counts braces inside a proc body whatever they
+    # are quoted with. (A backslash IS enough where one is really
+    # wanted — `set x "\{"` parses fine — but a substring says the
+    # same thing without the escape, and this line cost a load once
+    # already, 2026-08-01.)
     if {[string first "config-word-failed" $body] >= 0} { return 0 }
     set spec {}
     foreach a [info args $name] {
