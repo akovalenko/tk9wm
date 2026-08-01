@@ -137,7 +137,13 @@ proc reload-config {} {
         panels-held {
             policy-reset
             load-config
+            # the floor the layers below leave — the only moment the
+            # state without the custom layer actually exists, and so
+            # the only honest place to judge what that layer DOES
+            # (custom-effect-judge, the pins audit)
+            custom-floor-snapshot
             load-custom
+            custom-effect-judge
             policy-apply
         }
     }
@@ -216,7 +222,13 @@ proc tk9wm-main {args} {
     # on the way up. Nothing is managed yet, so nothing is hurt — but
     # one publication is the truth and two are noise, and the startup
     # log is where one looks to learn what the shape of a load is.
-    workarea-held { panels-held { load-config; load-custom; welcome-inject } }
+    workarea-held { panels-held {
+        load-config
+        custom-floor-snapshot        ;# see reload-config: the pins audit
+        load-custom
+        custom-effect-judge
+        welcome-inject
+    } }
     substrate-start
     # the resident ui host SURVIVED any restart on purpose — and the
     # restart may have brought new code under it (the dev loop pulls

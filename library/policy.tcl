@@ -7045,6 +7045,9 @@ proc collection-actions {} {
     dict for {name raw} $::action_raw {
         set e [dict create key $name values $raw \
                    owner [knob-owner "action $name"]]
+        if {[dict exists $::custom_effect "action $name"]} {
+            dict set e effect [dict get $::custom_effect "action $name"]
+        }
         # waiting — declared, not alive: the tree gets to say why a
         # deed is not answering (and the panels not showing it)
         if {[dict exists $::action_spec $name state]
@@ -7256,6 +7259,9 @@ proc keymap-elements {node path disp} {
             # chords, which is what an erase must be addressed by
             set lkey [binding-key $owner $p2]
             if {$lkey ne ""} { dict set e lkey $lkey }
+            if {$lkey ne "" && [dict exists $::custom_effect $lkey]} {
+                dict set e effect [dict get $::custom_effect $lkey]
+            }
             # ...and the line it was said on, for whoever has to be
             # told WHERE the word they are fighting with lives
             if {$where ne ""} { dict set e where $where }
@@ -7379,6 +7385,114 @@ proc layer-overlaps {} {
     }
     return $out
 }
+# ---- what a customization actually DOES ----
+# Two kinds of word live in the custom layer, and they look identical
+# in it (the owner's distinction, 2026-08-01): one CHANGES a setting
+# against what the layers below would have given, the other PINS what
+# is already so — «let this stop depending on the config or on the
+# code». A `take` out of a bundle is the second kind on purpose, so
+# nothing here may go dropping them by itself.
+#
+# Telling them apart needs the state as it would be WITHOUT the custom
+# layer, and there is exactly one moment when that state really
+# exists: the reload, between the config and the custom layer. So the
+# judgement is made there and remembered, rather than guessed at
+# afterwards from values that already have the custom word in them.
+keep custom_effect {}   ;# custom key -> pin | change
+keep custom_floor {}    ;# the state the layers below left, at the snapshot
+
+proc custom-floor-snapshot {} {
+    set knobs {}
+    dict for {name meta} $::knob_registry {
+        catch {dict set knobs $name [uplevel #0 [dict get $meta get]]}
+    }
+    set ::custom_floor [dict create knobs $knobs actions $::action_raw \
+        keymap $::keymap widgets $::widgets bundles $::key_bundles]
+}
+# ...and afterwards, key by key: does what we said differ from what
+# stood there without us? The comparison is per VERB, because each
+# knows where its subject lives.
+proc custom-effect-judge {} {
+    set ::custom_effect {}
+    if {![dict exists $::layer_knobs custom]} return
+    set floor $::custom_floor
+    dict for {key cmd} [dict get $::layer_knobs custom] {
+        set verb [lindex $cmd 0]
+        set name [lindex $cmd 1]
+        set same 0
+        switch -- $verb {
+            wm-bind {
+                if {![catch {lmap t $name {join [parse-chord $t] ,}} pk]} {
+                    set was [keymap-payload [dict get $floor keymap] $pk]
+                    set now [keymap-payload $::keymap $pk]
+                    set same [expr {$was ne "" && [lindex $was 0] eq [lindex $now 0]}]
+                }
+            }
+            action {
+                set was [expr {[dict exists $floor actions $name]
+                               ? [dict get $floor actions $name] : ""}]
+                set now [expr {[dict exists $::action_raw $name]
+                               ? [dict get $::action_raw $name] : ""}]
+                set same [expr {$was eq $now}]
+            }
+            wm-widget {
+                set was [expr {[dict exists $floor widgets $name]
+                               ? [dict get $floor widgets $name] : ""}]
+                set now [expr {[dict exists $::widgets $name]
+                               ? [dict get $::widgets $name] : ""}]
+                set same [expr {$was eq $now}]
+            }
+            wm-keys {
+                set was [expr {[dict exists $floor bundles $name]
+                               ? [dict get $floor bundles $name] : ""}]
+                set now [expr {[dict exists $::key_bundles $name]
+                               ? [dict get $::key_bundles $name] : ""}]
+                set same [expr {$was eq $now}]
+            }
+            default {
+                # a plain knob answers what it holds; the floor kept
+                # what it held before we spoke
+                if {[dict exists $::knob_registry $verb]
+                        && [dict exists $floor knobs $verb]} {
+                    catch {
+                        set now [uplevel #0 [dict get $::knob_registry $verb get]]
+                        set same [expr {$now eq [dict get $floor knobs $verb]}]
+                    }
+                }
+            }
+        }
+        dict set ::custom_effect $key [expr {$same ? "pin" : "change"}]
+    }
+}
+# The overview: what we have said, sorted into the two kinds. A pin is
+# not a mistake — this only counts them and hands the list over.
+proc custom-audit {} {
+    set changes {}
+    set pins {}
+    dict for {key what} $::custom_effect {
+        if {$what eq "pin"} { lappend pins $key } else { lappend changes $key }
+    }
+    dict create changes $changes pins $pins
+}
+# ...and the sweep, which takes NAMED keys and nothing else: the
+# caller shows the list and asks, because «this says what the layer
+# below says» and «I meant it to stop depending on that layer» are
+# the same word seen from two sides (see take).
+proc custom-drop {keys} {
+    set gone 0
+    foreach key $keys {
+        if {![dict exists $::layer_knobs custom $key]} continue
+        dict unset ::layer_knobs custom $key
+        incr gone
+    }
+    if {$gone} {
+        custom-save
+        puts "WM: custom: dropped $gone word(s) that changed nothing"
+        reload-config
+    }
+    return $gone
+}
+
 # custom-write COMMAND — a customization is born: recorded under its
 # key, persisted, and run on the live desk in the same breath. The
 # file is rewritten WHOLE in a canonical style (one call per line,

@@ -77,11 +77,33 @@ WHERE=$(q 'set r none
     }
     set r')
 
+# ---- what a word of ours DOES: a hold against a change ----
+# One says exactly what the config says (a hold — the shape a `take`
+# out of a family leaves), one says something else. The judgement is
+# made where the state without us exists: in the reload, between the
+# config and our own layer.
+q 'custom-write {wm-bind {<Super>9} {list from-the-config}}' >/dev/null
+q 'custom-write {wm-bind {<Super>8} {list something-else}}' >/dev/null
+q reload-config >/dev/null
+sleep 1
+EFFECT=$(q 'list nine [dict get $::custom_effect {wm-bind <Super>9}] \
+    eight [dict get $::custom_effect {wm-bind <Super>8}]')
+AUDIT=$(q 'set a [custom-audit]
+    list pins [lsort [dict get $a pins]] changes [llength [dict get $a changes]]')
+# ...and dropping the holds changes nothing about what the desk does
+q 'custom-drop [dict get [custom-audit] pins]' >/dev/null
+sleep 1
+AFTERDROP=$(q 'list held [dict exists $::layer_knobs custom {wm-bind <Super>9}] \
+    changed [dict exists $::layer_knobs custom {wm-bind <Super>8}] \
+    answers [lindex [keymap-payload $::keymap \
+        [lmap t {<Super>9} {join [parse-chord $t] ,}]] 0]')
+
 kill $WM 2>/dev/null
 sleep 0.3
 
 echo "--- before={$BEFORE} taken={$TAKEN} afteroff={$AFTEROFF} back={$BACK}"
 echo "--- why={$WHY} took=$TOOK left=$LEFT where=$WHERE"
+echo "--- effect={$EFFECT} audit={$AUDIT} afterdrop={$AFTERDROP}"
 echo "--- verdict"
 if [ "$BEFORE" = "bundle accords config" ]; then
     echo "OK: a binding says whose it is — the family's, the config's"
@@ -107,5 +129,20 @@ if [ "$WHERE" = "tk9wm.tcl:1" ]; then
     echo "OK: a word from a file remembers which file and which line"
 else
     echo "FAIL: where: «$WHERE» (want tk9wm.tcl:1)"
+fi
+if [ "$EFFECT" = "nine pin eight change" ]; then
+    echo "OK: a word that says what the layer below says is a hold, not a change"
+else
+    echo "FAIL: effect: $EFFECT"
+fi
+case $AUDIT in
+    "pins {{wm-bind <Super>9}} changes "[1-9]*)
+        echo "OK: the audit sorts our words into the two kinds" ;;
+    *) echo "FAIL: audit: $AUDIT" ;;
+esac
+if [ "$AFTERDROP" = "held 0 changed 1 answers {list from-the-config}" ]; then
+    echo "OK: dropping the holds left the changes and changed nothing done"
+else
+    echo "FAIL: after the drop: $AFTERDROP"
 fi
 check_invariants "$HERE/wm-owner.log"

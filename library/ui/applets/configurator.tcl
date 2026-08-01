@@ -38,13 +38,14 @@ set cfg_table {}     ;# knob-table, as last fetched
 set cfg_coll {}      ;# collection-table, as last fetched
 set cfg_pending {}   ;# name -> the command previewed but not saved
 set cfg_item {}      ;# knob name -> tree item
+set cfg_effect {}    ;# custom key -> pin | change (the desk's audit)
 set cfg_node {}      ;# tree item -> collection descriptor (coll/elem/field)
 set cfg_fitem {}     ;# field address -> tree item
 set cfg_fresh {}     ;# elements born in this refresh — folded once attached
 set cfg_T ""
 set cfg_hint "Return or F4 opens the picker · F2 types · F3 switches a\
- slot's spelling · Ins adds, Del drops · Alt+↑/↓ move a button ·\
- Ctrl+Enter takes · Save makes it stick"
+ slot's spelling · F8 what you have changed · Ins adds, Del drops ·\
+ Alt+↑/↓ move a button · Ctrl+Enter takes · Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
 # commit and explained nothing). Every rejection — ours by kind, or
@@ -175,6 +176,7 @@ proc cfg-build {W} {
     bind $T <KeyPress-F4>     {cfg-activate primary; break}
     bind $T <KeyPress-F2>     {cfg-activate text; break}
     bind $T <KeyPress-F3>     {cfg-slot-menu; break}
+    bind $T <KeyPress-F8>     {cfg-pins; break}
     # h/l fold and unfold beside the arrows, the way k/j walk beside
     # Up and Down (the owner's ask — vi hands)
     foreach k {Left h} { bind $T <KeyPress-$k> {cfg-fold collapse; break} }
@@ -282,6 +284,9 @@ proc cfg-refresh-body {} {
     # «the tree stands empty» phase for it to fall into.
     set ::cfg_table [wm-call knob-table]
     set ::cfg_coll [wm-call collection-table]
+    # ...and what each of our own words DOES — pin or change, judged
+    # by the desk at the one moment it can be (see custom-effect-judge)
+    set ::cfg_effect [wm-call {set ::custom_effect}]
     # where to LAND if the selected row does not survive this pass —
     # a Delete is exactly that: beside where it stood, the previous
     # sibling, else the parent (the owner's ask, 2026-07-31 — being
@@ -420,6 +425,10 @@ proc cfg-top-update {T item key data} {
 proc cfg-knob-dress {T item name meta} {
     $T item element configure $item Cdoc eDoc -text [dict get $meta doc]
     cfg-show-value $item $name [dict get $meta value]
+    if {[dict exists $::cfg_effect $name]} {
+        $T item element configure $item Cflag eFlag \
+            -text [expr {[dict get $::cfg_effect $name] eq "pin" ? "pin" : ""}]
+    }
 }
 proc cfg-knob-make {T parent key data} {
     set item [$T item create]
@@ -459,7 +468,19 @@ proc cfg-elem-dress {T item cname e} {
         if {$mark ne ""} { lappend flags $mark }
     }
     switch -- [dict get $e owner] {
-        custom { lappend flags custom }
+        custom {
+            # PIN or CHANGE — the same word wears both faces, and the
+            # difference is invisible in the file: one alters what the
+            # layers below give, the other holds what they already
+            # gave (the owner's distinction, 2026-08-01). A `take` is
+            # a pin ON PURPOSE, which is why nothing sweeps them by
+            # itself.
+            if {[dict exists $e effect] && [dict get $e effect] eq "pin"} {
+                lappend flags pin
+            } else {
+                lappend flags custom
+            }
+        }
         config { lappend flags cfg }
     }
     $T item element configure $item Cflag eFlag -text [join $flags " "]
@@ -1850,6 +1871,39 @@ proc cfg-insert-bind {spec script} {
     cfg-refresh
     cfg-status "[join $spec " "] is bound"
     return 1
+}
+
+# ---- what have I actually changed? ----
+# The two kinds of customization counted, and the pins offered up for
+# dropping — offered, never taken: a word that says what the layer
+# below says may be exactly what its author meant (that is what
+# taking a bind out of a bundle IS). So this shows the list and asks,
+# and a no leaves everything standing.
+proc cfg-pins {} {
+    set audit [wm-call custom-audit]
+    set changes [llength [dict get $audit changes]]
+    set pins [dict get $audit pins]
+    if {![llength $pins]} {
+        cfg-status "$changes word(s) of yours, and every one of them\
+ changes something — nothing here is holding what the layers below\
+ already say"
+        return
+    }
+    set names {}
+    foreach k $pins { lappend names [join $k " "] }
+    if {![cfg-confirm "You have $changes word(s) that change something\
+ and [llength $pins] that hold what the config or the code already\
+ says:\n\n  [join $names "\n  "]\n\nHolding one may be the whole\
+ point — a bind taken out of a family is a hold on purpose. Drop all\
+ [llength $pins] of them?"]} {
+        cfg-status "$changes change(s), [llength $pins] hold(s) —\
+ nothing dropped"
+        return
+    }
+    set gone [wm-call [list custom-drop $pins]]
+    cfg-refresh
+    cfg-status "$gone word(s) that changed nothing are gone; the\
+ layers below say the same thing without them"
 }
 
 # The holder of a chord, in one sentence: the deed, whose word it is,
