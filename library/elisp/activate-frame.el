@@ -13,7 +13,15 @@
 ;; ("stay put when already on a related buffer") is the eval's own
 ;; business: it runs inside the frame and can ask where it is.
 ;;
-;; The frame is found by name over (frame-list) — never nil (the
+;; The frame is found by OUR OWN parameter first and by name second:
+;; a frame may hand its title back to emacs the moment it is born
+;; (`(set-frame-name nil)`, the owner's pattern for gui frames), and a
+;; lookup by name would then miss it and — with one tty terminal alive
+;; — rebuild it in a terminal, turning a raise into a spawn.  The
+;; name is still accepted so frames made before the parameter existed
+;; keep answering.
+;;
+;; The frame is found over (frame-list) — never nil (the
 ;; daemon's selected frame follows input across displays) and never a
 ;; bare outer-window-id (ids collide between X servers); both
 ;; measured.  A tty frame is put on top of its terminal with
@@ -24,7 +32,8 @@
 ;; in that terminal and closed ours.  Anything else ends in a
 ;; sentence, not a hang.
 (let* ((nf (seq-find (lambda (f)
-                       (equal (frame-parameter f 'name) tk9wm-name))
+                       (or (equal (frame-parameter f 'tk9wm-frame) tk9wm-name)
+                           (equal (frame-parameter f 'name) tk9wm-name)))
                      (frame-list)))
        (terms (delete-dups
                (delq nil (mapcar (lambda (f)
@@ -40,7 +49,8 @@
     (if (frame-parameter nf 'tty) "raised" "gui"))
    ((= (length terms) 1)
     (let ((f (make-frame (list (cons 'terminal (car terms))
-                               (cons 'name tk9wm-name)))))
+                               (cons 'name tk9wm-name)
+                               (cons 'tk9wm-frame tk9wm-name)))))
       (select-frame-set-input-focus f)
       (redisplay t)
       (with-selected-frame f (funcall tk9wm-fix))

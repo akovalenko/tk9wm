@@ -26,6 +26,11 @@ action tg  {emacs {daemon emtest frame TELEGA eval {(setq tg-evaled 42)}
 action tgt {emacs {daemon emtest frame TTYEM eval {(setq tty-evaled t)} via terminal} key {<Super>h}}
 action pl  {emacs {frame PLAINF daemon none eval {(setq plain t)}} key {<Super>j}}
 action na  {emacs {daemon ghostd frame GHOSTF autodaemon off} key {<Super>k}}
+# the owner's pattern: name the frame (which is what WM_CLASS is made
+# from) and hand the TITLE straight back to emacs. The desk must still
+# find the frame afterwards — by a handle its name cannot take away.
+action nm  {emacs {daemon emtest frame NAMEBACK eval {(set-frame-name nil)}}
+            key {<Super>y}}
 action eb  {launch {exec sh -c "printenv BENV > $::env(HOME)/../benv-out" &}
             env {BENV yes} key {<Super>l}}
 panel-button tg
@@ -88,6 +93,18 @@ REEVAL=$(ec 'tty-evaled')
 GEVAL=$(ec 'tg-evaled')
 DENV=$(ec '(getenv "EMTEST")')
 
+echo "--- a frame that gave its name back"
+key super+y
+wait_for 20 sh -c 'ec() { emacsclient -s emtest -e "$1" 2>/dev/null; }; [ "$(ec "(and (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) \"NAMEBACK\")) (frame-list)) t)")" = t ]' \
+    || echo "note: wait for the renamed frame ran out"
+sleep 1
+NMNAME=$(ec '(frame-parameter (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) "NAMEBACK")) (frame-list)) (quote name))')
+NMCOUNT0=$(ec '(length (frame-list))')
+key super+y            # the second hit must RAISE it, not build another
+sleep 2
+NMCOUNT1=$(ec '(length (frame-list))')
+NMVERDICT=$(grep -c 'verdict: "gui"' "$HERE/wm-emacs.log")
+
 echo "--- the plain life: daemon none"
 key super+j
 wait_for 20 xdotool search --classname '^PLAINF$'
@@ -113,6 +130,7 @@ kill $WM 2>/dev/null
 
 echo "--- emacs lines:"
 grep -E 'emacs|action t' "$HERE/wm-emacs.log"
+echo "--- name-back: name={$NMNAME} frames $NMCOUNT0 -> $NMCOUNT1 gui-verdicts=$NMVERDICT"
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-emacs.log"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
@@ -207,3 +225,11 @@ if grep -q 'handler error' "$HERE/wm-emacs.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-emacs.log"
 fi
 check_invariants "$HERE/wm-emacs.log"
+
+if [ "$NMCOUNT0" = "$NMCOUNT1" ] && [ "$NMVERDICT" -ge 1 ] \
+        && [ "$NMNAME" != '"NAMEBACK"' ]; then
+    echo "OK: a frame that gave its name back is still found, and raised not rebuilt"
+else
+    echo "FAIL: name-back: name=$NMNAME frames $NMCOUNT0 -> $NMCOUNT1,\
+ gui verdicts $NMVERDICT"
+fi

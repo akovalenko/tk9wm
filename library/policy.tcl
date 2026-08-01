@@ -4515,7 +4515,22 @@ proc emacs-launch {spec} {
         }
         return
     }
-    set F "((name . [emacs-lisp-string $frame]))"
+    # A HANDLE THAT THE FRAME'S OWN NAME CANNOT TAKE AWAY. The name
+    # is what emacs shows in the title and what an X frame's WM_CLASS
+    # instance is made from — and a useful pattern the owner found
+    # (2026-08-01) hands the title back to emacs right after birth:
+    # `eval {(set-frame-name nil)}`. WM_CLASS is set once at creation
+    # and survives that, so the desk still FINDS the window; the
+    # daemon-side lookup did not, because it asked for a frame by
+    # name. With one tty terminal alive it would then take the
+    # rebuild branch and make a SECOND frame in a terminal — a raise
+    # turning into a spawn, which is as wrong as it sounds.
+    #
+    # So the frame carries our own parameter as well, and it is that
+    # one the lookup asks for. Emacs leaves parameters it does not
+    # know alone; a frame made before this line still answers by name
+    # (see activate-frame.el).
+    set F "((name . [emacs-lisp-string $frame]) (tk9wm-frame . [emacs-lisp-string $frame]))"
     set auto $::emacs_autodaemon
     if {[dict exists $spec autodaemon]} { set auto [dict get $spec autodaemon] }
     set cmd [emacs-client-cmd $spec]
