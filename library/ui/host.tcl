@@ -288,8 +288,18 @@ proc ui-ring-paint {box} {
 # BOX draws the focus and the text draws only text.
 #
 #   ui-field PATH ?-height N? ?-font F?   -> the box; $box.t is the text
+# TAB LEAVES THE FIELD. A text widget's own Tab inserts a tab
+# character, which is right for a text editor and wrong for a field
+# standing in for an entry — the owner wants the focus to move, here
+# and everywhere else (2026-08-02; tabs-as-spaces for the multi-line
+# case is a separate wish for later).
+#
+#   -onleave CMD   run before the focus goes; answering 0 keeps it
+#                  (the tree's editor commits there, and a refused
+#                  value stays under the hand that typed it)
 proc ui-field {path args} {
-    set o [dict merge {-height 1 -font DeskFont} $args]
+    set o [dict merge {-height 1 -font DeskFont -onleave {}} $args]
+    set ::ui_field_leave($path) [dict get $o -onleave]
     ui-ring-box $path
     text $path.t -height [dict get $o -height] -width 1 -wrap none \
         -font [dict get $o -font] -undo 1 -borderwidth 0 \
@@ -299,7 +309,27 @@ proc ui-field {path args} {
     grid $path.t -row 0 -column 0 -sticky nsew
     grid rowconfigure $path 0 -weight 1
     grid columnconfigure $path 0 -weight 1
+    bind $path.t <Tab>           [list ui-field-leave $path next]
+    bind $path.t <Shift-Tab>     [list ui-field-leave $path prev]
+    # X sends this one for shift+tab, and a form that ignores it has
+    # a backwards tab that silently does nothing
+    bind $path.t <ISO_Left_Tab>  [list ui-field-leave $path prev]
+    bind $path <Destroy> +[list ui-field-forget $path %W]
     return $path
+}
+proc ui-field-forget {path w} {
+    if {$w eq $path} { array unset ::ui_field_leave $path }
+}
+proc ui-field-leave {path which} {
+    if {[info exists ::ui_field_leave($path)]
+            && [llength $::ui_field_leave($path)]} {
+        if {![uplevel #0 $::ui_field_leave($path)]} { return -code break }
+    }
+    if {[winfo exists $path.t]} {
+        focus [expr {$which eq "next" ? [tk_focusNext $path.t]
+                                      : [tk_focusPrev $path.t]}]
+    }
+    return -code break
 }
 # WHERE THE FIRST LETTER SITS inside the field, {dx dy} from the box's
 # own corner: the ring's border plus the text's padding. A caller that

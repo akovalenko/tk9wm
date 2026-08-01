@@ -575,6 +575,18 @@ KEEPS=$(qu 'cfg-set set-edge-resist 9
          still-pending [dict exists $::cfg_pending set-edge-resist] \
          desk [wm-call {set ::edge_resist}]')
 
+# ...and Tab leaves the field instead of putting a tab in it: in the
+# tree's editor that means committing and moving on
+TABOUT=$(qu 'set addr set-edge-resist
+    cfg-entry [dict get $::cfg_item $addr] $addr
+    after 200; update
+    ui-field-set $::cfg_T.edit 6
+    event generate $::cfg_T.edit.t <Tab> -when now
+    after 200; update
+    list open [winfo exists $::cfg_T.edit] \
+         value [wm-call {set ::edge_resist}] \
+         focus [expr {[focus] eq $::cfg_T}]')
+
 PIXEL=$(qu 'set T $::cfg_T
     set addr set-fade
     set it [dict get $::cfg_item $addr]
@@ -1049,7 +1061,12 @@ if [ "$CLASH" = "held 0 demoted -1 seen 1" ]; then
 else
     echo "FAIL: the clash guard: $CLASH"
 fi
-echo "--- keeps={$KEEPS} pixel={$PIXEL}"
+echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
+if [ "$TABOUT" = "open 0 value 6 focus 1" ]; then
+    echo "OK: Tab left the field, committing on the way out"
+else
+    echo "FAIL: tab out of the editor: $TABOUT"
+fi
 case $KEEPS in
     "fade 0.31"*)
         echo "FAIL: the erase did not take its own word back: $KEEPS" ;;

@@ -1110,7 +1110,10 @@ proc cfg-entry {it name} {
     # it can have them — and it has undo, which an entry never did
     # (the owner's preference, 2026-08-01).
     set lines [llength [split $val \n]]
-    ui-field $T.edit -height [expr {max(1, min(6, $lines))}]
+    # Tab out of a cell's editor means «this value is done, on to the
+    # next thing» — so it commits, and a refusal keeps the field
+    ui-field $T.edit -height [expr {max(1, min(6, $lines))}] \
+        -onleave {cfg-entry-done commit}
     ui-field-set $T.edit $val
     ui-field-select-all $T.edit
     # GRID, and the button gets a column of its own: PACKED, the
