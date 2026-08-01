@@ -1513,68 +1513,120 @@ proc cfg-elem-rec {coll key {dead 0}} {
     return ""
 }
 
+# ---- Delete: take back what WE said ----
+# It used to mean two different things chosen silently by who owned
+# the row — erase a customization here, write a suppressing word
+# there — and the owner walked straight into the seam (2026-08-01:
+# «во многих случаях del вроде работает как erase customization на
+# поддереве, может это узаконить?»). So: Delete ERASES OUR WORD, and
+# nothing else. On a family node it erases every word of ours in that
+# family, which is the subtree reading of the same sentence.
+#
+# Taking something the CONFIG (or the code) declared is a different
+# act — it needs a word of our own that says «not this one», and for
+# a panel it needs the whole set to become ours. That still happens,
+# but only through a question that says exactly what will follow (his
+# decision, same day), because the consequence outlives the click:
+# an owned set stops following the config.
 proc cfg-delete {} {
-    set d [cfg-elem-of [cfg-selected]]
-    if {$d eq ""} return
+    set it [cfg-selected]
+    if {$it eq "" || ![dict exists $::cfg_node $it]} return
+    set d [dict get $::cfg_node $it]
+    switch -- [dict get $d what] {
+        coll  { cfg-delete-family [dict get $d coll]; return }
+        field {
+            cfg-status "a field is part of its element's word — Delete\
+ on the element takes the whole of it back, or edit this to {} to\
+ unsay just this one"
+            return
+        }
+    }
     set coll [dict get $d coll]
     set key [dict get $d key]
     set e [cfg-elem-rec $coll $key [dict exists $d dead]]
-    # the rows a delete cannot serve go first, before any question
     if {$coll eq "keys"} {
-        cfg-status "a bundle is not deleted — turn its state off,\
- or take the binds you want and the rest goes with it"
+        cfg-status "a bundle is not deleted — turn its state off, or\
+ take the binds you want and the rest goes with it"
         return
     }
-    if {[dict exists $e ineffectual] && [dict get $e owner] ne "custom"} {
+    # OURS: the plain case, and the only one that needs no question.
+    if {[dict get $e owner] eq "custom"} {
+        cfg-erase-word $coll $key $e
+        cfg-refresh
+        cfg-status "$key: your word here is taken back"
+        return
+    }
+    if {[dict exists $e ineffectual]} {
         cfg-status "$key is the config's buried word — the file that\
  says it is yours to edit, not this applet's"
         return
     }
-    if {$coll eq "actions" && [dict get $e owner] ne "custom"} {
-        # a config action has no unsay — only the custom word can go
-        cfg-status "$key is the [dict get $e owner]'s word — nothing\
- of yours here to drop"
-        return
-    }
-    # taking back what a layer WROTE deserves a question; dropping
-    # your own click does not (the plan's confirmation, for the
-    # element the config declared)
-    if {[dict get $e owner] ne "custom"
-            && ![cfg-confirm "Drop $key from $coll? Its description\
- survives and Insert can bring it back."]} return
+    # NOT OURS: say what it will cost before doing it.
     switch -- $coll {
         panel {
-            if {[dict get $::cfg_coll panel owned] eq "yes"} {
-                # the owned set loses its entry; the reload inside the
-                # erase replays the set without it
-                wm-call [list custom-erase "panel-button $key"]
-            } else {
-                # adoption minus one: the first edit of the SET is
-                # still an edit of the set
-                cfg-adopt-panel {} $key
-            }
+            if {![cfg-confirm "«$key» is the config's button. Dropping\
+ it makes THE WHOLE SET yours: buttons the config adds later will not\
+ appear here any more. Take the panel over and drop it?"]} return
+            cfg-adopt-panel {} $key
         }
         bindings {
-            if {[dict get $e owner] eq "custom"} {
-                # the click taken back — and the config's buried word,
-                # if any, stands up again on the reload
-                wm-call [list custom-erase [dict get $e lkey]]
-            } else {
-                wm-call [list custom-write \
-                    [list wm-unbind [split $key " "]]]
-            }
+            if {![cfg-confirm "«$key» is not your binding. Dropping it\
+ writes a silence of your own over it, which is itself a\
+ customization — Delete on that takes it back and the chord returns.\
+ Silence it?"]} return
+            wm-call [list custom-write [list wm-unbind [split $key " "]]]
         }
         widgets {
+            if {![cfg-confirm "«$key» is not your widget. Dropping it\
+ writes a removal of your own over it, which is itself a\
+ customization — Delete on that takes it back. Remove it?"]} return
             wm-call [list custom-write [list wm-widget-remove $key]]
         }
         actions {
-            # the custom word taken back; the reload inside the
-            # erase replays what the other layers still declare
-            wm-call [list custom-erase "action $key"]
+            if {![cfg-confirm "«$key» is the [dict get $e owner]'s deed.\
+ Dropping it writes a removal of your own over it, which is itself a\
+ customization — Delete on that takes it back. Remove it?"]} return
+            wm-call [list custom-write [list action-remove $key]]
         }
     }
     cfg-refresh
     cfg-status "$key dropped from $coll — Insert brings elements back"
+}
+# The word we hold about ONE element, whatever family it is in.
+proc cfg-erase-word {coll key e} {
+    if {[dict exists $e lkey]} {
+        wm-call [list custom-erase [dict get $e lkey]]
+        return
+    }
+    switch -- $coll {
+        panel   { wm-call [list custom-erase "panel-button $key"] }
+        actions { wm-call [list custom-erase "action $key"] }
+        widgets { wm-call [list custom-erase "wm-widget $key"] }
+        default { wm-call [list custom-erase "$coll $key"] }
+    }
+}
+# ...and the subtree reading: everything of ours in one family. The
+# desk answers what our words ARE (layer-touched), so this needs no
+# list of families of its own — and one reload lands them all.
+proc cfg-delete-family {coll} {
+    set verbs [dict get {actions {action action-remove} panel
+        {panel-button panel-buttons-own} bindings {wm-bind}
+        widgets {wm-widget} keys {wm-keys}} $coll]
+    set mine {}
+    foreach k [wm-call {layer-touched custom}] {
+        if {[lindex $k 0] in $verbs} { lappend mine $k }
+    }
+    if {![llength $mine]} {
+        cfg-status "nothing of yours in $coll — this family is the\
+ config's and the code's as it stands"
+        return
+    }
+    if {![cfg-confirm "Take back everything you have said about\
+ $coll — [llength $mine] word(s)? What the config and the code say\
+ stays and comes back into force."]} return
+    foreach k $mine { wm-call [list custom-erase $k] }
+    cfg-refresh
+    cfg-status "$coll: [llength $mine] word(s) of yours taken back"
 }
 
 # Alt+Up / Alt+Down — the owned set's order is the custom file's

@@ -4778,6 +4778,27 @@ proc action-derive {name raw} {
 # once its software lands. The chord follows the state: bound only
 # while active, and the old chord goes with the old spec whatever
 # happens next.
+# action-remove NAME — the negative word actions lacked. Every other
+# family could say «not this one» about something a lower layer
+# declared: bindings have wm-unbind, widgets wm-widget-remove, a panel
+# is owned whole. An action could only be REFINED, so a config's deed
+# was undroppable from the layer above it and the applet said as much
+# and stopped there.
+#
+# It keys as `action NAME`, which is the same key the declaration
+# takes: my last word about this deed replaces my previous one, and
+# the layers replay in their own order — the code and the config
+# declare, and this comes after.
+proc action-remove {name} {
+    if {[dict exists $::action_spec $name key]} {
+        catch {wm-unbind [dict get $::action_spec $name key]}
+    }
+    dict unset ::action_raw $name
+    dict unset ::action_spec $name
+    dict unset ::action_lint $name
+    puts "WM: action $name: removed"
+    panel-rebuild-soon
+}
 proc action-realize {name} {
     set raw [dict get $::action_raw $name]
     if {[dict exists $::action_spec $name]
@@ -7005,6 +7026,22 @@ collection keys {
 # the next edit.
 proc collection-actions {} {
     set out {}
+    # A REMOVAL IS A WORD TOO, and a word one must be able to take
+    # back: an action removed by the custom layer is gone from the
+    # registry, so without this line the tree would show nothing at
+    # all where it stood — an invisible customization, undoable only
+    # by editing the file this applet exists to spare people.
+    foreach layer {custom config} {
+        if {![dict exists $::layer_knobs $layer]} continue
+        dict for {k cmd} [dict get $::layer_knobs $layer] {
+            if {[lindex $cmd 0] ne "action-remove"} continue
+            set name [lindex $cmd 1]
+            if {[dict exists $::action_raw $name]} continue
+            lappend out [dict create key $name values {} owner $layer \
+                lkey $k ineffectual 1 \
+                why "removed by you — Delete takes the removal back"]
+        }
+    }
     dict for {name raw} $::action_raw {
         set e [dict create key $name values $raw \
                    owner [knob-owner "action $name"]]
@@ -7262,7 +7299,7 @@ proc collection-table {} {
 # than rendered as knobs.
 set knob_vocab [concat [dict keys $knob_registry] \
     {wm-font wm-bind wm-unbind wm-widget wm-widget-remove
-     panel-button panel-buttons-own wm-keys action}]
+     panel-button panel-buttons-own wm-keys action action-remove}]
 set knob_layer ""
 keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # The key is semantic: a plain knob is one key however often it is
@@ -7276,6 +7313,7 @@ proc knob-key {words} {
             return "$p [lindex $words 1]"
         }
         wm-unbind { return "wm-bind [lindex $words 1]" }
+        action-remove { return "action [lindex $words 1]" }
         wm-keys { return "wm-keys [lindex $words 1]" }
         wm-widget-remove { return "wm-widget [lindex $words 1]" }
         default { return $p }

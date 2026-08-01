@@ -356,6 +356,12 @@
 # whole desk still until it returns. None of it refuses anything: a
 # remark is advice about a declaration that reads fine.
 #
+# An action the CONFIG declares can be dropped from the layer above
+# it — `action-remove NAME` is the word for it, the counterpart of
+# wm-unbind for a chord. It keys as the declaration does, so it is
+# your last word about that deed and the erasure of it brings the
+# deed back.
+#
 # `Run words…` is how a launch script starts something, and it is
 # Capitalized like every other word here that ACTS. It does not read
 # its words — no tilde, no expansion: the script is evaluated when

@@ -354,6 +354,22 @@ qu 'proc cfg-confirm {msg} {return 1}' >/dev/null
 # needs not yet met SAVES on the action and its button stands by;
 # windows carries no per-member params
 qu 'proc cfg-confirm {msg} {return 1}
+    proc t-dead {coll key} {
+        dict for {i d} $::cfg_node {
+            if {[dict get $d what] eq "elem" && [dict get $d coll] eq $coll
+                    && [dict get $d key] eq $key
+                    && [dict exists $d dead]} { cfg-select $i; return $i }
+        }
+        return none
+    }
+    proc t-fam {coll} {
+        dict for {i d} $::cfg_node {
+            if {[dict get $d what] eq "coll" && [dict get $d coll] eq $coll} {
+                cfg-select $i; return $i
+            }
+        }
+        return none
+    }
     proc t-sel {coll key} {
         dict for {i d} $::cfg_node {
             if {[dict get $d what] eq "elem" && [dict get $d coll] eq $coll
@@ -363,9 +379,25 @@ qu 'proc cfg-confirm {msg} {return 1}
         return none
     }
     list armed' >/dev/null
+# OURS FIRST: the button we had dressed is our word — Delete takes it
+# back, and in an owned set that is the button leaving the strip.
 qu 't-sel panel dummy; cfg-delete; list deleted' >/dev/null
 sleep 1
+DELMINE=$(q 'dict exists $::layer_knobs custom {panel-button dummy}')
 DELBTN=$(q 'llength [panel-cfg default shown]')
+# THE SUBTREE READING: Delete on the family node takes back every
+# word of ours about the panel — including the adoption itself, so
+# the config's own set comes back into force.
+qu 't-fam panel; cfg-delete; list deleted' >/dev/null
+sleep 1
+FAMBACK=$(qu 'list owned [dict get $::cfg_coll panel owned] \
+    shown [llength [dict get $::cfg_coll panel elements]]')
+# ...and NOT OURS: the same key on the config's own button asks first
+# and, said yes to, makes the whole set ours minus that one.
+qu 't-sel panel dummy; cfg-delete; list deleted' >/dev/null
+sleep 1
+NOTMINE=$(qu 'list owned [dict get $::cfg_coll panel owned] \
+    shown [llength [dict get $::cfg_coll panel elements]]')
 CARD=$(qu 'expr {"dummy" in [dict get $::cfg_coll panel cards]}')
 qu 'cfg-insert-button dummy' >/dev/null
 sleep 0.5
@@ -430,6 +462,14 @@ sleep 0.3
 KEPTWORD=$(grep -c '^action dummy {needs /bin/nonexistent}$' "$HERE/cfg-config/tk9wm.custom.tcl")
 WPARAMS=$(q 'dict get $::key_bundle_defs windows params')
 WPREFUSE=$(q 'catch {wm-keys windows -switcher {<Super>Tab}}')
+# DELETE TAKES BACK OUR WORD FIRST. The widget is the config's and we
+# have only customized it, so the first Delete drops the customization
+# and the config's own widget stands up again; the second, on a row
+# that is no longer ours, asks and writes the removal.
+qu 't-sel widgets часы; cfg-delete; list deleted' >/dev/null
+sleep 0.5
+WMINE=$(q 'list [dict exists $::widgets часы] \
+    [dict exists $::layer_knobs custom {wm-widget часы}]')
 qu 't-sel widgets часы; cfg-delete; list deleted' >/dev/null
 sleep 0.5
 WGONE=$(q 'dict exists $::widgets часы')
@@ -489,6 +529,24 @@ SWITCHED=$(q 'list said [dict get $::action_raw probe] \
     fires [lindex [dict get $::action_spec probe launch] 0]')
 SLOTROWS2=$(qu 'list p-run [dict exists $::cfg_fitem {@field actions probe run}] \
     p-launch [dict exists $::cfg_fitem {@field actions probe launch}]')
+# A DEED THE CONFIG DECLARES can be dropped now — the family had no
+# word for it at all before, so the applet could only refuse. The
+# removal is a customization like any other: it shows where the deed
+# stood, saying so, and Delete on THAT brings the deed back.
+qu 't-sel actions w8x; cfg-delete; list deleted' >/dev/null
+sleep 1
+AREMOVED=$(q 'list gone [expr {![dict exists $::action_raw w8x]}] \
+    word [dict exists $::layer_knobs custom {action w8x}]')
+AGHOST=$(qu 'set r none
+    foreach e [dict get $::cfg_coll actions elements] {
+        if {[dict get $e key] eq "w8x"} { set r [dict get $e why] }
+    }
+    set r')
+qu 't-dead actions w8x; cfg-delete; list undone' >/dev/null
+sleep 1
+ABACK=$(q 'list back [dict exists $::action_raw w8x] \
+    word [dict exists $::layer_knobs custom {action w8x}]')
+
 qu 'cfg-insert-action {} fresh1' >/dev/null
 sleep 0.3
 AINS=$(grep -c '^action fresh1 {}$' "$HERE/cfg-config/tk9wm.custom.tcl")
@@ -758,9 +816,19 @@ case "$STANDBY|$WAITCARD|$KEPTWORD" in
         echo "OK: the needs rode the action; its reference stands by, flagged" ;;
     *) echo "FAIL: standby: panel=«$STANDBY» waiting=$WAITCARD word=$KEPTWORD" ;;
 esac
-case "$DELBTN|$CARD" in
-    "0|1") echo "OK: Delete emptied the owned set; the action stayed a card" ;;
-    *) echo "FAIL: after delete: buttons=$DELBTN dummy-card=$CARD" ;;
+case "$DELMINE|$DELBTN" in
+    "0|0") echo "OK: on a button we had dressed, Delete took our word back" ;;
+    *) echo "FAIL: after taking our word back: word=$DELMINE shown=$DELBTN" ;;
+esac
+case "$FAMBACK|$NOTMINE" in
+    "owned no shown 1|owned yes shown 0")
+        echo "OK: Delete on the family took back all of ours; on the\
+ config's own button it asked and took the set over" ;;
+    *) echo "FAIL: family={$FAMBACK} then not-ours={$NOTMINE}" ;;
+esac
+case $CARD in
+    1) echo "OK: the deed stayed a card, ready for Insert to bring back" ;;
+    *) echo "FAIL: dummy is not a card after the delete: $CARD" ;;
 esac
 case $BACK in
     "dummy 1") echo "OK: Insert brought the reference back, deed and all" ;;
@@ -795,6 +863,10 @@ case "$WPARAMS|$WPREFUSE|$WGONE" in
     "|1|0")
         echo "OK: windows has no per-member params, and the widget dropped" ;;
     *) echo "FAIL: wparams=«$WPARAMS» refuse=$WPREFUSE widget-gone=$WGONE" ;;
+esac
+case $WMINE in
+    "1 0") echo "OK: the first Delete took back our word, the config's stood up" ;;
+    *) echo "FAIL: after taking our word back: widget/custom = $WMINE" ;;
 esac
 case "$LANDPARENT|$LANDPREV" in
     "what coll coll widgets|what elem coll panel key probe")
@@ -834,6 +906,16 @@ case $SWITCHED in
     "said {icon Q launch {Run xclock}} fires Run")
         echo "OK: the switch un-said one spelling and said the other" ;;
     *) echo "FAIL: after the switch: $SWITCHED" ;;
+esac
+case "$AREMOVED|$AGHOST" in
+    "gone 1 word 1|removed by you"*)
+        echo "OK: the config's deed can be removed, and the removal says so" ;;
+    *) echo "FAIL: removal: {$AREMOVED} ghost «$AGHOST»" ;;
+esac
+case $ABACK in
+    "back 1 word 0")
+        echo "OK: Delete on the removal took it back and the deed returned" ;;
+    *) echo "FAIL: after undoing the removal: $ABACK" ;;
 esac
 case "$AINS|$ADEL" in
     "1|0") echo "OK: Insert declares a fresh action, Delete takes it back" ;;
