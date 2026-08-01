@@ -4328,6 +4328,198 @@ proc wm-errand {label body} {
         }
     }] $label $body
 }
+# ---- pipe-run: a process, without holding the desk still ----
+# THE WORKHORSE the rest of this stands on (the owner's ask,
+# 2026-08-01: whatever runs processes here must be able to keep
+# stdout and stderr apart, so it can grow into a proper launcher
+# rather than be replaced by one).
+#
+# Answers a FUTURE settling with {status N out TEXT err TEXT}. The
+# pipeline is read by the EVENT LOOP — no wait, no frozen desk — and
+# every launch is its own pipeline: nothing here serializes anything,
+# which is what one expects of a desk (the owner: xbindkeys does not
+# serialize his bindings either).
+#
+#   -stderr merge     (default) stderr joins stdout, as `exec 2>@1`
+#   -stderr separate  kept apart, through a `chan pipe` — measured to
+#                     work in this build, and it costs no temp file
+#   -stderr drop      thrown away
+#   -timeout MS       cancel and kill the pipeline after this long; 0
+#                     (default) waits as long as it takes. `emacs
+#                     --daemon` deciding to byte-compile mu4e at
+#                     startup is exactly the case: taking a minute is
+#                     allowed, taking the desk with it is not.
+#
+# THE STATUS NEEDS A BLOCKING CLOSE. A non-blocking pipeline's close
+# returns at once and reaps nothing — measured, whale9: the same run
+# reported status 0 non-blocking and 3 blocking. Both ends are drained
+# by then, so the switch costs nothing.
+proc pipe-run {argv args} {
+    set o [dict merge {-stderr merge -timeout 0} $args]
+    set f [fut::new]
+    set st [dict create out "" err "" status 0]
+    set errrd ""
+    switch -- [dict get $o -stderr] {
+        merge    { set spec [list {*}$argv 2>@1] }
+        drop     { set spec [list {*}$argv 2>/dev/null] }
+        separate {
+            lassign [chan pipe] errrd errwr
+            set spec [list {*}$argv 2>@$errwr]
+        }
+        default { error "pipe-run: -stderr is merge, separate or drop" }
+    }
+    if {[catch {open |$spec r} ch]} {
+        catch {close $errrd}; catch {close $errwr}
+        fut::fail $f $ch
+        return $f
+    }
+    if {$errrd ne ""} { close $errwr }
+    set state [dict create f $f ch $ch errrd $errrd st $st open 1 \
+                   pids [pid $ch]]
+    if {$errrd ne ""} { dict incr state open }
+    set ::pipe_state($ch) $state
+    foreach {c which} [list $ch out $errrd err] {
+        if {$c eq ""} continue
+        fconfigure $c -blocking 0
+        fileevent $c readable [list pipe-run-read $ch $c $which]
+    }
+    # ...through a proc of its own, because fut::cancel hands every
+    # cancel handler the future as a LAST argument: registering
+    # `pipe-run-close $ch 1` meant a wrong-arg error in a background
+    # `after`, and the kill below never ran (measured, 2026-08-01 —
+    # the timeout said the right thing while the process lived on)
+    fut::oncancel $f [list pipe-run-cancelled $ch]
+    if {[dict get $o -timeout] > 0} {
+        after [dict get $o -timeout] \
+            [list fut::cancel $f "timed out after [dict get $o -timeout] ms"]
+    }
+    return $f
+}
+proc pipe-run-cancelled {key f} { pipe-run-close $key 1 }
+proc pipe-run-read {key c which} {
+    if {![info exists ::pipe_state($key)]} { catch {close $c}; return }
+    set state $::pipe_state($key)
+    set st [dict get $state st]
+    dict append st $which [read $c]
+    dict set state st $st
+    if {[eof $c]} {
+        fileevent $c readable {}
+        dict incr state open -1
+    }
+    set ::pipe_state($key) $state
+    # ...and when both ends have said everything they had to say, the
+    # status is read once, by the close below
+    if {[dict get $state open] <= 0} { pipe-run-close $key 0 }
+}
+# ...and the end of it, whichever end it is: the status is read here
+# and nowhere else, so a cancel and a clean finish leave the same
+# shape behind.
+proc pipe-run-close {key killed} {
+    if {![info exists ::pipe_state($key)]} return
+    set state $::pipe_state($key)
+    unset ::pipe_state($key)
+    set ch [dict get $state ch]
+    set st [dict get $state st]
+    catch {fileevent $ch readable {}}
+    if {[dict get $state errrd] ne ""} {
+        catch {fileevent [dict get $state errrd] readable {}}
+        catch {close [dict get $state errrd]}
+    }
+    # A CANCEL MUST KILL FIRST. Closing a pipeline's channel waits for
+    # its children — so a timeout on `sleep 30` would have held the
+    # desk still for the thirty seconds it was cancelling (measured,
+    # 2026-08-01: the process outlived its own timeout). Killed
+    # first, the close returns at once.
+    if {$killed} {
+        foreach p [dict get $state pids] { catch {exec kill $p} }
+    }
+    catch {fconfigure $ch -blocking 1}
+    set status 0
+    if {[catch {close $ch} err opts]} {
+        set ec ""
+        catch {set ec [dict get $opts -errorcode]}
+        if {[lindex $ec 0] eq "CHILDSTATUS"} {
+            set status [lindex $ec 2]
+        } else {
+            set status -1
+            dict append st err $err
+        }
+    }
+    dict set st status $status
+    if {!$killed} { fut::fulfill [dict get $state f] $st }
+}
+
+# ---- exec, cooperative where it can be ----
+# The owner's call (2026-08-01), and the better one: not a new word
+# to remember but the SAME word, doing what it always did — except
+# that inside a coroutine it parks instead of holding the desk still.
+# A binding writes `exec gpg --decrypt … | grep password:` and reads
+# like a shell script; the desk answers keys while gpg thinks.
+#
+# It is a shim, not a new command, so it has to be honest about
+# exec's own contract, which is fussier than it looks:
+#   - a non-zero exit is an error, and so is ANYTHING on stderr
+#     unless -ignorestderr says otherwise;
+#   - -keepnewline keeps the trailing newline the result otherwise
+#     loses;
+#   - `&` at the end means «do not wait», which is the opposite of
+#     what parking is for.
+# Anything it does not handle — the background form, no coroutine to
+# park in — goes to the real exec, which is renamed rather than
+# replaced. Nothing about a config's top level, or the desk's own
+# code, changes: neither runs in a coroutine.
+if {![llength [info commands exec-blocking]]} {
+    rename exec exec-blocking
+}
+proc exec {args} {
+    set opts {}
+    while {[llength $args]} {
+        set a [lindex $args 0]
+        if {$a eq "--"} { set args [lrange $args 1 end]; break }
+        if {$a ni {-keepnewline -ignorestderr}} break
+        lappend opts $a
+        set args [lrange $args 1 end]
+    }
+    if {[info coroutine] eq "" || [lindex $args end] eq "&"
+            || ![llength $args]} {
+        return [exec-blocking {*}$opts {*}$args]
+    }
+    set r [fut::await [pipe-run $args -stderr separate]]
+    set err [dict get $r err]
+    set out [dict get $r out]
+    if {"-keepnewline" ni $opts} { set out [string trimright $out \n] }
+    if {[dict get $r status] != 0} {
+        set msg [string trim $err]
+        if {$msg eq ""} { set msg "child process exited abnormally" }
+        return -code error -errorcode \
+            [list CHILDSTATUS 0 [dict get $r status]] $msg
+    }
+    if {$err ne "" && "-ignorestderr" ni $opts} {
+        return -code error -errorcode NONE [string trim $err]
+    }
+    return $out
+}
+
+# ---- Exec: the same, said the way one writes a script ----
+# `exec` with the desk left running. Capitalized like every word here
+# that ACTS, and a word of its own rather than a redefinition of
+# Tcl's: the global `exec` stays what it is, in the config's top
+# level (where blocking is harmless — nothing is interactive yet) and
+# in the desk's own code.
+#
+# Needs a coroutine, because that is what parking is made of; a bind
+# script gets one, a config's top level does not — and the error says
+# so rather than hanging.
+# ...and the same thing under a name that INSISTS on it: `exec` falls
+# back to blocking where it must, `Exec` says the cooperative form is
+# the point and refuses to be anything else.
+proc Exec {args} {
+    if {[info coroutine] eq ""} {
+        error "Exec needs a coroutine to park in — a binding's script has one; at a config's top level exec blocks, and hurts nobody doing it"
+    }
+    return [exec {*}$args]
+}
+
 # A command's output as a future: the pipe is read by the event loop,
 # the future settles at eof, and a cancel (fut::timeout's, say) kills
 # the pipe rather than leaving it draining into nobody.
