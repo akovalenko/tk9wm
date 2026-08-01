@@ -572,8 +572,10 @@ NOTEFIT=$(qu 'set W [winfo toplevel $::cfg_T]
     cfg-fit
     update idletasks
     set room [expr {[$::cfg_T cget -width] - [winfo x $W.b.note] - 12}]
+    set line [font metrics DeskFont -linespace]
     list wrapped [expr {[$W.b.note cget -wraplength] == $room}] \
-         room [expr {[winfo reqheight $W.b] >= [winfo reqheight $W.b.note]}]')
+         lines [expr {[winfo height $W.b] >= 3*$line}] \
+         anchor [$W.b.note cget -anchor]')
 
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
@@ -890,8 +892,8 @@ case $WMINE in
     *) echo "FAIL: after taking our word back: widget/custom = $WMINE" ;;
 esac
 case $NOTEFIT in
-    "wrapped 1 room 1")
-        echo "OK: the hint wraps to the width being asked for, and fits" ;;
+    "wrapped 1 lines 1 anchor nw")
+        echo "OK: three lines' room for the hint, anchored at its top-left" ;;
     *) echo "FAIL: note fit: $NOTEFIT" ;;
 esac
 case "$LANDPARENT|$LANDPREV" in

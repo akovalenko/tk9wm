@@ -130,21 +130,28 @@ proc cfg-build {W} {
     foreach b [list $W.b.save $W.b.revert $W.b.erase] {
         ui-focusable $b; ui-accel $b
     }
-    label  $W.b.note -takefocus 0 -anchor w -justify left -text $::cfg_hint \
+    # ANCHORED AT ITS TOP-LEFT, and filling what the box gives it: a
+    # label centres its text in whatever space it has, so a hint one
+    # line too tall for the box lost a slice off the TOP as well as
+    # the bottom (the owner, 2026-08-01). The first line must always
+    # be the one that stays.
+    label  $W.b.note -takefocus 0 -anchor nw -justify left -text $::cfg_hint \
         -foreground [ui-color link]
     pack $W.b.save $W.b.revert $W.b.erase -side left -padx 4 -pady 4
-    pack $W.b.note -side left -padx 12
+    pack $W.b.note -side left -padx 12 -fill both -expand 1
     grid $W.b -row 2 -columnspan 2 -sticky ew
     # ...and the box stops propagating its children's appetite: a
     # longer or shorter status line used to resize the whole window
     # under the owner's hands as he typed (a short refusal SHRANK it).
     update idletasks
-    # Two lines' worth, always: a refusal is a sentence and sometimes
-    # a long one, and it was running off the end (the owner). The box
-    # keeps that height whatever the text does, so the window walls
-    # still do not move; the wrap length follows the window's width.
+    # THREE lines' worth, always: a refusal is a sentence and
+    # sometimes a long one, and the hint itself has grown to three as
+    # the gestures did (the owner, 2026-08-01 — it was two, and the
+    # third line had nowhere to be). The box keeps that height
+    # whatever the text does, so the window walls still do not move;
+    # the wrap length follows the window's width.
     $W.b configure -height [expr {max([winfo reqheight $W.b],
-        2*[font metrics DeskFont -linespace] + 12)}]
+        3*[font metrics DeskFont -linespace] + 12)}]
     pack propagate $W.b 0
     bind $W <Configure> {cfg-note-wrap %W %w}
 
