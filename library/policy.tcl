@@ -7466,6 +7466,68 @@ keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # The key is semantic: a plain knob is one key however often it is
 # called (the last call wins in Tcl exactly as in the file), a named
 # declaration is one key PER NAME.
+# ---- a word that fails does not take the file down with it ----
+# A config used to die where a word threw: the line was reported and
+# everything BELOW it never ran. One mistyped chord cost the owner his
+# whole panel section, and nothing about the missing panel pointed at
+# the typo three sections up (2026-08-01).
+#
+# So every verb carries a guard, and the guard is the Common Lisp
+# shape the owner asked for — `handler-bind` with a `continue`
+# restart: while a LAYER is being read, a failure is recorded and the
+# word simply returns, so the file goes on; anywhere else it is
+# re-thrown, because an interactive caller (the applet, custom-write)
+# must see what it did.
+#
+# Two ways to wear it, and the measurement (whale9, 2026-08-01) says
+# which is for what. `config-proc` puts the guard in at the point of
+# definition and keeps the body's file and line. Instrumenting an
+# EXISTING proc rewrites its body — no extra stack level, `uplevel 1`
+# still means the caller, the arg spec and defaults survive — but the
+# body loses its binding to the file it was written in. For OUR
+# vocabulary that costs nothing (the provenance walk skips our own
+# files anyway), which is why the whole registry is instrumented in
+# one loop instead of thirty definitions being rewritten by hand.
+proc config-word-failed {verb err opts} {
+    if {![info exists ::knob_layer] || $::knob_layer eq ""} {
+        return -options $opts $err
+    }
+    problem-record "config word $verb" $err [said-where]
+    return ""
+}
+proc config-guarded-body {verb body} {
+    # the body starts on the SAME LINE as the opening of try, so a
+    # body that still has line information keeps its numbering
+    return "try {$body} on error {e o} {config-word-failed [list $verb] \$e \$o}"
+}
+proc config-proc {name spec body} {
+    proc $name $spec [config-guarded-body $name $body]
+}
+proc config-instrument {name} {
+    if {![llength [info commands $name]]} { return 0 }
+    if {[catch {info body $name} body]} { return 0 }   ;# not a proc: a C command
+    # ...already wearing one? Asked by SUBSTRING, not by a pattern: a
+    # glob for the wrapper would have to carry unbalanced braces, and
+    # Tcl counts braces inside a proc body whatever they are quoted
+    # with (this very line cost a load, 2026-08-01).
+    if {[string first "config-word-failed" $body] >= 0} { return 0 }
+    set spec {}
+    foreach a [info args $name] {
+        if {[info default $name $a def]} {
+            lappend spec [list $a $def]
+        } else {
+            lappend spec $a
+        }
+    }
+    proc $name $spec [config-guarded-body $name $body]
+    return 1
+}
+proc config-instrument-vocabulary {} {
+    set n 0
+    dict for {verb -} $::verb_registry { incr n [config-instrument $verb] }
+    return $n
+}
+
 proc knob-key {words} {
     set p [lindex $words 0]
     if {![dict exists $::verb_registry $p]} { return $p }

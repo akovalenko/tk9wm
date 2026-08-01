@@ -222,6 +222,9 @@ proc tk9wm-main {args} {
     # on the way up. Nothing is managed yet, so nothing is hurt — but
     # one publication is the truth and two are noise, and the startup
     # log is where one looks to learn what the shape of a load is.
+    # every verb puts its guard on before a layer is read: a word that
+    # throws is recorded and the file goes on (config-instrument)
+    puts "WM: config vocabulary: [config-instrument-vocabulary] words guarded"
     workarea-held { panels-held {
         load-config
         custom-floor-snapshot        ;# see reload-config: the pins audit
