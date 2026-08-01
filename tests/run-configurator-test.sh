@@ -43,6 +43,18 @@ ROWS=$(qu 'llength [dict keys $::cfg_item]')
 HOSTFONT=$(qu 'font actual DeskFont -size')
 WMFONT=$(q 'font actual DeskFont -size')
 CFGBADGE=$(qu 'cfg-owner set-edge-resist')
+# the linter's remark, where the eye is: a mark on the element and
+# the sentence itself in place of the field's description
+LINTFLAG=$(qu 'set r none
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] eq "elem" && [dict get $d coll] eq "actions"
+                && [dict get $d key] eq "dummy"} {
+            set r [$::cfg_T item element cget $i Cflag eFlag -text]
+        }
+    }
+    set r')
+LINTDOC=$(qu 'set i [dict get $::cfg_fitem {@field actions dummy launch}]
+    $::cfg_T item element cget $i Cdoc eDoc -text')
 
 # ONCE THE USER HAS SIZED IT, the fit steps aside — asserted early,
 # before the scenes that deliberately break procs, and undone right
@@ -770,6 +782,11 @@ esac
 case $AWAITFLAG in
     "waiting cfg") echo "OK: a waiting action wears its flag in the tree" ;;
     *) echo "FAIL: waiting flag: «$AWAITFLAG»" ;;
+esac
+case "$LINTFLAG|$LINTDOC" in
+    *"·"*"|"*"said the long way"*)
+        echo "OK: a remark wears a mark on its element and speaks on its row" ;;
+    *) echo "FAIL: lint in the tree: flag «$LINTFLAG» doc «$LINTDOC»" ;;
 esac
 case "$SLOTROWS|$SLOTROWS2" in
     "p-run 1 p-launch 0 d-run 0 d-launch 1|p-run 0 p-launch 1")

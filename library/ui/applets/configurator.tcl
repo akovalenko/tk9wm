@@ -353,10 +353,12 @@ proc cfg-refresh-body {} {
             if {$dead} continue
             set frows {}
             set said [cfg-elem-values $cname $key]
+            set lint [expr {[dict exists $e lint] ? [dict get $e lint] : {}}]
             dict for {f fmeta} [dict get $cmeta fields] {
                 if {![cfg-slot-shown? $f $fmeta $said]} continue
                 lappend frows [list $f \
-                    [list [list @field $cname $key $f] $fmeta]]
+                    [list [list @field $cname $key $f] $fmeta \
+                     [lsearch -all -inline -index 1 $lint $f]]]
             }
             set fm [treesync::sync $T \
                         {make cfg-field-make update cfg-field-update} \
@@ -441,6 +443,21 @@ proc cfg-elem-dress {T item cname e} {
     set flags {}
     if {[dict exists $e ineffectual]} { lappend flags ✗ }
     if {[dict exists $e waiting]} { lappend flags waiting }
+    # the linter's remarks: a warn is louder than a note, and neither
+    # is an error — the row works, somebody just has something to say
+    # about it (the sentence itself is on the field it hangs off)
+    if {[dict exists $e lint]} {
+        set mark ""
+        foreach v [dict get $e lint] {
+            # nothing is said twice on one line: a WAITING element
+            # already explains its needs, and the sentence naming the
+            # missing command waits on that row for whoever opens it
+            if {[dict exists $e waiting] && [dict get $v key] eq "needs"} continue
+            if {[dict get $v level] eq "warn"} { set mark ⚠; break }
+            set mark ·
+        }
+        if {$mark ne ""} { lappend flags $mark }
+    }
     switch -- [dict get $e owner] {
         custom { lappend flags custom }
         config { lappend flags cfg }
@@ -462,12 +479,21 @@ proc cfg-elem-update {T item key data} {
 # An element's children are its FIELDS, edited by the same
 # kind-editors the knobs use; a buried bind has no children at all —
 # re-binding it is capture-chord's day, not a field edit here.
-proc cfg-field-dress {T item addr fmeta} {
+proc cfg-field-dress {T item addr fmeta {lint {}}} {
     $T item element configure $item Cval eVal \
         -text [cfg-value-text $addr [cfg-cur $addr]]
-    $T item element configure $item Cflag eFlag \
-        -text [expr {[dict exists $::cfg_pending $addr] ? "•" : ""}]
-    $T item element configure $item Cdoc eDoc -text [dict get $fmeta doc]
+    set flag [expr {[dict exists $::cfg_pending $addr] ? "•" : ""}]
+    set doc [dict get $fmeta doc]
+    # A remark REPLACES the field's description while it stands: the
+    # description says what the word is for, and one who has a
+    # sentence about THIS word has the more useful thing to say.
+    if {[llength $lint]} {
+        set v [lindex $lint 0]
+        append flag [expr {[dict get $v level] eq "warn" ? "⚠" : "·"}]
+        set doc [dict get $v text]
+    }
+    $T item element configure $item Cflag eFlag -text $flag
+    $T item element configure $item Cdoc eDoc -text $doc
 }
 proc cfg-field-make {T parent key data} {
     set item [$T item create]
@@ -659,8 +685,13 @@ proc cfg-show-field {addr} {
     set it [dict get $::cfg_fitem $addr]
     $::cfg_T item element configure $it Cval eVal \
         -text [cfg-value-text $addr [cfg-cur $addr]]
+    # keep whatever mark the linter left standing: this is the quick
+    # redraw of ONE cell after an edit, and the remarks are re-read
+    # with the rest of the table on the next refresh
+    set mark ""
+    regexp {[⚠·]$} [$::cfg_T item element cget $it Cflag eFlag -text] mark
     $::cfg_T item element configure $it Cflag eFlag \
-        -text [expr {[dict exists $::cfg_pending $addr] ? "•" : ""}]
+        -text "[expr {[dict exists $::cfg_pending $addr] ? {•} : {}}]$mark"
 }
 
 # ...and the seam the ownership runs through: a hand-dragged column

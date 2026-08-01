@@ -94,11 +94,34 @@ COLL=$(q 'set t [collection-table]
     }
     list n [llength [dict get $t actions elements]] w8 $w')
 
+# ---- the linter: the same table, softer verdicts (slice 4) ----
+# what it remarks on, and what it calls each remark
+LINT=$(q 'set out {}
+    foreach v [spec-lint action {key {<Nope>q} needs {/no/such/cmd} \
+                                 launch {exec true &}}] {
+        lappend out [dict get $v key]/[dict get $v level]
+    }
+    set out')
+LINTSYNC=$(q 'set v [lindex [spec-lint action {launch {exec true}}] 0]
+    list [dict get $v level] [string match {*holds the desk still*} \
+                                  [dict get $v text]]')
+# ...and it says so when the deed is DECLARED — once, not on every
+# replay of the same words
+q 'action loud {launch {exec true &}}' >/dev/null
+sleep 0.3
+LOGNOTE=$(grep -c 'action loud: note — this is «Run true» said the long way' \
+    "$HERE/wm-action.log")
+q 'action loud {icon L}' >/dev/null
+sleep 0.3
+LOGNOTE2=$(grep -c 'action loud: note — this is «Run true» said the long way' \
+    "$HERE/wm-action.log")
+
 kill $WM 2>/dev/null
 
 echo "--- bound=$BOUND waiting={$WAITING} derived={$DERIVED}"
 echo "--- merged={$MERGED} fired=$FIRED custom={$CUSTOMKEY} erased={$ERASED}"
 echo "--- alive={$ALIVE} coll={$COLL}"
+echo "--- lint={$LINT} sync={$LINTSYNC} logged=$LOGNOTE/$LOGNOTE2"
 echo "--- verdict"
 if [ "$BOUND" = "Super+F5" ]; then
     echo "OK: an action binds its chord by name, no button anywhere"
@@ -170,4 +193,13 @@ if [ "$COLL" = "n 4 w8 alive" ]; then
 else
     echo "FAIL: coll: $COLL"
 fi
+case "$LINT|$LINTSYNC" in
+    "key/warn needs/note launch/note|warn 1")
+        echo "OK: the linter remarks on the chord, the command and the long way" ;;
+    *) echo "FAIL: lint: «$LINT» sync «$LINTSYNC»" ;;
+esac
+case "$LOGNOTE|$LOGNOTE2" in
+    "1|1") echo "OK: a remark reaches the log at the declaration, and once" ;;
+    *) echo "FAIL: log notes: first=$LOGNOTE after a refine=$LOGNOTE2 (want 1|1)" ;;
+esac
 check_invariants "$HERE/wm-action.log"

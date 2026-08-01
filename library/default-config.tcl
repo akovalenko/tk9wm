@@ -348,6 +348,14 @@
 # every declaration is read against it — a mistyped word used to
 # declare a deed that quietly did nothing at all.
 #
+# What the same table only REMARKS on, in the log at the declaration
+# and as a mark beside the word in the configurator: a chord this
+# desk cannot bind, a `needs` command the machine has not got, and a
+# launch saying the long way (`exec … &`) what `Run` says short. One
+# of them is louder than the rest — an `exec` with no `&` holds the
+# whole desk still until it returns. None of it refuses anything: a
+# remark is advice about a declaration that reads fine.
+#
 # `Run words…` is how a launch script starts something, and it is
 # Capitalized like every other word here that ACTS. It does not read
 # its words — no tilde, no expansion: the script is evaluated when

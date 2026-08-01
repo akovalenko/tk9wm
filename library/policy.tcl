@@ -4721,6 +4721,7 @@ proc set-panel-live-colors {bar face} {
 # exempt — its empty dict is a word, see the buttons' lesson 117).
 keep action_raw {}    ;# NAME -> the merged raw words (what the layers SAID)
 keep action_spec {}   ;# NAME -> what the machinery runs on (derived + state)
+keep action_lint {}   ;# NAME -> the linter's verdicts on the raw words
 
 proc action {name settings} {
     set raw $settings
@@ -4801,6 +4802,20 @@ proc action-realize {name} {
     }
     dict set spec state $state
     dict set ::action_spec $name $spec
+    # ...and what a reader of the table would REMARK on. Said to the
+    # log only when it changes, because a realize happens on every
+    # word said about this deed and on every replay of the layers —
+    # the same three sentences at every reload would be noise, and
+    # noise is how a log stops being read.
+    set lint [spec-lint action $raw]
+    if {![dict exists $::action_lint $name]
+            || [dict get $::action_lint $name] ne $lint} {
+        foreach verdict $lint {
+            puts "WM: action $name: [dict get $verdict level] —\
+ [dict get $verdict text]"
+        }
+    }
+    dict set ::action_lint $name $lint
     if {$state eq "active" && [dict exists $spec key]} {
         wm-bind [dict get $spec key] [list action-fire $name] $name
     }
@@ -5152,6 +5167,92 @@ proc run-words-of {script} {
         if {[regexp {[\[\$\\]} $w]} { return "" }
     }
     return $words
+}
+
+# The same question about the OLD spelling: is this launch one plain
+# `exec`? Laxer than the one above on purpose — it does not rewrite
+# anything, it only advises, and `Run` hands its words to exec
+# anyway, so a `$` or a redirection means the same on either side.
+# Answers {WORDS BACKGROUNDED}: the trailing `&` is the difference
+# between a launch and a frozen desk, and the linter says so.
+proc exec-words-of {script} {
+    set s [string trim $script]
+    if {[regexp {[\n;]} $s]} { return "" }
+    if {[catch {llength $s}]} { return "" }
+    if {[llength $s] < 2 || [lindex $s 0] ne "exec"} { return "" }
+    set words [lrange $s 1 end]
+    set bg 0
+    if {[lindex $words end] eq "&"} {
+        set words [lrange $words 0 end-1]
+        set bg 1
+    }
+    if {![llength $words]} { return "" }
+    list $words $bg
+}
+
+# ---- the linter: the same table, softer verdicts ----
+# What spec-check refuses, it refuses because the declaration cannot
+# be READ. Everything else a table knows is advice — a chord this
+# keyboard has no key for, a command this machine has not got yet, a
+# launch saying the long way what the desk has a door for — and
+# advice must not stop a desk from coming up. So it is a separate
+# walk with its own verdicts, and both readers of it (the log at
+# declaration, the flag in the configurator) show without judging.
+#
+# A verdict: {key K level warn|note text SENTENCE}. `key` is the
+# word it hangs off — the configurator flags that row with it.
+proc spec-lint {name settings} {
+    set table [dict get $::spec_registry $name]
+    set out {}
+    dict for {k v} $settings {
+        if {![dict exists $table $k]} continue   ;# spec-check's business
+        set meta [dict get $table $k]
+        switch -- [lindex [dict get $meta kind] 0] {
+            chord {
+                foreach tok $v {
+                    if {[catch {parse-chord $tok} err]} {
+                        lappend out [list key $k level warn text \
+                            "«$tok» is not a chord this desk can bind: $err"]
+                        break
+                    }
+                }
+            }
+            commands {
+                foreach c $v {
+                    # the cached MISS would answer for a command that
+                    # has since arrived (the needs lesson)
+                    array unset ::auto_execs $c
+                    if {[auto_execok $c] eq ""} {
+                        lappend out [list key $k level note text \
+                            "«$c» is not on this machine — the deed\
+ stands by, visible and unbound, until it is"]
+                    }
+                }
+            }
+            script {
+                set e [exec-words-of $v]
+                if {[llength $e]} {
+                    lassign $e words bg
+                    if {$bg} {
+                        lappend out [list key $k level note text \
+                            "this is «Run $words» said the long way —\
+ Run is the door the desk knows about"]
+                    } else {
+                        lappend out [list key $k level warn text \
+                            "an exec with no & holds the desk still\
+ until it returns; «Run $words» does not"]
+                    }
+                }
+            }
+            subspec {
+                foreach verdict [spec-lint [dict get $meta of] [dict get $settings $k]] {
+                    dict set verdict key $k
+                    lappend out $verdict
+                }
+            }
+        }
+    }
+    return $out
 }
 
 proc spec-derive {who settings} {
@@ -6898,6 +6999,13 @@ proc collection-actions {} {
                 && [dict get $::action_spec $name state] ne "active"} {
             dict set e waiting 1
         }
+        # the linter's remarks ride along, so the tree can flag the
+        # very row they are about (they are ADVICE — an element
+        # wearing one is not broken, and nothing here is refused)
+        if {[dict exists $::action_lint $name]
+                && [llength [dict get $::action_lint $name]]} {
+            dict set e lint [dict get $::action_lint $name]
+        }
         if {[dict exists $::layer_knobs custom "action $name"]} {
             set cmd [dict get $::layer_knobs custom "action $name"]
             if {[lindex $cmd 0] eq "action"} {
@@ -7487,7 +7595,7 @@ set config_vars {
     widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
-    welcome key_bundles action_raw action_spec
+    welcome key_bundles action_raw action_spec action_lint
 }
 proc policy-snapshot-defaults {} {
     # Incremental on purpose: a Reread may bring NEW config_vars into
