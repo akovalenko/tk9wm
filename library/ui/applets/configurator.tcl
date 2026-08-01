@@ -1257,7 +1257,13 @@ proc cfg-apply {name value} {
     # validate (a bad place spec, an unknown terminal), and their
     # message says exactly what is wrong — far better than anything
     # this side could invent.
-    if {[catch {wm-call $cmd} err]} {
+    # ...and it is said IN THE CUSTOM LAYER'S NAME. A preview is the
+    # custom word arriving early — Save only writes down what the desk
+    # is already doing — so anything that records WHOSE a thing is (a
+    # binding's origin) must hear the same answer now as after the
+    # save, or the tree would show the code's own word wearing an edit
+    # nobody in the code ever made.
+    if {[catch {wm-call [list say-as custom $cmd]} err]} {
         puts "UI: configurator: preview of «$cmd» refused: $err"
         return [cfg-refuse [cfg-brief $err]]
     }

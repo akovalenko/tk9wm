@@ -6588,10 +6588,22 @@ proc wm-keys {name args} {
         error "wm-keys: no such bundle «$name» —\
  one of: [dict keys $::key_bundle_defs]"
     }
-    # what the previous instance bound goes first, whatever happens next
+    # What the previous instance bound goes first, whatever happens
+    # next — but ONLY what is still the family's. A chord somebody has
+    # taken since (a `take` out of this very bundle, a plain wm-bind
+    # over it) belongs to them now, and a departing family that swept
+    # it away destroyed the one thing its owner meant to keep (the
+    # owner's desk, 2026-08-01: on-then-off after a take left three
+    # customizations that said their piece and answered nothing).
     if {[dict exists $::key_bundles $name]} {
+        set kept 0
         foreach spec [dict get $::key_bundles $name chords] {
-            catch {wm-unbind $spec}
+            if {![catch {wm-unbind-owned $spec [list bundle $name]} gone]
+                    && !$gone} { incr kept }
+        }
+        if {$kept} {
+            puts "WM: keys: bundle $name leaves $kept chord(s) —\
+ not its own any more"
         }
         dict unset ::key_bundles $name
     }
@@ -6616,7 +6628,10 @@ proc wm-keys {name args} {
     }
     set params [dict merge [dict get $def params] $given]
     set ::key_bundle_current [dict create params $params chords {}]
-    if {[catch {apply [list {params} [dict get $def body]] $params} err opts]} {
+    # everything the body binds is the FAMILY's word, whichever layer
+    # asked for the family (see say-as)
+    if {[catch {say-as [list bundle $name] \
+            [list apply [list {params} [dict get $def body]] $params]} err opts]} {
         # what it managed to bind is still ours to take away later
         dict set ::key_bundles $name $::key_bundle_current
         return -options $opts $err
@@ -7095,18 +7110,7 @@ proc collection-keys {} {
 # `ineffectual` — the tree gets to mark the bind that does nothing
 # instead of pretending it was never written.
 proc collection-bindings {} {
-    # which chord paths belong to a standing bundle — the disassembly
-    # gesture (decision 4) needs to know whose family a bind is in
-    set bundles {}
-    dict for {bn inst} $::key_bundles {
-        foreach spec [dict get $inst chords] {
-            if {[catch {lmap tok $spec {join [parse-chord $tok] ,}} pk]} {
-                continue
-            }
-            dict set bundles $pk $bn
-        }
-    }
-    set out [keymap-elements $::keymap {} {} $bundles]
+    set out [keymap-elements $::keymap {} {}]
     foreach layer {custom config} {
         if {![dict exists $::layer_knobs $layer]} continue
         dict for {k cmd} [dict get $::layer_knobs $layer] {
@@ -7116,19 +7120,30 @@ proc collection-bindings {} {
             if {[lindex $cmd 0] ne "wm-bind"} continue
             if {[catch {lmap tok [lindex $cmd 1] \
                             {join [parse-chord $tok] ,}} pk]} continue
+            # WHOSE the chord is now is the leaf's own word, not a
+            # guess from matching script texts — which could not tell
+            # two identical scripts apart and had nothing to say about
+            # the case that matters: a layer word that no longer
+            # answers. It says WHY now.
+            if {[keymap-origin $::keymap $pk] eq $layer} continue
             set live [keymap-payload $::keymap $pk]
-            if {$live ne "" && [string trim [lindex $live 0]] \
-                    eq [string trim [lindex $cmd 2]]} continue
+            if {$live eq ""} {
+                set why "nothing answers this chord now"
+            } else {
+                set who [keymap-origin $::keymap $pk]
+                set why "«[help-label [lindex $live 0]]» answers here now"
+                if {$who ne ""} { append why " — $who's word" }
+            }
             lappend out [dict create \
                 key [join [lmap c $pk {chord-name {*}[split $c ,]}] " "] \
                 values [dict create script [lindex $cmd 2] \
                             name [lindex $cmd 3]] \
-                owner $layer lkey $k ineffectual 1]
+                owner $layer lkey $k ineffectual 1 why $why]
         }
     }
     dict create elements $out
 }
-proc keymap-elements {node path disp bundles} {
+proc keymap-elements {node path disp} {
     set out {}
     dict for {k entry} $node {
         lassign [split $k ,] mods ks
@@ -7136,45 +7151,49 @@ proc keymap-elements {node path disp bundles} {
         set d2 [concat $disp [list [chord-name $mods $ks]]]
         lassign $entry kind payload
         if {$kind eq "map"} {
-            lappend out {*}[keymap-elements $payload $p2 $d2 $bundles]
+            lappend out {*}[keymap-elements $payload $p2 $d2]
         } else {
-            # a leaf is {action SCRIPT ?NAME?}
-            lassign $entry - script bname
-            lassign [binding-word $p2 $script] owner lkey
+            # a leaf is {action SCRIPT NAME ORIGIN}, and the origin is
+            # the answer to «whose word is this» — asked of the binding
+            # itself instead of reconstructed from the layers
+            lassign $entry - script bname origin where
+            set owner $origin
+            if {[lindex $origin 0] eq "bundle"} { set owner code }
             set e [dict create key [join $d2 " "] \
                 values [dict create script $script name $bname] \
                 owner $owner]
             # the layer's own key — spelled as the writer spelled the
             # chords, which is what an erase must be addressed by
+            set lkey [binding-key $owner $p2]
             if {$lkey ne ""} { dict set e lkey $lkey }
-            if {[dict exists $bundles $p2]} {
-                dict set e bundle [dict get $bundles $p2]
+            # ...and the line it was said on, for whoever has to be
+            # told WHERE the word they are fighting with lives
+            if {$where ne ""} { dict set e where $where }
+            if {[lindex $origin 0] eq "bundle"} {
+                dict set e bundle [lindex $origin 1]
             }
             lappend out $e
         }
     }
     return $out
 }
-# WHOSE WORD is this live binding — the layer whose wm-bind for this
-# very chord sequence is what the keymap answers with (custom
-# outranks config, nobody's word means the code's floor), AND under
-# which key that layer holds it. Parsed chords, not spec spellings:
-# <Super>9 and <super>9 are one chord, and the layer key holds
-# whichever spelling the writer used — which is exactly why the key
-# has to be handed back rather than reconstructed.
-proc binding-word {keys script} {
-    foreach layer {custom config} {
-        if {![dict exists $::layer_knobs $layer]} continue
-        dict for {k cmd} [dict get $::layer_knobs $layer] {
-            if {[lindex $k 0] ne "wm-bind"} continue
-            if {[lindex $cmd 0] ne "wm-bind"} continue
-            if {[catch {lmap tok [lindex $cmd 1] \
-                            {join [parse-chord $tok] ,}} pk]} continue
-            if {$pk eq $keys && [string trim [lindex $cmd 2]] \
-                    eq [string trim $script]} { return [list $layer $k] }
-        }
+# UNDER WHICH KEY the owning layer holds this binding — the address an
+# erase has to be given. Only the address: whose the binding is, the
+# leaf now says itself. Parsed chords, not spec spellings: <Super>9
+# and <super>9 are one chord, while the layer key holds whichever
+# spelling the writer used, which is exactly why it is handed back
+# rather than reconstructed.
+proc binding-key {layer keys} {
+    if {$layer ni {custom config}} { return "" }
+    if {![dict exists $::layer_knobs $layer]} { return "" }
+    dict for {k cmd} [dict get $::layer_knobs $layer] {
+        if {[lindex $k 0] ne "wm-bind"} continue
+        if {[lindex $cmd 0] ne "wm-bind"} continue
+        if {[catch {lmap tok [lindex $cmd 1] \
+                        {join [parse-chord $tok] ,}} pk]} continue
+        if {$pk eq $keys} { return $k }
     }
-    list code ""
+    return ""
 }
 # The keymap's word at a chord sequence: {SCRIPT ?NAME?} with the
 # action tag stripped, or empty — absent, pruned, or a map where a
@@ -7185,7 +7204,9 @@ proc keymap-payload {node keys} {
     set entry [dict get $node $k]
     lassign $entry kind payload
     if {[llength $keys] == 1} {
-        return [expr {$kind eq "map" ? {} : [lrange $entry 1 end]}]
+        # {SCRIPT NAME} — the origin is the leaf's fourth word and has
+        # its own reader (keymap-origin)
+        return [expr {$kind eq "map" ? {} : [lrange $entry 1 2]}]
     }
     if {$kind ne "map"} { return {} }
     return [keymap-payload $payload [lrange $keys 1 end]]
@@ -7278,7 +7299,11 @@ proc custom-write {command} {
     }
     dict set ::layer_knobs custom $key $command
     custom-save
-    uplevel #0 $command
+    # said IN THE CUSTOM LAYER'S NAME, even though this one is being
+    # spoken now rather than replayed from the file: what a binding
+    # records is whose word it is, and a live edit is the custom
+    # layer's word exactly as the replay of it will be (see say-as)
+    say-as custom { uplevel #0 $command }
     if {[dict exists $::layer_knobs config $key]} {
         puts "WM: custom overrides the config: $key"
     }

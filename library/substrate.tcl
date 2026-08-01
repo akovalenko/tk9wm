@@ -3073,9 +3073,10 @@ proc set-key-help {spec} {
 # was there: an action shadowing a former prefix map drops the whole
 # map, and a longer sequence turns a former action into a prefix.
 #
-# A leaf is {action SCRIPT ?NAME?}: the optional name is what the help
-# calls this binding when the script itself is not a fit thing to read
-# (see wm-bind).
+# A leaf is {action SCRIPT NAME ORIGIN WHERE}: the name is what the
+# help calls this binding when the script itself is not a fit thing to
+# read (see wm-bind), the origin is WHO bound it (see saying), and the
+# where is the file and line they said it in, when it was a file.
 proc keymap-set {node keys entry} {
     set k [lindex $keys 0]
     if {[llength $keys] == 1} {
@@ -3116,6 +3117,31 @@ proc wm-unbind {spec} {
     if {![llength $chords]} { error "wm-unbind: empty chord sequence" }
     set ::keymap [keymap-unset $::keymap [lmap c $chords {join $c ,}]]
 }
+# ...and the same, but only if the chord is still OURS. What a family
+# of bindings takes away when it leaves is its own contribution and
+# nothing else: a chord somebody has since taken for themselves was
+# taken for a reason — to keep that one deed out of the family (the
+# owner, 2026-08-01). Answers 1 when it did unbind.
+proc wm-unbind-owned {spec origin} {
+    set chords [lmap tok $spec {parse-chord $tok}]
+    if {![llength $chords]} { error "wm-unbind-owned: empty chord sequence" }
+    set path [lmap c $chords {join $c ,}]
+    if {[keymap-origin $::keymap $path] ne $origin} { return 0 }
+    set ::keymap [keymap-unset $::keymap $path]
+    return 1
+}
+# WHOSE the binding at this chord path is — the fourth word of a
+# leaf, empty for a path that binds nothing (or names a prefix map).
+proc keymap-origin {node keys} {
+    set k [lindex $keys 0]
+    if {![dict exists $node $k]} { return "" }
+    set entry [dict get $node $k]
+    if {[llength $keys] == 1} {
+        return [expr {[lindex $entry 0] eq "map" ? "" : [lindex $entry 3]}]
+    }
+    if {[lindex $entry 0] ne "map"} { return "" }
+    return [keymap-origin [lindex $entry 1] [lrange $keys 1 end]]
+}
 proc keymap-unset {node keys} {
     set k [lindex $keys 0]
     if {![dict exists $node $k]} { return $node }
@@ -3133,11 +3159,76 @@ proc keymap-unset {node keys} {
     }
     return $node
 }
+# ---------------- who is speaking ----------------
+# A binding used to be a script and nothing else, and WHO put it there
+# was worked out afterwards by matching the layers' words against the
+# live payload — which cannot tell two identical scripts apart and
+# cannot say anything at all about a word that has stopped answering.
+# It also made a bundle's departure blind: `wm-keys off` swept its
+# chords whoever owned them by then, so a bind TAKEN from a bundle
+# died with the family it had been taken out of (the owner's desk,
+# 2026-08-01, measured in the log).
+#
+# So the binder says its name. `::saying` is a STACK — the same shape
+# the launch door uses for its context — because a bundle body binds
+# from inside a layer's own load: the innermost speaker is the
+# answer, and it unwinds in a finally whatever the body does.
+keep saying {}
+proc say-as {who script} {
+    lappend ::saying $who
+    try {
+        uplevel 1 $script
+    } finally {
+        set ::saying [lrange $::saying 0 end-1]
+    }
+}
+# The layer machinery has half the answer already (::knob_layer is
+# config or custom while a layer file is sourced, empty otherwise);
+# a bundle pushes its own name over that.
+proc saying-now {} {
+    if {[llength $::saying]} { return [lindex $::saying end] }
+    if {[info exists ::knob_layer] && $::knob_layer ne ""} { return $::knob_layer }
+    return code
+}
+# ...and WHERE it was said, to the line, when it was said in a file.
+# `info frame` knows exactly this (the owner's pointer, 2026-08-01):
+# walk out to the innermost frame that came from a source, which is
+# the config that called us however many procs deep. A word spoken
+# through the applet's door comes from no file and says so — until
+# the save, after which the replay finds it in one.
+# Note which file it skips: OUR OWN. `info frame` gives a proc's body
+# the file it was written in, so the innermost source frame is always
+# this library — and the question is not where wm-bind lives but who
+# called it. The first frame from a file that is not ours is the
+# answer; a bundle asked for by a config names the line that asked.
+proc said-where {} {
+    for {set i [info frame]} {$i > 0} {incr i -1} {
+        if {[catch {info frame $i} f]} continue
+        if {![dict exists $f type] || [dict get $f type] ne "source"} continue
+        set file [dict get $f file]
+        if {[info exists ::tk9wm_library]
+                && [string match "$::tk9wm_library/*" $file]} continue
+        return "$file:[dict get $f line]"
+    }
+    return ""
+}
+
 proc wm-bind {spec script {name ""}} {
     set chords [lmap tok $spec {parse-chord $tok}]
     if {![llength $chords]} { error "wm-bind: empty chord sequence" }
-    set ::keymap [keymap-set $::keymap [lmap c $chords {join $c ,}] \
-                      [list $script $name]]
+    set path [lmap c $chords {join $c ,}]
+    set origin [saying-now]
+    # WHO IS LOSING THIS CHORD, if anybody: a bind over somebody
+    # else's word is exactly the conflict the desk had no way to
+    # mention, and the one line here is what the configurator's
+    # warning will be built on.
+    set was [keymap-origin $::keymap $path]
+    if {$was ne "" && $was ne $origin} {
+        puts "WM: key [join [lmap c $chords {chord-name {*}$c}] { }]:\
+ $origin takes it from $was"
+    }
+    set ::keymap [keymap-set $::keymap $path \
+                      [list $script $name $origin [said-where]]]
     set top [lindex $chords 0]
     if {$top ni $::grabbed_top} {
         lappend ::grabbed_top $top

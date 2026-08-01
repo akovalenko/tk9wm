@@ -709,8 +709,21 @@
 #   wm-keys accords off        ;# ...and with it the help key
 #
 # Re-declaring a bundle UNBINDS what its last instance bound, which is
-# what makes moving a prefix a move and not a copy.
+# what makes moving a prefix a move and not a copy — but only what is
+# STILL the family's. A chord you have taken for yourself since (a
+# plain wm-bind over one of its own) is yours, and the family leaves
+# without it: taking one deed out of a family is precisely how one
+# keeps it when the family goes (the owner's desk, 2026-08-01, where
+# the old behaviour ate three such binds on a toggle).
 #
+# Every binding remembers WHOSE it is — the code's, a bundle's, this
+# file's, the configurator's — and the file and line it was said on
+# when it came from a file. Binding over somebody else's chord is
+# allowed and says so in the log:
+#
+#   WM: key Super+d: config takes it from bundle windows
+#
+
 # wm-bind SPEC SCRIPT binds a chord sequence, stumpwm-style: only the
 # FIRST chord is a global grab; the rest is collected under a temporary
 # keyboard grab (Esc or an unbound key aborts). A chord is any number
