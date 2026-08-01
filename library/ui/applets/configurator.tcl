@@ -175,14 +175,31 @@ proc cfg-build {W} {
     foreach ev {<MouseWheel> <Button-4> <Button-5>} {
         bind $T $ev {if {![cfg-editing-guard scroll]} break}
     }
+    # «select none» (the listbox's Ctrl+backslash, which treectrl
+    # inherits) leaves the selection on the INVISIBLE root, and no
+    # key navigates from there — so it picks the first real row
+    # instead. Bound to the gesture rather than to <<Selection>>: a
+    # rebuild empties the selection too, for an instant, and a guard
+    # watching every change moved the selection out from under every
+    # refresh (measured, 2026-08-02).
+    bind $T <Control-backslash> {cfg-selection-guard; break}
     bind $T <ButtonPress-1>        {if {[cfg-click %x %y]} break}
     bind $T <Double-ButtonPress-1> {if {[cfg-doubleclick %x %y]} break}
     # Ctrl+click is NOT ours: the empty binding lets treectrl's own
     # class binding run, which in extended mode toggles the row into
     # the selection — the mouse half of the multi-take gesture.
     bind $T <Control-ButtonPress-1> {;}
-    foreach k {Up k p} { bind $T <KeyPress-$k> {cfg-move above; break} }
-    foreach k {Down j n} { bind $T <KeyPress-$k> {cfg-move below; break} }
+    # A PLAIN LETTER IS A LETTER. Tk's <KeyPress-k> matches Alt+k as
+    # well, so the tree's vi-style navigation was eating the Knobs
+    # label's own Alt+k (the owner, 2026-08-02). These answer only
+    # when no modifier is down; anything else falls through to
+    # whoever meant it.
+    foreach k {Up k p} {
+        bind $T <KeyPress-$k> {if {[cfg-plain-key %s]} {cfg-move above; break}}
+    }
+    foreach k {Down j n} {
+        bind $T <KeyPress-$k> {if {[cfg-plain-key %s]} {cfg-move below; break}}
+    }
     bind $T <Control-p> {cfg-move above; break}
     bind $T <Control-n> {cfg-move below; break}
     # ...and the ends of the list, in both dialects: Home/End as every
@@ -203,8 +220,12 @@ proc cfg-build {W} {
     bind $T <KeyPress-F9>     {cfg-problems; break}
     # h/l fold and unfold beside the arrows, the way k/j walk beside
     # Up and Down (the owner's ask — vi hands)
-    foreach k {Left h} { bind $T <KeyPress-$k> {cfg-fold collapse; break} }
-    foreach k {Right l} { bind $T <KeyPress-$k> {cfg-fold expand; break} }
+    foreach k {Left h} {
+        bind $T <KeyPress-$k> {if {[cfg-plain-key %s]} {cfg-fold collapse; break}}
+    }
+    foreach k {Right l} {
+        bind $T <KeyPress-$k> {if {[cfg-plain-key %s]} {cfg-fold expand; break}}
+    }
     # the composition gestures (plan step C): Insert adds an element,
     # Delete drops one, Alt moves a button through its set, and
     # Ctrl+Enter TAKES — the panel whole, or the selected binds out
@@ -241,6 +262,7 @@ proc cfg-fit-mapped {W} {
 # for, and a Configure that reports something else is somebody else's
 # doing.
 set cfg_user_sized 0
+set cfg_fit_done 0    ;# the walls are set once and then left alone
 set cfg_fit_size {}
 set cfg_col_fit {}    ;# column -> the -width the fit last set there
 set cfg_col_user {}   ;# columns dragged by hand — theirs now
@@ -289,6 +311,24 @@ proc cfg-note-room {W l room} {
 
 # Any scroll ends an open editor (as a commit attempt): the entry is
 # placed at pixel coordinates and the rows move under it.
+# Control, Alt/Meta and Super — the three a letter must not be
+# wearing for the tree to claim it (Shift is fine: it is part of what
+# letter was typed, and Lock/Num are noise).
+proc cfg-plain-key {state} { expr {!($state & 0x4c)} }
+# ---- the selection never lands where one cannot stand ----
+# treectrl inherits the listbox's Ctrl+backslash — «select none» —
+# and with -showroot no that left the selection on the INVISIBLE root
+# item, from which no key navigates anywhere (the owner, 2026-08-02).
+# Unbinding that one key would fix that one key; this fixes the shape
+# of the problem: a selection that is empty, or is the root, is not a
+# place, so it becomes the first row that is.
+proc cfg-selection-guard {} {
+    set T $::cfg_T
+    if {![winfo exists $T]} return
+    set it [cfg-selected]
+    if {$it eq ""} { set it [lindex [$T item children root] 0] }
+    if {$it ne ""} { catch {cfg-select $it} }
+}
 proc cfg-yscroll {sb a b} { $sb set $a $b }
 # ---- what may happen while a value is half-typed ----
 # The owner's rule, and it turns on ONE question — has anything been
@@ -768,6 +808,14 @@ proc cfg-fit {} {
     # move a window, not shrink it.
     set W [winfo toplevel $T]
     if {$::cfg_user_sized} return     ;# their window now, not ours
+    # ...AND ONCE IS ENOUGH. The fit is a first guess at a size
+    # nobody has an opinion about yet; re-measuring on every refresh
+    # meant a window that resized itself when one pressed Erase, or
+    # anything else that reloads (the owner, 2026-08-02: «даже если
+    # геометрия не от юзера — перемеривать на ходу не стоит»). The
+    # columns still re-measure above; only the walls stand still.
+    if {$::cfg_fit_done} return
+    set ::cfg_fit_done 1
     lassign [ui-workarea] - - ww wh
     lassign [ui-chrome] B top
     set maxw [expr {$ww - 2*$B - [winfo reqwidth $W.box.sb] - 8}]
@@ -957,7 +1005,22 @@ proc cfg-select {it} {
     $T activate $it
     $T see $it
 }
-proc cfg-selected {} { lindex [$::cfg_T selection get] 0 }
+# WHICH ROW ONE IS ON is the ACTIVE item, not the selection — they
+# are two different marks in a treectrl and the owner was right to
+# doubt they were one (2026-08-02). The active item is the keyboard's
+# cursor: it survives «select none», it is what the arrows move, and
+# it is the row every single-row gesture here means. The selection is
+# what is MARKED, which matters only where more than one row can be
+# acted on at once (Ctrl+Enter's take).
+#
+# The root can be active or selected and is neither a row nor a
+# place: it answers as nothing at all.
+proc cfg-selected {} {
+    set T $::cfg_T
+    set it [$T item id active]
+    if {$it eq "" || $it == [$T item id root]} { return "" }
+    return $it
+}
 proc cfg-move {dir} {
     set cur [cfg-selected]
     if {$cur eq ""} return

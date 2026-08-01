@@ -577,6 +577,33 @@ KEEPS=$(qu 'cfg-set set-edge-resist 9
 
 # ...and Tab leaves the field instead of putting a tab in it: in the
 # tree's editor that means committing and moving on
+# ---- the walls stand still once they are up ----
+# Erasing something reloads, and a reload used to re-measure the
+# window: it resized itself under the owner's hands (2026-08-02).
+WALLS=$(qu 'set W [winfo toplevel $::cfg_T]
+    update idletasks
+    set before [wm geometry $W]
+    cfg-refresh
+    after 300; update
+    set mid [wm geometry $W]
+    t-knob set-fade
+    cfg-erase
+    after 400; update
+    list steady [expr {[wm geometry $W] eq $before && $mid eq $before}]')
+# ...and a letter with a modifier on it is not the tree's letter:
+# Alt+k belongs to the Knobs label, and the tree used to eat it
+# ...and «select none» does not strand the selection on the invisible
+# root, where no key navigates anywhere
+NOROOT=$(qu 'focus $::cfg_T
+    event generate $::cfg_T <Control-backslash> -when now
+    after 200; update
+    set sel [$::cfg_T selection get]
+    list picked [expr {[llength $sel] == 1}] \
+         root [expr {[lsearch -exact $sel [$::cfg_T item id root]] >= 0}] \
+         cursor [expr {[cfg-selected] ne ""}]')
+PLAINKEY=$(qu 'list plain [cfg-plain-key 0] shifted [cfg-plain-key 1] \
+    alted [cfg-plain-key 8] ctrled [cfg-plain-key 4] supered [cfg-plain-key 64]')
+
 TABOUT=$(qu 'set addr set-edge-resist
     cfg-entry [dict get $::cfg_item $addr] $addr
     after 200; update
@@ -684,6 +711,7 @@ ADEL=$(grep -c '^action fresh1' "$HERE/cfg-config/tk9wm.custom.tcl")
 # three lines of gestures, two lines of room).
 NOTEFIT=$(qu 'set W [winfo toplevel $::cfg_T]
     set ::cfg_user_sized 0
+    set ::cfg_fit_done 0        ;# the fit runs once per window; this asks again
     cfg-fit
     update idletasks
     set room [expr {[$::cfg_T cget -width] - [winfo x $W.b.note] - 12}]
@@ -1062,10 +1090,26 @@ else
     echo "FAIL: the clash guard: $CLASH"
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
+echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
 if [ "$TABOUT" = "open 0 value 6 focus 1" ]; then
     echo "OK: Tab left the field, committing on the way out"
 else
     echo "FAIL: tab out of the editor: $TABOUT"
+fi
+if [ "$WALLS" = "steady 1" ]; then
+    echo "OK: neither a refresh nor an erase moved the window's walls"
+else
+    echo "FAIL: the walls moved: $WALLS"
+fi
+if [ "$NOROOT" = "picked 1 root 0 cursor 1" ]; then
+    echo "OK: «select none» lands on a row one can navigate from"
+else
+    echo "FAIL: after select-none: $NOROOT"
+fi
+if [ "$PLAINKEY" = "plain 1 shifted 1 alted 0 ctrled 0 supered 0" ]; then
+    echo "OK: the tree claims a letter only when no modifier is on it"
+else
+    echo "FAIL: plain-key rule: $PLAINKEY"
 fi
 case $KEEPS in
     "fade 0.31"*)
