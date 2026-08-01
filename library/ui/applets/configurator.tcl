@@ -2012,8 +2012,8 @@ proc cfg-problems {} {
     label $w.detail -takefocus 0 -anchor nw -justify left -height 4 \
         -foreground [ui-color link] -text "" -wraplength 560
     frame $w.b -takefocus 0
-    ttk::button $w.b.close -text Close -underline 0 -command [list destroy $w]
-    ttk::button $w.b.clear -text "Clear the list" -underline 0 \
+    ttk::button $w.b.close -text "&Close" -command [list destroy $w]
+    ttk::button $w.b.clear -text "Clear the &list" \
         -command [list cfg-problems-clear $w]
     foreach b [list $w.b.close $w.b.clear] { ui-focusable $b; ui-accel $b }
     pack $w.b.close $w.b.clear -side left -padx 4 -pady 4

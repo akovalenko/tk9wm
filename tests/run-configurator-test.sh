@@ -530,6 +530,23 @@ PROBVIEW=$(qu 'set w .cfg-problems
          rows [$w.list size] \
          first [$w.list get 0] \
          detail [string map {\n | } [$w.detail cget -text]]')
+# ...and no two buttons in it promise the same Alt-letter: the ui
+# says so at BUILD time now, so a suite can insist instead of
+# somebody noticing by hand (the owner found Close and Clear both
+# wearing C, 2026-08-01)
+ACCEL=$(qu 'llength [ui-accel-clashes]')
+# ...and the guard is not decorative: two buttons asking for the same
+# letter leave the first answering and the second no longer promising
+CLASH=$(qu 'toplevel .accelprobe
+    ttk::button .accelprobe.a -text "&Save" -command {}
+    ttk::button .accelprobe.b -text "&Send" -command {}
+    ui-accel .accelprobe.a
+    ui-accel .accelprobe.b
+    set r [list held [.accelprobe.a cget -underline] \
+                demoted [.accelprobe.b cget -underline] \
+                seen [llength [ui-accel-clashes]]]
+    destroy .accelprobe
+    set r')
 qu 'cfg-problems-clear .cfg-problems; list cleared' >/dev/null
 sleep 0.3
 PROBGONE=$(q 'llength [problems]')
@@ -952,6 +969,16 @@ case "$LINTFLAG|$LINTDOC" in
         echo "OK: a remark wears a mark on its element and speaks on its row" ;;
     *) echo "FAIL: lint in the tree: flag «$LINTFLAG» doc «$LINTDOC»" ;;
 esac
+if [ "$ACCEL" = 0 ]; then
+    echo "OK: no two buttons in this applet promise the same Alt-letter"
+else
+    echo "FAIL: accelerator clashes: $ACCEL"
+fi
+if [ "$CLASH" = "held 0 demoted -1 seen 1" ]; then
+    echo "OK: a clash leaves the first answering and the second silent about it"
+else
+    echo "FAIL: the clash guard: $CLASH"
+fi
 case "$PROBVIEW|$PROBGONE" in
     "up 1 rows 1 first {key Super+9 — the script says no} detail {the script says no||said at /home/x/tk9wm.tcl:3 ← /home/x/tk9wm.tcl:5}|0")
         echo "OK: a failure is listed whole, with the lines that led to it" ;;

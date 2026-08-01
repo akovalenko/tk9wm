@@ -175,7 +175,43 @@ proc ui-accel {btn} {
     # "no underline declared"
     if {![string is integer -strict $u] || $u < 0} return
     set ch [string tolower [string index [$btn cget -text] $u]]
-    bind [winfo toplevel $btn] <Alt-Key-$ch> [list $btn invoke]
+    set top [winfo toplevel $btn]
+    # TWO BUTTONS, ONE LETTER: only the first can answer, and the
+    # second was still SHOWING its underline — promising a key that
+    # belongs to somebody else (the owner found Close and Clear both
+    # wearing C, 2026-08-01). The first keeps the letter; the loser
+    # loses its underline, so what is on the screen is what works,
+    # and the desk is told, because a promise the ui could not keep
+    # is a defect and not a detail.
+    if {[info exists ::ui_accel($top,$ch)] && $::ui_accel($top,$ch) ne $btn} {
+        $btn configure -underline -1
+        set held $::ui_accel($top,$ch)
+        lappend ::ui_accel_clash [list $top $ch $held $btn]
+        puts "UI: accelerator clash on Alt+$ch in [winfo class $top]:\
+ «[$held cget -text]» holds it, «[$btn cget -text]» shows it no more"
+        catch {
+            wm-call [list problem-record "ui accelerator" \
+                "Alt+$ch is asked for twice in this window —\
+ «[$held cget -text]» answers it, «[$btn cget -text]» stopped\
+ promising it"]
+        }
+        return
+    }
+    set ::ui_accel($top,$ch) $btn
+    bind $top <Destroy> +[list ui-accel-forget $top %W]
+    bind $top <Alt-Key-$ch> [list $btn invoke]
+}
+# ...and a window that goes takes its letters with it, or the next
+# window of the same name would inherit a clash that is not there.
+proc ui-accel-forget {top w} {
+    if {$w ne $top} return
+    array unset ::ui_accel "$top,*"
+}
+# What a TEST asks: every clash this session has seen, so a suite can
+# insist there were none instead of somebody noticing by hand.
+proc ui-accel-clashes {} {
+    if {![info exists ::ui_accel_clash]} { return {} }
+    return $::ui_accel_clash
 }
 # ...and the keyboard-first dress code: the focus must be VISIBLE.
 # Applied by builders to their focusable widgets.
