@@ -324,6 +324,28 @@ BINDROWS=$(qu 'set live {}; set dead {}
         if {[string match {*✗*} $f]} { lappend dead $f } else { lappend live $f }
     }
     list live $live dead $dead')
+# ...and each of those rows says whose word it is and where it was
+# said — the doc column, which used to hold nothing for an element
+BINDNOTE=$(qu 'set live ""; set dead ""
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] ne "elem"
+            || [dict get $d coll] ne "bindings"} continue
+        if {[dict get $d key] ne "Super+5"} continue
+        set f [$::cfg_T item element cget $i Cflag eFlag -text]
+        set t [$::cfg_T item element cget $i Cdoc eDoc -text]
+        if {[string match {*✗*} $f]} { set dead $t } else { set live $t }
+    }
+    list live $live dead $dead')
+
+# THE CONFLICT WARNING: binding over a family's chord asks first, and
+# the question names the holder, the family and the parameters it
+# stands on. Answered NO here — so the chord must be untouched after.
+qu 'proc cfg-confirm {msg} {set ::cfg_lastask $msg; return 0}' >/dev/null
+qu 'cfg-insert-bind {Super+t w m} {list nope}' >/dev/null
+CONFLICT=$(qu 'set ::cfg_lastask')
+CHORDKEPT=$(q 'lindex [keymap-payload $::keymap [lmap t {<Super>t w m} \
+    {join [parse-chord $t] ,}]] 0')
+qu 'proc cfg-confirm {msg} {return 1}' >/dev/null
 
 # ---- step C: the composition gestures ----
 # Delete drops the reference and the action stays a card; Insert
@@ -715,6 +737,16 @@ case $BINDROWS in
     "live custom dead {{✗ cfg}}")
         echo "OK: the buried config bind wears ✗ beside the live custom one" ;;
     *) echo "FAIL: bind rows: $BINDROWS" ;;
+esac
+case $BINDNOTE in
+    "live yours dead {«list custom-five» answers here now — custom's word}")
+        echo "OK: a bind row says whose word it is, and the buried one where" ;;
+    *) echo "FAIL: bind notes: $BINDNOTE" ;;
+esac
+case "$CONFLICT|$CHORDKEPT" in
+    *"accords family (prefix <Super>t"*"|winops")
+        echo "OK: taking a family's chord asks first, naming it and its parameters" ;;
+    *) echo "FAIL: conflict ask «$CONFLICT», chord now «$CHORDKEPT»" ;;
 esac
 case "$NEEDSRC|$NEEDSMSG" in
     "1|"*"stand by"*)

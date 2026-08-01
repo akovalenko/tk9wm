@@ -3208,6 +3208,10 @@ proc said-where {} {
         set file [dict get $f file]
         if {[info exists ::tk9wm_library]
                 && [string match "$::tk9wm_library/*" $file]} continue
+        # ...and the entry script, which never leaves the stack: it
+        # called the event loop, so it sits under every callback the
+        # desk ever runs and would otherwise answer for all of them
+        if {$file eq [file normalize $::argv0]} continue
         return "$file:[dict get $f line]"
     }
     return ""

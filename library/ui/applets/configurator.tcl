@@ -463,11 +463,35 @@ proc cfg-elem-dress {T item cname e} {
         config { lappend flags cfg }
     }
     $T item element configure $item Cflag eFlag -text [join $flags " "]
+    $T item element configure $item Cdoc eDoc -text [cfg-elem-note $cname $e]
+}
+# What a row says about ITSELF in the doc column. For a binding that
+# is whose word it is and where it was said — the question the tree
+# could not answer before the origin rode along — and for a word that
+# no longer answers, the reason, which used to be a silent ✗ on a row
+# with nothing under it (the owner, 2026-08-01: «очень легко
+# что-нибудь испортить и перекрыть»).
+proc cfg-elem-note {cname e} {
+    if {$cname ne "bindings"} { return "" }
+    if {[dict exists $e why]} { return [dict get $e why] }
+    set note [cfg-owner-words $e]
+    if {[dict exists $e where]} {
+        append note " · [file tail [dict get $e where]]"
+    }
+    return $note
+}
+proc cfg-owner-words {e} {
+    if {[dict exists $e bundle]} { return "the [dict get $e bundle] family" }
+    switch -- [dict get $e owner] {
+        custom { return "yours" }
+        config { return "the config's" }
+    }
+    return "the desk's own"
 }
 proc cfg-elem-make {T parent key data} {
     lassign $data cname e
     set item [$T item create -button [expr {![dict exists $e ineffectual]}]]
-    $T item style set $item Cname sName Cval sVal Cflag sFlag
+    $T item style set $item Cname sName Cval sVal Cflag sFlag Cdoc sDoc
     cfg-elem-dress $T $item $cname $e
     lappend ::cfg_fresh $item
     return $item
@@ -1745,6 +1769,18 @@ proc cfg-insert-widget {name type} {
 }
 proc cfg-insert-bind {spec script} {
     if {$spec eq "" || $script eq ""} { return 0 }
+    # WHO IS ALREADY THERE. Binding over somebody else's chord is
+    # allowed — that is how one takes a deed out of a family — but it
+    # is never a thing to discover afterwards, which is exactly what
+    # the owner walked into (2026-08-01). The desk knows the holder
+    # and where it was said; this asks with both in the sentence.
+    set held ""
+    catch {wm-call [list chord-holder [split $spec " "]]} held
+    if {[dict exists $held who]} {
+        if {![cfg-confirm "[join $spec { }] already answers —\
+ [cfg-holder-sentence $held]. Binding here takes the chord while both\
+ stand; the other word comes back when yours goes."]} { return 0 }
+    }
     if {[catch {wm-call [list custom-write \
                              [list wm-bind [split $spec " "] $script]]} err]} {
         return [cfg-refuse [cfg-brief $err]]
@@ -1752,6 +1788,29 @@ proc cfg-insert-bind {spec script} {
     cfg-refresh
     cfg-status "[join $spec " "] is bound"
     return 1
+}
+
+# The holder of a chord, in one sentence: the deed, whose word it is,
+# on which line it was said, and — for a family — the parameters it
+# stands on, because «accords» and «accords under another prefix» are
+# different answers to «where did this come from».
+proc cfg-holder-sentence {held} {
+    set who [dict get $held who]
+    if {[lindex $who 0] eq "bundle"} {
+        set s "«[dict get $held script]» from the [lindex $who 1] family"
+        if {[dict exists $held params] && [dict size [dict get $held params]]} {
+            set bits {}
+            dict for {k v} [dict get $held params] { lappend bits "$k $v" }
+            append s " ([join $bits {, }])"
+        }
+    } else {
+        set s "«[dict get $held script]», [cfg-owner-words \
+                   [dict create owner $who]]"
+    }
+    if {[dict exists $held where]} {
+        append s ", said at [file tail [dict get $held where]]"
+    }
+    return $s
 }
 
 # The dialogs: keyboard-first like the list sub-editor — a listbox

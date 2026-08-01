@@ -7109,6 +7109,40 @@ proc collection-keys {} {
 # user's file still says it, so the table serves it flagged
 # `ineffectual` — the tree gets to mark the bind that does nothing
 # instead of pretending it was never written.
+# WHO ANSWERS this chord sequence now, and everything one would need
+# to say so to a human before taking it: the deed itself, whose word
+# it is, the file and line it was said on when it came from a file,
+# and — for a family's chord — the parameters that family stands on,
+# which is what tells «accords» from «accords under another prefix»
+# (the owner's ask, 2026-08-01). Empty when the chord is free, which
+# is the answer that needs no dialog.
+proc chord-holder {spec} {
+    if {[catch {lmap tok $spec {join [parse-chord $tok] ,}} pk]} { return "" }
+    set live [keymap-payload $::keymap $pk]
+    if {$live eq ""} { return "" }
+    set origin [keymap-origin $::keymap $pk]
+    set out [dict create script [lindex $live 0] name [lindex $live 1] \
+                 who $origin]
+    set where [keymap-where $::keymap $pk]
+    if {$where ne ""} { dict set out where $where }
+    if {[lindex $origin 0] eq "bundle"
+            && [dict exists $::key_bundles [lindex $origin 1]]} {
+        dict set out params \
+            [dict get $::key_bundles [lindex $origin 1] params]
+    }
+    return $out
+}
+proc keymap-where {node keys} {
+    set k [lindex $keys 0]
+    if {![dict exists $node $k]} { return "" }
+    set entry [dict get $node $k]
+    if {[llength $keys] == 1} {
+        return [expr {[lindex $entry 0] eq "map" ? "" : [lindex $entry 4]}]
+    }
+    if {[lindex $entry 0] ne "map"} { return "" }
+    return [keymap-where [lindex $entry 1] [lrange $keys 1 end]]
+}
+
 proc collection-bindings {} {
     set out [keymap-elements $::keymap {} {}]
     foreach layer {custom config} {
