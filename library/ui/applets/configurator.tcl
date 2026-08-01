@@ -688,9 +688,22 @@ proc cfg-fit {} {
     lassign [ui-workarea] - - ww wh
     lassign [ui-chrome] B top
     set maxw [expr {$ww - 2*$B - [winfo reqwidth $W.sb] - 8}]
+    # THE HINT WRAPS BEFORE THE ROOM FOR IT IS MEASURED. How many
+    # lines that one line of gestures becomes depends on the width
+    # the window is ABOUT to have; measured with the wrap the last
+    # width left behind, the fit reserved two lines and the third
+    # went under the desk (the owner, 2026-08-01 — the gesture list
+    # had just grown). So: wrap to the width we are asking for, let
+    # the box say how tall it is, and take the ceiling from that.
+    set want [expr {min($wall + 24, $maxw)}]
+    if {[winfo exists $W.b.note]} {
+        set room [expr {$want - [winfo x $W.b.note] - 12}]
+        if {$room > 80} { $W.b.note configure -wraplength $room }
+        update idletasks
+    }
     set maxh [expr {$wh - $top - $B - [winfo reqheight $W.b] - 8}]
     $T configure \
-        -width  [expr {min($wall + 24, $maxw)}] \
+        -width  $want \
         -height [expr {min(($rows + 2) * $ih, $maxh)}]
     # ...and then ASK, because arithmetic about a widget's chrome is
     # a guess: a treectrl's -height buys the content, not the header

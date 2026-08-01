@@ -2642,29 +2642,61 @@ keep icon_path [list ~/.local/share/icons/hicolor/48x48/apps \
     /usr/share/icons/hicolor/48x48/apps /usr/share/pixmaps]
 proc set-icon-path {dirs} {
     set ::icon_path $dirs
-    # ...and the cache of what the OLD path resolved to goes with it,
-    # or a button keeps the icon it found under a directory that is no
-    # longer searched. The panels then re-resolve as they rebuild.
-    foreach {k img} [array get ::resolvedicon] {
-        if {$img ne ""} { soft "drop a cached icon" [list image delete $img] }
-    }
-    array unset ::resolvedicon
+    # The cache needs no clearing: what a spec resolves to is part of
+    # every entry, so a spec that now finds its png somewhere else —
+    # or nowhere — is noticed by the next resolution and poured into
+    # the image the strips are already holding (see resolve-icon).
     if {[llength [info commands panel-rebuild-soon]]} { panel-rebuild-soon }
 }
+# WHERE a spec's png lives, if anywhere — the search on its own, so
+# the answer can be compared with what a cached icon was made from.
+proc icon-file-of {spec} {
+    # Tcl 9 dropped implicit ~ expansion — expand at use time, so a
+    # config-supplied ~ path works too
+    if {[string match */* $spec] || [string match ~* $spec]
+            || [string match -nocase *.png $spec]} {
+        return [file tildeexpand $spec]
+    }
+    foreach dir $::icon_path {
+        set p [file join [file tildeexpand $dir] $spec.png]
+        if {[file exists $p]} { return $p }
+    }
+    return ""
+}
+proc icon-stamp {path} {
+    if {$path eq "" || [catch {file mtime $path} m]} { return "" }
+    return $m
+}
+# AN ICON THAT HAS NOT CHANGED IS NOT RE-READ, and — the part that
+# shows — the image OBJECT is never destroyed under a strip that is
+# using it. It used to be: every reload dropped the whole cache,
+# deleting the photos, and the panel repainted as they went (the
+# owner, 2026-08-01). Now the file's path and mtime are the cache's
+# guard: the same file gives the same image back untouched, and a
+# file that HAS changed is read into a fresh photo and copied INTO
+# the standing one, so every widget holding that image name keeps
+# holding it and simply shows the new pixels.
+#
+# Nothing is deleted on a reset any more, and nothing needs to be:
+# an entry is at most one photo per {spec size} the config has ever
+# named in this session.
+keep icon_cache {}    ;# {spec size} -> {img path mtime}
 proc resolve-icon {spec size} {
     if {$spec in [image names]} { return $spec }
     set key [list $spec $size]
-    if {[info exists ::resolvedicon($key)]} { return $::resolvedicon($key) }
-    # Tcl 9 dropped implicit ~ expansion — expand at use time, so a
-    # config-supplied ~ path works too
-    set path ""
-    if {[string match */* $spec] || [string match ~* $spec]
-            || [string match -nocase *.png $spec]} {
-        set path [file tildeexpand $spec]
-    } else {
-        foreach dir $::icon_path {
-            set p [file join [file tildeexpand $dir] $spec.png]
-            if {[file exists $p]} { set path $p; break }
+    set path [icon-file-of $spec]
+    set stamp [icon-stamp $path]
+    if {[dict exists $::icon_cache $key]} {
+        lassign [dict get $::icon_cache $key] img was wasstamp
+        if {$path eq $was && $stamp eq $wasstamp} { return $img }
+        if {$img ne "" && $path ne ""} {
+            if {[catch {icon-refresh $img $path $size} err]} {
+                puts "WM: icon «$spec»: $err — keeping the one we had"
+            } else {
+                puts "WM: icon «$spec»: [file tail $path] changed, re-read in place"
+            }
+            dict set ::icon_cache $key [list $img $path $stamp]
+            return $img
         }
     }
     set img ""
@@ -2678,7 +2710,19 @@ proc resolve-icon {spec size} {
         puts "WM: icon «$spec»: [file tail $path]\
  [image width $img]x[image height $img]"
     }
-    set ::resolvedicon($key) $img
+    dict set ::icon_cache $key [list $img $path $stamp]
+    return $img
+}
+# ...the swap itself: read into a scratch photo, size it as the
+# resolution would, then pour it into the standing image. `-shrink`
+# is what makes it a replacement and not an overlay — without it a
+# smaller icon would keep the old one's edges around itself.
+proc icon-refresh {img path size} {
+    set fresh [image create photo -file [file normalize $path]]
+    set fresh [shrink-photo $fresh $size]
+    $img blank
+    $img copy $fresh -shrink
+    image delete $fresh
 }
 # Downsample a photo to fit target (nearest neighbor, keeps alpha);
 # a fitting image passes through untouched.
@@ -7869,10 +7913,9 @@ proc policy-reset {} {
     # verdicts (the rules are gone) and resolved icons (the path may
     # move under them).
     array unset ::styleof
-    foreach {k img} [array get ::resolvedicon] {
-        if {$img ne ""} { soft "drop a cached icon" [list image delete $img] }
-    }
-    array unset ::resolvedicon
+    # The icons stay. They are files, not config state: a reload
+    # re-checks each one's mtime and re-reads only what changed, and
+    # never destroys an image a standing strip is drawing with.
     # Every chord, ours and the config's alike, and then our own floor
     # back down. keys-reset is the substrate's: the grabs are its.
     keys-reset

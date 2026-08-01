@@ -85,11 +85,32 @@ sleep 1.5
 xdotool key super+f
 sleep 0.5
 
+q() { printf '%s\n' "$1" > "$HERE/iconpath-config/q.tcl"
+      "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/iconpath-config/q.tcl"; }
+# ---- an icon that has not changed is not re-read, and the image a
+# strip is drawing with is never destroyed under it ----
+IMG0=$(q 'resolve-icon ff 48')
+SIZE0=$(q 'image width [resolve-icon ff 48]')
+q reload-config >/dev/null
+sleep 1
+IMG1=$(q 'resolve-icon ff 48')
+LIVE1=$(q 'expr {[resolve-icon ff 48] in [image names]}')
+READS1=$(grep -c 'WM: icon «ff»' "$HERE/wm-iconpath.log")
+# ...and a file that HAS changed is poured into that same image
+"$LINUX/whale" "$HERE/iconpath-config/make-png.tcl" \
+    "$HERE/iconpath-config/icons/ff.png" 32 '#3465a4'
+sleep 1
+IMG2=$(q 'resolve-icon ff 48')
+SIZE2=$(q 'image width [resolve-icon ff 48]')
+INPLACE=$(grep -c 're-read in place' "$HERE/wm-iconpath.log")
+
 kill $WM $TK 2>/dev/null
 
 echo "--- battery lines:"
 grep -E 'ICON|WM: icon' "$HERE/wm-iconpath.log"
 
+echo "--- icons: $IMG0 -> $IMG1 -> $IMG2, size $SIZE0 -> $SIZE2,\
+ reads=$READS1 inplace=$INPLACE live=$LIVE1"
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-iconpath.log"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
@@ -117,4 +138,17 @@ else
 fi
 if grep -q 'handler error' "$HERE/wm-iconpath.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-iconpath.log"
+fi
+
+if [ "$IMG0" = "$IMG1" ] && [ "$LIVE1" = 1 ]; then
+    echo "OK: a reload left the image standing — same object, not re-read"
+else
+    echo "FAIL: after the reload: «$IMG0» -> «$IMG1» live=$LIVE1"
+fi
+if [ "$IMG1" = "$IMG2" ] && [ "$SIZE0" = 48 ] && [ "$SIZE2" = 32 ] \
+        && [ "$INPLACE" -ge 1 ]; then
+    echo "OK: a changed file was poured into the same image"
+else
+    echo "FAIL: after the change: «$IMG1» -> «$IMG2»,\
+ $SIZE0 -> $SIZE2, in-place lines $INPLACE"
 fi

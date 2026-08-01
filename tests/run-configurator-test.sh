@@ -563,6 +563,18 @@ qu 't-sel actions fresh1; cfg-delete; list deleted' >/dev/null
 sleep 1
 ADEL=$(grep -c '^action fresh1' "$HERE/cfg-config/tk9wm.custom.tcl")
 
+# THE HINT IS MEASURED AFTER IT WRAPS, not before: the room for it
+# is taken from the width the window is about to have, or the fit
+# reserves the lines the LAST width needed (the owner, 2026-08-01 —
+# three lines of gestures, two lines of room).
+NOTEFIT=$(qu 'set W [winfo toplevel $::cfg_T]
+    set ::cfg_user_sized 0
+    cfg-fit
+    update idletasks
+    set room [expr {[$::cfg_T cget -width] - [winfo x $W.b.note] - 12}]
+    list wrapped [expr {[$W.b.note cget -wraplength] == $room}] \
+         room [expr {[winfo reqheight $W.b] >= [winfo reqheight $W.b.note]}]')
+
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
 GEO=$(q 'set w [lindex [array names ::frameof] 0]
@@ -876,6 +888,11 @@ esac
 case $WMINE in
     "1 0") echo "OK: the first Delete took back our word, the config's stood up" ;;
     *) echo "FAIL: after taking our word back: widget/custom = $WMINE" ;;
+esac
+case $NOTEFIT in
+    "wrapped 1 room 1")
+        echo "OK: the hint wraps to the width being asked for, and fits" ;;
+    *) echo "FAIL: note fit: $NOTEFIT" ;;
 esac
 case "$LANDPARENT|$LANDPREV" in
     "what coll coll widgets|what elem coll panel key probe")
