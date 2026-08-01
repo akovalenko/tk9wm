@@ -7367,9 +7367,44 @@ proc collection-table {} {
 # The traced vocabulary derives from the registry — one list, not two
 # — plus the named declarations, which are traced per name rather
 # than rendered as knobs.
-set knob_vocab [concat [dict keys $knob_registry] \
-    {wm-font wm-bind wm-unbind wm-widget wm-widget-remove
-     panel-button panel-buttons-own wm-keys action action-remove}]
+# ---- the verb registry: what a word of the config TOUCHES ----
+# Three tables described this desk's configuration and none of them
+# described the same thing: the knobs (what a knob IS and how to show
+# it), the collections (what a family serves the editor), the specs
+# (what an action may carry). The one fact none of them held is the
+# one everything else is derived from — WHERE IN THE CONFIGURATION a
+# word lands, and what shape the thing it leaves there has.
+#
+# So: a verb, the node it touches, and how its arguments make that
+# node's address and value. `at` is the path with @1 standing for the
+# verb's first argument; `key` is the name the layers file it under
+# (a negative word files under the word it denies, which is what
+# makes «my last word about this» a single entry); `section` marks
+# the words whose DECLARATION ORDER is meaning rather than noise, and
+# its number is the order the sections go out in.
+#
+# What this replaces so far: the hand-written switch in knob-key and
+# the hand-written list of ordered sections in custom-save. What it
+# is FOR is the tree — see plans/tk9wm-config-tree.md.
+proc config-verb {name meta} { dict set ::verb_registry $name $meta }
+set verb_registry {}
+config-verb wm-bind           {at {bindings @1} key wm-bind      value pair}
+config-verb wm-unbind         {at {bindings @1} key wm-bind      denies 1}
+config-verb action            {at {actions @1}  key action       spec action}
+config-verb action-remove     {at {actions @1}  key action       denies 1}
+config-verb wm-widget         {at {widgets @1}  key wm-widget    value options section 2}
+config-verb wm-widget-remove  {at {widgets @1}  key wm-widget    denies 1}
+config-verb panel-button      {at {panel @1}    key panel-button value overrides section 4}
+config-verb panel-buttons-own {at {panel @1}    key panel-buttons-own sweep 1 section 3}
+config-verb wm-font           {at {fonts @1}    key wm-font      value options section 1}
+config-verb wm-keys           {at {keys @1}     key wm-keys      value params}
+# ...and every knob, which is the plain case: no address of its own
+# beyond its name, one value, and the type the knob registry states.
+dict for {name meta} $knob_registry {
+    config-verb $name [list at [list knobs $name] key $name value word \
+        kind [dict get $meta kind]]
+}
+set knob_vocab [dict keys $verb_registry]
 set knob_layer ""
 keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # The key is semantic: a plain knob is one key however often it is
@@ -7377,17 +7412,13 @@ keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
 # declaration is one key PER NAME.
 proc knob-key {words} {
     set p [lindex $words 0]
-    switch -- $p {
-        wm-font - wm-bind - wm-widget - panel-button - panel-buttons-own -
-        action {
-            return "$p [lindex $words 1]"
-        }
-        wm-unbind { return "wm-bind [lindex $words 1]" }
-        action-remove { return "action [lindex $words 1]" }
-        wm-keys { return "wm-keys [lindex $words 1]" }
-        wm-widget-remove { return "wm-widget [lindex $words 1]" }
-        default { return $p }
-    }
+    if {![dict exists $::verb_registry $p]} { return $p }
+    set meta [dict get $::verb_registry $p]
+    set key [dict get $meta key]
+    # a verb whose node is addressed by its first argument is filed
+    # per address; one that is not is filed under itself
+    if {"@1" in [dict get $meta at]} { return "$key [lindex $words 1]" }
+    return $key
 }
 proc knob-touched {cmd op} {
     if {$::knob_layer eq ""} return
@@ -7547,17 +7578,37 @@ proc custom-write {command} {
     if {[catch {knob-key $command} key]} {
         error "custom-write: not a command list: $command"
     }
+    # SAID BEFORE IT IS WRITTEN DOWN. It used to be recorded and
+    # saved first and run after, so a word the desk REFUSES still
+    # landed in the file — and a file with a word that throws stops
+    # loading THERE, taking every line under it with it. The owner
+    # typed one chord wrong (`super+t r w`, and the desk spells its
+    # modifiers Super) and lost his whole panel section on the next
+    # load: the strip stopped reordering and flickered, and nothing
+    # about that pointed at a typo three sections up (2026-08-01).
+    #
+    # Said IN THE CUSTOM LAYER'S NAME, because a live edit is the
+    # custom layer's word exactly as the replay of it will be (say-as).
+    say-as custom { uplevel #0 $command }
     dict set ::layer_knobs custom $key $command
     custom-save
-    # said IN THE CUSTOM LAYER'S NAME, even though this one is being
-    # spoken now rather than replayed from the file: what a binding
-    # records is whose word it is, and a live edit is the custom
-    # layer's word exactly as the replay of it will be (see say-as)
-    say-as custom { uplevel #0 $command }
     if {[dict exists $::layer_knobs config $key]} {
         puts "WM: custom overrides the config: $key"
     }
     puts "WM: custom: $command"
+}
+# The verbs whose declaration order is meaning, in the order their
+# sections go out — the registry says both (see config-verb).
+proc config-ordered-verbs {} {
+    set by {}
+    dict for {name meta} $::verb_registry {
+        if {[dict exists $meta section]} {
+            dict set by [dict get $meta section] $name
+        }
+    }
+    set out {}
+    foreach n [lsort -integer [dict keys $by]] { lappend out [dict get $by $n] }
+    return $out
 }
 proc custom-save {} {
     set path [custom-path]
@@ -7582,9 +7633,7 @@ proc custom-save {} {
     # by chord, plain knobs a map keyed by name — nothing about
     # their order means anything, so they sort.
     set sorted {}
-    foreach kind {wm-font wm-widget panel-buttons-own panel-button} {
-        set section($kind) {}
-    }
+    foreach kind [config-ordered-verbs] { set section($kind) {} }
     dict for {key cmd} $entries {
         set p [lindex $key 0]
         if {[info exists section($p)]} {
@@ -7605,8 +7654,8 @@ proc custom-save {} {
     foreach key [lsort $sorted] {
         if {[lindex $key 0] ne "wm-keys"} { puts $ch [dict get $entries $key] }
     }
-    set ordered [concat $section(wm-font) $section(wm-widget) \
-                     $section(panel-buttons-own) $section(panel-button)]
+    set ordered {}
+    foreach kind [config-ordered-verbs] { lappend ordered {*}$section($kind) }
     if {[llength $ordered]} {
         puts $ch ""
         puts $ch "# ...and the ordered declarations, in the order they were made:"

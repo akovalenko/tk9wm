@@ -74,6 +74,33 @@ COLL2=$(collq)
 FILEORDER=$(grep -n 'panel-button\|wm-bind\|set-fade\|action ' "$HERE/custom-config/tk9wm.custom.tcl" | tr '
 ' ' ')
 
+# ---- a word the desk refuses is not written down ----
+# It used to be recorded and saved BEFORE it ran, so a refused word
+# stayed in the file and stopped the whole layer loading on the next
+# start — the owner lost a panel section to one mistyped chord.
+BADWRITE=$(q 'catch {custom-write {wm-bind {super+t r w} whatever}} err
+    list rc [catch {custom-write {wm-bind {super+t r w} whatever}}] \
+         filed [dict exists $::layer_knobs custom {wm-bind super+t r w}] \
+         said [string match {*unknown modifier*} $err]')
+BADFILE=$(grep -c 'super' "$HERE/custom-config/tk9wm.custom.tcl" 2>/dev/null; true)
+
+# ---- one table says where a word lands ----
+# The layers file a word under a key, the save puts the ordered kinds
+# out in sections, and both used to be hand-written switches. They
+# read the verb registry now, and every verb the layers can record
+# has to be in it — a word nobody described would be filed under
+# itself and quietly stop overriding anything.
+VERBS=$(q 'set bad {}
+    foreach v $::knob_vocab {
+        if {![dict exists $::verb_registry $v]} { lappend bad $v }
+    }
+    list missing $bad')
+KEYS=$(q 'join [list [knob-key {wm-bind {<Super>9} x}] \
+    [knob-key {wm-unbind {<Super>9}}] [knob-key {action Foo {}}] \
+    [knob-key {action-remove Foo}] [knob-key {set-fade 0.5}] \
+    [knob-key {panel-buttons-own default}]] " | "')
+SECTIONS=$(q 'config-ordered-verbs')
+
 kill $WM 2>/dev/null
 sleep 0.5
 
@@ -95,6 +122,9 @@ kill $WM2 2>/dev/null
 echo "--- states: start={$S0} reload={$S1} fade=$FADE welcome=$WELCOME afterhide={$AFTERHIDE}"
 echo "--- layer lines:"
 grep -aE 'custom|welcome' "$HERE/wm-custom.log" "$HERE/wm-fresh.log" | grep -v widget
+echo "--- badwrite={$BADWRITE} in-file=$BADFILE"
+echo "--- verbs={$VERBS} sections={$SECTIONS}"
+echo "--- keys={$KEYS}"
 echo "--- verdict"
 if [ "$S0" = "normal 7 3" ]; then
     echo "OK: the click wins, the untouched knobs hold (normal 7 3)"
@@ -165,3 +195,26 @@ case $FILEORDER in
 esac
 check_invariants "$HERE/wm-custom.log"
 check_invariants "$HERE/wm-fresh.log"
+
+if [ "$VERBS" = "missing {}" ]; then
+    echo "OK: every verb the layers record is described in one table"
+else
+    echo "FAIL: verbs: $VERBS"
+fi
+if [ "$KEYS" = "wm-bind <Super>9 | wm-bind <Super>9 | action Foo | action Foo\
+ | set-fade | panel-buttons-own default" ]; then
+    echo "OK: a word and its denial file under the same key, from that table"
+else
+    echo "FAIL: keys: $KEYS"
+fi
+if [ "$SECTIONS" = "wm-font wm-widget panel-buttons-own panel-button" ]; then
+    echo "OK: the ordered sections come from the table, in its own order"
+else
+    echo "FAIL: sections: $SECTIONS"
+fi
+
+if [ "$BADWRITE" = "rc 1 filed 0 said 1" ] && [ "$BADFILE" = 0 ]; then
+    echo "OK: a refused word is neither filed nor written to the layer"
+else
+    echo "FAIL: bad write: {$BADWRITE}, lines in file: $BADFILE"
+fi
