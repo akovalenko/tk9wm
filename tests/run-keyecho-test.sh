@@ -162,11 +162,35 @@ sleep 0.7
 ID6=$(echo_id)
 key Escape
 
+# ---- a failure reaches the eye, and is kept for later ----
+q() { printf '%s\n' "$1" > "$CONF/q.tcl"
+      "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$CONF/q.tcl"; }
+# ...bound HERE, because step 7 rewrote the config out from under
+# anything the first one declared
+q 'wm-bind {<Super>t v} {error "the script says no"}; list bound' >/dev/null
+key super+t; key v
+sleep 1
+PROBLEM=$(q 'set p [lindex $::problems 0]
+    list what [dict get $p what] text [dict get $p text] \
+         kept [llength $::problems]')
+PROBECHO=$(grep -c 'key echo (problem) «key Super+t v: the script says no»' \
+    "$LOG")
+# ...and it goes on its own, since nothing else will end it. Driven
+# through the door rather than the keyboard: what is under test here
+# is the HOLD, and a second chord would only race the first box.
+PROBGONE=$(q 'set ::KEY_ECHO_PROBLEM_HOLD 400
+    policy-key-echo problem "probe"
+    set up [winfo ismapped .keyecho]
+    after 700
+    update
+    list up $up then [winfo ismapped .keyecho]')
+
 kill $WM $CA 2>/dev/null
 
 echo "--- key/echo lines:"
 grep -E 'key |echo' "$LOG"
 
+echo "--- problem={$PROBLEM} echoed=$PROBECHO gone={$PROBGONE}"
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$LOG"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
@@ -271,3 +295,14 @@ else
  want none then one"
 fi
 check_invariants "$LOG"
+
+case "$PROBLEM|$PROBECHO" in
+    "what {key Super+t v} text {the script says no} kept 1|1")
+        echo "OK: a binding that threw put its failure on the screen and in the store" ;;
+    *) echo "FAIL: problem={$PROBLEM} echoed=$PROBECHO" ;;
+esac
+if [ "$PROBGONE" = "up 1 then 0" ]; then
+    echo "OK: ...and the box stands, then goes by itself — nothing else ends it"
+else
+    echo "FAIL: the hold: $PROBGONE"
+fi

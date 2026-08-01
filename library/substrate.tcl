@@ -3460,7 +3460,7 @@ proc keyrouter-lost {} {
 }
 proc route-key {kind name mods} {
     if {[catch {uplevel #0 [list {*}$::keyrouter $kind $name $mods]} err]} {
-        puts "WM: key router error: $err"
+        problem-record "key router" $err
     }
 }
 
@@ -3601,11 +3601,16 @@ proc handle-key {state kc time} {
         # release the keyboard BEFORE the action: it may want focus.
         # The chord's own modifiers are published for the action: the
         # window list reads them to decide "am I an alt-tab cycle".
+        # the WHOLE sequence, spelled as the desk shows it — captured
+        # before keyseq-end forgets the prefix, because a failure
+        # reported as «key z» names a key nobody bound
+        set said [join [concat $::keyseq_keys [chord-name $mods $ks]] " "]
         keyseq-end
         puts "WM: key [chord-name $mods $ks] -> action"
         set ::key_invoke_mods $mods
         if {[catch {uplevel #0 $payload} err]} {
-            puts "WM: key action error: $err"
+            # the log is not where a hand on the keyboard is looking
+            problem-record "key $said" $err
         }
     } else {
         if {$::keyseq eq ""} {

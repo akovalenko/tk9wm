@@ -3855,6 +3855,7 @@ proc kbmr-key {kind name mods} {
 # our own log for it.
 keep key_echo 0                  ;# ms of hesitation before it shows; off = never
 keep key_echo_place {hcenter bottom}
+set KEY_ECHO_PROBLEM_HOLD 8000   ;# a failure is read, not glanced at
 set KEY_ECHO_HOLD 1200          ;# how long a flash stands before it goes
 set KEY_ECHO_BAD  #a40000       ;# ...and the color it stands in
 keep keyecho_kind none           ;# none | keys | flash — what is up right now
@@ -3912,7 +3913,7 @@ proc policy-key-echo {kind {text ""}} {
     # "refuse to answer when I ask", so the help goes through it. The
     # other two kinds are the desk speaking unbidden, and that is
     # exactly what was switched off.
-    if {$::key_echo eq "off" && $kind ne "help"} return
+    if {$::key_echo eq "off" && $kind ni {help problem}} return
     switch -- $kind {
         keys {
             set ::keyecho_pending $text
@@ -3936,6 +3937,17 @@ proc policy-key-echo {kind {text ""}} {
             # warning otherwise.
             keyecho-show flash $text
             after $::KEY_ECHO_HOLD keyecho-hide
+        }
+        problem {
+            # A FAILURE IS READ, NOT GLANCED AT, so it holds far
+            # longer than a flash — and it has no natural end of its
+            # own, so a timer is the end it gets. Anything the desk
+            # says next replaces it, which is the closest thing to
+            # «until you are done with it» that costs no grab; and
+            # the store keeps it, so a message missed or replaced is
+            # not a message lost.
+            keyecho-show problem $text
+            after $::KEY_ECHO_PROBLEM_HOLD keyecho-hide
         }
         default { error "policy-key-echo: unknown kind «$kind»" }
     }
@@ -3978,7 +3990,7 @@ proc keyecho-show {kind text} {
         set rows {}
     }
     keyecho-build $b $header $rows \
-        [expr {$kind eq "flash" ? $::KEY_ECHO_BAD : $::KBMR_BG}]
+        [expr {$kind in {flash problem} ? $::KEY_ECHO_BAD : $::KBMR_BG}]
     set ::keyecho_kind $kind
     update idletasks            ;# the content sizes itself, still unmapped
     set W [expr {[winfo reqwidth $b.c] + 2}]
@@ -4978,7 +4990,7 @@ proc action-fire {name} {
         set via ""
         if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
         if {[catch {run-via $via $script} err]} {
-            puts "WM: action $name: launch FAILED: $err"
+            problem-record "action $name" $err
         }
     } else {
         puts "WM: action $name: nothing matched, nothing to launch"
@@ -5253,6 +5265,34 @@ proc exec-words-of {script} {
     }
     if {![llength $words]} { return "" }
     list $words $bg
+}
+
+# ---- what went wrong, kept where it can be looked at ----
+# A binding whose script throws used to leave one line in the log and
+# nothing anywhere else — and the log is not where a hand on the
+# keyboard is looking (the owner, 2026-08-01). A failure now goes to
+# TWO places at once: the echo box says it happened, and the store
+# keeps it for whoever wants to read it afterwards.
+#
+# The store is the durable half on purpose. The echo has no natural
+# end — a key echo ends when the chord goes on, a report of a failure
+# has nothing to be ended BY (the owner's own doubt, same day) — so
+# it fades on a timer, and nothing is lost when it does.
+keep problems {}          ;# newest first, capped: {what text where}
+set PROBLEM_KEEP 50
+proc problem-record {what text {where {}}} {
+    set ::problems [lrange [linsert $::problems 0 \
+        [dict create what $what text $text where $where]] 0 $::PROBLEM_KEEP]
+    puts "WM: PROBLEM $what: $text"
+    soft "show a problem" { policy-key-echo problem "$what: [problem-brief $text]" }
+}
+proc problems-clear {} { set ::problems {}; return 0 }
+# One line of it, because the box is one line wide and the store has
+# the rest.
+proc problem-brief {text} {
+    set one [string trim [regsub -all {\s+} $text " "]]
+    if {[string length $one] > 70} { set one "[string range $one 0 67]…" }
+    return $one
 }
 
 # ---- the linter: the same table, softer verdicts ----

@@ -695,6 +695,14 @@
 # before turning the tray on (changing it later rebuilds the tray).
 #   set-tray-argb on
 #
+# WHEN A BINDING'S SCRIPT THROWS the desk says so ON THE SCREEN — the
+# echo box, in its failure colour, for long enough to be read rather
+# than glanced at — and keeps the whole message in a store the
+# configurator can show later. Nothing has to be dismissed: it fades
+# on its own, and anything the desk says next replaces it. Turning
+# the echo off (`set-key-echo off`) does NOT silence failures: that
+# switch is about the desk talking while you type.
+#
 # ---- key bindings ----
 #
 # KEYS COME IN FAMILIES, and a family is what one turns on, off or
