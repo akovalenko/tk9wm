@@ -3939,6 +3939,7 @@ proc policy-key-echo {kind {text ""}} {
             after $::KEY_ECHO_HOLD keyecho-hide
         }
         problem {
+            # a string, or {header lines} when there is a body to show
             # A FAILURE IS READ, NOT GLANCED AT, so it holds far
             # longer than a flash — and it has no natural end of its
             # own, so a timer is the end it gets. Anything the desk
@@ -4034,6 +4035,18 @@ proc keyecho-build {b header rows bg} {
         -sticky w -padx 10 -pady [expr {$n ? {4 2} : 4}]
     set i 0
     foreach row $rows {
+        # A ROW OF ONE is a plain line — what a diagnostic is made of.
+        # The pairs are the help list's shape (keys → what); a failure
+        # has nothing to put on the left of an arrow.
+        if {[llength $row] < 2} {
+            label $c.p$i -text [lindex $row 0] -font TitleFont \
+                -background $bg -foreground white -anchor w
+            grid $c.p$i -row [expr {1 + $i % $percol}] \
+                -column [expr {3 * ($i / $percol)}] -columnspan 3 \
+                -sticky w -padx {18 12} -pady {0 3}
+            incr i
+            continue
+        }
         lassign $row keys what
         set r [expr {1 + $i % $percol}]
         set col [expr {3 * ($i / $percol)}]
@@ -4355,7 +4368,8 @@ proc wm-errand {label body} {
 # reported status 0 non-blocking and 3 blocking. Both ends are drained
 # by then, so the switch costs nothing.
 proc pipe-run {argv args} {
-    set o [dict merge {-stderr merge -timeout 0} $args]
+    set o [dict merge {-stderr merge -timeout 0 -patience 0 -say {} -tail 10} \
+               $args]
     set f [fut::new]
     set st [dict create out "" err "" status 0]
     set errrd ""
@@ -4391,11 +4405,55 @@ proc pipe-run {argv args} {
     fut::oncancel $f [list pipe-run-cancelled $ch]
     if {[dict get $o -timeout] > 0} {
         after [dict get $o -timeout] \
-            [list fut::cancel $f "timed out after [dict get $o -timeout] ms"]
+            [list pipe-run-timeout $ch [dict get $o -timeout] [dict get $o -tail]]
+    }
+    if {[dict get $o -patience] > 0} {
+        after [dict get $o -patience] [list pipe-run-patience $ch \
+            [dict get $o -patience] [dict get $o -tail] [dict get $o -say]]
     }
     return $f
 }
 proc pipe-run-cancelled {key f} { pipe-run-close $key 1 }
+# WHAT IT MANAGED TO SAY BEFORE IT WAS CUT OFF. A process that ran out
+# of time is exactly the one whose last few lines are worth reading —
+# «starting the daemon takes forever» is a sentence, and the tail is
+# the diagnosis (the owner, 2026-08-01).
+proc pipe-run-tail {key n} {
+    if {![info exists ::pipe_state($key)]} { return {} }
+    set st [dict get $::pipe_state($key) st]
+    set lines {}
+    foreach which {out err} {
+        foreach l [split [string trim [dict get $st $which]] \n] {
+            if {[string trim $l] ne ""} { lappend lines $l }
+        }
+    }
+    return [lrange $lines end-[expr {$n - 1}] end]
+}
+proc pipe-run-timeout {key ms n} {
+    if {![info exists ::pipe_state($key)]} return
+    set tail [pipe-run-tail $key $n]
+    set f [dict get $::pipe_state($key) f]
+    # killed HERE rather than through fut::cancel, so the tail can
+    # ride in the error code: an awaiter reads a sentence, and
+    # whoever wants the diagnosis has it without parsing the sentence
+    pipe-run-close $key 1
+    fut::fail $f "timed out after $ms ms" \
+        [list -code error -errorcode [list PIPE TIMEOUT $tail]]
+}
+
+# ---- patience: say it is slow, but do not kill it ----
+# Some waits must not end in a kill. `emacsclient -a ''` starts the
+# daemon ITSELF and waits for the socket — killing the client when we
+# lose patience does not stop the daemon coming up, it only throws
+# away the answer we were waiting for (the owner, 2026-08-01). So:
+# patience runs out, somebody is TOLD, and the wait goes on.
+proc pipe-run-patience {key ms n say} {
+    if {![info exists ::pipe_state($key)]} return
+    if {[llength $say]} {
+        soft "say a slow process is slow" \
+            [list {*}$say $ms [pipe-run-tail $key $n]]
+    }
+}
 proc pipe-run-read {key c which} {
     if {![info exists ::pipe_state($key)]} { catch {close $c}; return }
     set state $::pipe_state($key)
@@ -4792,9 +4850,43 @@ proc emacs-eval-bg {spec expr} {
     set cmd [concat [emacs-client-cmd $spec] [list -e $expr]]
     wm-errand "emacs eval" [list emacs-eval-run $cmd]
 }
+# HOW LONG A DAEMON MAY TAKE TO ANSWER. Five seconds was the number
+# from when a daemon was a fast thing; an emacs that decides to
+# byte-compile mu4e on the way up takes a minute and is not broken
+# (the owner, 2026-08-01). Running out of it is not silent any more:
+# it is a problem with the last lines the daemon said, which is the
+# whole of what one needs to see.
+keep emacs_wait 60000
+proc set-emacs-timeout {ms} { set ::emacs_wait $ms }
 proc emacs-eval-run {cmd} {
-    set out [fut::take [fut::timeout [pipe-output $cmd] 5000]]
-    puts "WM: emacs: verdict: [string trim $out]"
+    set f [pipe-run $cmd -stderr merge -patience $::emacs_wait \
+               -say [list emacs-taking-forever]]
+    if {[catch {fut::await $f} r opts]} {
+        problem-record "emacs" $r {} \
+            [expr {[lindex [dict get $opts -errorcode] 0] eq "PIPE"
+                   ? [lindex [dict get $opts -errorcode] 2] : {}}]
+        return
+    }
+    if {[dict get $r status] != 0} {
+        problem-record "emacs" "emacsclient exited [dict get $r status]" {} \
+            [pipe-tail-of [dict get $r out] 10]
+        return
+    }
+    puts "WM: emacs: verdict: [string trim [dict get $r out]]"
+}
+# ...and what the desk says while it goes on waiting. NOT a kill: the
+# client is starting the daemon, and the daemon is worth having.
+proc emacs-taking-forever {ms tail} {
+    problem-record "emacs" "starting the daemon, or waiting for it, has\
+ taken over [expr {$ms / 1000}] s — still waiting" {} $tail
+}
+# The last lines of a lump of output, for a diagnosis.
+proc pipe-tail-of {text n} {
+    set lines {}
+    foreach l [split [string trim $text] \n] {
+        if {[string trim $l] ne ""} { lappend lines $l }
+    }
+    return [lrange $lines end-[expr {$n - 1}] end]
 }
 
 # ---- the panel ----
@@ -5487,11 +5579,26 @@ proc exec-words-of {script} {
 # it fades on a timer, and nothing is lost when it does.
 keep problems {}          ;# newest first, capped: {what text where}
 set PROBLEM_KEEP 50
-proc problem-record {what text {where {}}} {
-    set ::problems [lrange [linsert $::problems 0 \
-        [dict create what $what text $text where $where]] 0 $::PROBLEM_KEEP]
+proc problem-record {what text {where {}} {detail {}}} {
+    set p [dict create what $what text $text where $where]
+    if {[llength $detail]} { dict set p detail $detail }
+    set ::problems [lrange [linsert $::problems 0 $p] 0 $::PROBLEM_KEEP]
     puts "WM: PROBLEM $what: $text"
-    soft "show a problem" { policy-key-echo problem "$what: [problem-brief $text]" }
+    foreach line $detail { puts "WM:   | $line" }
+    # A LONG DIAGNOSIS GOES ON THE SCREEN WHOLE. Most failures are a
+    # sentence and a sentence is what the box shows; but some are only
+    # useful with the last few lines the thing said before it gave up
+    # — a daemon that will not start, say (the owner, 2026-08-01) —
+    # and for those the box grows, like the help list it borrows its
+    # shape from.
+    soft "show a problem" {
+        if {[llength $detail]} {
+            policy-key-echo problem [list "$what: [problem-brief $text]" \
+                [lmap l $detail {list $l}]]
+        } else {
+            policy-key-echo problem "$what: [problem-brief $text]"
+        }
+    }
 }
 proc problems-clear {} { set ::problems {}; return 0 }
 proc problems {} { return $::problems }
@@ -7095,6 +7202,8 @@ knob set-edge-resist {group windows kind int get {set ::edge_resist}
                       doc {pixels a carried window sticks to a workarea edge}}
 knob set-fade        {group windows kind {float 0 1} get {set ::fade}
                       doc {how solid a faded window stays}}
+knob set-emacs-timeout {group emacs kind int get {set ::emacs_wait}
+                        doc {how long a daemon may take to answer, ms}}
 knob set-root-cursor {group desk kind text get {set ::root_cursor}
                       doc {the cursor over the bare desk}}
 knob set-desk-window {group desk kind bool
@@ -8232,6 +8341,7 @@ set config_vars {
     widgets desk_window desk_background widget_gap
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
+    emacs_wait
     welcome key_bundles action_raw action_spec action_lint
 }
 proc policy-snapshot-defaults {} {

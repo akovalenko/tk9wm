@@ -60,9 +60,11 @@ NOCORO=$(q 'catch {Exec true} e; string match {Exec needs a coroutine*} $e')
 TIMEOUT=$(q 'set f [pipe-run [list sleep 30] -timeout 300]
     set key [lindex [array names ::pipe_state] 0]
     set pid [lindex [dict get $::pipe_state($key) pids] 0]
-    wm-errand t5 {catch {fut::await $f} ::t5}
+    wm-errand t5 {catch {fut::await $f} ::t5 ::t5o
+        set ::t5opts [dict get $::t5o -errorcode]}
     after 900 {set ::w5 1}; vwait ::w5
     list said [string match {timed out*} $::t5] \
+         tailed [expr {[llength [lindex $::t5opts 2]] >= 0}] \
          gone [catch {exec kill -0 $pid}]')
 
 # ---- and the word itself: `exec` IS the cooperative one, inside a
@@ -92,12 +94,27 @@ KEEPNL=$(q 'wm-errand t9 {
     after 500 {set ::w9 1}; vwait ::w9
     list plain [string length $::t9a] kept [string length $::t9b]')
 
+# ---- patience: say it is slow, and go on waiting ----
+# Not every wait may end in a kill: `emacsclient -a ''` starts the
+# daemon itself, so killing the client throws the answer away without
+# stopping anything (the owner, 2026-08-01).
+PATIENCE=$(q 'set ::said {}
+    proc noted {ms tail} { set ::said [list $ms $tail] }
+    set f [pipe-run [list sh -c {echo working; echo still >&2; sleep 1; echo done}] \
+               -stderr merge -patience 300 -say [list noted]]
+    wm-errand t10 {set ::t10 [fut::await $f]}
+    after 1600 {set ::w10 1}; vwait ::w10
+    list told [lindex $::said 0] tail [lindex $::said 1] \
+         finished [string trim [dict get $::t10 out]] \
+         status [dict get $::t10 status]')
+
 kill $WM 2>/dev/null
 sleep 0.5
 
 echo "--- streams={$STREAMS} merged={$MERGED}"
 echo "--- turns={$TURNS} failed={$FAILED} nocoro=$NOCORO timeout={$TIMEOUT}"
 echo "--- shim={$SHIM} bg={$BG} stderr={$STDERR} keepnl={$KEEPNL}"
+echo "--- patience={$PATIENCE}"
 echo "--- verdict"
 if [ "$STREAMS" = "out to-out err to-err status 3" ]; then
     echo "OK: stdout and stderr come back apart, and the status with them"
@@ -124,7 +141,7 @@ if [ "$NOCORO" = 1 ]; then
 else
     echo "FAIL: no-coroutine case: $NOCORO"
 fi
-if [ "$TIMEOUT" = "said 1 gone 1" ]; then
+if [ "$TIMEOUT" = "said 1 tailed 1 gone 1" ]; then
     echo "OK: a timeout cancels and kills, leaving nothing behind"
 else
     echo "FAIL: timeout: $TIMEOUT"
@@ -151,3 +168,9 @@ if [ "$KEEPNL" = "plain 4 kept 5" ]; then
 else
     echo "FAIL: keepnewline: $KEEPNL"
 fi
+
+case $PATIENCE in
+    "told 300 tail {working still} finished {working"*"done} status 0")
+        echo "OK: patience said its piece with the tail, and the wait went on" ;;
+    *) echo "FAIL: patience: $PATIENCE" ;;
+esac
