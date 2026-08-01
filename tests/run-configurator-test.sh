@@ -756,6 +756,20 @@ GEO=$(q 'set w [lindex [array names ::frameof] 0]
               [expr {$fx >= $wax && $fy >= $way
                      && $fx + $fw <= $wax + $ww && $fy + $fh <= $way + $wh}]')
 
+# ---- ONE REGISTRY INSTEAD OF THREE (config-tree, step 1) ----
+# The proof the plan asks for: what the applet is served comes out of
+# the node store and nowhere else, and the store holds all the kinds
+# of node the three tables used to hold apart.
+ONEREG=$(q 'list gone [expr {![info exists ::knob_registry]
+                             && ![info exists ::collection_registry]
+                             && ![info exists ::spec_registry]}] \
+    knob [dict get [config-node-of {knobs set-fade}] node] \
+    family [dict get [config-node-of {actions}] node] \
+    field [dict get [config-node-of {actions @ launch}] node] \
+    spec [dict get [config-node-of {@spec terminal env}] kind] \
+    served [expr {[dict exists [knob-table] set-fade]
+                  && [dict exists [collection-table] actions fields launch]}]')
+
 # ---- the row menu, hanging off the badge (the owner, 2026-08-02) ----
 # A knob the config sets now knows WHERE it was said — the line, not
 # just the layer — which is what the menu's editor entries lead to.
@@ -1185,6 +1199,11 @@ else
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
+case "$ONEREG" in
+    "gone 1 knob leaf family family field leaf spec envdict served 1")
+        echo "OK: one node store answers for knobs, families and the action language" ;;
+    *) echo "FAIL: the one registry: $ONEREG" ;;
+esac
 case "$KWHERE" in
     *"tk9wm.tcl:1") echo "OK: a knob remembers the config line that set it" ;;
     *) echo "FAIL: knob provenance: «$KWHERE»" ;;

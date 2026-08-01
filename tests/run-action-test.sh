@@ -49,7 +49,7 @@ TERMRUN=$(q 'action clash2 {terminal {name X run {true}}}')
 TYPO=$(q 'action clash3 {ruN {true}}')
 # the family the configurator draws is the SPEC TABLE, mapped onto
 # this tree's editors — one source, and the mapping is the only seam
-FIELDS=$(q 'set f [dict get $::collection_registry actions fields]
+FIELDS=$(q 'set f [collection-fields actions]
     list run [dict get $f run kind] launch [dict get $f launch kind] \
          key [dict get $f key kind] terminal [dict get $f terminal kind]')
 # refine by name: a later word merges, the unsaid stand

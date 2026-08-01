@@ -5423,7 +5423,7 @@ proc panel-resolve {name {say 0}} {
 # drops the name.
 # ---- the spec registry: what a declaration may SAY ----
 # The knobs have had this since the configurator was built:
-# ::knob_registry says what each knob IS, and knob-table is "the
+# The `knobs` nodes say what each knob IS, and knob-table is "the
 # configurator's whole worldview". The specs — what an `action` and
 # its adapter words may carry — had no such table. Every key was
 # checked by hand where it happened to be consumed (and the ACTION's
@@ -5441,8 +5441,61 @@ proc panel-resolve {name {say 0}} {
 # default-config.tcl where it has room and a voice; `xor` — the key
 # it cannot be said beside; `of` — whose table describes a subspec;
 # `required` — a subspec key that must be there when the word is.
-proc spec-keys {name table} { dict set ::spec_registry $name $table }
-set spec_registry {}
+# ---- ONE REGISTRY FOR WHAT THE CONFIGURATION IS (plan step 1) ----
+# Three tables used to describe this desk's configuration — the knobs
+# (what a knob is and how to show it), the families (what a collection
+# serves the editor), the action language's keys (what a deed may
+# carry) — and they were the same kind of fact filed three ways, so
+# every feature of the last week had to be sewn on three times.
+#
+# They are one table now, keyed by the node's PATH in the config tree:
+#
+#   {knobs set-fade}      a leaf the desk holds exactly one of
+#   {actions}             a family: a dict of elements, one per name
+#   {actions @ launch}    a leaf inside EVERY element of a family
+#   {@spec terminal}      a shape a leaf may be `of` — a named sub-dict
+#
+# Each entry says what the node IS (`node`), and beside it whatever
+# the editors, the linter and the saver want of it. The declarations
+# keep the three spellings that read best where they stand — a knob
+# still reads as a knob — but each files its nodes HERE, and every
+# table door downstream is a view over this one dict.
+set config_registry {}
+proc config-node {path meta} { dict set ::config_registry $path $meta }
+proc config-node-of {path} {
+    if {![dict exists $::config_registry $path]} { return "" }
+    return [dict get $::config_registry $path]
+}
+# The nodes one storey under a path, in declaration order, as
+# name -> meta: the shape every door here wants to serve.
+proc config-nodes-under {path} {
+    set n [expr {[llength $path] + 1}]
+    set out {}
+    dict for {p meta} $::config_registry {
+        if {[llength $p] != $n || [lrange $p 0 end-1] ne $path} continue
+        dict set out [lindex $p end] $meta
+    }
+    return $out
+}
+# The families, each with its fields folded back in — what the
+# collection registry used to BE, computed rather than kept.
+proc config-families {} {
+    set out {}
+    dict for {p meta} $::config_registry {
+        if {[llength $p] != 1 || [dict get $meta node] ne "family"} continue
+        set name [lindex $p 0]
+        dict set out $name [dict merge $meta \
+            [list fields [config-nodes-under [list $name @]]]]
+    }
+    return $out
+}
+
+proc spec-keys {name table} {
+    dict for {k meta} $table {
+        config-node [list @spec $name $k] [dict merge {node leaf} $meta]
+    }
+}
+proc spec-table {name} { config-nodes-under [list @spec $name] }
 
 spec-keys action {
     run      {kind words     xor launch
@@ -5489,7 +5542,7 @@ spec-keys emacs {
 # become the launch it is sugar for and the xor would fire on the
 # machinery's own doing.
 proc spec-check {who name settings} {
-    set table [dict get $::spec_registry $name]
+    set table [spec-table $name]
     foreach k [dict keys $settings] {
         if {![dict exists $table $k]} {
             error "$who: unknown $name key \"$k\"\
@@ -5534,7 +5587,7 @@ proc spec-fields {name} {
                 subspec dict  chord chord  script text  predicate text
                 icon text  text text}
     set out {}
-    dict for {k meta} [dict get $::spec_registry $name] {
+    dict for {k meta} [spec-table $name] {
         set kind [dict get $meta kind]
         dict set out $k [dict create \
             kind [expr {[lindex $kind 0] eq "choice"
@@ -5649,7 +5702,7 @@ proc problem-brief {text} {
 # A verdict: {key K level warn|note text SENTENCE}. `key` is the
 # word it hangs off — the configurator flags that row with it.
 proc spec-lint {name settings} {
-    set table [dict get $::spec_registry $name]
+    set table [spec-table $name]
     set out {}
     dict for {k v} $settings {
         if {![dict exists $table $k]} continue   ;# spec-check's business
@@ -7220,8 +7273,12 @@ unless-already {[info exists ::policy_bindings_up]} {
 # configurator and goes unreported by the layer bookkeeping below,
 # which derives its vocabulary from these keys. Soft edges, said out
 # loud.
-proc knob {name meta} { dict set ::knob_registry $name $meta }
-set knob_registry {}
+# A KNOB IS A LEAF, one storey under `knobs` — the plainest node
+# there is, and the declaration says so exactly as it always did.
+proc knob {name meta} {
+    config-node [list knobs $name] [dict merge {node leaf} $meta]
+}
+proc knob-registry {} { config-nodes-under knobs }
 knob set-desk-font   {group fonts kind {font DeskFont}  get {font actual DeskFont}
                       doc {the font this desk is set in; everything derives from it}}
 knob set-title-font  {group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
@@ -7327,7 +7384,7 @@ proc knob-said {name kind} {
 }
 proc knob-table {} {
     set out {}
-    dict for {name meta} $::knob_registry {
+    dict for {name meta} [knob-registry] {
         set value ""
         lassign [knob-said $name [dict get $meta kind]] said value
         if {!$said} { catch {set value [uplevel #0 [dict get $meta get]]} }
@@ -7410,8 +7467,16 @@ proc custom-reorder {keys} {
 # values the layers SAID (the knob-said lesson holds here too — never
 # the desk's expansion of them), and its OWNER — code, config or
 # custom, read off the same per-key layer records the knobs use.
-proc collection {name meta} { dict set ::collection_registry $name $meta }
-set collection_registry {}
+# A FAMILY IS A DICT OF ELEMENTS, and its fields are leaves inside
+# every one of them — «actions @ launch» rather than a table of its
+# own. What it serves the editor is unchanged; where it is kept is.
+proc collection {name meta} {
+    config-node [list $name] [dict merge {node family} [dict remove $meta fields]]
+    dict for {f fmeta} [dict get $meta fields] {
+        config-node [list $name @ $f] [dict merge {node leaf} $fmeta]
+    }
+}
+proc collection-fields {name} { config-nodes-under [list $name @] }
 
 # The one family whose fields are not written here: an action's keys
 # ARE the spec registry's, and saying them again would be a second
@@ -7757,7 +7822,7 @@ proc keymap-payload {node keys} {
 # state knows (a button set's `owned`).
 proc collection-table {} {
     set out {}
-    dict for {name meta} $::collection_registry {
+    dict for {name meta} [config-families] {
         dict set out $name [dict merge $meta [uplevel #0 [dict get $meta list]]]
     }
     return $out
@@ -7799,7 +7864,7 @@ config-verb wm-font           {at {fonts @1}    key wm-font      value options s
 config-verb wm-keys           {at {keys @1}     key wm-keys      value params}
 # ...and every knob, which is the plain case: no address of its own
 # beyond its name, one value, and the type the knob registry states.
-dict for {name meta} $knob_registry {
+dict for {name meta} [knob-registry] {
     config-verb $name [list at [list knobs $name] key $name value word \
         kind [dict get $meta kind]]
 }
@@ -7960,7 +8025,7 @@ keep custom_floor {}    ;# the state the layers below left, at the snapshot
 
 proc custom-floor-snapshot {} {
     set knobs {}
-    dict for {name meta} $::knob_registry {
+    dict for {name meta} [knob-registry] {
         catch {dict set knobs $name [uplevel #0 [dict get $meta get]]}
     }
     set ::custom_floor [dict create knobs $knobs actions $::action_raw \
@@ -8009,10 +8074,11 @@ proc custom-effect-judge {} {
             default {
                 # a plain knob answers what it holds; the floor kept
                 # what it held before we spoke
-                if {[dict exists $::knob_registry $verb]
+                if {[config-node-of [list knobs $verb]] ne ""
                         && [dict exists $floor knobs $verb]} {
                     catch {
-                        set now [uplevel #0 [dict get $::knob_registry $verb get]]
+                        set now [uplevel #0 \
+                            [dict get [config-node-of [list knobs $verb]] get]]
                         set same [expr {$now eq [dict get $floor knobs $verb]}]
                     }
                 }
