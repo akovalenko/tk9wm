@@ -723,8 +723,10 @@
 # the old behaviour ate three such binds on a toggle).
 #
 # Every binding remembers WHOSE it is — the code's, a bundle's, this
-# file's, the configurator's — and the file and line it was said on
-# when it came from a file. Binding over somebody else's chord is
+# file's, the configurator's — and every line of YOURS that led to
+# it: a binding written inside a proc of your own remembers both the
+# line it is written on and the line that called that proc, which is
+# usually the one you are looking for. Binding over somebody else's chord is
 # allowed and says so in the log:
 #
 #   WM: key Super+d: config takes it from bundle windows

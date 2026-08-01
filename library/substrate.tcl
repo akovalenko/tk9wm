@@ -3201,29 +3201,41 @@ proc saying-now {} {
 # this library — and the question is not where wm-bind lives but who
 # called it. The first frame from a file that is not ours is the
 # answer; a bundle asked for by a config names the line that asked.
+# ...and WHERE it was said — every link of it. `info frame` knows
+# the whole chain, and the useful answer is neither its innermost nor
+# its outermost end but ALL the frames that land in the reader's own
+# files (the owner, 2026-08-01):
+#
+#     proc auto_define_buttons {} { … panel-button X … }   ;# :42
+#     auto_define_buttons {a b c}                          ;# :88
+#
+# Both lines are his, and knowing only one of them is knowing half of
+# where the button came from. So the answer is a LIST, innermost
+# first: {…/tk9wm.tcl:42 …/tk9wm.tcl:88}.
+#
+# ONLY WHILE A LAYER IS BEING READ, and never our own files. Outside
+# that, everything on the stack is machinery — the entry script never
+# leaves it (it called the event loop), and a desk started through a
+# wrapper has the wrapper's file down there too, which is how a live
+# edit in the applet came to claim it was said at tk9wm.tcl:35 (the
+# owner, same day). No layer, no location: a word spoken through the
+# applet's door was said in no file, and saying so is the whole of
+# the answer.
+set said_where_depth 4    ;# a recursive helper would otherwise unroll
 proc said-where {} {
-    # ONLY WHILE A LAYER IS BEING READ. Outside that, everything on
-    # the stack is machinery — the entry script never leaves it (it
-    # called the event loop), and a desk started through a wrapper
-    # has the wrapper's file down there too, which is how a live edit
-    # in the applet came to claim it was said at tk9wm.tcl:35 (the
-    # owner, 2026-08-01). No layer, no location: a word spoken
-    # through the applet's door was said in no file, and saying so is
-    # the whole of the answer.
     if {![info exists ::knob_layer] || $::knob_layer eq ""} { return "" }
+    set chain {}
     for {set i [info frame]} {$i > 0} {incr i -1} {
         if {[catch {info frame $i} f]} continue
         if {![dict exists $f type] || [dict get $f type] ne "source"} continue
         set file [dict get $f file]
         if {[info exists ::tk9wm_library]
                 && [string match "$::tk9wm_library/*" $file]} continue
-        # ...and the entry script, which never leaves the stack: it
-        # called the event loop, so it sits under every callback the
-        # desk ever runs and would otherwise answer for all of them
         if {$file eq [file normalize $::argv0]} continue
-        return "$file:[dict get $f line]"
+        lappend chain "$file:[dict get $f line]"
+        if {[llength $chain] >= $::said_where_depth} break
     }
-    return ""
+    return $chain
 }
 
 proc wm-bind {spec script {name ""}} {

@@ -25,6 +25,10 @@ rm -rf "$HERE/owner-config"
 mkdir -p "$HERE/owner-config"
 cat > "$HERE/owner-config/tk9wm.tcl" <<'EOF'
 wm-bind {<Super>9} {list from-the-config}
+proc define-more {} {
+    wm-bind {<Super>7} {list from-a-proc}
+}
+define-more
 EOF
 
 XDG_CONFIG_HOME="$HERE/owner-config" \
@@ -75,7 +79,16 @@ WHY=$(q 'set r none
 WHERE=$(q 'set r none
     foreach e [dict get [collection-bindings] elements] {
         if {[dict get $e key] eq "Super+9" && [dict exists $e where]} {
-            set r [file tail [dict get $e where]]
+            set r [lmap w [dict get $e where] {file tail $w}]
+        }
+    }
+    set r')
+# ...and a config that declares a proc and calls it says BOTH lines:
+# where the binding is written, and where that writing was set going
+CHAIN=$(q 'set r none
+    foreach e [dict get [collection-bindings] elements] {
+        if {[dict get $e key] eq "Super+7" && [dict exists $e where]} {
+            set r [lmap w [dict get $e where] {file tail $w}]
         }
     }
     set r')
@@ -106,7 +119,7 @@ sleep 0.3
 
 echo "--- before={$BEFORE} taken={$TAKEN} afteroff={$AFTEROFF} back={$BACK}"
 echo "--- why={$WHY} took=$TOOK left=$LEFT where=$WHERE"
-echo "--- effect={$EFFECT} audit={$AUDIT} afterdrop={$AFTERDROP}"
+echo "--- effect={$EFFECT} audit={$AUDIT} afterdrop={$AFTERDROP} chain={$CHAIN}"
 echo "--- verdict"
 if [ "$BEFORE" = "bundle accords config" ]; then
     echo "OK: a binding says whose it is — the family's, the config's"
@@ -132,6 +145,11 @@ if [ "$WHERE" = "tk9wm.tcl:1" ]; then
     echo "OK: a word from a file remembers which file and which line"
 else
     echo "FAIL: where: «$WHERE» (want tk9wm.tcl:1)"
+fi
+if [ "$CHAIN" = "tk9wm.tcl:3 tk9wm.tcl:5" ]; then
+    echo "OK: written inside a proc, called from the file — both lines kept"
+else
+    echo "FAIL: chain: «$CHAIN» (want tk9wm.tcl:3 tk9wm.tcl:5)"
 fi
 if [ "$EFFECT" = "nine pin eight change" ]; then
     echo "OK: a word that says what the layer below says is a hold, not a change"

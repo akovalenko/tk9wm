@@ -555,9 +555,19 @@ proc cfg-elem-note {cname e} {
         append note ", over [join $said { and }]"
     }
     if {[dict exists $e where]} {
-        append note " · [file tail [dict get $e where]]"
+        append note " · [cfg-where-brief [dict get $e where]]"
     }
     return $note
+}
+# The chain, short enough for a cell: where it was WRITTEN, and how
+# many hands it passed through on the way (a config that declares a
+# proc and calls it is two links, and the second one is the one a
+# reader is usually looking for).
+proc cfg-where-brief {chain} {
+    if {![llength $chain]} { return "" }
+    set brief [file tail [lindex $chain 0]]
+    if {[llength $chain] > 1} { append brief " ←[llength [lrange $chain 1 end]]" }
+    return $brief
 }
 proc cfg-owner-words {e} {
     if {[dict exists $e bundle]} { return "the [dict get $e bundle] family" }
