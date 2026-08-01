@@ -518,6 +518,22 @@ AWAITFLAG=$(qu 'set r none
         }
     }
     set r')
+# ---- what went wrong, laid out to be read ----
+# The echo box says it and fades; this is where the whole message and
+# the lines that led to it stay.
+q 'problem-record {key Super+9} {the script says no} \
+    {/home/x/tk9wm.tcl:3 /home/x/tk9wm.tcl:5}' >/dev/null
+qu 'cfg-problems; list opened' >/dev/null
+sleep 0.5
+PROBVIEW=$(qu 'set w .cfg-problems
+    list up [winfo exists $w] \
+         rows [$w.list size] \
+         first [$w.list get 0] \
+         detail [string map {\n | } [$w.detail cget -text]]')
+qu 'cfg-problems-clear .cfg-problems; list cleared' >/dev/null
+sleep 0.3
+PROBGONE=$(q 'llength [problems]')
+
 # ---- one slot, two spellings (slice 3) ----
 # the tree shows the spelling in EFFECT and not the other: probe says
 # run, dummy says launch, and neither wears the row it did not say
@@ -935,6 +951,11 @@ case "$LINTFLAG|$LINTDOC" in
     *"·"*"|"*"said the long way"*)
         echo "OK: a remark wears a mark on its element and speaks on its row" ;;
     *) echo "FAIL: lint in the tree: flag «$LINTFLAG» doc «$LINTDOC»" ;;
+esac
+case "$PROBVIEW|$PROBGONE" in
+    "up 1 rows 1 first {key Super+9 — the script says no} detail {the script says no||said at /home/x/tk9wm.tcl:3 ← /home/x/tk9wm.tcl:5}|0")
+        echo "OK: a failure is listed whole, with the lines that led to it" ;;
+    *) echo "FAIL: problems view: {$PROBVIEW} left=$PROBGONE" ;;
 esac
 case "$SLOTROWS|$SLOTROWS2" in
     "p-run 1 p-launch 0 d-run 0 d-launch 1|p-run 0 p-launch 1")

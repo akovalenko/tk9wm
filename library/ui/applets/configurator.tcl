@@ -44,8 +44,9 @@ set cfg_fitem {}     ;# field address -> tree item
 set cfg_fresh {}     ;# elements born in this refresh — folded once attached
 set cfg_T ""
 set cfg_hint "Return or F4 opens the picker · F2 types · F3 switches a\
- slot's spelling · F8 what you have changed · Ins adds, Del drops ·\
- Alt+↑/↓ move a button · Ctrl+Enter takes · Save makes it stick"
+ slot's spelling · F8 what you have changed · F9 what went wrong ·\
+ Ins adds, Del drops · Alt+↑/↓ move a button · Ctrl+Enter takes ·\
+ Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
 # commit and explained nothing). Every rejection — ours by kind, or
@@ -184,6 +185,7 @@ proc cfg-build {W} {
     bind $T <KeyPress-F2>     {cfg-activate text; break}
     bind $T <KeyPress-F3>     {cfg-slot-menu; break}
     bind $T <KeyPress-F8>     {cfg-pins; break}
+    bind $T <KeyPress-F9>     {cfg-problems; break}
     # h/l fold and unfold beside the arrows, the way k/j walk beside
     # Up and Down (the owner's ask — vi hands)
     foreach k {Left h} { bind $T <KeyPress-$k> {cfg-fold collapse; break} }
@@ -1977,6 +1979,75 @@ proc cfg-insert-bind {spec script} {
     cfg-refresh
     cfg-status "[join $spec " "] is bound"
     return 1
+}
+
+# ---- what went wrong, where one can read it ----
+# The echo box says a failure happened and fades; this is the other
+# half — the store, laid out so the whole message and the lines that
+# led to it can be read at leisure (the owner's doubt about a popup
+# with no natural end, 2026-08-01: the popup need not be the place
+# one reads it).
+proc cfg-problems {} {
+    set all [wm-call problems]
+    if {![llength $all]} {
+        cfg-status "nothing has gone wrong since the desk came up"
+        return
+    }
+    set w .cfg-problems
+    catch {destroy $w}
+    toplevel $w -class Tk9wmUi
+    wm title $w "tk9wm: what went wrong"
+    wm transient $w [winfo toplevel $::cfg_T]
+    label $w.l -takefocus 0 -anchor w \
+        -text "[llength $all] since the desk came up, newest first"
+    listbox $w.list -font DeskFont -height [expr {max(3, min(12, [llength $all]))}] \
+        -background [ui-color field] -foreground [ui-color fg] \
+        -selectbackground [ui-color select]
+    ui-focusable $w.list
+    foreach p $all {
+        $w.list insert end "[dict get $p what] — [problem-one-line [dict get $p text]]"
+    }
+    # the details of the selected one: the whole message, and every
+    # line of the reader's own that led to it (the frame chain)
+    label $w.detail -takefocus 0 -anchor nw -justify left -height 4 \
+        -foreground [ui-color link] -text "" -wraplength 560
+    frame $w.b -takefocus 0
+    ttk::button $w.b.close -text Close -underline 0 -command [list destroy $w]
+    ttk::button $w.b.clear -text "Clear the list" -underline 0 \
+        -command [list cfg-problems-clear $w]
+    foreach b [list $w.b.close $w.b.clear] { ui-focusable $b; ui-accel $b }
+    pack $w.b.close $w.b.clear -side left -padx 4 -pady 4
+    pack $w.l -fill x -padx 6 -pady {6 2}
+    pack $w.list -expand 1 -fill both -padx 6
+    pack $w.detail -fill x -padx 6 -pady {6 2}
+    pack $w.b -fill x
+    bind $w <Escape> [list destroy $w]
+    bind $w.list <<ListboxSelect>> [list cfg-problem-detail $w $all]
+    $w.list selection set 0
+    cfg-problem-detail $w $all
+    # placement is the DESK's: a transient is centred on its parent by
+    # the same policy every dialog on this desk gets (run-dialog-test)
+    focus $w.list
+}
+proc problem-one-line {text} {
+    set one [string trim [regsub -all {\s+} $text " "]]
+    if {[string length $one] > 60} { set one "[string range $one 0 57]…" }
+    return $one
+}
+proc cfg-problem-detail {w all} {
+    set sel [$w.list curselection]
+    if {![llength $sel]} return
+    set p [lindex $all [lindex $sel 0]]
+    set detail [dict get $p text]
+    if {[llength [dict get $p where]]} {
+        append detail "\n\nsaid at [join [dict get $p where] " ← "]"
+    }
+    $w.detail configure -text $detail
+}
+proc cfg-problems-clear {w} {
+    wm-call problems-clear
+    destroy $w
+    cfg-status "the list is empty again — what is on the desk is unchanged"
 }
 
 # ---- what have I actually changed? ----

@@ -5287,6 +5287,7 @@ proc problem-record {what text {where {}}} {
     soft "show a problem" { policy-key-echo problem "$what: [problem-brief $text]" }
 }
 proc problems-clear {} { set ::problems {}; return 0 }
+proc problems {} { return $::problems }
 # One line of it, because the box is one line wide and the store has
 # the rest.
 proc problem-brief {text} {
