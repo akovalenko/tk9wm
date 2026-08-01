@@ -213,6 +213,85 @@ proc ui-accel-clashes {} {
     if {![info exists ::ui_accel_clash]} { return {} }
     return $::ui_accel_clash
 }
+# ---- a ring that belongs to the BOX, not to the widget in it ----
+# The owner's taste, and it is the right one (2026-08-01): a scrolled
+# tree with its scrollbar is ONE thing on the screen, so the focus
+# ring goes round the pair — and while a value is being edited INSIDE
+# that box, the box has not stopped being where the focus is. A ring
+# drawn by the widget itself blinks off the moment an editor opens
+# over it, which says «you left» when nobody left.
+#
+# So: a ttk::frame with a style of its own, and the ring follows the
+# focus anywhere in its subtree. Reusable on purpose — the next
+# applet gets a scrolled thing too.
+proc ui-ring-box {path args} {
+    ttk::frame $path -style UiRing.TFrame -borderwidth 2 -relief solid {*}$args
+    catch {ttk::style configure UiRing.TFrame -bordercolor [ui-color bg]}
+    catch {ttk::style configure UiRingOn.TFrame -bordercolor [ui-color link]}
+    bind $path <FocusIn>  +[list ui-ring-follow $path %W]
+    bind $path <FocusOut> +[list ui-ring-follow $path %W]
+    return $path
+}
+# Tk sends FocusIn/FocusOut for every widget in the subtree; what the
+# box wants to know is whether the focus is STILL somewhere inside
+# it, which is one question about the focus widget's ancestry.
+proc ui-ring-follow {box w} {
+    after idle [list ui-ring-paint $box]
+}
+proc ui-ring-paint {box} {
+    if {![winfo exists $box]} return
+    set f [focus]
+    set inside [expr {$f ne "" && ($f eq $box || [string match "$box.*" $f])}]
+    $box configure -style [expr {$inside ? "UiRingOn.TFrame" : "UiRing.TFrame"}]
+}
+
+# ---- a field one can actually type in ----
+# A decorated `text` rather than an `entry`, even for one-liners (the
+# owner's preference, same day, and he is right): it has undo, it can
+# grow to three lines when the value is three lines, and it takes the
+# same dress as everything else. Borderless inside a ring box, so the
+# BOX draws the focus and the text draws only text.
+#
+#   ui-field PATH ?-height N? ?-font F?   -> the box; $box.t is the text
+proc ui-field {path args} {
+    set o [dict merge {-height 1 -font DeskFont} $args]
+    ui-ring-box $path
+    text $path.t -height [dict get $o -height] -width 1 -wrap none \
+        -font [dict get $o -font] -undo 1 -borderwidth 0 \
+        -highlightthickness 0 -padx 3 -pady 1 \
+        -background [ui-color field] -foreground [ui-color fg] \
+        -insertbackground [ui-color fg]
+    grid $path.t -row 0 -column 0 -sticky nsew
+    grid rowconfigure $path 0 -weight 1
+    grid columnconfigure $path 0 -weight 1
+    return $path
+}
+# WHERE THE FIRST LETTER SITS inside the field, {dx dy} from the box's
+# own corner: the ring's border plus the text's padding. A caller that
+# wants the letters to land on somebody else's letters places the box
+# by this, instead of guessing at the arithmetic.
+proc ui-field-inset {path} {
+    set b [expr {[$path cget -borderwidth] + 0}]
+    lassign [$path.t bbox 1.0] bx by
+    if {$bx eq ""} {
+        return [list [expr {$b + [$path.t cget -padx]}] \
+                     [expr {$b + [$path.t cget -pady]}]]
+    }
+    return [list [expr {$b + $bx}] [expr {$b + $by}]]
+}
+proc ui-field-get {path} { string trimright [$path.t get 1.0 end] \n }
+proc ui-field-set {path text} {
+    $path.t delete 1.0 end
+    $path.t insert 1.0 $text
+    $path.t edit reset          ;# the value it was given is not an edit
+    $path.t edit modified 0
+}
+proc ui-field-dirty? {path} { $path.t edit modified }
+proc ui-field-select-all {path} {
+    $path.t tag add sel 1.0 end-1c
+    $path.t mark set insert 1.0
+}
+
 # ...and the keyboard-first dress code: the focus must be VISIBLE.
 # Applied by builders to their focusable widgets.
 proc ui-focusable {w} {

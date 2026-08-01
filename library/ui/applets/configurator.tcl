@@ -66,22 +66,29 @@ proc cfg-refuse {msg} {
 }
 
 proc cfg-build {W} {
-    set ::cfg_T $W.t
+    # THE RING GOES ROUND THE BOX: the tree and its scrollbar are one
+    # thing on the screen, and an editor opened over the tree has not
+    # left it (the owner, 2026-08-01). ui-ring-box keeps the ring lit
+    # for anything focused inside itself, which is exactly what an
+    # overlay editor is.
+    ui-ring-box $W.box
+    set ::cfg_T $W.box.t
     set ih [expr {[font metrics DeskFont -linespace] + 6}]
     # extended, for ONE gesture's sake: taking several of a bundle's
     # binds at once (decision 4). Everything else still works on the
     # first selected row, and plain clicks and arrows still select
     # singly — Ctrl+click is the way in.
-    treectrl $W.t -showheader yes -showroot no -showbuttons yes \
-        -selectmode extended -itemheight $ih \
-        -background [ui-color field] -yscrollcommand [list cfg-yscroll $W.sb]
-    ui-focusable $W.t
+    treectrl $W.box.t -showheader yes -showroot no -showbuttons yes \
+        -selectmode extended -itemheight $ih -highlightthickness 0 \
+        -borderwidth 0 \
+        -background [ui-color field] -yscrollcommand [list cfg-yscroll $W.box.sb]
     # Out of the focus cycle: Tk's heuristic puts a scrollbar in it
     # (it has key bindings), and a stop with nothing to show for it —
     # the ring lands on something invisible — is worse than no stop
     # (the owner's review).
-    ttk::scrollbar $W.sb -orient vertical -command [list $W.t yview] -takefocus 0
-    set T $W.t
+    ttk::scrollbar $W.box.sb -orient vertical -command [list cfg-scroll-request $W.box.t yview] \
+        -takefocus 0
+    set T $W.box.t
     $T column create -text knob         -resize yes -tags Cname
     $T column create -text value        -resize yes -tags Cval
     $T column create -text ""           -resize no  -tags Cflag
@@ -120,7 +127,10 @@ proc cfg-build {W} {
     ui-label $W.head "&Knobs — everything this desk can be told" $T \
         -foreground [ui-color link] -padx 6 -pady 4
     grid $W.head -row 0 -column 0 -columnspan 2 -sticky ew
-    grid $T $W.sb -row 1 -sticky nsew
+    grid $T $W.box.sb -row 0 -in $W.box -sticky nsew
+    grid rowconfigure $W.box 0 -weight 1
+    grid columnconfigure $W.box 0 -weight 1
+    grid $W.box -row 1 -column 0 -columnspan 2 -sticky nsew
     grid rowconfigure $W 1 -weight 1
     grid columnconfigure $W 0 -weight 1
     frame $W.b -takefocus 0
@@ -160,6 +170,11 @@ proc cfg-build {W} {
     # too, and with them treectrl's own header work — column drags and
     # resizes stopped (the owner's report). The helpers answer whether
     # the press was theirs; a press on the header is not.
+    # the wheel asks what the scrollbar asks, and before the tree's
+    # own class binding gets the event
+    foreach ev {<MouseWheel> <Button-4> <Button-5>} {
+        bind $T $ev {if {![cfg-editing-guard scroll]} break}
+    }
     bind $T <ButtonPress-1>        {if {[cfg-click %x %y]} break}
     bind $T <Double-ButtonPress-1> {if {[cfg-doubleclick %x %y]} break}
     # Ctrl+click is NOT ours: the empty binding lets treectrl's own
@@ -274,9 +289,31 @@ proc cfg-note-room {W l room} {
 
 # Any scroll ends an open editor (as a commit attempt): the entry is
 # placed at pixel coordinates and the rows move under it.
-proc cfg-yscroll {sb a b} {
-    if {[winfo exists $::cfg_T.edit]} { cfg-entry-done commit }
-    $sb set $a $b
+proc cfg-yscroll {sb a b} { $sb set $a $b }
+# ---- what may happen while a value is half-typed ----
+# The owner's rule, and it turns on ONE question — has anything been
+# typed (2026-08-01)? A field still holding what it was given is a
+# glance, and a glance costs nothing to drop: it goes, and the scroll
+# goes on. A field with a change in it is WORK, and work is neither
+# thrown away nor silently committed by a wheel: the tree stays put
+# and says why.
+#
+# Asked BEFORE the view moves, so it hangs off the gestures rather
+# than off -yscrollcommand, which only ever reports what has already
+# happened.
+proc cfg-editing-guard {what} {
+    if {![winfo exists $::cfg_T.edit]} { return 1 }
+    if {![ui-field-dirty? $::cfg_T.edit]} {
+        cfg-entry-close
+        return 1
+    }
+    bell
+    cfg-status "finish this value (Return) or drop it (Escape) — the tree\
+ holds still while one is half-typed" error
+    return 0
+}
+proc cfg-scroll-request {w args} {
+    if {[cfg-editing-guard scroll]} { $w {*}$args }
 }
 
 # A refresh RECONCILES the tree instead of rebuilding it: both
@@ -733,7 +770,7 @@ proc cfg-fit {} {
     if {$::cfg_user_sized} return     ;# their window now, not ours
     lassign [ui-workarea] - - ww wh
     lassign [ui-chrome] B top
-    set maxw [expr {$ww - 2*$B - [winfo reqwidth $W.sb] - 8}]
+    set maxw [expr {$ww - 2*$B - [winfo reqwidth $W.box.sb] - 8}]
     # THE HINT WRAPS BEFORE THE ROOM FOR IT IS MEASURED. How many
     # lines that one line of gestures becomes depends on the width
     # the window is ABOUT to have; measured with the wrap the last
@@ -1068,21 +1105,19 @@ proc cfg-entry {it name} {
     if {$x1 eq ""} return
     set ::cfg_editing $name
     set picker [cfg-picker-of $name]
-    frame $T.edit -takefocus 0 -borderwidth 0
-    entry $T.edit.e -font DeskFont -borderwidth 1 \
-        -background [ui-color field] -foreground [ui-color fg] \
-        -insertbackground [ui-color fg]
-    ui-focusable $T.edit.e
-    $T.edit.e insert 0 [cfg-value-typed $name [cfg-cur $name]]
-    $T.edit.e selection range 0 end
+    set val [cfg-value-typed $name [cfg-cur $name]]
+    # A THREE-LINE SCRIPT WANTS THREE LINES. The field is a text, so
+    # it can have them — and it has undo, which an entry never did
+    # (the owner's preference, 2026-08-01).
+    set lines [llength [split $val \n]]
+    ui-field $T.edit -height [expr {max(1, min(6, $lines))}]
+    ui-field-set $T.edit $val
+    ui-field-select-all $T.edit
     # GRID, and the button gets a column of its own: PACKED, the
     # entry (with -expand) claimed the whole cavity before the button
     # was packed at all — it existed, mapped 0, 1x1 in a corner,
     # which is why the owner could find no arrow anywhere (measured
     # on his live desk through the send door).
-    grid $T.edit.e -row 0 -column 0 -sticky nsew
-    grid rowconfigure $T.edit 0 -weight 1
-    grid columnconfigure $T.edit 0 -weight 1
     if {$picker ne ""} {
         # the combobox-like way into the dialog: the button, or Down
         # from the keyboard — a gesture that costs nothing to guess
@@ -1092,23 +1127,49 @@ proc cfg-entry {it name} {
         # Down and F4 both — the gestures a combobox has taught
         # every pair of hands (the owner names F4 by its Windows
         # habit; Down is the X one)
-        bind $T.edit.e <Down> [list cfg-entry-pick $picker $name]
-        bind $T.edit.e <F4>   [list cfg-entry-pick $picker $name]
+        bind $T.edit.t <Down> [list cfg-entry-pick $picker $name]
+        bind $T.edit.t <F4>   [list cfg-entry-pick $picker $name]
     }
-    place $T.edit -x $x1 -y $y1 -width [expr {$x2 - $x1}] \
-        -height [expr {$y2 - $y1}]
-    bind $T.edit.e <Map>      {focus %W}
-    bind $T.edit.e <Return>   {cfg-entry-done commit; break}
-    bind $T.edit.e <Escape>   {cfg-entry-done cancel; break}
-    bind $T.edit.e <FocusOut> {cfg-entry-focusout}
-    focus $T.edit.e
+    set h [expr {max($y2 - $y1, [winfo reqheight $T.edit.t] + 6)}]
+    # PIXEL-PERFECT ON THE CELL'S OWN TEXT (the owner's taste, and the
+    # right one: an editor that shifts the letters by two pixels reads
+    # as a different thing appearing, not as the same value becoming
+    # editable). The offset is MEASURED — where the cell's text
+    # element starts, less the field's own inner padding — so it stays
+    # true when a font or a row height changes.
+    set inner [ui-field-inset $T.edit]
+    lassign [$T item bbox $it Cval eVal] etx ety
+    if {$etx eq ""} { set etx $x1; set ety $y1 }
+    place $T.edit -x [expr {$etx - [lindex $inner 0]}] \
+        -y [expr {$ety - [lindex $inner 1]}] \
+        -width [expr {$x2 - $x1}] -height $h
+    bind $T.edit.t <Map>      {focus %W}
+    # RETURN COMMITS, because a field in a tree is answering a
+    # question and not writing a paragraph; a newline is Shift+Return,
+    # which is the habit every such field has taught.
+    bind $T.edit.t <Return>       {cfg-entry-done commit; break}
+    bind $T.edit.t <Shift-Return> {%W insert insert \n; break}
+    bind $T.edit.t <Escape>       {cfg-entry-done cancel; break}
+    bind $T.edit.t <FocusOut>     {cfg-entry-focusout}
+    focus $T.edit.t
 }
 # The focus leaving is a commit attempt — but not when it left FOR
 # the picker button or the dialog it opened: that is one gesture, not
 # an abandonment.
 proc cfg-entry-focusout {} {
     if {[info exists ::cfg_picking] && $::cfg_picking} return
-    cfg-entry-done commit
+    # A CLICK ELSEWHERE is the same question. Nothing typed: the field
+    # goes, quietly. Something typed: it stays, and the focus comes
+    # back to it — losing work to a stray click is the one outcome
+    # nobody would have chosen.
+    if {![winfo exists $::cfg_T.edit]} return
+    if {![ui-field-dirty? $::cfg_T.edit]} {
+        cfg-entry-close
+        return
+    }
+    bell
+    cfg-status "finish this value (Return) or drop it (Escape)" error
+    after idle {catch {focus $::cfg_T.edit.t}}
 }
 proc cfg-entry-pick {picker name} {
     set ::cfg_picking 1
@@ -1116,13 +1177,13 @@ proc cfg-entry-pick {picker name} {
     set ::cfg_picking 0
 }
 proc cfg-entry-close {} {
-    catch {bind $::cfg_T.edit.e <FocusOut> {}}
+    catch {bind $::cfg_T.edit.t <FocusOut> {}}
     catch {destroy $::cfg_T.edit}
 }
 proc cfg-entry-done {how} {
     set T $::cfg_T
     if {![winfo exists $T.edit]} return
-    set v [$T.edit.e get]
+    set v [ui-field-get $T.edit]
     set name $::cfg_editing
     if {$how eq "commit"} {
         # a refusal KEEPS the editor open on the offending text — the

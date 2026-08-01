@@ -160,7 +160,8 @@ CURSORLIVE=$(q 'set ::root_cursor')
 BADPLACE=$(qu 'cfg-set set-key-echo-place {bla bla bla}')
 BADPLACEMSG=$(qu 'set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
 GOODMSG=$(qu 'cfg-set set-drag-slop 5; set l [winfo toplevel $::cfg_T].b.note; $l cget -text')
-SBFOCUS=$(qu 'set w [winfo toplevel $::cfg_T].sb; $w cget -takefocus')
+# the scrollbar lives beside the tree INSIDE the ring box now
+SBFOCUS=$(qu 'set w [winfo parent $::cfg_T].sb; $w cget -takefocus')
 # the heading names the tree, underlines its letter, and Alt+k leads
 # there — the host's facility, not this applet's flourish
 # the desk font MOVES and the applet follows — it used to keep the
@@ -534,6 +535,43 @@ PROBVIEW=$(qu 'set w .cfg-problems
 # says so at BUILD time now, so a suite can insist instead of
 # somebody noticing by hand (the owner found Close and Clear both
 # wearing C, 2026-08-01)
+# ---- the dress: one ring round the box, and it stays lit while a
+# value is being edited inside it ----
+RING=$(qu 'set box [winfo parent $::cfg_T]
+    focus $::cfg_T
+    update idletasks; after 150; update
+    set lit [$box cget -style]
+    set addr set-fade                                ;# a row always visible
+    cfg-entry [dict get $::cfg_item $addr] $addr     ;# the overlay opens
+    after 250; update
+    list box-style-focused $lit \
+         while-editing [$box cget -style] \
+         editor [expr {[winfo exists $::cfg_T.edit] ? [winfo class $::cfg_T.edit.t] : {none}}]')
+# ...and what a half-typed value does to a scroll and to a stray click
+GUARD=$(qu 'set r {}
+    lappend r clean [cfg-editing-guard scroll] gone \
+        [expr {![winfo exists $::cfg_T.edit]}]
+    set addr set-fade
+    cfg-entry [dict get $::cfg_item $addr] $addr
+    after 200; update
+    $::cfg_T.edit.t insert end "X"
+    lappend r dirty [cfg-editing-guard scroll] \
+        kept [winfo exists $::cfg_T.edit]
+    cfg-entry-done cancel
+    set r')
+PIXEL=$(qu 'set T $::cfg_T
+    set addr set-fade
+    set it [dict get $::cfg_item $addr]
+    cfg-entry $it $addr
+    after 250; update
+    lassign [$T item bbox $it Cval eVal] ex ey
+    lassign [$::cfg_T.edit.t bbox 1.0] bx by
+    set cellx [expr {[winfo rootx $T] + $ex}]
+    set celly [expr {[winfo rooty $T] + $ey}]
+    set editx [expr {[winfo rootx $::cfg_T.edit.t] + $bx}]
+    set edity [expr {[winfo rooty $::cfg_T.edit.t] + $by}]
+    cfg-entry-done cancel
+    list dx [expr {$editx - $cellx}] dy [expr {$edity - $celly}]')
 ACCEL=$(qu 'llength [ui-accel-clashes]')
 # ...and the guard is not decorative: two buttons asking for the same
 # letter leave the first answering and the second no longer promising
@@ -978,6 +1016,21 @@ if [ "$CLASH" = "held 0 demoted -1 seen 1" ]; then
     echo "OK: a clash leaves the first answering and the second silent about it"
 else
     echo "FAIL: the clash guard: $CLASH"
+fi
+echo "--- pixel={$PIXEL}"
+case $PIXEL in
+    "dx 0 dy 0") echo "OK: the editor's text lands exactly on the cell's" ;;
+    *) echo "FAIL: the editor's text is off by $PIXEL" ;;
+esac
+case $RING in
+    "box-style-focused UiRingOn.TFrame while-editing UiRingOn.TFrame editor Text")
+        echo "OK: the ring is the box's, and an editor inside it does not put it out" ;;
+    *) echo "FAIL: ring: $RING" ;;
+esac
+if [ "$GUARD" = "clean 1 gone 1 dirty 0 kept 1" ]; then
+    echo "OK: an untouched field goes on a scroll; a typed one holds the tree still"
+else
+    echo "FAIL: editing guard: $GUARD"
 fi
 case "$PROBVIEW|$PROBGONE" in
     "up 1 rows 1 first {key Super+9 — the script says no} detail {the script says no||said at /home/x/tk9wm.tcl:3 ← /home/x/tk9wm.tcl:5}|0")
