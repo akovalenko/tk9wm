@@ -116,13 +116,60 @@ sleep 0.3
 LOGNOTE2=$(grep -c 'action loud: note — this is «Run true» said the long way' \
     "$HERE/wm-action.log")
 
+# ---- what an empty value MEANS, and how to say «not there» ----
+# (config-tree step 2, the owner's fork answered 2026-08-02: a custom
+# word stays a delta, so un-say is permanent and empty-as-a-value has
+# to be declared)
+EMPTYMEANS=$(q 'list run [node-empty-means {@spec action run}] \
+    terminal [node-empty-means {@spec action terminal}] \
+    label [node-empty-means {panel @ label}] \
+    unknown [node-empty-means {@spec action nosuch}]')
+# an empty terminal is a WORD and survives the merge; an empty run is
+# the word taken back
+q 'action bothways {run {true} terminal {}}
+   action bothways {run {}}' >/dev/null
+sleep 0.3
+EMPTYKEEP=$(q 'list terminal [dict exists $::action_raw bothways terminal] \
+    run [dict exists $::action_raw bothways run]')
+# ...and the one node where the two meanings collide is KNOWN, so a
+# second one cannot be added without the suite noticing
+EMPTYCLASH=$(q 'config-empty-clashes')
+# «absent, not empty» reaches the child both ways: around a script,
+# and in the argv of a launch
+ENVUNSET=$(q 'set ::env(TK9WM_PROBE) yes
+    with-env {A 1} {set ::probe_seen [info exists ::env(TK9WM_PROBE)]} {TK9WM_PROBE}
+    list during $::probe_seen after [info exists ::env(TK9WM_PROBE)]')
+ENVARGV=$(q 'env-argv {env {A 1} env-unset {B C}}')
+
 kill $WM 2>/dev/null
 
+echo "--- empty={$EMPTYMEANS} keep={$EMPTYKEEP} clash={$EMPTYCLASH}"
+echo "--- envunset={$ENVUNSET} envargv={$ENVARGV}"
 echo "--- bound=$BOUND waiting={$WAITING} derived={$DERIVED}"
 echo "--- merged={$MERGED} fired=$FIRED custom={$CUSTOMKEY} erased={$ERASED}"
 echo "--- alive={$ALIVE} coll={$COLL}"
 echo "--- lint={$LINT} sync={$LINTSYNC} logged=$LOGNOTE/$LOGNOTE2"
 echo "--- verdict"
+if [ "$EMPTYMEANS" = "run unsay terminal value label unsay unknown unsay" ]; then
+    echo "OK: what an empty value means is the node's own word, not a name in a loop"
+else
+    echo "FAIL: empty means: $EMPTYMEANS"
+fi
+if [ "$EMPTYKEEP" = "terminal 1 run 0" ]; then
+    echo "OK: an empty terminal is a word and an empty run takes the word back"
+else
+    echo "FAIL: empty on the merge: $EMPTYKEEP"
+fi
+if [ "$EMPTYCLASH" = "{@spec action terminal}" ]; then
+    echo "OK: the one node whose empty cannot mean both is the known one"
+else
+    echo "FAIL: empty/absent clashes: $EMPTYCLASH"
+fi
+if [ "$ENVUNSET" = "during 0 after 1" ] && [ "$ENVARGV" = "-u B -u C A=1" ]; then
+    echo "OK: a launch can be told a variable is not there, not merely empty"
+else
+    echo "FAIL: env-unset: $ENVUNSET argv=$ENVARGV"
+fi
 if [ "$BOUND" = "Super+F5" ]; then
     echo "OK: an action binds its chord by name, no button anywhere"
 else

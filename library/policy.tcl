@@ -4282,11 +4282,8 @@ proc spawn-terminal {spec} {
     if {[dict exists $spec run] && [llength [dict get $spec run]]} {
         lappend argv {*}[dict get $ad cmd] {*}[dict get $spec run]
     }
-    if {[dict exists $spec env] && [dict size [dict get $spec env]]} {
-        set pre {}
-        dict for {var val} [dict get $spec env] { lappend pre $var=$val }
-        set argv [list env {*}$pre {*}$argv]
-    }
+    set pre [env-argv $spec]
+    if {[llength $pre]} { set argv [list env {*}$pre {*}$argv] }
     puts "WM: terminal: spawn $argv"
     run-argv $argv
 }
@@ -4694,12 +4691,22 @@ proc dict-shaped {who d key} {
 # The env the launch runs under, applied around a SCRIPT: children of
 # any exec inherit ::env, and the previous values go back whatever
 # happens. An empty value means VAR= (set empty), not unset.
-proc with-env {envd script} {
+proc with-env {envd script {unsetl {}}} {
     set saved {}
     dict for {var val} $envd {
         lappend saved $var [expr {[info exists ::env($var)]
                                   ? [list [set ::env($var)]] : {}}]
         set ::env($var) $val
+    }
+    # ...and the ones that must be ABSENT rather than empty. The owner
+    # worked around their lack with `env XMODIFIERS=` (2026-08-01);
+    # said this way, the child sees no such variable at all — and the
+    # config needs no tombstone for it, because absence is a member of
+    # another word instead of a state of this one.
+    foreach var $unsetl {
+        lappend saved $var [expr {[info exists ::env($var)]
+                                  ? [list [set ::env($var)]] : {}}]
+        unset -nocomplain ::env($var)
     }
     set code [catch {uplevel #0 $script} res opts]
     foreach {var prev} $saved {
@@ -4711,6 +4718,19 @@ proc with-env {envd script} {
     }
     if {$code} { return -options $opts $res }
     return $res
+}
+# The env words of a spec, as env(1) takes them: assignments, and
+# -u for what must not be there at all. Empty here means the variable
+# is set to nothing, which is a different wish and stays sayable.
+proc env-argv {spec} {
+    set out {}
+    if {[dict exists $spec env-unset]} {
+        foreach var [dict get $spec env-unset] { lappend out -u $var }
+    }
+    if {[dict exists $spec env]} {
+        dict for {var val} [dict get $spec env] { lappend out $var=$val }
+    }
+    return $out
 }
 # The name, spelled into elisp. Config-authored, so sane — but a quote
 # or backslash must not silently change the expression's shape.
@@ -4737,11 +4757,8 @@ proc emacs-launch {spec} {
     # auto-started daemon inherits it too — the owner's case: a
     # daemon born of -a '' otherwise lives in whatever environment
     # the WM happened to have.
-    set pre {}
-    if {[dict exists $spec env] && [dict size [dict get $spec env]]} {
-        set pre [list env]
-        dict for {var val} [dict get $spec env] { lappend pre $var=$val }
-    }
+    set pre [env-argv $spec]
+    if {[llength $pre]} { set pre [list env {*}$pre] }
     if {[emacs-plain? $spec]} {
         # The simple life, by request: lookup-or-run, no server
         # anywhere. emacs puts --name into the WM_CLASS instance
@@ -5111,7 +5128,10 @@ proc action {name settings} {
         set raw [dict merge [dict get $::action_raw $name] $settings]
     }
     foreach k [dict keys $raw] {
-        if {$k ne "terminal" && [dict get $raw $k] eq ""} { dict unset raw $k }
+        if {[dict get $raw $k] eq ""
+                && [node-empty-means [list @spec action $k]] eq "unsay"} {
+            dict unset raw $k
+        }
     }
     # Read before it is believed, against the table that says what an
     # action may carry (spec-check): a key nobody registered is a
@@ -5310,8 +5330,12 @@ proc action-fire {name} {
         puts "WM: action $name: launch"
         action-flash $name firing
         set script [dict get $spec launch]
-        if {[dict exists $spec env]} {
-            set script [list with-env [dict get $spec env] $script]
+        if {[dict exists $spec env] || [dict exists $spec env-unset]} {
+            set script [list with-env \
+                [expr {[dict exists $spec env] ? [dict get $spec env] : {}}] \
+                $script \
+                [expr {[dict exists $spec env-unset]
+                       ? [dict get $spec env-unset] : {}}]]
         }
         set via ""
         if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
@@ -5360,7 +5384,10 @@ proc panel-button {name {overrides {}}} {
         set raw [dict merge [dict get $::panels $pn refs $name] $overrides]
     }
     foreach k [dict keys $raw] {
-        if {[dict get $raw $k] eq ""} { dict unset raw $k }
+        if {[dict get $raw $k] eq ""
+                && [node-empty-means [list panel @ $k]] eq "unsay"} {
+            dict unset raw $k
+        }
     }
     dict set ::panels $pn refs $name $raw
     panel-rebuild-soon
@@ -5491,12 +5518,54 @@ proc config-families {} {
 }
 
 proc spec-keys {name table} {
+    # the table itself is a node: whether a second declaration of the
+    # same thing REFINES the first (the actions do) or replaces it
+    # wholesale (a subspec is one value inside an action) decides what
+    # an empty value down here can mean at all
+    if {[config-node-of [list @spec $name]] eq ""} {
+        config-node [list @spec $name] {node dict merge replaces}
+    }
     dict for {k meta} $table {
         config-node [list @spec $name $k] [dict merge {node leaf} $meta]
     }
 }
+# ---- WHAT AN EMPTY VALUE MEANS (config-tree, step 2) ---------------
+# Three empties lived in this vocabulary and none of them was declared:
+# `action X {run {}}` took the key away, `env {VAR {}}` set the
+# variable to nothing, and `terminal {}` was a WORD — «in a terminal,
+# with nothing to add» — which cost a name checked in a loop.
+#
+# The fork behind it is settled (the owner, 2026-08-02): a custom word
+# stays a DELTA that merges by key, because the alternative drags a
+# whole subtree into the custom file for a one-word change. Un-say is
+# therefore permanent, and where layers merge, an empty value is the
+# only way to take a word back — so a leaf whose empty is a legitimate
+# VALUE must say so, and this is where it says it.
+proc node-empty-means {path} {
+    set meta [config-node-of $path]
+    if {$meta ne "" && [dict exists $meta empty]} { return [dict get $meta empty] }
+    return unsay
+}
+# Empty-as-a-value inside a MERGING node is the one shape that cannot
+# hold both meanings: there the empty is taken by un-say, so the node
+# can be said and can be refined, but never taken back. The plan
+# calls this the linter's duty — the registry can answer it, so the
+# suite can insist on the list instead of somebody noticing.
+proc config-empty-clashes {} {
+    set out {}
+    dict for {path meta} $::config_registry {
+        if {![dict exists $meta empty] || [dict get $meta empty] ne "value"} continue
+        set parent [config-node-of [lrange $path 0 end-1]]
+        if {$parent eq "" || ![dict exists $parent merge]} continue
+        if {[dict get $parent merge] eq "merges"} { lappend out $path }
+    }
+    return $out
+}
 proc spec-table {name} { config-nodes-under [list @spec $name] }
 
+# AN ACTION'S WORDS MERGE, which is what makes a custom layer a delta
+# — and what makes an empty value here mean «un-say».
+config-node {@spec action} {node dict merge merges}
 spec-keys action {
     run      {kind words     xor launch
               doc {raw argv — sugar for a launch that says Run}}
@@ -5509,13 +5578,17 @@ spec-keys action {
     needs    {kind commands  doc {commands this deed waits for}}
     style    {kind text      doc {a style rule for the windows it finds}}
     env      {kind envdict   doc {environment around the launch}}
-    terminal {kind subspec of terminal doc {do it in a terminal}}
+    env-unset {kind words
+              doc {variables the launch must NOT have — absent, not empty}}
+    terminal {kind subspec of terminal empty value
+              doc {do it in a terminal}}
     emacs    {kind subspec of emacs    doc {do it in emacs}}
 }
 spec-keys terminal {
     name  {kind text      doc {the window's name — the WM_CLASS instance}}
     title {kind text      doc {the window title}}
     env   {kind envdict   doc {environment for the terminal process itself}}
+    env-unset {kind words doc {variables it must NOT have — absent, not empty}}
     args  {kind beastdict doc {beast-keyed extras, applied verbatim}}
 }
 spec-keys emacs {
@@ -5526,6 +5599,7 @@ spec-keys emacs {
     via        {kind {choice gui terminal} doc {a gui frame, or one in a terminal}}
     autodaemon {kind {choice on off} doc {start a missing daemon, or refuse}}
     env        {kind envdict doc {environment for the daemon it may start}}
+    env-unset  {kind words doc {variables it must NOT have — absent, not empty}}
 }
 
 # What a declaration is CHECKED against, and deliberately only the
@@ -7472,6 +7546,14 @@ proc custom-reorder {keys} {
 # own. What it serves the editor is unchanged; where it is kept is.
 proc collection {name meta} {
     config-node [list $name] [dict merge {node family} [dict remove $meta fields]]
+    # THE ELEMENT ITSELF is a node too, and the one thing it has to
+    # say is what a SECOND word about the same element does: refine
+    # what stands (`merges` — then an empty value un-says a key) or
+    # replace it. Families that have not been asked say nothing, and
+    # nothing is claimed on their behalf.
+    set el [list node dict]
+    if {[dict exists $meta merge]} { lappend el merge [dict get $meta merge] }
+    config-node [list $name @] $el
     dict for {f fmeta} [dict get $meta fields] {
         config-node [list $name @ $f] [dict merge {node leaf} $fmeta]
     }
@@ -7488,7 +7570,7 @@ collection actions [list \
     list collection-actions \
     fields [spec-fields action]]
 collection panel {
-    key name ordered yes
+    key name ordered yes merge merges
     doc {the default panel — references to actions, in strip order}
     list collection-panel
     fields {
