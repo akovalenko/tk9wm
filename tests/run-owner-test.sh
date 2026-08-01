@@ -99,7 +99,7 @@ else
     echo "FAIL: after the toggle: $AFTEROFF (left-lines: $LEFT)"
 fi
 case "$BACK|$WHY" in
-    "bundle accords winops|"*"answers here now"*)
+    "bundle accords winops|not in force"*)
         echo "OK: the family taking it back is a claim the tree can explain" ;;
     *) echo "FAIL: back={$BACK} why={$WHY}" ;;
 esac

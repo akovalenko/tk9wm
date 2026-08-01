@@ -797,7 +797,7 @@ case $BINDROWS in
     *) echo "FAIL: bind rows: $BINDROWS" ;;
 esac
 case $BINDNOTE in
-    "live yours dead {«list custom-five» answers here now — custom's word}")
+    "live {in force — yours, over the config's} dead {not in force — your word answers here}")
         echo "OK: a bind row says whose word it is, and the buried one where" ;;
     *) echo "FAIL: bind notes: $BINDNOTE" ;;
 esac

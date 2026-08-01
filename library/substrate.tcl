@@ -3202,6 +3202,15 @@ proc saying-now {} {
 # called it. The first frame from a file that is not ours is the
 # answer; a bundle asked for by a config names the line that asked.
 proc said-where {} {
+    # ONLY WHILE A LAYER IS BEING READ. Outside that, everything on
+    # the stack is machinery — the entry script never leaves it (it
+    # called the event loop), and a desk started through a wrapper
+    # has the wrapper's file down there too, which is how a live edit
+    # in the applet came to claim it was said at tk9wm.tcl:35 (the
+    # owner, 2026-08-01). No layer, no location: a word spoken
+    # through the applet's door was said in no file, and saying so is
+    # the whole of the answer.
+    if {![info exists ::knob_layer] || $::knob_layer eq ""} { return "" }
     for {set i [info frame]} {$i > 0} {incr i -1} {
         if {[catch {info frame $i} f]} continue
         if {![dict exists $f type] || [dict get $f type] ne "source"} continue

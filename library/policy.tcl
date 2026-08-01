@@ -7198,21 +7198,40 @@ proc collection-bindings {} {
             # answers. It says WHY now.
             if {[keymap-origin $::keymap $pk] eq $layer} continue
             set live [keymap-payload $::keymap $pk]
+            set chord [join [lmap c $pk {chord-name {*}[split $c ,]}] " "]
             if {$live eq ""} {
-                set why "nothing answers this chord now"
+                set why "not in force — nothing answers this chord now"
             } else {
-                set who [keymap-origin $::keymap $pk]
-                set why "«[help-label [lindex $live 0]]» answers here now"
-                if {$who ne ""} { append why " — $who's word" }
+                set why "not in force — [owner-words \
+                    [keymap-origin $::keymap $pk]] word answers here"
+                # ...and the winner is told what it stands over, so
+                # the pair reads as one story from either row
+                set out [lmap e $out {
+                    if {[dict get $e key] ne $chord
+                            || [dict exists $e ineffectual]} {
+                        set e
+                    } else {
+                        dict lappend e over $layer
+                    }
+                }]
             }
             lappend out [dict create \
-                key [join [lmap c $pk {chord-name {*}[split $c ,]}] " "] \
+                key $chord \
                 values [dict create script [lindex $cmd 2] \
                             name [lindex $cmd 3]] \
                 owner $layer lkey $k ineffectual 1 why $why]
         }
     }
     dict create elements $out
+}
+# Whose, in words a sentence can carry.
+proc owner-words {origin} {
+    if {[lindex $origin 0] eq "bundle"} { return "the [lindex $origin 1] family's" }
+    switch -- $origin {
+        custom { return "your" }
+        config { return "the config's" }
+    }
+    return "the desk's own"
 }
 proc keymap-elements {node path disp} {
     set out {}

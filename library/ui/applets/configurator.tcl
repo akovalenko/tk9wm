@@ -474,7 +474,17 @@ proc cfg-elem-dress {T item cname e} {
 proc cfg-elem-note {cname e} {
     if {$cname ne "bindings"} { return "" }
     if {[dict exists $e why]} { return [dict get $e why] }
-    set note [cfg-owner-words $e]
+    set note "in force — [cfg-owner-words $e]"
+    # what this word STANDS OVER, which is the other half of the pair
+    # of rows one chord can wear (the owner asked what the second row
+    # even meant, 2026-08-01)
+    if {[dict exists $e over]} {
+        set said {}
+        foreach layer [dict get $e over] {
+            lappend said [expr {$layer eq "custom" ? "yours" : "the config's"}]
+        }
+        append note ", over [join $said { and }]"
+    }
     if {[dict exists $e where]} {
         append note " · [file tail [dict get $e where]]"
     }
