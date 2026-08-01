@@ -756,6 +756,52 @@ GEO=$(q 'set w [lindex [array names ::frameof] 0]
               [expr {$fx >= $wax && $fy >= $way
                      && $fx + $fw <= $wax + $ww && $fy + $fh <= $way + $wh}]')
 
+# ---- SAID, AND EMPTY (the owner's question, 2026-08-02) ----
+# «отсутствует ли он или присутствует пустой, а это влияет на семантику
+# action» — the tree showed one empty cell for both, and only one of
+# them puts the deed in a terminal.
+q 'action tinker {run {true} terminal {}}' >/dev/null
+sleep 0.5
+qu 'cfg-refresh; list refreshed' >/dev/null
+sleep 0.5
+SAIDEMPTY=$(qu 'set T $::cfg_T
+    set t [dict get $::cfg_fitem {@field actions tinker terminal}]
+    set i [dict get $::cfg_fitem {@field actions tinker icon}]
+    list terminal [list [$T item element cget $t Cflag eFlag -text]] \
+         icon [list [$T item element cget $i Cflag eFlag -text]] \
+         said [cfg-field-said? {@field actions tinker terminal}] \
+         means [cfg-field-empty-means {@field actions tinker terminal}] \
+         plain [cfg-field-empty-means {@field actions tinker icon}]')
+# the menu names the consequence: where empty is a word one SAYS it
+# empty, and there is no taking it back at all
+TERMMENU=$(qu 'cfg-select [dict get $::cfg_fitem {@field actions tinker terminal}]
+    set m [cfg-row-menu-build]
+    set labels {}
+    for {set i 0} {$i <= [$m index end]} {incr i} {
+        if {[$m type $i] eq "separator"} continue
+        lappend labels [list [$m entrycget $i -label] [$m entrycget $i -state]]
+    }
+    set labels')
+# ...and where it is not a word, the same keystroke takes the key back
+qu 'cfg-set {@field actions tinker icon} Z; list set' >/dev/null
+sleep 0.5
+ICONMENU=$(qu 'cfg-select [dict get $::cfg_fitem {@field actions tinker icon}]
+    set m [cfg-row-menu-build]
+    set r -
+    for {set i 0} {$i <= [$m index end]} {incr i} {
+        if {[$m type $i] eq "separator"} continue
+        if {[$m entrycget $i -label] eq "Unsay this key"} {
+            set r [$m entrycget $i -state]
+        }
+    }
+    set r')
+UNSAID=$(qu 'set addr {@field actions tinker icon}
+    cfg-select [dict get $::cfg_fitem $addr]
+    cfg-row-do unsay [cfg-row-subject [cfg-selected]]
+    after 300
+    list said [cfg-field-said? $addr] \
+         terminal [cfg-field-said? {@field actions tinker terminal}]')
+
 # ---- ONE REGISTRY INSTEAD OF THREE (config-tree, step 1) ----
 # The proof the plan asks for: what the applet is served comes out of
 # the node store and nowhere else, and the store holds all the kinds
@@ -1199,6 +1245,21 @@ else
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
+case "$SAIDEMPTY" in
+    "terminal {{said empty}} icon {{}} said 1 means value plain unsay")
+        echo "OK: a key said with nothing in it reads differently from one never said" ;;
+    *) echo "FAIL: said-empty: $SAIDEMPTY" ;;
+esac
+case "$TERMMENU" in
+    *"{Say it empty} disabled"*"{Unsay this key} disabled"*)
+        echo "OK: where empty is a word, the menu says so and offers no taking back" ;;
+    *) echo "FAIL: the terminal field's menu: $TERMMENU" ;;
+esac
+if [ "$ICONMENU" = "normal" ] && [ "$UNSAID" = "said 0 terminal 1" ]; then
+    echo "OK: an ordinary key can be unsaid by name, and its neighbour stands"
+else
+    echo "FAIL: unsaying a key: menu=$ICONMENU after=$UNSAID"
+fi
 case "$ONEREG" in
     "gone 1 knob leaf family family field leaf spec envdict served 1")
         echo "OK: one node store answers for knobs, families and the action language" ;;

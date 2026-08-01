@@ -705,6 +705,18 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
     set flags {}
     if {[dict exists $::cfg_pending $addr]} { lappend flags "* unsaved" }
     set doc [dict get $fmeta doc]
+    # SAID, AND EMPTY — a state the tree could not show, and one that
+    # changes what a deed IS (the owner, 2026-08-02: «по поводу
+    # terminal в редакторе толком не видно, отсутствует ли он или
+    # присутствует пустой»). An empty cell meant either «nobody said
+    # this» or «said, with nothing in it», and only the second one
+    # puts the deed in a terminal. Where empty is a legal value the
+    # row says so in words; where it is not, the state cannot arise —
+    # an empty value there takes the key away.
+    if {[cfg-field-said? $addr] && [cfg-cur $addr] eq ""} {
+        lappend flags "said empty"
+        set doc "said with nothing in it — $doc"
+    }
     # A remark REPLACES the field's description while it stands: the
     # description says what the word is for, and one who has a
     # sentence about THIS word has the more useful thing to say.
@@ -913,6 +925,29 @@ proc cfg-elem-values {coll key} {
         }
     }
     return {}
+}
+# Is this key PRESENT in the element's merged word? The values dict
+# holds what the layers said; absence and emptiness are two different
+# answers in it, and the tree has to keep them two.
+proc cfg-field-said? {name} {
+    # A PREVIEW IS THE WORD ARRIVING EARLY, here as everywhere else:
+    # a value typed and not yet saved makes the key said, and an
+    # empty one means whatever empty means at this node. Asking the
+    # desk alone left the badge and the menu a refresh behind what
+    # the user had just typed.
+    if {[dict exists $::cfg_pending $name]} {
+        if {[dict get $::cfg_pending $name value] ne ""} { return 1 }
+        return [expr {[cfg-field-empty-means $name] eq "value"}]
+    }
+    set v [cfg-elem-values [lindex $name 1] [lindex $name 2]]
+    return [dict exists $v [lindex $name 3]]
+}
+# What an empty value at this field MEANS — the node's own word,
+# carried out of the registry by the family's field table.
+proc cfg-field-empty-means {name} {
+    set meta [cfg-field-meta $name]
+    if {[dict exists $meta empty]} { return [dict get $meta empty] }
+    return unsay
 }
 proc cfg-field-stored {name} {
     set v [cfg-elem-values [lindex $name 1] [lindex $name 2]]
@@ -1838,6 +1873,26 @@ proc cfg-kept-note {n} {
 proc cfg-row-subject {it} {
     set T $::cfg_T
     if {$it eq ""} { return "" }
+    # A FIELD IS ITS OWN SUBJECT now: saying a key empty and taking it
+    # back are the field's business, and they are the two acts a
+    # tree of merging layers cannot express by typing (the owner's
+    # question about `terminal`). A shadowed claimant still belongs
+    # to the element that buried it.
+    if {[dict exists $::cfg_node $it]
+            && [dict get $::cfg_node $it what] eq "field"} {
+        set d [dict get $::cfg_node $it]
+        set addr [list @field [dict get $d coll] [dict get $d key] \
+                      [dict get $d field]]
+        set pend {}
+        if {[dict exists $::cfg_pending $addr]} { lappend pend $addr }
+        set parent [cfg-row-subject [$T item parent $it]]
+        return [dict create kind field item $it addr $addr \
+            pretty [cfg-pretty $addr] said [cfg-field-said? $addr] \
+            means [cfg-field-empty-means $addr] pending $pend \
+            owner [expr {$parent eq "" ? "code" : [dict get $parent owner]}] \
+            parent $parent \
+            where [expr {$parent eq "" ? "" : [dict get $parent where]}]]
+    }
     while {[dict exists $::cfg_node $it]
            && [dict get $::cfg_node $it what] in {field shadow}} {
         set it [$T item parent $it]
@@ -1896,6 +1951,35 @@ proc cfg-row-menu-build {} {
     $T.rowpop add command -label [dict get $s pretty] -state disabled
     $T.rowpop add separator
     set mine [expr {[dict get $s owner] eq "custom"}]
+    if {[dict get $s kind] eq "field"} {
+        # THE TWO ACTS THAT TYPING CANNOT SAY APART. An empty field
+        # means one thing or the other depending on the node, so the
+        # menu names the consequence instead of leaving it to a
+        # convention: where empty is a word, saying it empty is an
+        # act; where it is not, the same keystroke takes the key back.
+        if {[dict get $s means] eq "value"} {
+            $T.rowpop add command -label "Say it empty" \
+                -state [expr {[dict get $s said] && [cfg-cur [dict get $s addr]] eq ""
+                              ? "disabled" : "normal"}] \
+                -command [list cfg-row-do say-empty $s]
+            $T.rowpop add command -label "Unsay this key" -state disabled \
+                -command {}
+        } else {
+            $T.rowpop add command -label "Unsay this key" \
+                -state [expr {[dict get $s said] ? "normal" : "disabled"}] \
+                -command [list cfg-row-do unsay $s]
+        }
+        $T.rowpop add command -label "Reset to saved" \
+            -state [expr {[llength [dict get $s pending]] ? "normal" : "disabled"}] \
+            -command [list cfg-row-do reset $s]
+        if {[dict get $s parent] ne ""} {
+            $T.rowpop add command -label "Erase this element's word" \
+                -state [expr {$mine ? "normal" : "disabled"}] \
+                -command [list cfg-row-do erase [dict get $s parent]]
+        }
+        cfg-row-menu-where $s
+        return $T.rowpop
+    }
     $T.rowpop add command -label "Erase my word" \
         -state [expr {$mine ? "normal" : "disabled"}] \
         -command [list cfg-row-do erase $s]
@@ -1910,6 +1994,11 @@ proc cfg-row-menu-build {} {
             -state [expr {$mine ? "disabled" : "normal"}] \
             -command [list cfg-row-do pin $s]
     }
+    cfg-row-menu-where $s
+    return $T.rowpop
+}
+proc cfg-row-menu-where {s} {
+    set T $::cfg_T
     $T.rowpop add separator
     set where [dict get $s where]
     if {![llength $where]} {
@@ -1933,7 +2022,6 @@ proc cfg-row-menu-build {} {
             $T.rowpop add cascade -menu $m -label $label
         }
     }
-    return $T.rowpop
 }
 proc cfg-place-brief {place} {
     if {![regexp {^(.*):(\d+)$} $place -> file line]} { return $place }
@@ -1972,6 +2060,24 @@ proc cfg-row-do {how s} {
             cfg-refresh
             cfg-status "[dict get $s pretty] is back to what is\
  saved[cfg-kept-note $kept]"
+        }
+        say-empty - unsay {
+            # ONE WRITE, TWO MEANINGS, and the node decides which: in
+            # a merging word an empty value is «take this back», and
+            # where the registry declares empty a value it is «said,
+            # with nothing in it». The menu already named which one
+            # this row does.
+            set addr [dict get $s addr]
+            if {[cfg-set $addr ""]} {
+                cfg-refresh
+                if {$how eq "unsay"} {
+                    cfg-status "[dict get $s pretty] is unsaid — Save writes\
+ that down"
+                } else {
+                    cfg-status "[dict get $s pretty] is said with nothing in\
+ it — Save writes that down"
+                }
+            }
         }
         pin {
             set name [dict get $s name]

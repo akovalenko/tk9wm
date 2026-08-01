@@ -5673,6 +5673,12 @@ proc spec-fields {name} {
         if {[dict exists $meta xor]} {
             dict set out $k xor [dict get $meta xor]
         }
+        # ...and so does what an EMPTY value means here, because the
+        # editor cannot show the difference between «not said» and
+        # «said, and empty» without knowing there is one
+        if {[dict exists $meta empty]} {
+            dict set out $k empty [dict get $meta empty]
+        }
     }
     return $out
 }
