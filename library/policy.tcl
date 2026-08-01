@@ -6444,7 +6444,7 @@ keep tray_sid 0
 keep tray_order {}        ;# icon windows, in dock order
 keep tray_seen_extent 0   ;# the length the panel last reserved for us
 keep tray_geo ""          ;# the strip geometry we last asked for
-keep tray_argb 0          ;# the ARGB experiment — see set-tray-argb
+keep tray_argb 0          ;# the default follows the compositor, see below
 keep tray_strip_argb 0    ;# ...and what the LIVE strip was built with
 keep tray_laid_size 0     ;# the cell size the live cells were laid out at
 keep tray_panel default   ;# whose bar the tray is part of
@@ -6557,6 +6557,21 @@ proc tray-reconcile {} {
 # we advertise (measured 2026-07-29), so with the offer OFF it is the
 # one client that looks wrong, and with it ON it is the one client that
 # looks right. Hence a knob and not a default.
+# WHAT THE TRAY'S TRANSPARENCY DEFAULTS TO, when nobody has said.
+# An ARGB tray on a desk with no compositor shows its icons over
+# black, which is worse than not asking for one; with a compositor it
+# is what everybody wants. So the answer is the environment's, and
+# the config's word — said in either layer — still beats it.
+proc tray-argb-default {} {
+    foreach layer {custom config} {
+        if {[dict exists $::layer_knobs $layer set-tray-argb]} return
+    }
+    set has [compositor?]
+    puts "WM: compositor [expr {$has ? {is running in this session} \
+        : {is not running here}}] — tray argb defaults to\
+ [expr {$has ? {on} : {off}}]"
+    set ::tray_argb [expr {$has ? 1 : 0}]
+}
 proc set-tray-argb {on} {
     set want [expr {$on ? 1 : 0}]
     if {$want && [tray-argb-visual] eq ""} {

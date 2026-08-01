@@ -608,11 +608,19 @@ TABOUT=$(qu 'set addr set-edge-resist
     cfg-entry [dict get $::cfg_item $addr] $addr
     after 200; update
     ui-field-set $::cfg_T.edit 6
+    $::cfg_T.edit.t insert end 6          ;# TOUCHED: this one commits
     event generate $::cfg_T.edit.t <Tab> -when now
     after 200; update
-    list open [winfo exists $::cfg_T.edit] \
-         value [wm-call {set ::edge_resist}] \
-         focus [expr {[focus] eq $::cfg_T}]')
+    set typed [list open [winfo exists $::cfg_T.edit] \
+        value [wm-call {set ::edge_resist}] \
+        focus [expr {[focus] eq $::cfg_T}]]
+    # ...and a value merely looked at is not an edit: Tab leaves it be
+    cfg-entry [dict get $::cfg_item $addr] $addr
+    after 200; update
+    event generate $::cfg_T.edit.t <Tab> -when now
+    after 200; update
+    concat $typed [list untouched-open [winfo exists $::cfg_T.edit] \
+        untouched-pending [dict exists $::cfg_pending $addr]]')
 
 PIXEL=$(qu 'set T $::cfg_T
     set addr set-fade
@@ -1091,8 +1099,8 @@ else
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
-if [ "$TABOUT" = "open 0 value 6 focus 1" ]; then
-    echo "OK: Tab left the field, committing on the way out"
+if [ "$TABOUT" = "open 0 value 66 focus 1 untouched-open 0 untouched-pending 1" ]; then
+    echo "OK: Tab commits what was touched and lets a glance go untouched"
 else
     echo "FAIL: tab out of the editor: $TABOUT"
 fi

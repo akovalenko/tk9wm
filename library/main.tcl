@@ -144,6 +144,7 @@ proc reload-config {} {
             custom-floor-snapshot
             load-custom
             custom-effect-judge
+            tray-argb-default
             policy-apply
         }
     }
@@ -230,6 +231,7 @@ proc tk9wm-main {args} {
         custom-floor-snapshot        ;# see reload-config: the pins audit
         load-custom
         custom-effect-judge
+        tray-argb-default
         welcome-inject
     } }
     substrate-start

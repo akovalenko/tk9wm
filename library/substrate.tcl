@@ -564,6 +564,15 @@ proc screen-number {} {
     return 0
 }
 set WM_SELECTION  [x-intern WM_S[screen-number]]
+# IS A COMPOSITOR RUNNING? The same protocol shape one screen over:
+# a compositing manager owns _NET_WM_CM_S<screen> for as long as it
+# runs, and that is the whole of the answer. Asked at startup and at
+# a reload, and NOT tracked live on purpose (the owner, 2026-08-02):
+# we would not tear the tray down because picom appeared, so
+# pretending to follow it would be a lie with moving parts.
+proc compositor? {} {
+    expr {[x-selection-get [x-intern _NET_WM_CM_S[screen-number]]] != 0}
+}
 set MANAGER       [x-intern MANAGER]
 set TK9WM_TIME    [x-intern TK9WM_TIME]
 keep wm_owner_win  0     ;# the window that holds WM_S<n>, 0 = we do not

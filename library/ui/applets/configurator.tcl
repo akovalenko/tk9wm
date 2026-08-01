@@ -1175,8 +1175,13 @@ proc cfg-entry {it name} {
     set lines [llength [split $val \n]]
     # Tab out of a cell's editor means «this value is done, on to the
     # next thing» — so it commits, and a refusal keeps the field
+    # TAB ONLY COMMITS WHAT WAS TOUCHED (the owner, 2026-08-02): a
+    # value looked at and left alone is not an edit, and writing it
+    # back would make a customization out of a glance. Return still
+    # commits whatever is there — typing the same thing on purpose is
+    # a legitimate way to pin it, and that stays.
     ui-field $T.edit -height [expr {max(1, min(6, $lines))}] \
-        -onleave {cfg-entry-done commit}
+        -onleave {cfg-entry-leave}
     ui-field-set $T.edit $val
     ui-field-select-all $T.edit
     # GRID, and the button gets a column of its own: PACKED, the
@@ -1236,6 +1241,15 @@ proc cfg-entry-focusout {} {
     bell
     cfg-status "finish this value (Return) or drop it (Escape)" error
     after idle {catch {focus $::cfg_T.edit.t}}
+}
+proc cfg-entry-leave {} {
+    if {![winfo exists $::cfg_T.edit]} { return 1 }
+    if {![ui-field-dirty? $::cfg_T.edit]} {
+        cfg-entry-close
+        focus $::cfg_T          ;# ...and the tree is where one lands
+        return 1
+    }
+    return [cfg-entry-done commit]
 }
 proc cfg-entry-pick {picker name} {
     set ::cfg_picking 1
