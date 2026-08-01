@@ -24,3 +24,5 @@ typed.txt
 /kit/runtime-tclkit
 /kit/tk9wm.kit
 /kit/tk9wm.bin
+tests/*.pids
+tests/q*.tcl
