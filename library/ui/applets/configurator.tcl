@@ -716,6 +716,13 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
     if {[cfg-field-said? $addr] && [cfg-cur $addr] eq ""} {
         lappend flags "said empty"
         set doc "said with nothing in it — $doc"
+    } elseif {![cfg-field-said? $addr]} {
+        set derived [cfg-field-derived $addr]
+        if {$derived ne ""} {
+            $T item element configure $item Cval eVal -text $derived
+            lappend flags derived
+            set doc "derived from the words below, not written — $doc"
+        }
     }
     # A remark REPLACES the field's description while it stands: the
     # description says what the word is for, and one who has a
@@ -925,6 +932,16 @@ proc cfg-elem-values {coll key} {
         }
     }
     return {}
+}
+# What the ELEMENT says this field amounts to when nobody has said
+# it. The type of a deed is the case this exists for (the owner,
+# 2026-08-02: «в конфигураторе тип должен быть first-class citizen»)
+# — it is a real word one can write, and until one does, the settings
+# below amount to an answer, which the row shows rather than hides.
+proc cfg-field-derived {addr} {
+    set rec [cfg-elem-rec [lindex $addr 1] [lindex $addr 2]]
+    if {$rec eq "" || ![dict exists $rec derived [lindex $addr 3]]} { return "" }
+    return [dict get $rec derived [lindex $addr 3]]
 }
 # Is this key PRESENT in the element's merged word? The values dict
 # holds what the layers said; absence and emptiness are two different

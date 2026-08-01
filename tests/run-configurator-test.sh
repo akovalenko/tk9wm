@@ -802,6 +802,21 @@ UNSAID=$(qu 'set addr {@field actions tinker icon}
     list said [cfg-field-said? $addr] \
          terminal [cfg-field-said? {@field actions tinker terminal}]')
 
+# THE TYPE IS FIRST-CLASS even when nobody said it: the row shows what
+# the settings amount to and says it was derived, and writing it is an
+# ordinary edit of an ordinary field
+TYPEROW=$(qu 'set T $::cfg_T
+    set i [dict get $::cfg_fitem {@field actions tinker type}]
+    list value [$T item element cget $i Cval eVal -text] \
+         flag [list [$T item element cget $i Cflag eFlag -text]] \
+         said [cfg-field-said? {@field actions tinker type}]')
+TYPESET=$(qu 'cfg-set {@field actions tinker type} generic
+    after 300
+    set T $::cfg_T
+    set i [dict get $::cfg_fitem {@field actions tinker type}]
+    list value [$T item element cget $i Cval eVal -text] \
+         said [cfg-field-said? {@field actions tinker type}]')
+
 # ---- ONE REGISTRY INSTEAD OF THREE (config-tree, step 1) ----
 # The proof the plan asks for: what the applet is served comes out of
 # the node store and nowhere else, and the store holds all the kinds
@@ -1245,8 +1260,14 @@ else
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
+if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
+        && [ "$TYPESET" = "value generic said 1" ]; then
+    echo "OK: a deed's type shows what it amounts to, and writing it is an edit"
+else
+    echo "FAIL: the type row: $TYPEROW then $TYPESET"
+fi
 case "$SAIDEMPTY" in
-    "terminal {{said empty}} icon {{}} said 1 means value plain unsay")
+    "terminal {{said empty note}} icon {{}} said 1 means value plain unsay")
         echo "OK: a key said with nothing in it reads differently from one never said" ;;
     *) echo "FAIL: said-empty: $SAIDEMPTY" ;;
 esac

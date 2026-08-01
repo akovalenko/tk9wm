@@ -5567,6 +5567,8 @@ proc spec-table {name} { config-nodes-under [list @spec $name] }
 # — and what makes an empty value here mean «un-say».
 config-node {@spec action} {node dict merge merges}
 spec-keys action {
+    type     {kind {choice generic terminal emacs}
+              doc {what kind of deed — unsaid, the settings below say}}
     run      {kind words     xor launch
               doc {raw argv — sugar for a launch that says Run}}
     launch   {kind script    xor run
@@ -5581,7 +5583,7 @@ spec-keys action {
     env-unset {kind words
               doc {variables the launch must NOT have — absent, not empty}}
     terminal {kind subspec of terminal empty value
-              doc {do it in a terminal}}
+              doc {settings for a terminal deed — the type may say it alone}}
     emacs    {kind subspec of emacs    doc {do it in emacs}}
 }
 spec-keys terminal {
@@ -5825,6 +5827,16 @@ proc spec-lint {name settings} {
                 }
             }
             subspec {
+                # `terminal {}` was the only way to say «in a terminal»
+                # before the type was a word of its own. It still
+                # works — his config is full of them — and the note
+                # says the plain spelling, which is also the one with
+                # no empty-versus-absent question in it.
+                if {[dict get $settings $k] eq ""} {
+                    lappend out [list key $k level note text \
+                        "this is «type $k» said the long way — the type is\
+ a word of its own now, and says the same thing without an empty dict"]
+                }
                 foreach verdict [spec-lint [dict get $meta of] [dict get $settings $k]] {
                     dict set verdict key $k
                     lappend out $verdict
@@ -5835,8 +5847,36 @@ proc spec-lint {name settings} {
     return $out
 }
 
+# ---- WHAT KIND OF DEED IS THIS (the owner, 2026-08-02) ----------
+# An action has a TYPE — generic, in a terminal, in emacs, and one
+# day whatever xdg-open is — and until now it was read off WHICH
+# SETTINGS WERE PRESENT. That is what made the difference between an
+# absent `terminal` and an empty one carry meaning, and what would
+# have made every new kind a new rule about presence.
+#
+# So the type is a word: `type terminal`. Presence stays its SUGAR,
+# because a config that says `terminal {name X}` plainly means one
+# (and because his own config is full of them) — but where the word
+# is said, it is the answer, and two sets of settings side by side
+# stop being a contradiction: the type picks which one applies and
+# the other simply waits.
+proc action-type {settings} {
+    if {[dict exists $settings type] && [dict get $settings type] ne ""} {
+        return [dict get $settings type]
+    }
+    foreach {key kind} {emacs emacs terminal terminal} {
+        if {[dict exists $settings $key]} { return $kind }
+    }
+    return generic
+}
 proc spec-derive {who settings} {
-    if {[dict exists $settings terminal]} {
+    set kind [action-type $settings]
+    if {$kind eq "terminal" && ![dict exists $settings terminal]} {
+        # the type said so and the settings were not needed: an empty
+        # dict is what «just a terminal» has always meant underneath
+        dict set settings terminal {}
+    }
+    if {$kind eq "terminal"} {
         set t [dict get $settings terminal]
         if {![dict exists $settings match]} {
             if {[dict exists $t name] && [dict get $t name] ne ""} {
@@ -5863,7 +5903,7 @@ proc spec-derive {who settings} {
     # overrides per button), and the found path gets an activate hook:
     # a terminal hit may need the daemon to put the named frame back
     # on top of its tty.
-    if {[dict exists $settings emacs]} {
+    if {$kind eq "emacs" && [dict exists $settings emacs]} {
         set e [dict get $settings emacs]
         if {![dict exists $settings match]} {
             dict set settings match \
@@ -7641,6 +7681,12 @@ proc collection-actions {} {
     dict for {name raw} $::action_raw {
         set e [dict create key $name values $raw \
                    owner [knob-owner "action $name"]]
+        # THE TYPE IS FIRST-CLASS IN THE TREE even when nobody said
+        # it: unsaid, the row shows what the settings amount to, and
+        # says that it was derived rather than written.
+        if {![dict exists $raw type]} {
+            dict set e derived [dict create type [action-type $raw]]
+        }
         if {[dict exists $::custom_effect "action $name"]} {
             dict set e effect [dict get $::custom_effect "action $name"]
         }

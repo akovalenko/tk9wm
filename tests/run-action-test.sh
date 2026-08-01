@@ -116,6 +116,28 @@ sleep 0.3
 LOGNOTE2=$(grep -c 'action loud: note — this is «Run true» said the long way' \
     "$HERE/wm-action.log")
 
+# ---- the deed's TYPE is a word, and presence is its sugar ----
+# (the owner, 2026-08-02: «у action есть тип, который можно вычислить
+# по присутствующим полям, но можно и промоутнуть до отдельного поля»)
+TYPEOF=$(q 'list plain [action-type {}] \
+    sugar [action-type {terminal {}}] \
+    said [action-type {type terminal}] \
+    wins [action-type {type emacs terminal {name X}}] \
+    both [action-type {emacs {frame F} terminal {}}]')
+q 'action typed {type terminal run {htop}}' >/dev/null
+sleep 0.3
+TYPEDEED=$(q 'list via [lindex [dict get $::action_spec typed runvia] 0] \
+    launch [expr {[dict exists $::action_spec typed launch]}] \
+    match [expr {[dict exists $::action_spec typed match]}]')
+# ...and the old spelling still works and is told the plain one
+q 'action longway {terminal {} run {htop}}' >/dev/null
+sleep 0.3
+LONGWAY=$(q 'set out {}
+    foreach v [dict get $::action_lint longway] {
+        if {[dict get $v key] eq "terminal"} { lappend out [dict get $v level] }
+    }
+    list note $out type [action-type [dict get $::action_raw longway]]')
+
 # ---- what an empty value MEANS, and how to say «not there» ----
 # (config-tree step 2, the owner's fork answered 2026-08-02: a custom
 # word stays a delta, so un-say is permanent and empty-as-a-value has
@@ -150,6 +172,21 @@ echo "--- merged={$MERGED} fired=$FIRED custom={$CUSTOMKEY} erased={$ERASED}"
 echo "--- alive={$ALIVE} coll={$COLL}"
 echo "--- lint={$LINT} sync={$LINTSYNC} logged=$LOGNOTE/$LOGNOTE2"
 echo "--- verdict"
+if [ "$TYPEOF" = "plain generic sugar terminal said terminal wins emacs both emacs" ]; then
+    echo "OK: a deed's type is a word, and the settings below are its sugar"
+else
+    echo "FAIL: action-type: $TYPEOF"
+fi
+if [ "$TYPEDEED" = "via spawn-terminal-run launch 1 match 1" ]; then
+    echo "OK: the type alone makes a terminal deed, with no settings to say"
+else
+    echo "FAIL: a typed deed: $TYPEDEED"
+fi
+if [ "$LONGWAY" = "note note type terminal" ]; then
+    echo "OK: the old spelling still works and hears the plain one"
+else
+    echo "FAIL: the long way round: $LONGWAY"
+fi
 if [ "$EMPTYMEANS" = "run unsay terminal value label unsay unknown unsay" ]; then
     echo "OK: what an empty value means is the node's own word, not a name in a loop"
 else
