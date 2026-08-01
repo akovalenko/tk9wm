@@ -199,7 +199,42 @@ proc ui-accel {btn} {
     }
     set ::ui_accel($top,$ch) $btn
     bind $top <Destroy> +[list ui-accel-forget $top %W]
-    bind $top <Alt-Key-$ch> [list $btn invoke]
+    bind $top <Alt-Key-$ch> [list ui-accel-fire $btn]
+}
+# ---- a button struck by its letter shows itself struck ----
+# Tk does this in some places and not others (the owner, and he wants
+# it everywhere): a key that fires a button somewhere across the
+# window says nothing about WHICH button answered unless the button
+# says it. So it presses, paints, acts, and lets go a moment later.
+#
+# It acts BEFORE it lets go, not after: the press is then visible for
+# exactly as long as the work takes plus the tail, and a caller — a
+# test, a script — sees the same timing it always did rather than a
+# command delayed for the sake of a wink.
+proc ui-accel-fire {btn} {
+    if {![winfo exists $btn]} return
+    set undo [ui-press $btn]
+    update idletasks
+    $btn invoke
+    after 90 [list ui-unpress $btn $undo]
+}
+proc ui-press {btn} {
+    # ttk widgets have a state machine; classic ones have a relief
+    if {![catch {$btn instate pressed}]} {
+        $btn state pressed
+        return ttk
+    }
+    set old [$btn cget -relief]
+    catch {$btn configure -relief sunken}
+    return $old
+}
+proc ui-unpress {btn undo} {
+    if {![winfo exists $btn]} return
+    if {$undo eq "ttk"} {
+        catch {$btn state {!pressed}}
+    } else {
+        catch {$btn configure -relief $undo}
+    }
 }
 # ...and a window that goes takes its letters with it, or the next
 # window of the same name would inherit a clash that is not there.

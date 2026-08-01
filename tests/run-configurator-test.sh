@@ -588,6 +588,22 @@ PIXEL=$(qu 'set T $::cfg_T
     set edity [expr {[winfo rooty $::cfg_T.edit.t] + $by}]
     cfg-entry-done cancel
     list dx [expr {$editx - $cellx}] dy [expr {$edity - $celly}]')
+# ...and a button struck by its letter shows itself struck: pressed
+# while it works, back up a moment later (the owner likes the wink,
+# and Tk gives it only in places)
+BLINK=$(qu 'set ::blinked 0
+    toplevel .blinkprobe
+    ttk::button .blinkprobe.b -text "&Go" -command {incr ::blinked}
+    ui-accel .blinkprobe.b
+    pack .blinkprobe.b
+    update                              ;# a keyboard event needs a mapped window
+    event generate .blinkprobe <Alt-Key-g> -when now
+    set during [.blinkprobe.b instate pressed]
+    after 200; update
+    set r [list during $during after [.blinkprobe.b instate pressed] \
+                fired $::blinked]
+    destroy .blinkprobe
+    set r')
 ACCEL=$(qu 'llength [ui-accel-clashes]')
 # ...and the guard is not decorative: two buttons asking for the same
 # letter leave the first answering and the second no longer promising
@@ -1045,6 +1061,11 @@ case $PIXEL in
     "dx 0 dy 0") echo "OK: the editor's text lands exactly on the cell's" ;;
     *) echo "FAIL: the editor's text is off by $PIXEL" ;;
 esac
+if [ "$BLINK" = "during 1 after 0 fired 1" ]; then
+    echo "OK: a button struck by its letter blinks while it works"
+else
+    echo "FAIL: the accelerator blink: $BLINK"
+fi
 case $RING in
     "box-style-focused UiRingOn.TFrame while-editing UiRingOn.TFrame editor Text")
         echo "OK: the ring is the box's, and an editor inside it does not put it out" ;;
