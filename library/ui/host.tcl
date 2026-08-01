@@ -70,6 +70,12 @@ proc ui-style-sync {} {
         if {[lsearch -exact [font names] $name] < 0} { font create $name }
         font configure $name {*}[dict get $st $key]
     }
+    # ...AND A FONT FOR WHAT ONE CLICKS. A hyperlink says so by being
+    # underlined, and an applet spelling that out per widget gets it
+    # subtly wrong in three places — so the bridge keeps one, dressed
+    # from the same desk font it follows.
+    if {[lsearch -exact [font names] LinkFont] < 0} { font create LinkFont }
+    font configure LinkFont {*}[dict get $st deskfont] -underline 1
     # THE TTK THEME IS PART OF THE BRIDGE (the owner: the font dialog
     # was a mess of two palettes). Tk's own dialogs — fontchooser
     # first among them — are ttk widgets, so a desk that dresses its

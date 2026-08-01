@@ -4846,6 +4846,33 @@ proc emacs-activate {spec w} {
 # the socket is dead, the honest outcome is its error in the log. The
 # guard reaps a connection that answers nothing: a wedged daemon must
 # not leak channels, and must say so.
+# OPENING THE LINE THAT SAYS IT. A config is a file a person writes by
+# hand, so «where is this said» deserves a way to get there (the
+# owner, 2026-08-02). Only the CONFIG's own lines are ever offered:
+# the custom file is written by click, and nobody opens it to edit.
+# Both doors are the desk's existing ones — an emacs frame of ours,
+# or $EDITOR in whatever terminal the desk was told to use — so a
+# machine with neither says so instead of failing silently.
+proc edit-place {how file line} {
+    if {![string is integer -strict $line] || $line < 1} {
+        error "edit-place: $line is not a line number"
+    }
+    switch -- $how {
+        emacs {
+            emacs-launch [dict create frame tk9wm-config \
+                eval "(progn (find-file [emacs-lisp-string $file])\
+ (goto-line $line))"]
+        }
+        terminal {
+            set ed [expr {[info exists ::env(EDITOR)] && $::env(EDITOR) ne ""
+                          ? $::env(EDITOR) : "vi"}]
+            spawn-terminal-run [dict create name tk9wm-edit \
+                title "$ed [file tail $file]"] [list $ed +$line $file]
+        }
+        default { error "edit-place: emacs or terminal, not $how" }
+    }
+    return
+}
 proc emacs-eval-bg {spec expr} {
     set cmd [concat [emacs-client-cmd $spec] [list -e $expr]]
     wm-errand "emacs eval" [list emacs-eval-run $cmd]
@@ -7867,6 +7894,23 @@ proc knob-touched {cmd op} {
     if {[info level] != 1} return
     if {[catch {knob-key $cmd} key]} return
     dict set ::layer_knobs $::knob_layer $key $cmd
+    # ...AND WHERE IT WAS SAID. A binding has carried its chain since
+    # the provenance step; a knob had nowhere to keep one, so «open
+    # the line that sets this» had nothing to open. The trace runs
+    # under the statement itself, so the chain here is the same one
+    # said-where gives a binding: the config's line first, then
+    # whoever called it.
+    dict set ::layer_where $::knob_layer $key [said-where]
+}
+# Where a knob was set, as a chain of file:line — the CONFIG's word by
+# default, since the custom file is written by click and nobody edits
+# it by hand (the owner, 2026-08-02). Empty when the layer never said
+# it, or when the word came from a place provenance skips (the desk's
+# own library, the entry script).
+proc knob-where {name {layer config}} {
+    if {![info exists ::layer_where]} { return "" }
+    if {![dict exists $::layer_where $layer $name]} { return "" }
+    return [dict get $::layer_where $layer $name]
 }
 proc layer-source {layer path} {
     foreach p $::knob_vocab {

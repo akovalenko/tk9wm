@@ -749,12 +749,86 @@ GEO=$(q 'set w [lindex [array names ::frameof] 0]
               [expr {$fx >= $wax && $fy >= $way
                      && $fx + $fw <= $wax + $ww && $fy + $fh <= $way + $wh}]')
 
+# ---- the row menu, hanging off the badge (the owner, 2026-08-02) ----
+# A knob the config sets now knows WHERE it was said — the line, not
+# just the layer — which is what the menu's editor entries lead to.
+# ...on a clean slate: earlier scenes leave previews standing (the Tab
+# one deliberately does), and a Save here would adopt them and change
+# whose the row under test is
+q 'custom-erase set-edge-resist' >/dev/null
+qu 'cfg-revert; list clean' >/dev/null
+sleep 1
+KWHERE=$(q 'knob-where set-edge-resist config')
+# ...and only the CONFIG's lines are ever offered: the custom file is
+# written by click and nobody opens it to edit
+qu 'cfg-set set-drag-slop 11; cfg-save; list saved' >/dev/null
+sleep 1
+qu 'cfg-revert; list reread' >/dev/null    ;# the layer must be SOURCED to
+sleep 1                                    ;# have lines at all
+CUSTWHERE=$(q 'list config [llength [knob-where set-drag-slop config]] \
+    custom [expr {[llength [knob-where set-drag-slop custom]] > 0}]')
+# the badge is a link and says so: a cell with something in it wears
+# the underlined font, an empty one does not
+LINKFONT=$(qu 'set T $::cfg_T
+    set said [$T item element cget \
+                  [dict get $::cfg_item set-edge-resist] Cflag eFlag -font]
+    set none -
+    dict for {n it} $::cfg_item {
+        if {[$T item element cget $it Cflag eFlag -text] eq ""} {
+            set none [$T item element cget $it Cflag eFlag -font]
+            break
+        }
+    }
+    list said $said none $none')
+# what the menu OFFERS on a config-owned row: nothing of ours to
+# erase, nothing to reset, a value to pin, and the way to the line
+MENU=$(qu 't-knob set-edge-resist
+    set m [cfg-row-menu-build]
+    set labels {}
+    for {set i 0} {$i <= [$m index end]} {incr i} {
+        if {[$m type $i] eq "separator"} continue
+        lappend labels [list [$m entrycget $i -label] [$m entrycget $i -state]]
+    }
+    set labels')
+# Reset to saved is about ONE row: a preview standing elsewhere lives
+qu 'cfg-set set-edge-resist 7; cfg-set set-fade 0.55; list previewed' >/dev/null
+sleep 0.5
+ROWRESET=$(qu 't-knob set-edge-resist
+    cfg-row-do reset [cfg-row-subject [cfg-selected]]
+    after 500
+    list pend [dict exists $::cfg_pending set-edge-resist] \
+         kept [dict exists $::cfg_pending set-fade]')
+sleep 1
+ROWDESK=$(q 'list resist $::edge_resist fade $::fade')
+# ...and pinning is the same-value gesture said out loud: a word of
+# ours holding what the layer below already gives
+ROWPIN=$(qu 't-knob set-edge-resist
+    cfg-row-do pin [cfg-row-subject [cfg-selected]]
+    list pend [dict exists $::cfg_pending set-edge-resist] \
+         value [expr {[dict exists $::cfg_pending set-edge-resist]
+                      ? [dict get $::cfg_pending set-edge-resist value] : "-"}]')
+qu 'cfg-save; list saved' >/dev/null
+sleep 1
+PINFILE=$(grep -c 'set-edge-resist 3' "$HERE/cfg-config/tk9wm.custom.tcl")
+# now it IS ours, and the menu says so
+MENU2=$(qu 't-knob set-edge-resist
+    set m [cfg-row-menu-build]
+    set r -
+    for {set i 0} {$i <= [$m index end]} {incr i} {
+        if {[$m type $i] eq "separator"} continue
+        if {[$m entrycget $i -label] eq "Erase my word"} {
+            set r [$m entrycget $i -state]
+        }
+    }
+    set r')
+
 kill $WM 2>/dev/null
 pkill -f 'ui/host[.]tcl' 2>/dev/null
 
 echo "--- rows=$ROWS hostfont=$HOSTFONT wmfont=$WMFONT badge=$CFGBADGE"
 echo "--- preview=$PREVIEW save=$SAVED0->$SAVED1 reverted=$REVERTED bad=$BAD"
 echo "--- bumped=$BUMPED bumpfile=$BUMPFILE"
+echo "--- where={$KWHERE} custwhere={$CUSTWHERE} menu={$MENU}"
 echo "--- verdict"
 if [ "${ROWS:-0}" -ge 25 ]; then
     echo "OK: the configurator renders the live registry ($ROWS rows)"
@@ -1099,6 +1173,36 @@ else
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
+case "$KWHERE" in
+    *"tk9wm.tcl:1") echo "OK: a knob remembers the config line that set it" ;;
+    *) echo "FAIL: knob provenance: «$KWHERE»" ;;
+esac
+if [ "$CUSTWHERE" = "config 0 custom 1" ]; then  # ...and only config is offered
+    echo "OK: the custom file's own line is known but never offered as config"
+else
+    echo "FAIL: layers of provenance: $CUSTWHERE"
+fi
+case "$LINKFONT" in
+    "said LinkFont none DeskFont")
+        echo "OK: a badge with something to say is underlined, an empty one is not" ;;
+    *) echo "FAIL: the badge's font: $LINKFONT" ;;
+esac
+case "$MENU" in
+    *"{Erase my word} disabled"*"{Reset to saved} disabled"*"{Pin this value as mine} normal"*"Said at tk9wm.tcl:1"*)
+        echo "OK: the row menu offers what the row can do, and the line that says it" ;;
+    *) echo "FAIL: the row menu: $MENU" ;;
+esac
+if [ "$ROWRESET" = "pend 0 kept 1" ] && [ "$ROWDESK" = "resist 3 fade 0.55" ]; then
+    echo "OK: Reset to saved is about one row and leaves the other preview standing"
+else
+    echo "FAIL: row reset: $ROWRESET desk=$ROWDESK"
+fi
+if [ "$ROWPIN" = "pend 1 value 3" ] && [ "$PINFILE" -ge 1 ] \
+        && [ "$MENU2" = "normal" ]; then
+    echo "OK: pinning writes our own word for a value we already had"
+else
+    echo "FAIL: row pin: $ROWPIN file=$PINFILE erase=$MENU2"
+fi
 if [ "$TABOUT" = "open 0 value 66 focus 1 untouched-open 0 untouched-pending 1" ]; then
     echo "OK: Tab commits what was touched and lets a glance go untouched"
 else

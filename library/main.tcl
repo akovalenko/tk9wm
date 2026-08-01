@@ -67,6 +67,7 @@ proc custom-path {} {
 }
 proc load-config {} {
     set ::layer_knobs {}   ;# a fresh load cycle starts here
+    set ::layer_where {}   ;# ...and so does what it knows about lines
     set conf [config-path]
     set ::config_is_default \
         [string equal $conf [file join $::tk9wm_library default-config.tcl]]

@@ -42,10 +42,12 @@ set cfg_effect {}    ;# custom key -> pin | change (the desk's audit)
 set cfg_node {}      ;# tree item -> collection descriptor (coll/elem/field)
 set cfg_fitem {}     ;# field address -> tree item
 set cfg_fresh {}     ;# elements born in this refresh — folded once attached
+set cfg_cursor ""  ;# what the pointer is wearing over the tree
 set cfg_T ""
 set cfg_hint "Return or F4 opens the picker · F2 types · F3 switches a\
  slot's spelling · F8 what you have changed · F9 what went wrong ·\
  Ins adds, Del drops · Alt+↑/↓ move a button · Ctrl+Enter takes ·\
+ m (or a click on the badge) opens the row's own menu ·\
  Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
@@ -183,6 +185,7 @@ proc cfg-build {W} {
     # watching every change moved the selection out from under every
     # refresh (measured, 2026-08-02).
     bind $T <Control-backslash> {cfg-selection-guard; break}
+    bind $T <Motion>               {cfg-motion %x %y}
     bind $T <ButtonPress-1>        {if {[cfg-click %x %y]} break}
     bind $T <Double-ButtonPress-1> {if {[cfg-doubleclick %x %y]} break}
     # Ctrl+click is NOT ours: the empty binding lets treectrl's own
@@ -217,6 +220,12 @@ proc cfg-build {W} {
     bind $T <KeyPress-F2>     {cfg-activate text; break}
     bind $T <KeyPress-F3>     {cfg-slot-menu; break}
     bind $T <KeyPress-F8>     {cfg-pins; break}
+    # THE ROW MENU, for a keyboard: `m` because his machine has no Menu
+    # key and Shift+F10 is nobody's first guess (the owner, 2026-08-02)
+    # — and Menu and Shift+F10 anyway, for the machines that do.
+    bind $T <KeyPress-m>      {if {[cfg-plain-key %s]} {cfg-row-menu; break}}
+    bind $T <KeyPress-Menu>   {cfg-row-menu; break}
+    bind $T <Shift-KeyPress-F10> {cfg-row-menu; break}
     bind $T <KeyPress-F9>     {cfg-problems; break}
     # h/l fold and unfold beside the arrows, the way k/j walk beside
     # Up and Down (the owner's ask — vi hands)
@@ -550,13 +559,21 @@ proc cfg-top-update {T item key data} {
         $T item element configure $item Cdoc eDoc -text $data
     }
 }
+# THE BADGE IS A HANDLE. What the flag cell says — whose word the row
+# wears, and a dot when an unsaved edit stands on it — is also where
+# everything ABOUT THAT ROW hangs (the owner, 2026-08-02: Save is
+# about everything, Revert is about everything, and Erase is about
+# the row one stands on, with nowhere to say so). So a cell with
+# something in it is underlined like the link it now is, and a click
+# opens the row's menu.
+proc cfg-flag-set {it flags} {
+    set text [join $flags " "]
+    $::cfg_T item element configure $it Cflag eFlag -text $text \
+        -font [expr {$text eq "" ? "DeskFont" : "LinkFont"}]
+}
 proc cfg-knob-dress {T item name meta} {
     $T item element configure $item Cdoc eDoc -text [dict get $meta doc]
     cfg-show-value $item $name [dict get $meta value]
-    if {[dict exists $::cfg_effect $name]} {
-        $T item element configure $item Cflag eFlag \
-            -text [expr {[dict get $::cfg_effect $name] eq "pin" ? "pin" : ""}]
-    }
 }
 proc cfg-knob-make {T parent key data} {
     set item [$T item create]
@@ -611,7 +628,7 @@ proc cfg-elem-dress {T item cname e} {
         }
         config { lappend flags cfg }
     }
-    $T item element configure $item Cflag eFlag -text [join $flags " "]
+    cfg-flag-set $item $flags
     $T item element configure $item Cdoc eDoc -text [cfg-elem-note $cname $e]
 }
 # What a row says about ITSELF in the doc column. For a binding that
@@ -915,8 +932,8 @@ proc cfg-show-field {addr} {
     # with the rest of the table on the next refresh
     set mark ""
     regexp {[⚠·]$} [$::cfg_T item element cget $it Cflag eFlag -text] mark
-    $::cfg_T item element configure $it Cflag eFlag \
-        -text "[expr {[dict exists $::cfg_pending $addr] ? {•} : {}}]$mark"
+    cfg-flag-set $it \
+        "[expr {[dict exists $::cfg_pending $addr] ? {•} : {}}]$mark"
 }
 
 # ...and the seam the ownership runs through: a hand-dragged column
@@ -987,10 +1004,22 @@ proc cfg-show-value {it name value} {
     set flags {}
     if {[dict exists $::cfg_pending $name]} { lappend flags • }
     switch -- [cfg-owner $name] {
-        custom { lappend flags custom }
+        custom {
+            # PIN or CHANGE, the same distinction the elements wear:
+            # one holds what the layers below already give, the other
+            # alters it. (It used to be said a line later, and said
+            # it by REPLACING the badge — so a changed word of ours
+            # showed no badge at all, and with it no handle.)
+            if {[dict exists $::cfg_effect $name]
+                    && [dict get $::cfg_effect $name] eq "pin"} {
+                lappend flags pin
+            } else {
+                lappend flags custom
+            }
+        }
         config { lappend flags cfg }
     }
-    $T item element configure $it Cflag eFlag -text [join $flags " "]
+    cfg-flag-set $it $flags
 }
 
 proc cfg-select {it} {
@@ -1065,7 +1094,31 @@ proc cfg-click {x y} {
     if {[lindex $id 0] ne "item" || [lindex $id 2] ne "column"} { return 0 }
     focus $::cfg_T
     cfg-select [lindex $id 1]
+    # ...and a click ON THE BADGE is the badge's own gesture
+    if {[cfg-flag-hit $id]} { cfg-row-menu }
     return 1
+}
+# Is this identify's answer the flag cell of a row that HAS a badge?
+# An empty cell is not a link and must not pretend to be one.
+proc cfg-flag-hit {id} {
+    if {[lindex $id 0] ne "item" || [lindex $id 2] ne "column"} { return 0 }
+    set T $::cfg_T
+    if {[catch {$T column id [lindex $id 3]} c]} { return 0 }
+    if {$c ne [$T column id Cflag]} { return 0 }
+    if {[catch {$T item element cget [lindex $id 1] Cflag eFlag -text} t]} {
+        return 0
+    }
+    return [expr {$t ne ""}]
+}
+# The pointer says what the underline says. Kept on the tree rather
+# than on the cell (treectrl has no per-element cursor), and changed
+# only when it actually changes — a cursor reset on every motion event
+# is a flicker on some X servers.
+proc cfg-motion {x y} {
+    set want [expr {[cfg-flag-hit [$::cfg_T identify $x $y]] ? "hand2" : ""}]
+    if {$want eq $::cfg_cursor} return
+    set ::cfg_cursor $want
+    $::cfg_T configure -cursor $want
 }
 proc cfg-doubleclick {x y} {
     if {![cfg-click $x $y]} { return 0 }
@@ -1744,22 +1797,189 @@ proc cfg-erase {} {
     # elsewhere roll back (2026-08-01). So the previews are taken up
     # again afterwards: they are commands, and re-running them is
     # exactly what a preview is.
-    set keep [dict remove $::cfg_pending $name]
-    wm-call [list custom-erase $name]
+    set kept [cfg-reload-keeping [list $name] \
+                  [list wm-call [list custom-erase $name]]]
+    cfg-refresh
+    cfg-status "$name is back to [cfg-owner $name]'s word[cfg-kept-note $kept]"
+}
+# ...and it is the same door every row-scoped undo goes through. The
+# layers are the truth, so re-reading them is how anything here is
+# taken back — but a preview is by definition what they do not say
+# yet, and the ones this act is not about are re-run on the other
+# side. They are commands; re-running one is exactly what a preview
+# is.
+proc cfg-reload-keeping {drop script} {
+    set keep $::cfg_pending
+    foreach n $drop { dict unset keep $n }
+    uplevel #0 $script
     dict for {n pend} $keep {
         if {[catch {wm-call [dict get $pend cmd]} err]} {
             puts "UI: configurator: preview of «[dict get $pend cmd]» did not\
- survive the erase: $err"
+ survive: $err"
             dict unset keep $n
         }
     }
     set ::cfg_pending $keep
-    cfg-refresh
-    set note "$name is back to [cfg-owner $name]'s word"
-    if {[dict size $keep]} {
-        append note " — [dict size $keep] unsaved change(s) elsewhere kept"
+    return [dict size $keep]
+}
+proc cfg-kept-note {n} {
+    if {!$n} { return "" }
+    return " — $n unsaved change(s) elsewhere kept"
+}
+# ---- the row menu (the owner's shape, 2026-08-02) ----
+# What the menu is ABOUT, said the same way for every kind of row: the
+# word's address, whose it is, what unsaved work stands on it, and
+# where the CONFIG mentions it. A field or a shadowed claimant is part
+# of its element's word, so the question climbs to the element — the
+# same climb Delete makes.
+proc cfg-row-subject {it} {
+    set T $::cfg_T
+    if {$it eq ""} { return "" }
+    while {[dict exists $::cfg_node $it]
+           && [dict get $::cfg_node $it what] in {field shadow}} {
+        set it [$T item parent $it]
     }
-    cfg-status $note
+    if {[dict exists $::cfg_node $it]} {
+        set d [dict get $::cfg_node $it]
+        if {[dict get $d what] ne "elem"} { return "" }
+        set coll [dict get $d coll]
+        set key [dict get $d key]
+        set rec [cfg-elem-rec $coll $key [dict exists $d dead]]
+        if {$rec eq ""} { return "" }
+        set lkey [cfg-layer-key $coll $key $rec]
+        # a binding carries its own chain (it was recorded where the
+        # bind happened, which is exact); anything else asks the layer
+        set where {}
+        if {[dict exists $rec where]} { set where [dict get $rec where] }
+        if {![llength $where]} {
+            set where [wm-call [list knob-where $lkey config]]
+        }
+        set pend {}
+        dict for {n -} $::cfg_pending {
+            if {[lrange $n 0 2] eq [list @field $coll $key]} { lappend pend $n }
+        }
+        return [dict create kind elem item $it coll $coll key $key rec $rec \
+            pretty $key owner [dict get $rec owner] lkey $lkey \
+            pending $pend where $where]
+    }
+    set name [cfg-name-of $it]
+    if {$name eq ""} { return "" }
+    set pend {}
+    if {[dict exists $::cfg_pending $name]} { lappend pend $name }
+    return [dict create kind knob item $it name $name \
+        pretty [cfg-pretty $name] owner [cfg-owner $name] lkey $name \
+        pending $pend where [wm-call [list knob-where $name config]]]
+}
+proc cfg-row-menu {} {
+    set m [cfg-row-menu-build]
+    if {$m eq ""} return
+    set T $::cfg_T
+    lassign [$T item bbox [dict get [cfg-row-subject [cfg-selected]] item] \
+                 Cflag] x1 y1 x2 y2
+    tk_popup $m [expr {[winfo rootx $T] + $x1}] [expr {[winfo rooty $T] + $y2}]
+}
+# Built and posted apart, so a test can read what the menu OFFERS
+# without a grab standing over the rest of the suite.
+proc cfg-row-menu-build {} {
+    set T $::cfg_T
+    set s [cfg-row-subject [cfg-selected]]
+    if {$s eq ""} {
+        cfg-status "the row menu is about one word — stand on a knob or\
+ on a family's element" error
+        return ""
+    }
+    catch {destroy $T.rowpop}
+    menu $T.rowpop -tearoff 0 -font DeskFont
+    $T.rowpop add command -label [dict get $s pretty] -state disabled
+    $T.rowpop add separator
+    set mine [expr {[dict get $s owner] eq "custom"}]
+    $T.rowpop add command -label "Erase my word" \
+        -state [expr {$mine ? "normal" : "disabled"}] \
+        -command [list cfg-row-do erase $s]
+    $T.rowpop add command -label "Reset to saved" \
+        -state [expr {[llength [dict get $s pending]] ? "normal" : "disabled"}] \
+        -command [list cfg-row-do reset $s]
+    if {[dict get $s kind] eq "knob"} {
+        # PINNING is the Enter-on-the-same-value gesture, said out
+        # loud: a word of ours that holds what the layers below
+        # already give, so a later config cannot move it.
+        $T.rowpop add command -label "Pin this value as mine" \
+            -state [expr {$mine ? "disabled" : "normal"}] \
+            -command [list cfg-row-do pin $s]
+    }
+    $T.rowpop add separator
+    set where [dict get $s where]
+    if {![llength $where]} {
+        $T.rowpop add command -state disabled \
+            -label "the config does not mention it"
+    } else {
+        set i 0
+        foreach place $where {
+            set m $T.rowpop.p[incr i]
+            catch {destroy $m}
+            menu $m -tearoff 0 -font DeskFont
+            $m add command -label "in emacs" \
+                -command [list cfg-open-place emacs $place]
+            $m add command -label "in \$EDITOR, in a terminal" \
+                -command [list cfg-open-place terminal $place]
+            if {$i == 1} {
+                set label "Said at [cfg-place-brief $place]"
+            } else {
+                set label "…called from [cfg-place-brief $place]"
+            }
+            $T.rowpop add cascade -menu $m -label $label
+        }
+    }
+    return $T.rowpop
+}
+proc cfg-place-brief {place} {
+    if {![regexp {^(.*):(\d+)$} $place -> file line]} { return $place }
+    return "[file tail $file]:$line"
+}
+proc cfg-open-place {how place} {
+    if {![regexp {^(.*):(\d+)$} $place -> file line]} {
+        cfg-status "«$place» does not name a file and a line" error
+        return
+    }
+    if {[catch {wm-call [list edit-place $how $file $line]} err]} {
+        cfg-status [cfg-brief $err] error
+        return
+    }
+    cfg-status "opening [cfg-place-brief $place]"
+}
+proc cfg-row-do {how s} {
+    if {![cfg-editing-guard [dict get $s pretty]]} return
+    switch -- $how {
+        erase {
+            if {[dict get $s kind] eq "knob"} {
+                cfg-select [dict get $s item]
+                cfg-erase
+                return
+            }
+            set kept [cfg-reload-keeping [dict get $s pending] \
+                [list cfg-erase-word [dict get $s coll] [dict get $s key] \
+                     [dict get $s rec]]]
+            cfg-refresh
+            cfg-status "[dict get $s pretty]: your word is taken\
+ back[cfg-kept-note $kept]"
+        }
+        reset {
+            set kept [cfg-reload-keeping [dict get $s pending] \
+                          {wm-call reload-config}]
+            cfg-refresh
+            cfg-status "[dict get $s pretty] is back to what is\
+ saved[cfg-kept-note $kept]"
+        }
+        pin {
+            set name [dict get $s name]
+            set v [cfg-cur $name]
+            if {[cfg-set $name $v]} {
+                cfg-refresh
+                cfg-status "[dict get $s pretty] will be held at «$v» —\
+ Save writes it down"
+            }
+        }
+    }
 }
 proc cfg-revert {} {
     set ::cfg_pending {}
@@ -1901,16 +2121,19 @@ proc cfg-delete {} {
 }
 # The word we hold about ONE element, whatever family it is in.
 proc cfg-erase-word {coll key e} {
-    if {[dict exists $e lkey]} {
-        wm-call [list custom-erase [dict get $e lkey]]
-        return
-    }
+    wm-call [list custom-erase [cfg-layer-key $coll $key $e]]
+}
+# WHERE A WORD IS FILED IN A LAYER — the address the erase uses, and
+# the one the provenance is keyed by, said in one place so the two can
+# never drift apart.
+proc cfg-layer-key {coll key e} {
+    if {[dict exists $e lkey]} { return [dict get $e lkey] }
     switch -- $coll {
-        panel   { wm-call [list custom-erase "panel-button $key"] }
-        actions { wm-call [list custom-erase "action $key"] }
-        widgets { wm-call [list custom-erase "wm-widget $key"] }
-        default { wm-call [list custom-erase "$coll $key"] }
+        panel   { return "panel-button $key" }
+        actions { return "action $key" }
+        widgets { return "wm-widget $key" }
     }
+    return "$coll $key"
 }
 # ...and the subtree reading: everything of ours in one family. The
 # desk answers what our words ARE (layer-touched), so this needs no
