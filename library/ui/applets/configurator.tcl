@@ -1180,18 +1180,21 @@ proc cfg-entry-close {} {
     catch {bind $::cfg_T.edit.t <FocusOut> {}}
     catch {destroy $::cfg_T.edit}
 }
+# Answers whether the edit is now SETTLED — committed or dropped — so
+# a caller that must not walk over a half-typed value (Save) can tell.
 proc cfg-entry-done {how} {
     set T $::cfg_T
-    if {![winfo exists $T.edit]} return
+    if {![winfo exists $T.edit]} { return 1 }
     set v [ui-field-get $T.edit]
     set name $::cfg_editing
     if {$how eq "commit"} {
         # a refusal KEEPS the editor open on the offending text — the
         # message says what is wrong, and the fix is a keystroke away
-        if {![cfg-set $name $v]} { return }
+        if {![cfg-set $name $v]} { return 0 }
     }
     cfg-entry-close
     focus $T
+    return 1
 }
 # A dialog's answer goes through the editor's own commit path, so one
 # gesture ends in one committed value.
@@ -1563,6 +1566,8 @@ proc cfg-brief {err} {
     return $one
 }
 proc cfg-save {} {
+    # an open editor is part of what one means by «save»
+    if {![cfg-entry-done commit]} return
     # The PANEL fields do not write their preview commands: the panel
     # set is custom's whole or not custom's at all (the owner's
     # decision 2), so their pendings fold into one adoption below.
@@ -1641,6 +1646,7 @@ proc cfg-adopt-panel {deltas {skip {}}} {
 # back to the config's word or the code's. Also drops a pending
 # preview for that knob — it is the same "never mind".
 proc cfg-erase {} {
+    if {![cfg-editing-guard erase]} return
     set it [cfg-selected]
     if {$it eq ""} return
     set name [cfg-name-of $it]
@@ -1650,9 +1656,30 @@ proc cfg-erase {} {
         cfg-status "$name carries no customization to erase"
         return
     }
+    # ERASING ONE WORD MUST NOT COST THE OTHERS. The erase reloads —
+    # that is what makes it honest, since nothing here has to know
+    # how to undo a knob — but a reload puts the desk back to what
+    # the LAYERS say, and every preview standing on another row goes
+    # with it. The owner erased one thing and watched an unsaved edit
+    # elsewhere roll back (2026-08-01). So the previews are taken up
+    # again afterwards: they are commands, and re-running them is
+    # exactly what a preview is.
+    set keep [dict remove $::cfg_pending $name]
     wm-call [list custom-erase $name]
+    dict for {n pend} $keep {
+        if {[catch {wm-call [dict get $pend cmd]} err]} {
+            puts "UI: configurator: preview of «[dict get $pend cmd]» did not\
+ survive the erase: $err"
+            dict unset keep $n
+        }
+    }
+    set ::cfg_pending $keep
     cfg-refresh
-    cfg-status "$name is back to [cfg-owner $name]'s word"
+    set note "$name is back to [cfg-owner $name]'s word"
+    if {[dict size $keep]} {
+        append note " — [dict size $keep] unsaved change(s) elsewhere kept"
+    }
+    cfg-status $note
 }
 proc cfg-revert {} {
     set ::cfg_pending {}

@@ -364,6 +364,7 @@ qu 'proc cfg-confirm {msg} {return 1}' >/dev/null
 # needs not yet met SAVES on the action and its button stands by;
 # windows carries no per-member params
 qu 'proc cfg-confirm {msg} {return 1}
+    proc t-knob {name} { cfg-select [dict get $::cfg_item $name]; return $name }
     proc t-dead {coll key} {
         dict for {i d} $::cfg_node {
             if {[dict get $d what] eq "elem" && [dict get $d coll] eq $coll
@@ -559,6 +560,21 @@ GUARD=$(qu 'set r {}
         kept [winfo exists $::cfg_T.edit]
     cfg-entry-done cancel
     set r')
+# ---- erasing one word keeps the previews standing on others ----
+# The owner erased a customization and watched an unsaved edit
+# elsewhere roll back with it (2026-08-01): the erase reloads, and a
+# reload puts the desk back to what the LAYERS say.
+KEEPS=$(qu 'cfg-set set-edge-resist 9
+    cfg-save
+    cfg-set set-fade 0.31          ;# saved, so there is something to erase
+    cfg-save
+    cfg-set set-edge-resist 4      ;# ...and this one is NOT saved
+    t-knob set-fade
+    cfg-erase
+    list fade [cfg-cur set-fade] \
+         still-pending [dict exists $::cfg_pending set-edge-resist] \
+         desk [wm-call {set ::edge_resist}]')
+
 PIXEL=$(qu 'set T $::cfg_T
     set addr set-fade
     set it [dict get $::cfg_item $addr]
@@ -1017,7 +1033,14 @@ if [ "$CLASH" = "held 0 demoted -1 seen 1" ]; then
 else
     echo "FAIL: the clash guard: $CLASH"
 fi
-echo "--- pixel={$PIXEL}"
+echo "--- keeps={$KEEPS} pixel={$PIXEL}"
+case $KEEPS in
+    "fade 0.31"*)
+        echo "FAIL: the erase did not take its own word back: $KEEPS" ;;
+    *"still-pending 1 desk 4")
+        echo "OK: an erase took back its own word and left the other preview standing" ;;
+    *) echo "FAIL: after the erase: $KEEPS" ;;
+esac
 case $PIXEL in
     "dx 0 dy 0") echo "OK: the editor's text lands exactly on the cell's" ;;
     *) echo "FAIL: the editor's text is off by $PIXEL" ;;
