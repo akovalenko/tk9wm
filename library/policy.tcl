@@ -7185,6 +7185,17 @@ proc keymap-where {node keys} {
 
 proc collection-bindings {} {
     set out [keymap-elements $::keymap {} {}]
+    # ONE ROW PER CHORD, and the losers hang UNDER it. A layer word
+    # that does not answer used to be an element of its own, so a
+    # chord two layers had spoken about wore two rows with the same
+    # name and no relation between them — «как-то не очень понятно
+    # всё в целом» (the owner, 2026-08-01). Now the live word carries
+    # its claimants: same information, one story.
+    #
+    # A word whose chord answers NOTHING keeps a row of its own —
+    # there is no live row to hang it on, and it must still be
+    # visible to be taken back.
+    set orphans {}
     foreach layer {custom config} {
         if {![dict exists $::layer_knobs $layer]} continue
         dict for {k cmd} [dict get $::layer_knobs $layer] {
@@ -7195,37 +7206,27 @@ proc collection-bindings {} {
             if {[catch {lmap tok [lindex $cmd 1] \
                             {join [parse-chord $tok] ,}} pk]} continue
             # WHOSE the chord is now is the leaf's own word, not a
-            # guess from matching script texts — which could not tell
-            # two identical scripts apart and had nothing to say about
-            # the case that matters: a layer word that no longer
-            # answers. It says WHY now.
+            # guess from matching script texts
             if {[keymap-origin $::keymap $pk] eq $layer} continue
-            set live [keymap-payload $::keymap $pk]
             set chord [join [lmap c $pk {chord-name {*}[split $c ,]}] " "]
-            if {$live eq ""} {
-                set why "not in force — nothing answers this chord now"
-            } else {
-                set why "not in force — [owner-words \
-                    [keymap-origin $::keymap $pk]] word answers here"
-                # ...and the winner is told what it stands over, so
-                # the pair reads as one story from either row
-                set out [lmap e $out {
-                    if {[dict get $e key] ne $chord
-                            || [dict exists $e ineffectual]} {
-                        set e
-                    } else {
-                        dict lappend e over $layer
-                    }
-                }]
+            set claim [dict create owner $layer lkey $k \
+                script [lindex $cmd 2] name [lindex $cmd 3]]
+            if {[keymap-payload $::keymap $pk] eq ""} {
+                lappend orphans [dict create key $chord \
+                    values [dict create script [lindex $cmd 2] \
+                                name [lindex $cmd 3]] \
+                    owner $layer lkey $k ineffectual 1 \
+                    why "not in force — nothing answers this chord now"]
+                continue
             }
-            lappend out [dict create \
-                key $chord \
-                values [dict create script [lindex $cmd 2] \
-                            name [lindex $cmd 3]] \
-                owner $layer lkey $k ineffectual 1 why $why]
+            set out [lmap e $out {
+                if {[dict get $e key] ne $chord} { set e } else {
+                    dict lappend e shadowed $claim
+                }
+            }]
         }
     }
-    dict create elements $out
+    dict create elements [concat $out $orphans]
 }
 # Whose, in words a sentence can carry.
 proc owner-words {origin} {

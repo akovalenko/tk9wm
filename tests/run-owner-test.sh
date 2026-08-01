@@ -61,9 +61,12 @@ sleep 0.3
 BACK="$(origin '<Super>t w m') $(answers '<Super>t w m')"
 WHY=$(q 'set r none
     foreach e [dict get [collection-bindings] elements] {
-        if {[dict get $e key] eq "Super+t w m" && [dict exists $e ineffectual]} {
-            set r [dict get $e why]
-        }
+        if {[dict get $e key] ne "Super+t w m"} continue
+        if {![dict exists $e shadowed]} continue
+        set claim [lindex [dict get $e shadowed] 0]
+        set r "[dict get $claim owner] said [dict get $claim script],\
+ and [owner-words [keymap-origin $::keymap \
+     [lmap t {<Super>t w m} {join [parse-chord $t] ,}]]] word answers"
     }
     set r')
 
@@ -121,7 +124,7 @@ else
     echo "FAIL: after the toggle: $AFTEROFF (left-lines: $LEFT)"
 fi
 case "$BACK|$WHY" in
-    "bundle accords winops|not in force"*)
+    "bundle accords winops|custom said list mine-now,"*)
         echo "OK: the family taking it back is a claim the tree can explain" ;;
     *) echo "FAIL: back={$BACK} why={$WHY}" ;;
 esac

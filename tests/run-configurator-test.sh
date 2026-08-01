@@ -315,25 +315,34 @@ AFTERSAVE=$(qu 'set c [dict get $::cfg_coll panel]
     set b [lindex [dict get $c elements] 0]
     list owned [dict get $c owned] owner [dict get $b owner] \
          label [dict get $b values label]')
-BINDROWS=$(qu 'set live {}; set dead {}
+# ONE ROW PER CHORD: the word in force is the row, and the one it
+# stands over hangs UNDER it — a claimant, not a second element with
+# the same name (the owner, 2026-08-01: two such rows read as a
+# duplicate and explained nothing).
+BINDROWS=$(qu 'set rows {}; set kids {}
     dict for {i d} $::cfg_node {
-        if {[dict get $d what] ne "elem"
-            || [dict get $d coll] ne "bindings"} continue
+        if {[dict get $d what] eq "coll"} continue
+        if {[dict get $d coll] ne "bindings"} continue
         if {[dict get $d key] ne "Super+5"} continue
-        set f [$::cfg_T item element cget $i Cflag eFlag -text]
-        if {[string match {*✗*} $f]} { lappend dead $f } else { lappend live $f }
+        switch -- [dict get $d what] {
+            elem   { lappend rows [$::cfg_T item element cget $i Cflag eFlag -text] }
+            shadow { lappend kids [list [dict get $d owner] \
+                         [$::cfg_T item element cget $i Cflag eFlag -text]] }
+        }
     }
-    list live $live dead $dead')
+    list rows $rows under $kids')
 # ...and each of those rows says whose word it is and where it was
 # said — the doc column, which used to hold nothing for an element
 BINDNOTE=$(qu 'set live ""; set dead ""
     dict for {i d} $::cfg_node {
-        if {[dict get $d what] ne "elem"
-            || [dict get $d coll] ne "bindings"} continue
+        if {[dict get $d what] eq "coll"} continue
+        if {[dict get $d coll] ne "bindings"} continue
         if {[dict get $d key] ne "Super+5"} continue
-        set f [$::cfg_T item element cget $i Cflag eFlag -text]
         set t [$::cfg_T item element cget $i Cdoc eDoc -text]
-        if {[string match {*✗*} $f]} { set dead $t } else { set live $t }
+        switch -- [dict get $d what] {
+            elem   { set live $t }
+            shadow { set dead $t }
+        }
     }
     list live $live dead $dead')
 
@@ -792,12 +801,12 @@ case $AFTERSAVE in
     *) echo "FAIL: after save: $AFTERSAVE" ;;
 esac
 case $BINDROWS in
-    "live custom dead {{✗ cfg}}")
-        echo "OK: the buried config bind wears ✗ beside the live custom one" ;;
+    "rows custom under {{config {✗ cfg}}}")
+        echo "OK: one row per chord, and the config's word hangs under it" ;;
     *) echo "FAIL: bind rows: $BINDROWS" ;;
 esac
 case $BINDNOTE in
-    "live {in force — yours, over the config's} dead {not in force — your word answers here}")
+    "live {in force — yours, over the config's} dead {the config's word, not in force}")
         echo "OK: a bind row says whose word it is, and the buried one where" ;;
     *) echo "FAIL: bind notes: $BINDNOTE" ;;
 esac

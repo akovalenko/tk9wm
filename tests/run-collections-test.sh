@@ -95,7 +95,7 @@ kill $WM 2>/dev/null
 echo "--- table: $T1"
 echo "--- after reload: $T2"
 echo "--- verdict"
-WANT='btn дом custom label 1 act {custom launch 1 key 1} five {{list custom-five} custom live {list config-five} config dead} widget {{-type clock} config} accords {on config <Super>x}'
+WANT='btn дом custom label 1 act {custom launch 1 key 1} five {{list custom-five} custom live} widget {{-type clock} config} accords {on config <Super>x}'
 if [ "$T1" = "$WANT" ]; then
     echo "OK: every family serves said values, owners and the buried bind"
 else

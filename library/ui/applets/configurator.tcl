@@ -365,10 +365,25 @@ proc cfg-refresh-body {} {
                     [list [list @field $cname $key $f] $fmeta \
                      [lsearch -all -inline -index 1 $lint $f]]]
             }
+            # ...and after them, the words this one stands OVER:
+            # same chord, another layer, not in force. They are rows,
+            # not fields — nothing in them is edited here, and the
+            # only gesture they answer is Delete on one of ours.
+            if {[dict exists $e shadowed]} {
+                foreach claim [dict get $e shadowed] {
+                    lappend frows [list [list @over [dict get $claim owner]] \
+                        [list shadow $claim]]
+                }
+            }
             set fm [treesync::sync $T \
                         {make cfg-field-make update cfg-field-update} \
                         $frows $it]
             dict for {f fit} $fm {
+                if {[lindex $f 0] eq "@over"} {
+                    dict set ::cfg_node $fit [dict create what shadow \
+                        coll $cname key $key owner [lindex $f 1]]
+                    continue
+                }
                 dict set ::cfg_node $fit [dict create what field \
                     coll $cname key $key field $f]
                 dict set ::cfg_fitem [list @field $cname $key $f] $fit
@@ -496,13 +511,12 @@ proc cfg-elem-note {cname e} {
     if {$cname ne "bindings"} { return "" }
     if {[dict exists $e why]} { return [dict get $e why] }
     set note "in force — [cfg-owner-words $e]"
-    # what this word STANDS OVER, which is the other half of the pair
-    # of rows one chord can wear (the owner asked what the second row
-    # even meant, 2026-08-01)
-    if {[dict exists $e over]} {
+    # what this word STANDS OVER — the claimants are rows under it
+    # now, and the summary here says how many before one unfolds them
+    if {[dict exists $e shadowed]} {
         set said {}
-        foreach layer [dict get $e over] {
-            lappend said [expr {$layer eq "custom" ? "yours" : "the config's"}]
+        foreach claim [dict get $e shadowed] {
+            lappend said [cfg-owner-words $claim]
         }
         append note ", over [join $said { and }]"
     }
@@ -535,6 +549,17 @@ proc cfg-elem-update {T item key data} {
 # kind-editors the knobs use; a buried bind has no children at all —
 # re-binding it is capture-chord's day, not a field edit here.
 proc cfg-field-dress {T item addr fmeta {lint {}}} {
+    # a claimant row: whose word it is, what it says, and that it is
+    # not the one answering
+    if {$addr eq "shadow"} {
+        $T item element configure $item Cval eVal \
+            -text [dict get $fmeta script]
+        $T item element configure $item Cflag eFlag \
+            -text [expr {[dict get $fmeta owner] eq "custom" ? "✗ yours" : "✗ cfg"}]
+        $T item element configure $item Cdoc eDoc \
+            -text "[cfg-owner-words $fmeta] word, not in force"
+        return
+    }
     $T item element configure $item Cval eVal \
         -text [cfg-value-text $addr [cfg-cur $addr]]
     set flag [expr {[dict exists $::cfg_pending $addr] ? "•" : ""}]
@@ -553,7 +578,8 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
 proc cfg-field-make {T parent key data} {
     set item [$T item create]
     $T item style set $item Cname sName Cval sVal Cflag sFlag Cdoc sDoc
-    $T item element configure $item Cname eTxt -text $key
+    $T item element configure $item Cname eTxt \
+        -text [expr {[lindex $key 0] eq "@over" ? "…instead of" : $key}]
     cfg-field-dress $T $item {*}$data
     return $item
 }
@@ -901,6 +927,12 @@ proc cfg-activate {{how primary}} {
     if {$name eq ""} {
         # a collection FIELD edits; every other nameless row folds —
         # a group, a family node, an element, a buried bind
+        if {[dict exists $::cfg_node $it]
+                && [dict get $::cfg_node $it what] eq "shadow"} {
+            cfg-status "this word is not the one answering — the row\
+ above it is; Delete takes it back if it is yours"
+            return
+        }
         if {[dict exists $::cfg_node $it]
                 && [dict get $::cfg_node $it what] eq "field"} {
             set name [cfg-node-addr $it]
@@ -1565,6 +1597,23 @@ proc cfg-delete {} {
     set d [dict get $::cfg_node $it]
     switch -- [dict get $d what] {
         coll  { cfg-delete-family [dict get $d coll]; return }
+        shadow {
+            if {[dict get $d owner] ne "custom"} {
+                cfg-status "that is the config's own word, kept here\
+ because yours stands over it — the file that says it is yours to\
+ edit, not this applet's"
+                return
+            }
+            set e [cfg-elem-rec bindings [dict get $d key]]
+            foreach claim [dict get $e shadowed] {
+                if {[dict get $claim owner] ne "custom"} continue
+                wm-call [list custom-erase [dict get $claim lkey]]
+            }
+            cfg-refresh
+            cfg-status "[dict get $d key]: your word that was not in\
+ force is taken back"
+            return
+        }
         field {
             cfg-status "a field is part of its element's word — Delete\
  on the element takes the whole of it back, or edit this to {} to\
