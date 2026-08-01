@@ -435,6 +435,26 @@ AWAITFLAG=$(qu 'set r none
         }
     }
     set r')
+# ---- one slot, two spellings (slice 3) ----
+# the tree shows the spelling in EFFECT and not the other: probe says
+# run, dummy says launch, and neither wears the row it did not say
+SLOTROWS=$(qu 'list p-run [dict exists $::cfg_fitem {@field actions probe run}] \
+    p-launch [dict exists $::cfg_fitem {@field actions probe launch}] \
+    d-run [dict exists $::cfg_fitem {@field actions dummy run}] \
+    d-launch [dict exists $::cfg_fitem {@field actions dummy launch}]')
+# what may cross over, and what may not: one Run of literal words is
+# a command said as a script; anything richer stays a script
+CROSS=$(q 'list plain [run-words-of {Run xclock -update 1}] \
+    subst [run-words-of {Run tail -f $env(HOME)/log}] \
+    other [run-words-of {exec true &}] \
+    two [run-words-of {Run a; Run b}]')
+# the switch itself: un-say one, say the other, and the row flips
+qu 'cfg-slot-switch {@field actions probe run} launch {Run xclock}' >/dev/null
+sleep 0.5
+SWITCHED=$(q 'list said [dict get $::action_raw probe] \
+    fires [lindex [dict get $::action_spec probe launch] 0]')
+SLOTROWS2=$(qu 'list p-run [dict exists $::cfg_fitem {@field actions probe run}] \
+    p-launch [dict exists $::cfg_fitem {@field actions probe launch}]')
 qu 'cfg-insert-action {} fresh1' >/dev/null
 sleep 0.3
 AINS=$(grep -c '^action fresh1 {}$' "$HERE/cfg-config/tk9wm.custom.tcl")
@@ -750,6 +770,21 @@ esac
 case $AWAITFLAG in
     "waiting cfg") echo "OK: a waiting action wears its flag in the tree" ;;
     *) echo "FAIL: waiting flag: «$AWAITFLAG»" ;;
+esac
+case "$SLOTROWS|$SLOTROWS2" in
+    "p-run 1 p-launch 0 d-run 0 d-launch 1|p-run 0 p-launch 1")
+        echo "OK: the slot shows the spelling in effect, and flips with it" ;;
+    *) echo "FAIL: slot rows: «$SLOTROWS» then «$SLOTROWS2»" ;;
+esac
+case $CROSS in
+    "plain {xclock -update 1} subst {} other {} two {}")
+        echo "OK: only one Run of literal words may cross to a command" ;;
+    *) echo "FAIL: crossing: $CROSS" ;;
+esac
+case $SWITCHED in
+    "said {icon Q launch {Run xclock}} fires Run")
+        echo "OK: the switch un-said one spelling and said the other" ;;
+    *) echo "FAIL: after the switch: $SWITCHED" ;;
 esac
 case "$AINS|$ADEL" in
     "1|0") echo "OK: Insert declares a fresh action, Delete takes it back" ;;

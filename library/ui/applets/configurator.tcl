@@ -14,7 +14,8 @@
 #   - arrows (and k/j, p/n, Ctrl+p/Ctrl+n) walk the rows; Return or
 #     F2 ACTIVATES — a bool toggles, a choice drops a menu, the
 #     free-form kinds open the overlay entry, color and font their
-#     dialogs; Left/Right fold and unfold a group;
+#     dialogs; Left/Right fold and unfold a group; F3 switches a
+#     SLOT between its two spellings (an action's run and launch);
 #   - the mouse follows the same grammar: a single click only SELECTS
 #     (and focuses the tree); activation is the double click;
 #   - Save and Revert wear Alt accelerators (ui-accel, the generic
@@ -41,9 +42,9 @@ set cfg_node {}      ;# tree item -> collection descriptor (coll/elem/field)
 set cfg_fitem {}     ;# field address -> tree item
 set cfg_fresh {}     ;# elements born in this refresh — folded once attached
 set cfg_T ""
-set cfg_hint "Return or F4 opens the picker · F2 types · Ins adds,\
- Del drops · Alt+↑/↓ move a button · Ctrl+Enter takes ·\
- Save makes it stick"
+set cfg_hint "Return or F4 opens the picker · F2 types · F3 switches a\
+ slot's spelling · Ins adds, Del drops · Alt+↑/↓ move a button ·\
+ Ctrl+Enter takes · Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
 # commit and explained nothing). Every rejection — ours by kind, or
@@ -173,6 +174,7 @@ proc cfg-build {W} {
     bind $T <KeyPress-Return> {cfg-activate primary; break}
     bind $T <KeyPress-F4>     {cfg-activate primary; break}
     bind $T <KeyPress-F2>     {cfg-activate text; break}
+    bind $T <KeyPress-F3>     {cfg-slot-menu; break}
     # h/l fold and unfold beside the arrows, the way k/j walk beside
     # Up and Down (the owner's ask — vi hands)
     foreach k {Left h} { bind $T <KeyPress-$k> {cfg-fold collapse; break} }
@@ -350,7 +352,9 @@ proc cfg-refresh-body {} {
             dict set ::cfg_node $it $desc
             if {$dead} continue
             set frows {}
+            set said [cfg-elem-values $cname $key]
             dict for {f fmeta} [dict get $cmeta fields] {
+                if {![cfg-slot-shown? $f $fmeta $said]} continue
                 lappend frows [list $f \
                     [list [list @field $cname $key $f] $fmeta]]
             }
@@ -602,6 +606,23 @@ proc cfg-fit {} {
 # cfg-set, cfg-cur and the pending dict carry; its kind comes from
 # the collection registry's field meta instead of the knob table.
 proc cfg-field? {name} { expr {[lindex $name 0] eq "@field"} }
+# ---- one slot, two spellings ----
+# Some keys are two ways of saying one thing and cannot be said
+# together (the registry's `xor`: an action's command is `run` or
+# `launch`, never both). A tree that showed both rows would be
+# offering a mistake — so it shows ONE, the spelling in effect, with
+# the switch behind its ▾. Unsaid on both, the first of the pair is
+# the face: the plain one, which is what the sugar is for.
+proc cfg-field-meta {name} {
+    dict get $::cfg_coll [lindex $name 1] fields [lindex $name 3]
+}
+proc cfg-slot-shown? {f fmeta said} {
+    if {![dict exists $fmeta xor] || [dict exists $said $f]} { return 1 }
+    foreach other [dict get $fmeta xor] {
+        if {[dict exists $said $other]} { return 0 }
+    }
+    return 1
+}
 proc cfg-kind-of {name} {
     if {[cfg-field? $name]} {
         return [dict get $::cfg_coll [lindex $name 1] \
@@ -818,7 +839,10 @@ proc cfg-activate {{how primary}} {
         }
     }
 }
-# Which kinds have a picker behind the ▾ — and what it is.
+# Which kinds have a picker behind the ▾ — and what it is. A slot's
+# switch is NOT here on purpose: editing the command is the everyday
+# thing and keeps the everyday gestures; changing which spelling the
+# slot wears is rare and has a key of its own (F3).
 proc cfg-picker-of {name} {
     switch -- [lindex [cfg-kind-of $name] 0] {
         color { return cfg-color-dialog }
@@ -944,6 +968,67 @@ proc cfg-picked {name value} {
 # start, Escape leaves, Alt+O and Alt+C are on the buttons; Return
 # is a NEWLINE here (the list is multi-line by nature), so the
 # commit is the button or its accelerator.
+# The slot's ▾: which of the two spellings this row is, and the way
+# across. One direction always works — a command is a script that
+# says Run and nothing else. The other only when the script IS that
+# and no more (run-words-of, which is strict on purpose): anything
+# richer would have to be thrown away to fit a command field, so
+# that entry stands DISABLED and says why in its own label rather
+# than converting something it does not understand.
+proc cfg-slot-menu {} {
+    set it [cfg-selected]
+    if {$it eq "" || ![dict exists $::cfg_node $it]
+            || [dict get $::cfg_node $it what] ne "field"} {
+        cfg-status "F3 switches how a slot is said — stand on one first" error
+        return
+    }
+    set name [cfg-node-addr $it]
+    if {![dict exists [cfg-field-meta $name] xor]} {
+        cfg-status "[cfg-pretty $name] has only the one spelling" error
+        return
+    }
+    set f [lindex $name 3]
+    set T $::cfg_T
+    catch {destroy $T.pop}
+    menu $T.pop -tearoff 0 -font DeskFont
+    set ::cfg_slot $f
+    set value [cfg-cur $name]
+    foreach other [concat [list $f] [dict get [cfg-field-meta $name] xor]] {
+        if {$other eq $f} {
+            $T.pop add radiobutton -label $other -variable ::cfg_slot \
+                -value $other
+            continue
+        }
+        # what the value would BECOME over there, and whether it can
+        set to ""
+        set why ""
+        if {[lindex [cfg-kind-of $name] 0] eq "list"} {
+            set to [list Run {*}$value]      ;# the command, said as a script
+        } else {
+            set to [wm-call [list run-words-of $value]]
+            if {$to eq ""} { set why " (this script says more than a command can)" }
+        }
+        $T.pop add radiobutton -label "$other$why" -variable ::cfg_slot \
+            -value $other -state [expr {$why eq "" ? "normal" : "disabled"}] \
+            -command [list cfg-slot-switch $name $other $to]
+    }
+    lassign [$T item bbox [dict get $::cfg_fitem $name] Cval] x1 y1 x2 y2
+    tk_popup $T.pop [expr {[winfo rootx $T] + $x1}] \
+                    [expr {[winfo rooty $T] + $y2}]
+}
+# The switch itself: UN-SAY first and say after, because the two
+# cannot stand together for even one command — the desk would refuse
+# the pair, and rightly. A failure on the way leaves the field
+# empty, which the field's own undo (a reload) puts back.
+proc cfg-slot-switch {name to value} {
+    lassign $name - coll key from
+    if {![cfg-set $name {}]} return
+    if {[cfg-set [list @field $coll $key $to] $value]} {
+        cfg-status "$key: said as $to now"
+    }
+    cfg-refresh
+}
+
 proc cfg-list-dialog {name} {
     set w .cfg-list
     catch {destroy $w}

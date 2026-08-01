@@ -5122,8 +5122,36 @@ proc spec-fields {name} {
             kind [expr {[lindex $kind 0] eq "choice"
                         ? $kind : [dict get $editor $kind]}] \
             doc [dict get $meta doc]]
+        # the xor rides along: an editor that knows two keys are one
+        # slot can offer the SWITCH instead of letting a user say
+        # both and meet the refusal afterwards
+        if {[dict exists $meta xor]} {
+            dict set out $k xor [dict get $meta xor]
+        }
     }
     return $out
+}
+
+# Is this script nothing but one `Run` of literal words — and if so,
+# which words? The question an editor asks before offering to show a
+# launch as a plain command, and the linter asks for its own reasons.
+#
+# Deliberately STRICT, because the wrong answer here rewrites what
+# somebody wrote: one command (no newline, no semicolon), `Run`
+# first, and every word free of the characters that would mean
+# something else at fire time — a `$`, a bracket, a backslash. A
+# script that says more than a command can say keeps being a script,
+# which is the honest half of the offer.
+proc run-words-of {script} {
+    set s [string trim $script]
+    if {[regexp {[\n;]} $s]} { return "" }
+    if {[catch {llength $s}]} { return "" }
+    if {[llength $s] < 2 || [lindex $s 0] ne "Run"} { return "" }
+    set words [lrange $s 1 end]
+    foreach w $words {
+        if {[regexp {[\[\$\\]} $w]} { return "" }
+    }
+    return $words
 }
 
 proc spec-derive {who settings} {
