@@ -576,6 +576,17 @@ NOTEFIT=$(qu 'set W [winfo toplevel $::cfg_T]
     list wrapped [expr {[$W.b.note cget -wraplength] == $room}] \
          lines [expr {[winfo height $W.b] >= 3*$line}] \
          anchor [$W.b.note cget -anchor]')
+# ...and NARROWING the window gives the hint the lines it now needs:
+# there is slack going down and none going sideways
+NOTEGROW=$(qu 'set W [winfo toplevel $::cfg_T]
+    set ::cfg_user_sized 1
+    wm geometry $W 1000x420; update idletasks
+    after 200; update idletasks
+    set wide [$W.b cget -height]
+    wm geometry $W 420x420; update idletasks
+    after 200; update idletasks
+    set narrow [$W.b cget -height]
+    list grew [expr {$narrow > $wide}] wide $wide narrow $narrow')
 
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
@@ -895,6 +906,11 @@ case $NOTEFIT in
     "wrapped 1 lines 1 anchor nw")
         echo "OK: three lines' room for the hint, anchored at its top-left" ;;
     *) echo "FAIL: note fit: $NOTEFIT" ;;
+esac
+case $NOTEGROW in
+    "grew 1 "*)
+        echo "OK: a narrowed window gives the hint the lines it needs" ;;
+    *) echo "FAIL: note growth: $NOTEGROW" ;;
 esac
 case "$LANDPARENT|$LANDPREV" in
     "what coll coll widgets|what elem coll panel key probe")

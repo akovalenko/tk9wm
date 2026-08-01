@@ -231,8 +231,14 @@ proc cfg-note-wrap {W w} {
     if {$W ne [winfo toplevel $::cfg_T]} return
     set l $W.b.note
     if {[winfo exists $l]} {
-        set room [expr {$w - [winfo x $l] - 12}]
-        if {$room > 80} { $l configure -wraplength $room }
+        # A FLOOR, not a threshold. It used to SKIP the rewrap when
+        # the room fell under 80px — which is exactly the width at
+        # which the hint most needs rewrapping, so a narrow window
+        # kept the wrap (and the lines) of a wide one and the text
+        # went out of the box sideways (the owner, 2026-08-01).
+        set room [expr {max($w - [winfo x $l] - 12, 120)}]
+        $l configure -wraplength $room
+        cfg-note-room $W $l $room
     }
     if {!$::cfg_user_sized && [llength $::cfg_fit_size]} {
         lassign $::cfg_fit_size fw fh
@@ -241,6 +247,27 @@ proc cfg-note-wrap {W w} {
             puts "UI: configurator: sized by hand — the fit steps aside"
         }
     }
+}
+
+# HOW TALL THE BOX MUST BE AT THIS WIDTH. Narrow the window and the
+# hint wraps onto more lines; there is usually slack going down and
+# none going sideways, so the box takes the room it needs and the
+# tree gives it up (the owner's ask, 2026-08-01).
+#
+# Measured on the HINT, never on what the status line happens to be
+# saying — that was the old lesson and it still holds: a refusal is
+# sometimes a long sentence, and the walls must not move as one
+# arrives and goes. A refusal too long for the room runs off the
+# bottom, which is what the label's top-left anchor is for.
+proc cfg-note-room {W l room} {
+    set m $W.b.measure
+    if {![winfo exists $m]} {
+        label $m -takefocus 0 -justify left       ;# never packed: a ruler
+    }
+    $m configure -font [$l cget -font] -wraplength $room -text $::cfg_hint
+    set line [font metrics [$l cget -font] -linespace]
+    set want [expr {max(3*$line, [winfo reqheight $m]) + 12}]
+    if {[$W.b cget -height] != $want} { $W.b configure -height $want }
 }
 
 # Any scroll ends an open editor (as a commit attempt): the entry is
