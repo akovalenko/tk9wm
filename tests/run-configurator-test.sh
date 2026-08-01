@@ -55,6 +55,13 @@ LINTFLAG=$(qu 'set r none
     set r')
 LINTDOC=$(qu 'set i [dict get $::cfg_fitem {@field actions dummy launch}]
     $::cfg_T item element cget $i Cdoc eDoc -text')
+# THE LINTER'S MARK IS NOT A MODIFICATION MARK. They were a dot each
+# and looked alike, and the owner read his own untouched actions as
+# changed (2026-08-02). Words now, and this says the untouched one
+# wears the remark and nothing about saving.
+LINTNOTMOD=$(qu 'set i [dict get $::cfg_fitem {@field actions dummy launch}]
+    set t [$::cfg_T item element cget $i Cflag eFlag -text]
+    list flag [list $t] unsaved [expr {[string match "*unsaved*" $t]}]')
 
 # ONCE THE USER HAS SIZED IT, the fit steps aside — asserted early,
 # before the scenes that deliberately break procs, and undone right
@@ -1157,9 +1164,14 @@ case $AWAITFLAG in
     *) echo "FAIL: waiting flag: «$AWAITFLAG»" ;;
 esac
 case "$LINTFLAG|$LINTDOC" in
-    *"·"*"|"*"said the long way"*)
+    *"note"*"|"*"said the long way"*)
         echo "OK: a remark wears a mark on its element and speaks on its row" ;;
     *) echo "FAIL: lint in the tree: flag «$LINTFLAG» doc «$LINTDOC»" ;;
+esac
+case "$LINTNOTMOD" in
+    "flag note unsaved 0")
+        echo "OK: a remark wears its own word and says nothing about saving" ;;
+    *) echo "FAIL: the linter's mark: $LINTNOTMOD" ;;
 esac
 if [ "$ACCEL" = 0 ]; then
     echo "OK: no two buttons in this applet promise the same Alt-letter"

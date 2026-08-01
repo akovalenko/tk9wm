@@ -28,7 +28,7 @@
 # entry drifting apart from its row was the first cut's bug.
 #
 # A commit PREVIEWS immediately — the knob runs on the live desk over
-# the send door — and marks the row pending (•). Save writes every
+# the send door — and marks the row «* unsaved». Save writes every
 # pending knob through custom-write; Revert is a config reload, the
 # desk's own undo. A row whose knob the CONFIG also sets wears a cfg
 # badge — the loader's truth made visible.
@@ -607,8 +607,8 @@ proc cfg-elem-dress {T item cname e} {
             # already explains its needs, and the sentence naming the
             # missing command waits on that row for whoever opens it
             if {[dict exists $e waiting] && [dict get $v key] eq "needs"} continue
-            if {[dict get $v level] eq "warn"} { set mark ⚠; break }
-            set mark ·
+            if {[dict get $v level] eq "warn"} { set mark warn; break }
+            set mark note
         }
         if {$mark ne ""} { lappend flags $mark }
     }
@@ -702,17 +702,18 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
     }
     $T item element configure $item Cval eVal \
         -text [cfg-value-text $addr [cfg-cur $addr]]
-    set flag [expr {[dict exists $::cfg_pending $addr] ? "•" : ""}]
+    set flags {}
+    if {[dict exists $::cfg_pending $addr]} { lappend flags "* unsaved" }
     set doc [dict get $fmeta doc]
     # A remark REPLACES the field's description while it stands: the
     # description says what the word is for, and one who has a
     # sentence about THIS word has the more useful thing to say.
     if {[llength $lint]} {
         set v [lindex $lint 0]
-        append flag [expr {[dict get $v level] eq "warn" ? "⚠" : "·"}]
+        lappend flags [expr {[dict get $v level] eq "warn" ? "warn" : "note"}]
         set doc [dict get $v text]
     }
-    $T item element configure $item Cflag eFlag -text $flag
+    cfg-flag-set $item $flags
     $T item element configure $item Cdoc eDoc -text $doc
 }
 proc cfg-field-make {T parent key data} {
@@ -782,7 +783,7 @@ proc cfg-fit {} {
     cfg-col-configure Cname -width {}
     cfg-col-configure Cval  -width {} -minwidth 140
     cfg-col-configure Cflag -width {} \
-        -minwidth [expr {[font measure DeskFont "• custom"] + 12}]
+        -minwidth [expr {[font measure DeskFont "* unsaved custom"] + 12}]
     cfg-col-configure Cdoc  -width {} -minwidth [expr {$wdoc + 16}]
     update idletasks
     foreach c {Cname Cval} {
@@ -931,9 +932,11 @@ proc cfg-show-field {addr} {
     # redraw of ONE cell after an edit, and the remarks are re-read
     # with the rest of the table on the next refresh
     set mark ""
-    regexp {[⚠·]$} [$::cfg_T item element cget $it Cflag eFlag -text] mark
-    cfg-flag-set $it \
-        "[expr {[dict exists $::cfg_pending $addr] ? {•} : {}}]$mark"
+    regexp {(warn|note)$} [$::cfg_T item element cget $it Cflag eFlag -text] mark
+    set flags {}
+    if {[dict exists $::cfg_pending $addr]} { lappend flags "* unsaved" }
+    if {$mark ne ""} { lappend flags $mark }
+    cfg-flag-set $it $flags
 }
 
 # ...and the seam the ownership runs through: a hand-dragged column
@@ -1002,7 +1005,7 @@ proc cfg-show-value {it name value} {
     # a click of yours that stuck (erasable), `cfg` for your
     # hand-written config, nothing at all for the desk's own default.
     set flags {}
-    if {[dict exists $::cfg_pending $name]} { lappend flags • }
+    if {[dict exists $::cfg_pending $name]} { lappend flags "* unsaved" }
     switch -- [cfg-owner $name] {
         custom {
             # PIN or CHANGE, the same distinction the elements wear:
