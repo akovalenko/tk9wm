@@ -2971,6 +2971,30 @@ keep keymap {}       ;# nested dict: "mods,keysym" -> {action script} | {map sub
 keep grabbed_top {}  ;# top chords held by XGrabKey — the MappingNotify re-grab list
 keep keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
 keep keyseq_keys {}  ;# ...and the chords that got us there, for the echo
+keep keyseq_mods 0   ;# ...and the modifiers the prefix was held with
+
+# HOLDING THE MODIFIER THROUGH A CHORD (the owner, 2026-08-02: "someone
+# might like <Super>t<Super>w<Super>w without letting go"). Both forms
+# for ONE bind, because they are the same intention typed by two kinds
+# of hand — a chord written {<Super>t w w} answers to Super+t w w and
+# to Super+t Super+w Super+w alike, and nothing has to be declared
+# twice. Only the PREFIX'S OWN modifiers count: Super held through a
+# Super chord is the hand not letting go, while Ctrl appearing halfway
+# through is a different key and stays one.
+#
+# The exact match is tried FIRST, so a submap that deliberately binds
+# <Super>w beside a bare w keeps both, and this only ever fills a gap.
+# What it costs is the restart: with the modifier down, a top-level
+# chord pressed inside a sequence used to start over, and now it lands
+# in the submap when the submap has that letter. That is real, and it
+# is why chord-hold-shadows says so out loud rather than leaving it as
+# advice about which letters to avoid.
+keep chord_hold 0
+proc set-chord-hold {on} {
+    if {![string is boolean -strict $on]} { error "set-chord-hold: on or off" }
+    set ::chord_hold [expr {$on ? 1 : 0}]
+    chord-hold-shadows
+}
 keep kbd_grabbed 0
 keep keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
 keep keyrouter_lost ""   ;# ...and this is its notice, see grab-keys-to
@@ -3121,6 +3145,42 @@ set HELP_CHORD [parse-chord {<Super>h}]
 keep help_chord $HELP_CHORD
 proc set-key-help {spec} {
     set ::help_chord [expr {$spec eq "off" ? "" : [parse-chord $spec]}]
+}
+
+# WHAT HOLDING THE MODIFIER COSTS, said out loud at the moment it is
+# switched on instead of left as advice about which letters to avoid.
+# With chord-hold on, a top chord pressed inside a sequence lands in
+# the SUBMAP whenever the submap has that letter — so <Super>h stops
+# asking "what is under this prefix" wherever the prefix binds h, and
+# <Super>d stops minimizing. The desk can see every one of those
+# coming, so it names them rather than making somebody remember a
+# rule. (The owner spotted the h case unaided; the general form is
+# "any top chord whose modifiers match a prefix's".)
+proc chord-hold-shadows {} {
+    if {!$::chord_hold} { return {} }
+    set out {}
+    dict for {pk pe} $::keymap {
+        if {[lindex $pe 0] ne "map"} continue
+        lassign [split $pk ,] pmods -
+        if {$pmods == 0} continue
+        set sub [lindex $pe 1]
+        dict for {tk te} $::keymap {
+            lassign [split $tk ,] tmods tks
+            if {$tmods ne $pmods || $tk eq $pk} continue
+            if {![dict exists $sub "0,$tks"]} continue
+            lappend out [list [chord-of-key $pk] [chord-of-key $tk]]
+        }
+    }
+    foreach pair $out {
+        lassign $pair prefix top
+        puts "WM: keys: with chord-hold on, $top inside $prefix is the sequence's own [lindex [split $top +] end] — it will not $top any more"
+    }
+    return $out
+}
+# A keymap key ("64,116") back into the name a person types.
+proc chord-of-key {k} {
+    lassign [split $k ,] mods ks
+    chord-name $mods $ks
 }
 
 # Set a key path in a nested keymap dict. A later bind REPLACES what
@@ -3445,6 +3505,7 @@ proc key-help-open {} {
     }
     set ::keyseq $::keymap
     set ::keyseq_keys {}
+    set ::keyseq_mods 0
     puts "WM: key help from the top\
  ([llength [keymap-rows $::keymap {}]] bindings)"
     policy-key-echo help [keyseq-help]
@@ -3656,6 +3717,12 @@ proc handle-key {state kc time} {
     if {$::keyseq ne ""} {
         if {[dict exists $::keyseq $k]} {
             set node $::keyseq
+        } elseif {$::chord_hold && $mods == $::keyseq_mods && $mods != 0
+                  && [dict exists $::keyseq "0,$ks"]} {
+            # The hand never let go: the prefix's own modifiers on an
+            # inner key mean the same key.
+            set node $::keyseq
+            set k "0,$ks"
         } elseif {$ks == $::KS_ESC} {
             keyseq-abort Esc
             return
@@ -3718,6 +3785,7 @@ proc handle-key {state kc time} {
         if {$restart} { set ::keyseq_keys {} }
         puts "WM: key [chord-name $mods $ks] -> prefix"
         set ::keyseq $payload
+        set ::keyseq_mods $mods
         lappend ::keyseq_keys [chord-name $mods $ks]
         policy-key-echo keys [keyseq-text]
     }

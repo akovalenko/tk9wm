@@ -4276,14 +4276,48 @@ proc keyecho-hide {} {
 # `class` is the class half a window of this beast wears — what the
 # terminal-window predicate recognizes. DECLARATION ORDER IS THE PROBE
 # RANKING: what one installs by hand outranks what a DE brings.
+# ...and each says what it LOOKS like, which is the other thing a
+# button needs to know about the beast it will spawn (the owner,
+# 2026-08-02). A terminal deed that names no icon of its own gets the
+# icon of whatever this machine actually resolved to — kitty's on a
+# kitty desk, xterm's on an xterm one — because "the terminal" is not
+# one program and a button for it should not pretend otherwise. The
+# names are the icon themes' own; a miss falls through to the generic
+# one below and, failing that, to the badge, so a theme that carries
+# none of them still gets a button.
 set terminal_adapters {
-    kitty          {name {--name %s}  title {--title %s} cmd {}   class kitty}
-    alacritty      {name {--class Alacritty,%s} title {-T %s} cmd {-e} class Alacritty}
-    urxvt          {name {-name %s}   title {-T %s}      cmd {-e} class URxvt}
-    st             {name {-n %s}      title {-T %s}      cmd {-e} class st-256color}
-    xterm          {name {-name %s}   title {-T %s}      cmd {-e} class XTerm}
-    konsole        {name {-name %s}   title {--qwindowtitle %s} cmd {-e} class konsole}
-    gnome-terminal {name {--class=%s} title {--title %s} cmd {--} class Gnome-terminal}
+    kitty          {name {--name %s}  title {--title %s} cmd {}   class kitty
+                    icon kitty}
+    alacritty      {name {--class Alacritty,%s} title {-T %s} cmd {-e} class Alacritty
+                    icon Alacritty}
+    urxvt          {name {-name %s}   title {-T %s}      cmd {-e} class URxvt
+                    icon urxvt}
+    st             {name {-n %s}      title {-T %s}      cmd {-e} class st-256color
+                    icon st}
+    xterm          {name {-name %s}   title {-T %s}      cmd {-e} class XTerm
+                    icon xterm-color}
+    konsole        {name {-name %s}   title {--qwindowtitle %s} cmd {-e} class konsole
+                    icon konsole}
+    gnome-terminal {name {--class=%s} title {--title %s} cmd {--} class Gnome-terminal
+                    icon org.gnome.Terminal}
+}
+# What every terminal falls back to: the freedesktop standard name for
+# "a terminal", carried by every icon theme worth the name.
+keep terminal_icon_generic utilities-terminal
+# The icon a terminal DEED wears when it named none — the resolved
+# beast's, then the generic one. Empty when nothing is resolved at
+# all, which is the case where the button is standing by anyway.
+proc terminal-icon {} {
+    set beast [lindex [terminal-resolve] 0]
+    if {$beast eq ""} { return "" }
+    set ad [dict get $::terminal_adapters $beast]
+    set try {}
+    if {[dict exists $ad icon]} { lappend try [dict get $ad icon] }
+    lappend try $::terminal_icon_generic
+    foreach n $try {
+        if {[icon-file-of $n] ne ""} { return $n }
+    }
+    return ""
 }
 keep terminal_choice {}   ;# what set-terminal said: {beast path}, or empty
 keep terminal_found {}    ;# the resolution, cached: {beast path how}
@@ -6246,6 +6280,17 @@ proc spec-derive {who settings} {
         if {![dict exists $settings launch]} {
             dict set settings launch [list spawn-terminal $t]
         }
+        # THE FACE OF WHATEVER THIS MACHINE HAS. Derived and not
+        # stated, like the match beside it: "the terminal" is not one
+        # program, and a button for it wearing an xterm on a kitty
+        # desk would be telling a small lie every time it is looked
+        # at. Only when the deed named no icon of its own — and only
+        # when one resolves, so a theme carrying none of them leaves
+        # the button its badge rather than a blank.
+        if {![dict exists $settings icon]} {
+            set ti [terminal-icon]
+            if {$ti ne ""} { dict set settings icon $ti }
+        }
     }
     # `emacs` is the same kind of PROVIDER, one storey higher: the
     # match is the identical single-pattern filter (a frame's name
@@ -7869,6 +7914,9 @@ knob set-panel-icon-size {group panel kind int
                       doc {the button face size when any face is iconic}}
 knob set-icon-path   {group panel kind {list directories} get {set ::icon_path}
                       doc {directories bare icon names are searched in}}
+knob set-chord-hold  {group keys kind bool
+                      get {expr {$::chord_hold ? "on" : "off"}}
+                      doc {a chord answers with the modifier held down too}}
 knob set-winlist-cycle {group keys kind bool
                       get {expr {$::winlist_cycle_opt ? "on" : "off"}}
                       doc {alt-tab as the fvwm cycle, or a static menu}}
@@ -9197,7 +9245,7 @@ set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
-    key_echo key_echo_place KEY_ECHO_BAD KBMR_BG
+    key_echo key_echo_place KEY_ECHO_BAD KBMR_BG chord_hold
     titlebar_buttons titlebar_gestures fade font_kin
     widgets desk_window desk_background desk_background_said widget_gap
     theme
@@ -9288,6 +9336,11 @@ proc policy-apply {} {
     # under the other until somebody says otherwise.
     panel-on-top
     panel-match-kick
+    # ...and what holding the modifier would swallow, asked of the
+    # FINISHED keymap: a config states the knob and its binds in
+    # whatever order it likes, and a warning computed halfway through
+    # names half the collisions.
+    chord-hold-shadows
     # DECLARED buttons, not shown ones: under panels-held the strips
     # have not rebuilt yet and the shown lists are stale — the summary
     # was reading «0 buttons» on every reload. What the config APPLIED
