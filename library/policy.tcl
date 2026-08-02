@@ -5675,6 +5675,12 @@ proc spec-fields {name} {
         if {[dict exists $meta xor]} {
             dict set out $k xor [dict get $meta xor]
         }
+        # A DICT OF PLAIN MEMBERS is a subtree, not a cell: the editor
+        # can show one row per variable and edit them one at a time
+        # (the owner's own example, «actions.Firefox.env.GTK_IM_MODULE»).
+        # A subspec is a dict too and is NOT this: its members are the
+        # sub-table's own keys, with kinds of their own.
+        if {$kind in {envdict beastdict}} { dict set out $k members plain }
         # a slot that HOLDS A SCRIPT says so, so the editor knows to
         # ask the linter when one is written into it
         if {$kind eq "script"} { dict set out $k lint script }
@@ -7736,7 +7742,8 @@ collection keys {
     list collection-keys
     fields {
         state  {kind {choice on off} doc {the whole family, present or not}}
-        params {kind dict doc {the bundle's own parameters (prefix, help, …)}}
+        params {kind dict members plain
+                doc {the bundle's own parameters (prefix, help, …)}}
     }
 }
 

@@ -42,6 +42,7 @@ set cfg_effect {}    ;# custom key -> pin | change (the desk's audit)
 set cfg_node {}      ;# tree item -> collection descriptor (coll/elem/field)
 set cfg_fitem {}     ;# field address -> tree item
 set cfg_fresh {}     ;# elements born in this refresh — folded once attached
+set cfg_member_into "" ;# which dict an Insert is about to grow
 set cfg_cursor ""  ;# what the pointer is wearing over the tree
 set cfg_T ""
 set cfg_hint "Return or F4 opens the picker · F2 types · F3 switches a\
@@ -521,10 +522,16 @@ proc cfg-field-nodes {cname key e} {
     set lint [expr {[dict exists $e lint] ? [dict get $e lint] : {}}]
     dict for {f fmeta} [dict get $::cfg_coll $cname fields] {
         if {![cfg-slot-shown? $f $fmeta $said]} continue
-        lappend out [dict create what field key $f label $f \
-            addr [list @field $cname $key $f] coll $cname elkey $key \
+        set addr [list @field $cname $key $f]
+        set node [dict create what field key $f label $f \
+            addr $addr coll $cname elkey $key \
             field $f meta $fmeta \
             lint [lsearch -all -inline -index 1 $lint $f]]
+        if {[dict exists $fmeta members]} {
+            dict set node button 1
+            dict set node children [cfg-member-nodes $cname $key $f $addr]
+        }
+        lappend out $node
     }
     # ...and after them, the words this one stands OVER: same chord,
     # another layer, not in force. They are rows, not fields — nothing
@@ -537,6 +544,17 @@ proc cfg-field-nodes {cname key e} {
                 coll $cname elkey $key owner [dict get $claim owner] \
                 claim $claim]
         }
+    }
+    return $out
+}
+proc cfg-member-nodes {cname key f addr} {
+    set out {}
+    set d [cfg-cur $addr]
+    if {[catch {dict size $d}]} { return {} }   ;# half-typed, not a dict yet
+    dict for {m v} $d {
+        lappend out [dict create what member key $m label $m \
+            addr [list @member $cname $key $f $m] \
+            coll $cname elkey $key field $f member $m]
     }
     return $out
 }
@@ -577,6 +595,12 @@ proc cfg-row-register {item n} {
             dict set ::cfg_node $item [dict create what field \
                 coll [dict get $n coll] key [dict get $n elkey] \
                 field [dict get $n field]]
+            dict set ::cfg_fitem [dict get $n addr] $item
+        }
+        member {
+            dict set ::cfg_node $item [dict create what member \
+                coll [dict get $n coll] key [dict get $n elkey] \
+                field [dict get $n field] member [dict get $n member]]
             dict set ::cfg_fitem [dict get $n addr] $item
         }
         shadow {
@@ -621,6 +645,15 @@ proc cfg-row-update {T item key node} {
         }
         shadow {
             cfg-field-dress $T $item shadow [dict get $node claim]
+        }
+        member {
+            set addr [dict get $node addr]
+            $T item element configure $item Cval eVal \
+                -text [cfg-value-text $addr [cfg-cur $addr]]
+            cfg-flag-set $item {}
+            $T item element configure $item Cdoc eDoc \
+                -text "one of [dict get $node field] — empty here is a\
+ value, and Del takes it away"
         }
     }
 }
@@ -926,6 +959,38 @@ proc cfg-fit {} {
 # cfg-set, cfg-cur and the pending dict carry; its kind comes from
 # the collection registry's field meta instead of the knob table.
 proc cfg-field? {name} { expr {[lindex $name 0] eq "@field"} }
+# ---- a dict is a SUBTREE, not a cell -----------------------------
+# The renderer walks nodes now, so a dict inside a field costs
+# children rather than code (config-tree, step 3 — and the owner's
+# own example, «actions.Firefox.env.GTK_IM_MODULE»). A member is
+# addressed one storey deeper than its field:
+#
+#   {@field  actions Firefox env}                  the dict
+#   {@member actions Firefox env GTK_IM_MODULE}    one variable in it
+#
+# It is EDITED as itself and SAID as its parent: the dict is a
+# replacing node, so the word that carries one member carries all of
+# them. That also means one pending, on the parent — two members
+# edited in a row cannot race each other to be saved.
+proc cfg-member? {name} { expr {[lindex $name 0] eq "@member"} }
+proc cfg-member-parent {name} {
+    lassign $name - coll key f -
+    return [list @field $coll $key $f]
+}
+proc cfg-member-of {name} { lindex $name 4 }
+# Taking a member away is legal HERE, where saying it empty is legal
+# too: the dict is rewritten whole, so absence and emptiness are both
+# expressible — which is exactly the shape the plan asks empty-valued
+# leaves to live in.
+proc cfg-member-drop {name} {
+    set parent [cfg-member-parent $name]
+    set d [cfg-cur $parent]
+    dict unset d [cfg-member-of $name]
+    if {[cfg-set $parent $d]} {
+        after idle cfg-refresh
+        cfg-status "[cfg-member-of $name] is gone from [cfg-pretty $parent] — Save writes that down"
+    }
+}
 # ---- one slot, two spellings ----
 # Some keys are two ways of saying one thing and cannot be said
 # together (the registry's `xor`: an action's command is `run` or
@@ -944,6 +1009,7 @@ proc cfg-slot-shown? {f fmeta said} {
     return 1
 }
 proc cfg-kind-of {name} {
+    if {[cfg-member? $name]} { return text }
     if {[cfg-field? $name]} {
         return [dict get $::cfg_coll [lindex $name 1] \
                     fields [lindex $name 3] kind]
@@ -952,7 +1018,10 @@ proc cfg-kind-of {name} {
 }
 # ...and how a sentence names it: the address minus its marker
 proc cfg-pretty {name} {
-    expr {[cfg-field? $name] ? [join [lrange $name 1 end] " "] : $name}
+    if {[cfg-field? $name] || [cfg-member? $name]} {
+        return [join [lrange $name 1 end] " "]
+    }
+    return $name
 }
 # What the layers' word holds for an element — and for one field of
 # it, "" when unsaid (which is how a field is ADDED: editing the
@@ -1005,6 +1074,10 @@ proc cfg-field-stored {name} {
 }
 proc cfg-node-addr {it} {
     set d [dict get $::cfg_node $it]
+    if {[dict get $d what] eq "member"} {
+        return [list @member [dict get $d coll] [dict get $d key] \
+                    [dict get $d field] [dict get $d member]]
+    }
     list @field [dict get $d coll] [dict get $d key] [dict get $d field]
 }
 proc cfg-show-field {addr} {
@@ -1274,6 +1347,11 @@ proc cfg-picker-of {name} {
 # to the next edit as «bold» (the owner, on set-title-font). A command
 # is not a value and cannot be read as one.
 proc cfg-cur {name} {
+    if {[cfg-member? $name]} {
+        set d [cfg-cur [cfg-member-parent $name]]
+        if {[catch {dict get $d [cfg-member-of $name]} v]} { return "" }
+        return $v
+    }
     if {[dict exists $::cfg_pending $name]} {
         return [dict get $::cfg_pending $name value]
     }
@@ -1634,6 +1712,16 @@ proc cfg-recover {name err {opts {}}} {
  on its saved value; anything else you had pending is untouched" error
 }
 proc cfg-apply {name value} {
+    if {[cfg-member? $name]} {
+        set parent [cfg-member-parent $name]
+        set d [cfg-cur $parent]
+        dict set d [cfg-member-of $name] $value
+        set r [cfg-apply $parent $d]
+        # the member rows are drawn from the parent's value, and the
+        # walk is what draws them — after the editor has closed
+        if {$r} { after idle cfg-refresh }
+        return $r
+    }
     set kind [cfg-kind-of $name]
     set who [cfg-pretty $name]
     switch -- [lindex $kind 0] {
@@ -1941,6 +2029,22 @@ proc cfg-kept-note {n} {
 proc cfg-row-subject {it} {
     set T $::cfg_T
     if {$it eq ""} { return "" }
+    # A MEMBER is its own subject too, and the one place where both
+    # acts are legal: its dict is rewritten whole, so saying it empty
+    # and taking it away are two different words one can actually say.
+    if {[dict exists $::cfg_node $it]
+            && [dict get $::cfg_node $it what] eq "member"} {
+        set addr [cfg-node-addr $it]
+        set parent [cfg-member-parent $addr]
+        set pend {}
+        if {[dict exists $::cfg_pending $parent]} { lappend pend $parent }
+        set up [cfg-row-subject [$T item parent $it]]
+        return [dict create kind member item $it addr $addr \
+            pretty [cfg-pretty $addr] said 1 means value pending $pend \
+            owner [expr {$up eq "" ? "code" : [dict get $up owner]}] \
+            parent $up \
+            where [expr {$up eq "" ? "" : [dict get $up where]}]]
+    }
     # A FIELD IS ITS OWN SUBJECT now: saying a key empty and taking it
     # back are the field's business, and they are the two acts a
     # tree of merging layers cannot express by typing (the owner's
@@ -2019,6 +2123,19 @@ proc cfg-row-menu-build {} {
     $T.rowpop add command -label [dict get $s pretty] -state disabled
     $T.rowpop add separator
     set mine [expr {[dict get $s owner] eq "custom"}]
+    if {[dict get $s kind] eq "member"} {
+        $T.rowpop add command -label "Say it empty" \
+            -state [expr {[cfg-cur [dict get $s addr]] eq ""
+                          ? "disabled" : "normal"}] \
+            -command [list cfg-row-do say-empty $s]
+        $T.rowpop add command -label "Take it out of the dict" \
+            -command [list cfg-row-do drop $s]
+        $T.rowpop add command -label "Reset to saved" \
+            -state [expr {[llength [dict get $s pending]] ? "normal" : "disabled"}] \
+            -command [list cfg-row-do reset $s]
+        cfg-row-menu-where $s
+        return $T.rowpop
+    }
     if {[dict get $s kind] eq "field"} {
         # THE TWO ACTS THAT TYPING CANNOT SAY APART. An empty field
         # means one thing or the other depending on the node, so the
@@ -2129,6 +2246,7 @@ proc cfg-row-do {how s} {
             cfg-status "[dict get $s pretty] is back to what is\
  saved[cfg-kept-note $kept]"
         }
+        drop { cfg-member-drop [dict get $s addr] }
         say-empty - unsay {
             # ONE WRITE, TWO MEANINGS, and the node decides which: in
             # a merging word an empty value is «take this back», and
@@ -2220,6 +2338,7 @@ proc cfg-delete {} {
     if {$it eq "" || ![dict exists $::cfg_node $it]} return
     set d [dict get $::cfg_node $it]
     switch -- [dict get $d what] {
+        member { cfg-member-drop [cfg-node-addr $it]; return }
         coll  { cfg-delete-family [dict get $d coll]; return }
         shadow {
             if {[dict get $d owner] ne "custom"} {
@@ -2453,6 +2572,20 @@ proc cfg-insert {} {
  family or one of its elements"
         return
     }
+    # standing IN a dict — on it or on one of its members — Insert
+    # means «another member», which is the only sensible reading
+    set what [dict get $::cfg_node $it what]
+    if {$what eq "member"
+            || ($what eq "field" && [dict exists $::cfg_node $it field]
+                && [dict exists [cfg-field-meta [list @field \
+                        [dict get $::cfg_node $it coll] \
+                        [dict get $::cfg_node $it key] \
+                        [dict get $::cfg_node $it field]]] members])} {
+        set ::cfg_member_into [cfg-node-addr $it]
+        cfg-pick-dialog "another one in the dict" {} \
+            "name for the new member" cfg-insert-member
+        return
+    }
     switch -- [dict get $::cfg_node $it coll] {
         actions  { cfg-pick-dialog "new action" {} \
                        "name for the new action" cfg-insert-action }
@@ -2465,6 +2598,23 @@ proc cfg-insert {} {
 }
 # A fresh action is born empty and edited into shape — the same road
 # a fresh button label walks.
+proc cfg-insert-member {choice typed} {
+    if {$typed eq ""} { return }
+    set into $::cfg_member_into
+    if {[cfg-member? $into]} { set into [cfg-member-parent $into] }
+    set d [cfg-cur $into]
+    if {[catch {dict size $d}]} { set d {} }
+    if {[dict exists $d $typed]} {
+        cfg-status "[cfg-pretty $into] already has $typed"
+        return
+    }
+    dict set d $typed ""
+    if {[cfg-set $into $d]} {
+        after idle cfg-refresh
+        cfg-status "$typed is in [cfg-pretty $into], empty — type its value,\
+ or Del takes it out again"
+    }
+}
 proc cfg-insert-action {choice typed} {
     set name [expr {$choice ne "" ? $choice : $typed}]
     if {$name eq ""} { return 0 }

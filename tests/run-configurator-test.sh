@@ -777,6 +777,32 @@ EDITLINT=$(qu 'set addr {@field bindings {Super+5} script}
 qu 'cfg-revert; list back' >/dev/null
 sleep 1
 
+# ---- A DICT IS A SUBTREE (config-tree step 3, his own example) ----
+q 'action envy {run {true} env {GTK_IM_MODULE xim FOO {}}}' >/dev/null
+sleep 0.5
+qu 'cfg-refresh; list refreshed' >/dev/null
+sleep 0.5
+MEMBERS=$(qu 'set addr {@field actions envy env}
+    set kids {}
+    foreach it [$::cfg_T item children [dict get $::cfg_fitem $addr]] {
+        lappend kids [$::cfg_T item element cget $it Cname eTxt -text]
+    }
+    list kids $kids value [cfg-cur {@member actions envy env GTK_IM_MODULE}] \
+         empty [list [cfg-cur {@member actions envy env FOO}]]')
+# a member is edited as itself and SAID as its parent — one pending,
+# on the dict, so two members cannot race each other to be saved
+MEMBEREDIT=$(qu 'cfg-set {@member actions envy env GTK_IM_MODULE} fcitx
+    after 300; update
+    list dict [cfg-cur {@field actions envy env}] \
+         pend [dict exists $::cfg_pending {@field actions envy env}] \
+         mpend [dict exists $::cfg_pending {@member actions envy env GTK_IM_MODULE}]')
+# ...and taking one out is legal here, where saying it empty is legal too
+MEMBERDROP=$(qu 'cfg-member-drop {@member actions envy env FOO}
+    after 300; update
+    cfg-cur {@field actions envy env}')
+qu 'cfg-revert; list back' >/dev/null
+sleep 1
+
 # ---- SAID, AND EMPTY (the owner's question, 2026-08-02) ----
 # «отсутствует ли он или присутствует пустой, а это влияет на семантику
 # action» — the tree showed one empty cell for both, and only one of
@@ -1297,6 +1323,13 @@ if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
     echo "OK: a deed's type shows what it amounts to, and writing it is an edit"
 else
     echo "FAIL: the type row: $TYPEROW then $TYPESET"
+fi
+if [ "$MEMBERS" = "kids {GTK_IM_MODULE FOO} value xim empty {{}}" ] \
+        && [ "$MEMBEREDIT" = "dict {GTK_IM_MODULE fcitx FOO {}} pend 1 mpend 0" ] \
+        && [ "$MEMBERDROP" = "GTK_IM_MODULE fcitx" ]; then
+    echo "OK: a dict is a subtree — a member edits as itself and is said as its parent"
+else
+    echo "FAIL: dict members: $MEMBERS | $MEMBEREDIT | $MEMBERDROP"
 fi
 case "$SAIDEMPTY" in
     "terminal {{said empty note}} icon {{}} said 1 means value plain unsay")
