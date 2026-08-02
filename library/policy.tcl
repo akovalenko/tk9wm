@@ -8205,6 +8205,22 @@ proc knob-touched {cmd op} {
     # from the sourced file's top level".
     if {[info level] != 1} return
     if {[catch {knob-key $cmd} key]} return
+    # THE SAME WORD IN TWO OF YOUR FILES is possible now that the
+    # custom layer comes in pieces, so it is reported rather than
+    # silently resolved: the later one wins, exactly as within a file.
+    if {[dict exists $::layer_knobs $::knob_layer $key]
+            && [info exists ::layer_where]
+            && [dict exists $::layer_where $::knob_layer $key]} {
+        set was [lindex [dict get $::layer_where $::knob_layer $key] 0]
+        set now [lindex [said-where] 0]
+        if {$was ne "" && $now ne ""
+                && [file dirname $was] ne ""
+                && [lindex [split $was :] 0] ne [lindex [split $now :] 0]} {
+            problem-record "$::knob_layer layer" "«$key» is said in two of\
+ your files — $was and $now. The later one wins; the earlier is dead\
+ weight." [said-where]
+        }
+    }
     dict set ::layer_knobs $::knob_layer $key $cmd
     # ...AND WHERE IT WAS SAID. A binding has carried its chain since
     # the provenance step; a knob had nowhere to keep one, so «open
@@ -8368,6 +8384,44 @@ proc custom-drop {keys} {
 # file is rewritten WHOLE in a canonical style (one call per line,
 # sorted by key) and moved into place atomically — it is machine-owned
 # and says so in its header, which is what makes rewriting it safe.
+# ---- THE CUSTOM LAYER IN PIECES (the owner, 2026-08-02) -----------
+# «Главный кастом-файл соурсит дополнительные, настройка приземляется
+# туда, где она определена. Юз кейс — а эту панель буду хранить у себя
+# в гите.» So: one verb, sourced in place, and the includes go at the
+# TOP of the main file — the main file's own words are written after
+# them and therefore win, which keeps «custom is the last word» true
+# inside the layer as well as outside it.
+#
+# A word's HOME is the file that says it, which the provenance already
+# knows (layer_where, from the same said-where the tree shows). A word
+# said for the first time by a click has no home yet and lands in the
+# main file.
+keep custom_includes {}   ;# paths the main file pulls in, in order
+keep custom_home {}       ;# key -> the file of the custom layer that says it
+proc custom-include {path} {
+    catch {set path [file tildeexpand $path]}
+    set path [file normalize $path]
+    if {$path ni $::custom_includes} { lappend ::custom_includes $path }
+    if {![file exists $path]} {
+        puts "WM: custom-include $path — not there yet; it will be\
+ written when something lands in it"
+        return
+    }
+    uplevel #0 [list source $path]
+}
+# Read off the provenance once a layer has been read: the first link
+# of a word's chain is the file it stands in.
+proc custom-homes {} {
+    set ::custom_home {}
+    if {![dict exists $::layer_knobs custom]} return
+    dict for {key -} [dict get $::layer_knobs custom] {
+        set chain [knob-where $key custom]
+        if {![llength $chain]} continue
+        set place [lindex $chain 0]
+        if {![regexp {^(.*):\d+$} $place -> file]} continue
+        dict set ::custom_home $key $file
+    }
+}
 proc custom-write {command} {
     if {[catch {knob-key $command} key]} {
         error "custom-write: not a command list: $command"
@@ -8405,18 +8459,46 @@ proc config-ordered-verbs {} {
     return $out
 }
 proc custom-save {} {
-    set path [custom-path]
-    file mkdir [file dirname $path]
     set entries {}
     if {[dict exists $::layer_knobs custom]} {
         set entries [dict get $::layer_knobs custom]
     }
+    # EACH FILE GETS ITS OWN WORDS. A word written by a click has no
+    # home and lands in the main file; a word that came out of an
+    # included file goes back to it, which is what «эту панель буду
+    # хранить у себя в гите» means in practice.
+    set main [custom-path]
+    set byfile [dict create $main {}]
+    foreach path $::custom_includes { dict set byfile $path {} }
+    dict for {key cmd} $entries {
+        set home $main
+        if {[dict exists $::custom_home $key]
+                && [dict get $::custom_home $key] in $::custom_includes} {
+            set home [dict get $::custom_home $key]
+        }
+        dict set byfile $home [dict merge \
+            [dict get $byfile $home] [dict create $key $cmd]]
+    }
+    dict for {path part} $byfile {
+        custom-emit $path $part [expr {$path eq $main}]
+    }
+}
+proc custom-emit {path entries main} {
+    file mkdir [file dirname $path]
     set tmp $path.tmp
     set ch [open $tmp w]
     puts $ch "# tk9wm customizations — MACHINE-WRITTEN, do not edit by hand:"
     puts $ch "# the configurator rewrites this file whole. Hand-written"
     puts $ch "# configuration belongs in tk9wm.tcl, which loads BEFORE this"
     puts $ch "# file; on overlap the desk says so in its log."
+    # the includes go FIRST, so this file's own words are the later
+    # ones and win — and so a file kept elsewhere (a panel in one's
+    # own git) is pulled in before anything here refines it
+    if {$main && [llength $::custom_includes]} {
+        puts $ch ""
+        foreach inc $::custom_includes { puts $ch [list custom-include $inc] }
+        puts $ch ""
+    }
     # Which entries keep their DECLARATION ORDER, and which are
     # sorted for a stable diff (the owner's call): fonts derive from
     # one another, widgets share an area in order, and an owned

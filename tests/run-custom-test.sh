@@ -28,9 +28,15 @@ panel-button dummy
 panel-button anyterm
 panel-button second
 EOF
-cat > "$HERE/custom-config/tk9wm.custom.tcl" <<'EOF'
-set-title-font -weight normal
+# ---- THE CUSTOM LAYER IN PIECES (the owner, 2026-08-02) ----
+# «эту панель буду хранить у себя в гите»: the main file pulls another
+# one in, and what lives there is written back there
+cat > "$HERE/custom-config/mine.tcl" <<'EOT'
 set-drag-slop 7
+EOT
+cat > "$HERE/custom-config/tk9wm.custom.tcl" <<EOF
+custom-include $HERE/custom-config/mine.tcl
+set-title-font -weight normal
 EOF
 
 XDG_CONFIG_HOME="$HERE/custom-config" \
@@ -101,6 +107,15 @@ KEYS=$(q 'join [list [knob-key {wm-bind {<Super>9} x}] \
     [knob-key {panel-buttons-own default}]] " | "')
 SECTIONS=$(q 'config-ordered-verbs')
 
+# the word that came out of the included file goes BACK to it, and
+# the main file keeps the include line and its own words only
+INCLUDED=$(q 'list slop $::drag_slop home [dict get $::custom_home set-drag-slop]')
+q 'custom-write {set-drag-slop 9}' >/dev/null
+sleep 0.5
+MINE=$(grep -c 'set-drag-slop 9' "$HERE/custom-config/mine.tcl")
+MAINHAS=$(grep -c 'set-drag-slop' "$HERE/custom-config/tk9wm.custom.tcl")
+MAININC=$(grep -c 'custom-include' "$HERE/custom-config/tk9wm.custom.tcl")
+
 kill $WM 2>/dev/null
 sleep 0.5
 
@@ -125,6 +140,7 @@ grep -aE 'custom|welcome' "$HERE/wm-custom.log" "$HERE/wm-fresh.log" | grep -v w
 echo "--- badwrite={$BADWRITE} in-file=$BADFILE"
 echo "--- verbs={$VERBS} sections={$SECTIONS}"
 echo "--- keys={$KEYS}"
+echo "--- included={$INCLUDED} mine=$MINE main=$MAINHAS/$MAININC"
 echo "--- verdict"
 if [ "$S0" = "normal 7 3" ]; then
     echo "OK: the click wins, the untouched knobs hold (normal 7 3)"
@@ -217,4 +233,15 @@ if [ "$BADWRITE" = "rc 1 filed 0 said 1" ] && [ "$BADFILE" = 0 ]; then
     echo "OK: a refused word is neither filed nor written to the layer"
 else
     echo "FAIL: bad write: {$BADWRITE}, lines in file: $BADFILE"
+fi
+
+case "$INCLUDED" in
+    "slop 7 home "*"/mine.tcl")
+        echo "OK: an included file's word is in force and knows which file it is in" ;;
+    *) echo "FAIL: the include: $INCLUDED" ;;
+esac
+if [ "$MINE" = 1 ] && [ "$MAINHAS" = 0 ] && [ "$MAININC" = 1 ]; then
+    echo "OK: a setting lands back in the file that defines it, include line kept"
+else
+    echo "FAIL: write-back: mine=$MINE main-has=$MAINHAS include=$MAININC"
 fi

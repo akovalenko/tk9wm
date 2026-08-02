@@ -144,6 +144,7 @@ proc reload-config {} {
             # (custom-effect-judge, the pins audit)
             custom-floor-snapshot
             load-custom
+            custom-homes
             custom-effect-judge
             tray-argb-default
             policy-apply
@@ -227,10 +228,14 @@ proc tk9wm-main {args} {
     # every verb puts its guard on before a layer is read: a word that
     # throws is recorded and the file goes on (config-instrument)
     puts "WM: config vocabulary: [config-instrument-vocabulary] words guarded"
+    # ...and the loader directive itself: a bad include must cost its
+    # own line, not the rest of the file (the badword lesson)
+    config-instrument custom-include
     workarea-held { panels-held {
         load-config
         custom-floor-snapshot        ;# see reload-config: the pins audit
         load-custom
+        custom-homes
         custom-effect-judge
         tray-argb-default
         welcome-inject
