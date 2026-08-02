@@ -342,26 +342,14 @@ proc cfg-selection-guard {} {
 proc cfg-yscroll {sb a b} { $sb set $a $b }
 # ---- what may happen while a value is half-typed ----
 # The owner's rule, and it turns on ONE question — has anything been
-# typed (2026-08-01)? A field still holding what it was given is a
-# glance, and a glance costs nothing to drop: it goes, and the scroll
-# goes on. A field with a change in it is WORK, and work is neither
-# thrown away nor silently committed by a wheel: the tree stays put
-# and says why.
-#
-# Asked BEFORE the view moves, so it hangs off the gestures rather
-# than off -yscrollcommand, which only ever reports what has already
-# happened.
-proc cfg-editing-guard {what} {
-    if {![winfo exists $::cfg_T.edit]} { return 1 }
-    if {![ui-field-dirty? $::cfg_T.edit]} {
-        cfg-entry-close
-        return 1
-    }
-    bell
-    cfg-status "finish this value (Return) or drop it (Escape) — the tree\
- holds still while one is half-typed" error
-    return 0
-}
+# typed (2026-08-01)? That half is mechanical and lives with the
+# editor (ui-cell-guard); THIS half is the policy, which is ours to
+# have: work in progress is neither thrown away nor silently
+# committed by a wheel, so the answer is no — to the scroll, to the
+# erase, to the focus walking off — and the tree stays put while the
+# value stays under the hand that typed it.
+proc cfg-editing-guard {what} { ui-cell-guard $::cfg_T $what }
+proc cfg-may-i {what} { return 0 }
 proc cfg-scroll-request {w args} {
     if {[cfg-editing-guard scroll]} { $w {*}$args }
 }
@@ -1298,21 +1286,27 @@ proc cfg-activate {{how primary}} {
             return
         }
     }
-    set kind [cfg-kind-of $name]
-    switch -- [lindex $kind 0] {
-        bool   { cfg-set $name [expr {[cfg-cur $name] eq "on" ? "off" : "on"}] }
-        choice { cfg-choice-menu $it $name [lrange $kind 1 end] }
-        default {
-            set picker [cfg-picker-of $name]
-            if {$how eq "primary" && $picker ne ""} {
-                cfg-entry-pick $picker $name
-                return
-            }
-            # after the event sequence, so nothing steals the focus
-            # back from the entry (the invariant above)
-            after idle [list cfg-entry $it $name]
-        }
-    }
+    ui-cell-edit $::cfg_T $it Cval $name [cfg-cell-opts $name $how]
+}
+# WHAT THE EDITOR NEEDS TO KNOW ABOUT A CELL — and the three answers
+# it cannot have on its own. The data is this applet's reading of the
+# address: the value as one would type it (a font's dict is a
+# mouthful; its three words are what a hand touches), the kind that
+# decides the gesture, the dialog behind the ▾. The three callbacks
+# are the seam the editor left the applet through:
+#
+#   commit  cfg-set     — validate by kind, preview on the live desk,
+#                         remember as pending; 0 and a sentence when
+#                         the value is refused
+#   refuse  cfg-refuse  — the status line, and the bell that goes
+#                         with it
+#   may-i   cfg-may-i   — the rule above
+proc cfg-cell-opts {name {how primary}} {
+    set v [cfg-cur $name]
+    dict create how $how kind [cfg-kind-of $name] \
+        value [cfg-value-typed $name $v] element eVal \
+        pick [cfg-picker-of $name] \
+        commit cfg-set refuse cfg-refuse may-i cfg-may-i
 }
 # Which kinds have a picker behind the ▾ — and what it is. A slot's
 # switch is NOT here on purpose: editing the command is the everyday
@@ -1344,141 +1338,19 @@ proc cfg-cur {name} {
     dict get $::cfg_table $name value
 }
 
-# A choice is a MENU at its cell, not a cycle to click blind through
-# (the owner: four panel sides by repeated presses is cruel). The menu
-# holds the keyboard natively; the current value is marked.
-proc cfg-choice-menu {it name vals} {
-    set T $::cfg_T
-    catch {destroy $T.pop}
-    menu $T.pop -tearoff 0 -font DeskFont
-    set ::cfg_choice [cfg-cur $name]
-    foreach v $vals {
-        $T.pop add radiobutton -label $v -variable ::cfg_choice -value $v \
-            -command [list cfg-set $name $v]
-    }
-    lassign [$T item bbox $it Cval] x1 y1 x2 y2
-    tk_popup $T.pop [expr {[winfo rootx $T] + $x1}] \
-                    [expr {[winfo rooty $T] + $y2}]
-}
-
-# The overlay entry. Created after idle (see cfg-activate) and its Map
-# claims the focus: visible MEANS focused. Return commits, Escape
-# cancels, losing the focus is a commit attempt.
+# ---- THE CELL EDITOR IS THE LIBRARY'S NOW (config-tree, step 4) ---
+# What opens on a cell, what Tab and Return and a stray click mean
+# there, where the ▾ leads — none of that was ever about knobs or
+# actions, so it lives in the host (ui-cell-edit and kin) and every
+# tree-shaped applet gets it. What stayed is what only we know: the
+# address, the value, the kind, the dialogs, and the three answers
+# cfg-cell-opts hands over. These three lines are what our own
+# callers — and the suite — go on reading.
 proc cfg-entry {it name} {
-    set T $::cfg_T
-    cfg-entry-close
-    lassign [$T item bbox $it Cval] x1 y1 x2 y2
-    if {$x1 eq ""} return
-    set ::cfg_editing $name
-    set picker [cfg-picker-of $name]
-    set val [cfg-value-typed $name [cfg-cur $name]]
-    # A THREE-LINE SCRIPT WANTS THREE LINES. The field is a text, so
-    # it can have them — and it has undo, which an entry never did
-    # (the owner's preference, 2026-08-01).
-    set lines [llength [split $val \n]]
-    # Tab out of a cell's editor means «this value is done, on to the
-    # next thing» — so it commits, and a refusal keeps the field
-    # TAB ONLY COMMITS WHAT WAS TOUCHED (the owner, 2026-08-02): a
-    # value looked at and left alone is not an edit, and writing it
-    # back would make a customization out of a glance. Return still
-    # commits whatever is there — typing the same thing on purpose is
-    # a legitimate way to pin it, and that stays.
-    ui-field $T.edit -height [expr {max(1, min(6, $lines))}] \
-        -onleave {cfg-entry-leave}
-    ui-field-set $T.edit $val
-    ui-field-select-all $T.edit
-    # GRID, and the button gets a column of its own: PACKED, the
-    # entry (with -expand) claimed the whole cavity before the button
-    # was packed at all — it existed, mapped 0, 1x1 in a corner,
-    # which is why the owner could find no arrow anywhere (measured
-    # on his live desk through the send door).
-    if {$picker ne ""} {
-        # the combobox-like way into the dialog: the button, or Down
-        # from the keyboard — a gesture that costs nothing to guess
-        ttk::button $T.edit.pick -text ▾ -takefocus 0 -width 2 \
-            -command [list cfg-entry-pick $picker $name]
-        grid $T.edit.pick -row 0 -column 1 -sticky ns
-        # Down and F4 both — the gestures a combobox has taught
-        # every pair of hands (the owner names F4 by its Windows
-        # habit; Down is the X one)
-        bind $T.edit.t <Down> [list cfg-entry-pick $picker $name]
-        bind $T.edit.t <F4>   [list cfg-entry-pick $picker $name]
-    }
-    set h [expr {max($y2 - $y1, [winfo reqheight $T.edit.t] + 6)}]
-    # PIXEL-PERFECT ON THE CELL'S OWN TEXT (the owner's taste, and the
-    # right one: an editor that shifts the letters by two pixels reads
-    # as a different thing appearing, not as the same value becoming
-    # editable). The offset is MEASURED — where the cell's text
-    # element starts, less the field's own inner padding — so it stays
-    # true when a font or a row height changes.
-    set inner [ui-field-inset $T.edit]
-    lassign [$T item bbox $it Cval eVal] etx ety
-    if {$etx eq ""} { set etx $x1; set ety $y1 }
-    place $T.edit -x [expr {$etx - [lindex $inner 0]}] \
-        -y [expr {$ety - [lindex $inner 1]}] \
-        -width [expr {$x2 - $x1}] -height $h
-    bind $T.edit.t <Map>      {focus %W}
-    # RETURN COMMITS, because a field in a tree is answering a
-    # question and not writing a paragraph; a newline is Shift+Return,
-    # which is the habit every such field has taught.
-    bind $T.edit.t <Return>       {cfg-entry-done commit; break}
-    bind $T.edit.t <Shift-Return> {%W insert insert \n; break}
-    bind $T.edit.t <Escape>       {cfg-entry-done cancel; break}
-    bind $T.edit.t <FocusOut>     {cfg-entry-focusout}
-    focus $T.edit.t
+    ui-cell-open $::cfg_T $it Cval $name [cfg-cell-opts $name]
 }
-# The focus leaving is a commit attempt — but not when it left FOR
-# the picker button or the dialog it opened: that is one gesture, not
-# an abandonment.
-proc cfg-entry-focusout {} {
-    if {[info exists ::cfg_picking] && $::cfg_picking} return
-    # A CLICK ELSEWHERE is the same question. Nothing typed: the field
-    # goes, quietly. Something typed: it stays, and the focus comes
-    # back to it — losing work to a stray click is the one outcome
-    # nobody would have chosen.
-    if {![winfo exists $::cfg_T.edit]} return
-    if {![ui-field-dirty? $::cfg_T.edit]} {
-        cfg-entry-close
-        return
-    }
-    bell
-    cfg-status "finish this value (Return) or drop it (Escape)" error
-    after idle {catch {focus $::cfg_T.edit.t}}
-}
-proc cfg-entry-leave {} {
-    if {![winfo exists $::cfg_T.edit]} { return 1 }
-    if {![ui-field-dirty? $::cfg_T.edit]} {
-        cfg-entry-close
-        focus $::cfg_T          ;# ...and the tree is where one lands
-        return 1
-    }
-    return [cfg-entry-done commit]
-}
-proc cfg-entry-pick {picker name} {
-    set ::cfg_picking 1
-    $picker $name
-    set ::cfg_picking 0
-}
-proc cfg-entry-close {} {
-    catch {bind $::cfg_T.edit.t <FocusOut> {}}
-    catch {destroy $::cfg_T.edit}
-}
-# Answers whether the edit is now SETTLED — committed or dropped — so
-# a caller that must not walk over a half-typed value (Save) can tell.
-proc cfg-entry-done {how} {
-    set T $::cfg_T
-    if {![winfo exists $T.edit]} { return 1 }
-    set v [ui-field-get $T.edit]
-    set name $::cfg_editing
-    if {$how eq "commit"} {
-        # a refusal KEEPS the editor open on the offending text — the
-        # message says what is wrong, and the fix is a keystroke away
-        if {![cfg-set $name $v]} { return 0 }
-    }
-    cfg-entry-close
-    focus $T
-    return 1
-}
+proc cfg-entry-done {how} { ui-cell-done $::cfg_T $how }
+proc cfg-entry-close {} { ui-cell-close $::cfg_T }
 # A dialog's answer goes through the editor's own commit path, so one
 # gesture ends in one committed value.
 proc cfg-picked {name value} {

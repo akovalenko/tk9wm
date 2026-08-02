@@ -111,6 +111,81 @@ set out
 EOT
 WALK=$("$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm-ui "$HERE/applet-config/qh.tcl")
 
+# ---- AND SO IS THE CELL EDITOR (config-tree, step 4) ----
+# The overlay that opens on a cell was the configurator's, and it held
+# on to three things of its: where a value is put, where a refusal is
+# said, and what may happen while a value is half-typed. They are
+# callbacks now — so the proof that the contract is COMPLETE is the
+# editor working in a bare toplevel with nothing behind it but three
+# little procs: it commits through `commit`, a refusal leaves the
+# field standing, a half-typed value holds a gesture and says so
+# through `refuse`, a bool needs no field at all, and the everyday
+# gesture on a cell with a dialog goes to the dialog.
+cat > "$HERE/applet-config/qc.tcl" <<'EOT'
+package require treectrl
+toplevel .cellprobe
+wm geometry .cellprobe 320x200+40+40
+treectrl .cellprobe.t -showroot no
+.cellprobe.t column create -tags C -width 240
+.cellprobe.t configure -treecolumn C
+.cellprobe.t element create eT text
+.cellprobe.t style create S
+.cellprobe.t style elements S eT
+set it [.cellprobe.t item create]
+.cellprobe.t item style set $it C S
+.cellprobe.t item element configure $it C eT -text 7
+.cellprobe.t item lastchild root $it
+pack .cellprobe.t -expand 1 -fill both
+update idletasks ; after 300 ; update
+
+set ::probe_took {}                       ;# what commit was handed
+set ::probe_said {}                       ;# what refuse was handed
+set ::probe_picked none                   ;# what pick was handed
+proc probe-commit {addr value} {
+    lappend ::probe_took $addr $value
+    return [expr {$value ne "no"}]        ;# one value this cell will not take
+}
+proc probe-refuse {sentence} { lappend ::probe_said $sentence }
+proc probe-may-i {what} { return 0 }
+proc probe-pick {addr} { set ::probe_picked $addr }
+proc probe-type {text} {
+    .cellprobe.t.edit.t delete 1.0 end
+    .cellprobe.t.edit.t insert 1.0 $text
+}
+set probe_opts {element eT commit probe-commit refuse probe-refuse \
+                may-i probe-may-i}
+
+ui-cell-open .cellprobe.t $it C mine [dict merge $probe_opts {value 7}]
+update
+probe-type 9
+event generate .cellprobe.t.edit.t <Return> -when now
+update
+set committed [expr {![winfo exists .cellprobe.t.edit]}]
+
+ui-cell-open .cellprobe.t $it C mine [dict merge $probe_opts {value 7}]
+update
+probe-type no
+event generate .cellprobe.t.edit.t <Return> -when now
+update
+set refused [expr {[winfo exists .cellprobe.t.edit] ? 1 : 0}]
+set guard [ui-cell-guard .cellprobe.t scroll]
+set held [expr {[winfo exists .cellprobe.t.edit] ? 1 : 0}]
+ui-cell-done .cellprobe.t cancel
+
+ui-cell-edit .cellprobe.t $it C flag [dict merge $probe_opts {kind bool value on}]
+update
+set nofield [expr {![winfo exists .cellprobe.t.edit]}]
+ui-cell-edit .cellprobe.t $it C hue \
+    [dict merge $probe_opts {kind color value #ffffff pick probe-pick}]
+update
+set out [list took $::probe_took committed $committed refused $refused \
+    guard $guard held $held said [llength $::probe_said] \
+    picked $::probe_picked bool-needs-no-field $nofield]
+destroy .cellprobe
+set out
+EOT
+CELL=$("$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm-ui "$HERE/applet-config/qc.tcl")
+
 H4=$(hosts)
 q 'applet about' >/dev/null
 sleep 1
@@ -208,6 +283,11 @@ if [ "$WALK" = "rows 2 deep 1 seen {one deeper two}" ]; then
     echo "OK: the host's walk builds a tree of nodes with no desk behind it"
 else
     echo "FAIL: the standalone walk: $WALK"
+fi
+if [ "$CELL" = "took {mine 9 mine no flag off} committed 1 refused 1 guard 0 held 1 said 1 picked hue bool-needs-no-field 1" ]; then
+    echo "OK: the cell editor commits, refuses, holds and picks on three callbacks alone"
+else
+    echo "FAIL: the standalone cell editor: $CELL"
 fi
 if grep -q 'UI: applet about up' "$HERE/wm-applet.log"; then
     echo "OK: the host reported the build"

@@ -533,6 +533,264 @@ proc ui-tree-render {T parent nodes view} {
     }
     return $m
 }
+# ---- EDITING A CELL OF THAT TREE (config-tree, step 4) -----------
+# The field that opens ON a cell, over the value it is about. It was
+# the configurator's, and it is the last thing in it that every
+# tree-shaped applet wants — but moving it was never a matter of
+# moving code: it held on to three things that belong to the APPLET,
+# and the only way to let go of them is to NAME them.
+#
+#   ui-cell-edit T ITEM COLUMN ADDR OPTS
+#
+# ADDR is whatever the applet calls this cell. The library never looks
+# inside it; it hands it back with every question. OPTS carries the
+# three answers:
+#
+#   commit {ADDR VALUE} -> 1|0  put the value, and say whether it was
+#                               taken. A refusal leaves the field open
+#                               on the text that was refused — the
+#                               fix is then a keystroke away.
+#   refuse {SENTENCE}           where the library's own sentences go:
+#                               a status line, a log. How loud a
+#                               refusal is (a bell?) is the applet's
+#                               too — this is its place to speak.
+#   may-i {WHAT} -> 1|0         may this happen while the value is
+#                               still half-typed — the scroll, the
+#                               erase, the focus walking off? The
+#                               policy is the applet's; the mechanics
+#                               below are ours.
+#
+# The rest of OPTS is data, not policy: `value` (what the editor opens
+# on, and what a bool or a choice currently holds), `kind` (which
+# gesture this cell has: `bool` toggles, `choice ...` drops a menu,
+# anything else is text), `pick` (the dialog behind the ▾, called with
+# ADDR — the applet's, because a color chooser knows what a color is
+# and this layer does not), `element` (the text element inside the
+# column, so the letters land on the letters) and `how` (`primary`,
+# the everyday gesture, which prefers the dialog where there is one;
+# `text`, which always opens the field).
+array set ui_cell {}
+proc ui-cell-defaults {opts} {
+    dict merge {how primary kind text value {} element {} pick {}
+                commit {} refuse {} may-i {}} $opts
+}
+proc ui-cell-opts {T} {
+    expr {[info exists ::ui_cell($T)] ? $::ui_cell($T) : {}}
+}
+proc ui-cell-cb {opts key} {
+    expr {[dict exists $opts $key] ? [dict get $opts $key] : {}}
+}
+# ACTIVATION IS EDITING, and which editing is the kind's business:
+# there is no text to type in a bool (it toggles) or in a simple
+# oneOf (it drops its menu), and everything else opens the field —
+# straight into the dialog when the everyday gesture asked and a
+# dialog is what this cell has.
+proc ui-cell-edit {T item column addr opts} {
+    set o [ui-cell-defaults $opts]
+    set kind [dict get $o kind]
+    switch -- [lindex $kind 0] {
+        bool {
+            # two words, and the pair is the kind's own: a bare `bool`
+            # means the on/off this desk spells its switches with,
+            # `bool yes no` means somebody else's pair
+            lassign [lrange $kind 1 end] yes no
+            if {$yes eq ""} { set yes on ; set no off }
+            set v [dict get $o value]
+            ui-cell-commit $T $addr [expr {$v eq $yes ? $no : $yes}] $o
+            return
+        }
+        choice {
+            ui-cell-choice $T $item $column $addr [lrange $kind 1 end] $o
+            return
+        }
+    }
+    if {[dict get $o how] eq "primary" && [llength [dict get $o pick]]} {
+        ui-cell-pick $T $addr $o
+        return
+    }
+    # after the event sequence, so nothing steals the focus back from
+    # the field the moment it claims it
+    after idle [list ui-cell-open $T $item $column $addr $o]
+}
+# A CHOICE IS A MENU AT ITS CELL, not a cycle to click blind through
+# (the owner: four panel sides by repeated presses is cruel). A menu
+# holds the keyboard natively, and what the cell holds now is marked.
+proc ui-cell-choice {T item column addr vals opts} {
+    catch {destroy $T.pop}
+    menu $T.pop -tearoff 0 -font DeskFont
+    set ::ui_cell_choice [dict get $opts value]
+    foreach v $vals {
+        $T.pop add radiobutton -label $v -variable ::ui_cell_choice -value $v \
+            -command [list ui-cell-commit $T $addr $v $opts]
+    }
+    lassign [$T item bbox $item $column] x1 y1 x2 y2
+    tk_popup $T.pop [expr {[winfo rootx $T] + $x1}] \
+                    [expr {[winfo rooty $T] + $y2}]
+}
+# The overlay itself. Its Map claims the focus: visible MEANS focused.
+# Return commits, Escape drops, losing the focus is a commit attempt,
+# Tab is a commit of what was touched.
+proc ui-cell-open {T item column addr opts} {
+    ui-cell-close $T
+    lassign [$T item bbox $item $column] x1 y1 x2 y2
+    if {$x1 eq ""} return
+    set o [ui-cell-defaults $opts]
+    dict set o addr $addr
+    set ::ui_cell($T) $o
+    set val [dict get $o value]
+    # A THREE-LINE SCRIPT WANTS THREE LINES. The field is a text, so
+    # it can have them — and it has undo, which an entry never did
+    # (the owner's preference, 2026-08-01).
+    set lines [llength [split $val \n]]
+    ui-field $T.edit -height [expr {max(1, min(6, $lines))}] \
+        -onleave [list ui-cell-leave $T]
+    ui-field-set $T.edit $val
+    ui-field-select-all $T.edit
+    # GRID, and the button gets a column of its own: PACKED, the
+    # field (with -expand) claimed the whole cavity before the button
+    # was packed at all — it existed, mapped 0, 1x1 in a corner,
+    # which is why the owner could find no arrow anywhere (measured
+    # on his live desk through the send door).
+    if {[llength [dict get $o pick]]} {
+        # the combobox-like way into the dialog: the button, or Down
+        # from the keyboard — a gesture that costs nothing to guess
+        ttk::button $T.edit.pick -text ▾ -takefocus 0 -width 2 \
+            -command [list ui-cell-pick $T $addr $o]
+        grid $T.edit.pick -row 0 -column 1 -sticky ns
+        # Down and F4 both — the gestures a combobox has taught every
+        # pair of hands (the owner names F4 by its Windows habit;
+        # Down is the X one)
+        bind $T.edit.t <Down> [list ui-cell-pick $T $addr $o]
+        bind $T.edit.t <F4>   [list ui-cell-pick $T $addr $o]
+    }
+    set h [expr {max($y2 - $y1, [winfo reqheight $T.edit.t] + 6)}]
+    # PIXEL-PERFECT ON THE CELL'S OWN TEXT (the owner's taste, and the
+    # right one: an editor that shifts the letters by two pixels reads
+    # as a different thing appearing, not as the same value becoming
+    # editable). The offset is MEASURED — where the cell's text
+    # element starts, less the field's own inner padding — so it stays
+    # true when a font or a row height changes. A caller that names no
+    # element gets the cell's own corner, which is as true as the
+    # tree let it be.
+    set inner [ui-field-inset $T.edit]
+    set etx "" ; set ety ""
+    if {[dict get $o element] ne ""} {
+        lassign [$T item bbox $item $column [dict get $o element]] etx ety
+    }
+    if {$etx eq ""} { set etx $x1 ; set ety $y1 }
+    place $T.edit -x [expr {$etx - [lindex $inner 0]}] \
+        -y [expr {$ety - [lindex $inner 1]}] \
+        -width [expr {$x2 - $x1}] -height $h
+    bind $T.edit.t <Map> {focus %W}
+    # RETURN COMMITS, because a field in a tree is answering a
+    # question and not writing a paragraph; a newline is Shift+Return,
+    # which is the habit every such field has taught.
+    bind $T.edit.t <Return>       "[list ui-cell-done $T commit]; break"
+    bind $T.edit.t <Shift-Return> {%W insert insert \n; break}
+    bind $T.edit.t <Escape>       "[list ui-cell-done $T cancel]; break"
+    bind $T.edit.t <FocusOut>     [list ui-cell-focusout $T]
+    focus $T.edit.t
+}
+proc ui-cell-commit {T addr value opts} {
+    set cmd [ui-cell-cb $opts commit]
+    if {![llength $cmd]} { return 1 }
+    return [uplevel #0 [list {*}$cmd $addr $value]]
+}
+# The dialog behind the ▾ is the APPLET's, and while it is up the
+# field must not read its lost focus as an abandonment: the two are
+# one gesture.
+proc ui-cell-pick {T addr opts} {
+    set ::ui_cell($T,picking) 1
+    try {
+        uplevel #0 [list {*}[ui-cell-cb $opts pick] $addr]
+    } finally {
+        set ::ui_cell($T,picking) 0
+    }
+}
+# Answers whether the edit is now SETTLED — committed or dropped — so
+# a caller that must not walk over a half-typed value (a Save) can
+# tell. A refusal keeps the field standing on the offending text.
+proc ui-cell-done {T how} {
+    if {![winfo exists $T.edit]} { return 1 }
+    set o [ui-cell-opts $T]
+    set v [ui-field-get $T.edit]
+    if {$how eq "commit"
+            && ![ui-cell-commit $T [dict get $o addr] $v $o]} { return 0 }
+    ui-cell-close $T
+    focus $T                      ;# ...and the tree is where one lands
+    return 1
+}
+# The field and what is known about it go together: $T.edit exists
+# exactly while ::ui_cell($T) does, and every reader below leans on it.
+proc ui-cell-close {T} {
+    catch {bind $T.edit.t <FocusOut> {}}
+    catch {destroy $T.edit}
+    unset -nocomplain ::ui_cell($T)
+}
+# TAB COMMITS WHAT WAS TOUCHED (the owner, 2026-08-02): a value looked
+# at and left alone is not an edit, and writing it back would make a
+# customization out of a glance. Return still commits whatever is
+# there — typing the same thing on purpose is a legitimate way to pin
+# it, and that stays.
+proc ui-cell-leave {T} {
+    if {![winfo exists $T.edit]} { return 1 }
+    if {![ui-field-dirty? $T.edit]} {
+        ui-cell-close $T
+        focus $T
+        return 1
+    }
+    return [ui-cell-done $T commit]
+}
+# A CLICK ELSEWHERE asks the same question a scroll asks, and the
+# guard answers it: nothing typed and the field goes quietly;
+# something typed and it stays, with the focus coming back to it —
+# losing work to a stray click is the one outcome nobody would have
+# chosen.
+proc ui-cell-focusout {T} {
+    if {[info exists ::ui_cell($T,picking)] && $::ui_cell($T,picking)} return
+    if {![winfo exists $T.edit]} return
+    if {[ui-cell-guard $T focus]} return
+    after idle [list catch [list focus $T.edit.t]]
+}
+# ---- what may happen while a value is half-typed ----
+# ONE question decides it, and it is a mechanical one: has anything
+# been TYPED? A field still holding what it was given is a glance, and
+# a glance costs nothing to drop — it goes, and the gesture proceeds.
+# A field with a change in it is WORK, and what may be done to work in
+# progress is the applet's rule, not ours: may-i answers. A yes takes
+# the field WITH it — an overlay left standing over a scrolling tree
+# is nobody's answer — so a yes always means the way is clear.
+#
+# Asked BEFORE the view moves, so it hangs off the gestures rather
+# than off -yscrollcommand, which only ever reports what has already
+# happened.
+proc ui-cell-guard {T what} {
+    if {![winfo exists $T.edit]} { return 1 }
+    if {[ui-field-dirty? $T.edit] && ![ui-cell-may-i $T $what]} {
+        if {$what eq "focus"} {
+            ui-cell-say $T "finish this value (Return) or drop it (Escape)"
+        } else {
+            ui-cell-say $T "finish this value (Return) or drop it (Escape)\
+ — the tree holds still while one is half-typed"
+        }
+        return 0
+    }
+    ui-cell-close $T
+    return 1
+}
+proc ui-cell-may-i {T what} {
+    set cmd [ui-cell-cb [ui-cell-opts $T] may-i]
+    # NO POLICY MEANS NO: a tree walking out from under a half-typed
+    # value is the outcome to default AWAY from.
+    if {![llength $cmd]} { return 0 }
+    return [uplevel #0 [list {*}$cmd $what]]
+}
+proc ui-cell-say {T sentence} {
+    set cmd [ui-cell-cb [ui-cell-opts $T] refuse]
+    if {![llength $cmd]} { puts "UI: $sentence" ; return }
+    uplevel #0 [list {*}$cmd $sentence]
+}
+
 proc ui-applet {name meta} { dict set ::ui_applets $name $meta }
 set ui_applets {}
 # The applet files, and WHEN they are read again: normally never — a
