@@ -5170,6 +5170,14 @@ proc emacs-launch-eval {spec} {
 # semantics handed to the terminal layer, so the frame name and the
 # terminal name coincide and the shared match keeps holding.
 proc emacs-launch {spec} {
+    # The identity launcher, and it cannot work without one: a deed
+    # lends its own name (action-derive), and a bare call from a
+    # script must say a frame. The edit door, which needs no identity
+    # at all, goes through emacs-edit-open instead.
+    if {![dict exists $spec frame]} {
+        error "emacs-launch: no frame name — a deed lends its own,\
+ a bare call must say one"
+    }
     set frame [dict get $spec frame]
     set via $::emacs_frames
     if {[dict exists $spec via]} { set via [dict get $spec via] }
@@ -5681,6 +5689,27 @@ proc action {name settings} {
 proc action-derive {name raw} {
     if {[dict exists $raw run]} {
         dict set raw launch [list Run {*}[dict get $raw run]]
+    }
+    # A DEED THAT SAYS `emacs` ALREADY HAS A NAME — ITS OWN. The frame
+    # name is what the desk finds the window by (it is the WM_CLASS
+    # instance), so an emacs deed cannot do without one; but making a
+    # person type `action telega {emacs {frame telega …}}` is asking
+    # them to say the same word twice. Unsaid, the deed lends its own.
+    #
+    # This is the answer to «let a nameless button just find some
+    # Emacs» (the owner's sketch, 2026-08-02) — a reading that holds
+    # only on a one-server desk. X carries no word about which daemon
+    # a frame belongs to: every gui frame is classed Emacs, so on a
+    # desk with two servers a nameless button raises whichever frame
+    # the search happened to reach first. A name derived from the deed
+    # costs the same nothing to write and keeps the identity exact.
+    #
+    # The name becomes an X property, so a deed called in a script one
+    # cannot type in Latin-1 (or one with a glob character in it) is
+    # the case for saying `frame` outright — the door is not closed,
+    # it is simply not the one most people need.
+    if {[action-type $raw] eq "emacs" && ![dict exists $raw emacs frame]} {
+        dict set raw emacs frame $name
     }
     return [spec-derive "action $name" $raw]
 }
@@ -6202,8 +6231,8 @@ spec-keys terminal {
 }
 spec-keys emacs {
     daemon     {kind text doc {which daemon (-s); unsaid is the default one}}
-    frame      {kind text required 1
-                doc {the frame name — the match hangs off it}}
+    frame      {kind text
+                doc {the frame name — the match hangs off it; unsaid, the deed lends its own}}
     eval       {kind text doc {elisp for the frame it makes}}
     via        {kind {choice gui terminal} doc {a gui frame, or one in a terminal}}
     autodaemon {kind {choice on off} doc {start a missing daemon, or refuse}}

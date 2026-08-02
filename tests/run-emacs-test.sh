@@ -38,6 +38,14 @@ action nm  {emacs {daemon emtest frame NAMEBACK eval {(set-frame-name nil)}}
             key {<Super>y}}
 # ...and the button that WANTS its word standing in the title.
 action kf  {emacs {daemon emtest frame KEEPN keep-frame-name on} key {<Super>u}}
+# THE DEED LENDS ITS OWN NAME when the spec says no frame: this one
+# means the frame «nameless» of the emtest daemon, and never «some
+# Emacs or other» — which on a two-server desk would be a coin toss.
+action nameless {emacs {daemon emtest} key {<Super>i}}
+# ...and the shortest emacs button there is. Declared, never fired
+# (it would want a daemon of its own); what it proves is that `type
+# emacs` alone derives a whole identity.
+action bare {type emacs}
 action eb  {launch {exec sh -c "printenv BENV > $::env(HOME)/../benv-out" &}
             env {BENV yes} key {<Super>l}}
 panel-button tg
@@ -134,6 +142,17 @@ wait_for 20 xdotool search --classname '^KEEPN$'
 sleep 1
 KFCLS=$(xprop -id "$(xdotool search --classname '^KEEPN$' | head -1)" WM_CLASS 2>/dev/null | sed 's/.*= //')
 KFNAME=$(ec '(frame-parameter (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) "KEEPN")) (frame-list)) (quote name))')
+
+echo "--- a deed that lends its own name"
+BARE=$(q 'dict get $::action_spec bare match')
+key super+i
+wait_for 20 xdotool search --classname '^nameless$' \
+    || echo "note: wait for the nameless frame ran out"
+sleep 1
+NLCLS=$(xprop -id "$(xdotool search --classname '^nameless$' | head -1)" WM_CLASS 2>/dev/null | sed 's/.*= //')
+key super+i            # must FIND it, not build a second
+sleep 1
+NLLAUNCH=$(grep -c 'emacs: launch.*nameless' "$HERE/wm-emacs.log")
 
 echo "--- the plain life: daemon none"
 key super+j
@@ -313,6 +332,18 @@ if [ "$KFNAME" = '"KEEPN"' ] && [ "$KFCLS" = '"KEEPN", "Emacs"' ]; then
     echo "OK: keep-frame-name on left the word standing in the title"
 else
     echo "FAIL: keep-frame-name on: name=$KFNAME class=$KFCLS"
+fi
+echo "--- nameless: class {$NLCLS} launches=$NLLAUNCH, bare match {$BARE}"
+if [ "$NLCLS" = '"nameless", "Emacs"' ] && [ "$NLLAUNCH" = 1 ] \
+        && grep -q 'action nameless: found' "$HERE/wm-emacs.log"; then
+    echo "OK: an unsaid frame is the deed's own name, and the second press found it"
+else
+    echo "FAIL: nameless: class $NLCLS, launches $NLLAUNCH"
+fi
+if [ "$BARE" = "filter -class bare" ]; then
+    echo "OK: type emacs alone derives a whole identity"
+else
+    echo "FAIL: the bare deed's match is {$BARE}"
 fi
 echo "--- edit door: frames $FRAMES0 -> $FRAMES1 -> $FRAMES2,\
  visited $EDIT1 / $EDIT2"

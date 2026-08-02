@@ -565,11 +565,20 @@
 #       -F '((name . "TELEGA") (tk9wm-frame . "TELEGA"))' -n \
 #       --eval '(progn (set-frame-name nil) (telega))'
 #
-# Keys: `frame` (required — the identity), `daemon` (the -s socket;
-# omit for the default daemon; `none` — see the plain life below),
-# `eval`, `via gui|terminal` (this action's answer to the question
-# below), `autodaemon on|off`, `keep-frame-name on|off` and `env`
-# (all below).
+# THE FRAME NAME IS THE DEED'S OWN NAME unless it says otherwise, so
+# the shortest emacs button is `action telega {type emacs}` — the deed
+# is already called telega and there is no reason to type it twice.
+# Say `frame` when the name must differ from the deed's (or when the
+# deed's name is not a word X can carry: it becomes a WM_CLASS
+# instance). What a nameless button must NOT do is match «any Emacs»:
+# X says nothing about which daemon a frame belongs to, so on a desk
+# with two servers that would raise whichever frame turned up first.
+#
+# Keys: `frame` (the identity; unsaid, the deed's own name), `daemon`
+# (the -s socket; omit for the default daemon; `none` — see the plain
+# life below), `eval`, `via gui|terminal` (this action's answer to the
+# question below), `autodaemon on|off`, `keep-frame-name on|off` and
+# `env` (all below).
 #
 # THE NAME IS FOR FINDING THE WINDOW, NOT FOR READING. WM_CLASS is
 # written once, when the frame is born, and the name goes on being the
