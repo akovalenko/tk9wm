@@ -1195,6 +1195,39 @@ MENU2=$(qu 't-knob set-edge-resist
     }
     set r')
 
+# --- THE PALETTE MOVING UNDER AN OPEN APPLET, which is the desk's own
+#     <<ThemeChanged>>. `option add` dresses what is created next and
+#     nothing that stands, so without the announcement the applet keeps
+#     the theme it was born in (the owner, 2026-08-02). Measured on the
+#     applet itself, over the send door: the tree's ground, and the ink
+#     a selected row is drawn in — the pair that made a picked row
+#     unreadable when only one of them followed.
+BEFORE=$(qu 'list [lindex [$::cfg_T cget -background] 0] [ui-color selectfg]')
+q 'set-theme light' >/dev/null
+sleep 2
+AFTER=$(qu 'list [lindex [$::cfg_T cget -background] 0] [ui-color selectfg]')
+SELINK=$(qu 'lindex [$::cfg_T element cget eTxt -fill] 0')
+echo "--- style before: $BEFORE  after set-theme light: $AFTER"
+if [ "$BEFORE" != "$AFTER" ]; then
+    echo "OK: the open applet repainted where it stood ($BEFORE -> $AFTER)"
+else
+    echo "FAIL: the applet kept the theme it was born in ($BEFORE)"
+fi
+# treectrl answers -background as a state list, so the braces it puts
+# round the plain colour are its own and not part of the answer.
+AFTERN=$(echo "$AFTER" | tr -d '{}')
+case "$AFTERN" in
+    "#ffffff "*) echo "OK: ...and it is the LIGHT ground it took, not any change" ;;
+    *) echo "FAIL: the tree's ground after going light: $AFTER" ;;
+esac
+if [ -n "$SELINK" ] && [ "$SELINK" = "$(echo "$AFTERN" | awk '{print $2}')" ]; then
+    echo "OK: a selected row is drawn in the selection's own ink, so the band\
+ cannot swallow it"
+else
+    echo "FAIL: selected text is «$SELINK», the selection ink is\
+ «$(echo "$AFTER" | awk '{print $2}')»"
+fi
+
 kill $WM 2>/dev/null
 pkill -f 'ui/host[.]tcl' 2>/dev/null
 
@@ -1782,4 +1815,5 @@ case $GEO in
     *"fits 1") echo "OK: the applet window sits inside the workarea" ;;
     *) echo "FAIL: window vs workarea: $GEO" ;;
 esac
+
 check_invariants "$HERE/wm-cfg.log"

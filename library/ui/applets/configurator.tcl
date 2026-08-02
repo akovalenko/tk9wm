@@ -57,6 +57,59 @@ set cfg_hint "Return or F4 opens the picker · F2 types · F3 switches a\
 # the desk's own error text coming back over the send door — lands on
 # the status line, in the warn color, and the editor stays open on the
 # offending text so it can be fixed rather than retyped.
+# The fill for a text element that may be drawn over the selection
+# band: this colour normally, the selection's own ink when picked.
+# Takes a palette KEY or a literal colour, because one of the five is
+# a literal (the flag's orange) and it needs the same treatment.
+proc cfg-ink {what} {
+    set c [expr {[string index $what 0] eq "#" ? $what : [ui-color $what]}]
+    list [ui-color selectfg] selected $c {}
+}
+# PUTTING ON A PALETTE THAT MOVED — the applet's half of the desk's
+# <<ThemeChanged>> (the owner, 2026-08-02: "the configurator does not
+# repaint on the fly"). The option database dresses a widget once, at
+# birth, so everything standing has to be told again by name.
+#
+# Told by NAME and not by walking the tree, which was the tempting
+# version: a blind walk re-paints the things that are deliberately
+# not the palette's colour — the flag's orange, a refusal's red on
+# the status line — and a restyle that eats the error message is
+# worse than one that misses a frame. The ttk half needs nothing
+# here; `ttk::style theme use` repaints those where they stand.
+proc cfg-restyle {} {
+    if {![info exists ::cfg_T] || ![winfo exists $::cfg_T]} return
+    set T $::cfg_T
+    set W [winfo parent [winfo parent $T]]
+    $T configure -background [ui-color field]
+    foreach c {Cname Cval Cflag Cdoc} {
+        $T column configure $c -textcolor [ui-color fg] \
+            -background [list [ui-color select] {active} \
+                              [ui-color trough] {}]
+    }
+    foreach {el key} {eTxt fg eVal link eDoc fg eFlag #cc7832 eGrp fg} {
+        $T element configure $el -fill [cfg-ink $key]
+    }
+    $T element configure eSel -fill [list [ui-color select] selected] \
+        -outline [list [ui-color link] selected]
+    # ...and the plain-Tk furniture, which has no theme of its own.
+    foreach w [list [winfo toplevel $T] $W $W.b] {
+        if {[winfo exists $w]} { catch {$w configure -background [ui-color bg]} }
+    }
+    foreach w [list $W.head $W.b.note] {
+        if {![winfo exists $w]} continue
+        catch {$w configure -background [ui-color bg]}
+    }
+    # The heading is a link-coloured label, and so is the status line
+    # — but only while it is saying something ordinary. A refusal is
+    # red and stays red: the palette moved, the complaint did not.
+    catch {$W.head configure -foreground [ui-color link]}
+    if {[winfo exists $W.b.note]
+            && [$W.b.note cget -foreground] ne "#cc4040"} {
+        catch {$W.b.note configure -foreground [ui-color link]}
+    }
+    catch {ttk::style configure UiRing.TFrame -bordercolor [ui-color bg]}
+    catch {ttk::style configure UiRingOn.TFrame -bordercolor [ui-color link]}
+}
 proc cfg-status {msg {how note}} {
     set l [winfo toplevel $::cfg_T].b.note
     if {![winfo exists $l]} return
@@ -110,11 +163,17 @@ proc cfg-build {W} {
             -borderwidth 1 -arrowgravity right
     }
     $T configure -treecolumn Cname
-    $T element create eTxt  text -fill [ui-color fg] -lines 1 -font DeskFont
-    $T element create eVal  text -fill [ui-color link] -lines 1 -font DeskFont
-    $T element create eDoc  text -fill [ui-color fg] -lines 1 -font DeskFont
-    $T element create eFlag text -fill #cc7832 -lines 1 -font DeskFont
-    $T element create eGrp  text -fill [ui-color fg] -lines 1 -font TitleFont
+    # EVERY TEXT ELEMENT ANSWERS THE SELECTION, because the band under
+    # it is a colour of its own and one ink cannot serve both grounds:
+    # awlight selects with a dark blue, and the row's ordinary black
+    # went invisible the moment it was picked (the owner, 2026-08-02).
+    # cfg-ink is the two-state fill, and every element that draws
+    # letters over eSel takes it.
+    $T element create eTxt  text -fill [cfg-ink fg]   -lines 1 -font DeskFont
+    $T element create eVal  text -fill [cfg-ink link] -lines 1 -font DeskFont
+    $T element create eDoc  text -fill [cfg-ink fg]   -lines 1 -font DeskFont
+    $T element create eFlag text -fill [cfg-ink #cc7832] -lines 1 -font DeskFont
+    $T element create eGrp  text -fill [cfg-ink fg]   -lines 1 -font TitleFont
     $T element create eSel  rect -fill [list [ui-color select] selected] \
         -outline [list [ui-color link] selected] -outlinewidth 1
     foreach {st els} {
@@ -169,6 +228,9 @@ proc cfg-build {W} {
         3*[font metrics DeskFont -linespace] + 12)}]
     pack propagate $W.b 0
     bind $W <Configure> {cfg-note-wrap %W %w}
+    # The desk's own <<ThemeChanged>> (ui-style-announce): the palette
+    # under us moved, put it on.
+    bind [winfo toplevel $W] <<DeskStyle>> cfg-restyle
 
     # CONDITIONAL breaks: a plain `break` swallowed the class bindings
     # too, and with them treectrl's own header work — column drags and

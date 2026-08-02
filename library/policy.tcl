@@ -6619,10 +6619,19 @@ proc panel-build {name idx} {
     # tree across a theme change kept the old theme's paint with it —
     # measured, and the desk went half-light (2026-08-02).
     set sig [list [dict remove $g faces] $side $::theme]
+    # THE STRIP'S OWN GROUND, not the outline. What shows of a panel's
+    # window is not a border — it is the air around the things placed
+    # in it: the gap before a widget area, the slack when the tree is
+    # thinner than the band. Dressed in OUTLINE that was invisible for
+    # as long as the outline and the ground were the same colour, and
+    # the light theme showed what it had really been all along — a
+    # heavy black frame around the clock, thick on the gap side and
+    # thin on the others, which reads as a 3d bevel nobody drew (the
+    # owner, 2026-08-02). Air takes the ground's colour.
     if {[winfo exists $P]} {
-        $P configure -background $::OUTLINE
+        $P configure -background [themed ground]
     } else {
-        toplevel $P -background $::OUTLINE
+        toplevel $P -background [themed ground]
         wm overrideredirect $P 1
     }
     if {[winfo exists $P.t] && [info exists ::panel_sig($name)]

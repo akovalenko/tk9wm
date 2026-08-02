@@ -128,15 +128,29 @@ proc ui-style-sync {} {
     # instead of arguing with it. The WM's own colors stay the
     # fallback for anything a theme does not name.
     foreach {key style opt} {
-        bg     TFrame  -background
-        fg     TLabel  -foreground
-        field  TEntry  -fieldbackground
-        select TEntry  -selectbackground
-        trough TScrollbar -troughcolor
+        bg       TFrame  -background
+        fg       TLabel  -foreground
+        field    TEntry  -fieldbackground
+        select   TEntry  -selectbackground
+        selectfg TEntry  -selectforeground
+        trough   TScrollbar -troughcolor
     } {
         if {![catch {ttk::style lookup $style $opt} v] && $v ne ""} {
             dict set ::ui_palette $key $v
         }
+    }
+    # SELECTED TEXT IS ITS OWN COLOUR, and forgetting that is how a
+    # selection swallows the row it is meant to point at: awlight's
+    # selection band is a DARK blue, so the ordinary black ink went
+    # invisible on it (the owner, 2026-08-02 — "the idea was white
+    # letters on that selection; treectrl draws them black"). ttk
+    # names the pair and we now take both; where a theme names only
+    # the band, the ink is worked out from it by luminance, which is
+    # never wrong even when it is not what the theme would have said.
+    if {![dict exists $::ui_palette selectfg]
+            || [dict get $::ui_palette selectfg] eq ""} {
+        dict set ::ui_palette selectfg \
+            [ui-readable [dict get $::ui_palette select]]
     }
     set st $::ui_palette
     foreach {opt key} {
@@ -150,10 +164,37 @@ proc ui-style-sync {} {
     option add *Entry.background [dict get $st field] widgetDefault
     option add *Text.background [dict get $st field] widgetDefault
     option add *Listbox.background [dict get $st field] widgetDefault
+    ui-style-announce
+}
+# ...AND THE APPLETS ALREADY ON THE SCREEN, which is the other half
+# and was missing. `option add` dresses what is created NEXT and
+# nothing that exists, so a live theme change left every open applet
+# wearing the theme it was born in (the owner, 2026-08-02: "the
+# configurator does not repaint on the fly; I would like all of ours
+# to understand an analog of <<ThemeChanged>>"). This is that analog,
+# and it is deliberately the same shape Tk's own is: a virtual event
+# on the toplevel, which whoever cares binds. An applet that binds
+# nothing simply keeps its colours — the same soft edge the rest of
+# this bridge has, and no applet is obliged to be restyleable.
+proc ui-style-announce {} {
+    foreach name [dict keys $::ui_applets] {
+        set top .tk9wm-$name
+        if {![winfo exists $top]} continue
+        catch {event generate $top <<DeskStyle>> -when tail}
+    }
 }
 proc ui-color {key} {
     expr {[dict exists $::ui_palette $key]
           ? [dict get $::ui_palette $key] : "#888888"}
+}
+# Ink a given ground can carry — the WM's own contrast-fg, on this
+# side of the door. Two-way and no more: light ink on a dark ground,
+# dark ink on a light one.
+proc ui-readable {bg} {
+    if {[catch {winfo rgb . $bg} c]} { return #eeeeec }
+    lassign $c r g b
+    expr {(0.2126*$r + 0.7152*$g + 0.0722*$b) / 65535.0 > 0.5
+          ? "#1c1c1c" : "#eeeeec"}
 }
 # The desk's usable rectangle {x y w h} and what a frame costs around
 # a client {border decotop} — an applet that sizes itself must fit
