@@ -393,6 +393,36 @@ proc bgerror {msg} {
     if {[info exists ::errorInfo]} { puts $::errorInfo }
 }
 
+# ---- A TREE FROM NODES (config-tree, step 4) ----------------------
+# The walk the configurator grew is not the configurator's: any applet
+# rendering a tree wants the same thing — a list of records, each with
+# its children, put under a parent by treesync, with a hook to
+# remember what a row turned out to be. So it lives here, in the layer
+# the next applet gets for free.
+#
+# It asks nothing of the desk: no wm-call, no registry, no theme. A
+# node needs a `key` (unique among siblings — treesync's identity) and
+# may carry `children`; everything else is the view's business.
+#
+#   view: make/update as treesync takes them, plus an optional
+#         `register {item node}` called for every row in walk order.
+proc ui-tree-render {T parent nodes view} {
+    # the root item is 0 to treesync, and an empty string is not
+    # something a tree can describe
+    if {$parent eq ""} { set parent 0 }
+    set rows [lmap n $nodes { list [dict get $n key] $n }]
+    set m [treesync::sync $T $view $rows $parent]
+    foreach n $nodes {
+        set item [dict get $m [dict get $n key]]
+        if {[dict exists $view register]} {
+            uplevel #0 [list {*}[dict get $view register] $item $n]
+        }
+        if {[dict exists $n children]} {
+            ui-tree-render $T $item [dict get $n children] $view
+        }
+    }
+    return $m
+}
 proc ui-applet {name meta} { dict set ::ui_applets $name $meta }
 set ui_applets {}
 # The applet files, and WHEN they are read again: normally never — a

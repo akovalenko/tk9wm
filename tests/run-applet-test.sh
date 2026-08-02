@@ -62,6 +62,43 @@ BID=$(xdotool search --classname '^tk9wm-about$' | head -1)
 # leave first.
 q 'after 100 restart-wm; list ordered' >/dev/null 2>&1
 sleep 3
+# ---- THE WALK IS THE HOST'S, and asks the desk for nothing ----
+# (config-tree, step 4: what the next applet gets for free). A bare
+# toplevel, a tree of its own, two storeys of nodes — no wm-call, no
+# registry, no theme.
+cat > "$HERE/applet-config/qh.tcl" <<'EOT'
+package require treectrl
+toplevel .walkprobe
+treectrl .walkprobe.t -showroot no
+.walkprobe.t column create -tags C
+.walkprobe.t configure -treecolumn C
+.walkprobe.t element create eT text
+.walkprobe.t style create S
+.walkprobe.t style elements S eT
+proc probe-make {T parent key node} {
+    set it [$T item create -button [expr {[dict exists $node children]}]]
+    $T item style set $it C S
+    $T item element configure $it C eT -text [dict get $node label]
+    return $it
+}
+proc probe-update {T item key node} {
+    $T item element configure $item C eT -text [dict get $node label]
+}
+proc probe-register {item node} { lappend ::probe_seen [dict get $node label] }
+set ::probe_seen {}
+ui-tree-render .walkprobe.t "" {
+    {key a label one children {{key a1 label deeper}}}
+    {key b label two}
+} {make probe-make update probe-update register probe-register}
+set kids [.walkprobe.t item children root]
+set out [list rows [llength $kids] \
+    deep [llength [.walkprobe.t item children [lindex $kids 0]]] \
+    seen $::probe_seen]
+destroy .walkprobe
+set out
+EOT
+WALK=$("$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm-ui "$HERE/applet-config/qh.tcl")
+
 H4=$(hosts)
 q 'applet about' >/dev/null
 sleep 1
@@ -148,6 +185,11 @@ if [ "$N" -ge 2 ]; then
     echo "OK: after the restart the window was FOUND — a match, not a memory"
 else
     echo "FAIL: found-lines: $N, want 2 (one before, one after restart)"
+fi
+if [ "$WALK" = "rows 2 deep 1 seen {one deeper two}" ]; then
+    echo "OK: the host's walk builds a tree of nodes with no desk behind it"
+else
+    echo "FAIL: the standalone walk: $WALK"
 fi
 if grep -q 'UI: applet about up' "$HERE/wm-applet.log"; then
     echo "OK: the host reported the build"

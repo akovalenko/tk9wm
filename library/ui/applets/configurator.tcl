@@ -427,7 +427,8 @@ proc cfg-refresh-body {} {
     set ::cfg_node {}
     set ::cfg_fitem {}
     set ::cfg_fresh {}
-    cfg-render "" [cfg-nodes]
+    ui-tree-render $T "" [cfg-nodes] {make cfg-row-make \
+        update cfg-row-update register cfg-row-register}
     # an element is BORN folded — the tree is an overview first; a
     # survivor keeps whatever the user made of it, which is the point
     foreach it $::cfg_fresh { $T collapse $it }
@@ -465,8 +466,9 @@ proc cfg-select-first {} {
 # meant more of it.
 #
 # It is one walk now. cfg-nodes says what the tree IS — a list of
-# records, each with its children — and cfg-render puts any such list
-# under any parent, registering the maps as it goes. What a row LOOKS
+# records, each with its children — and the host's ui-tree-render puts
+# any such list under any parent, registering the maps as it goes (the
+# walk is nobody's family and lives there). What a row LOOKS
 # like is still the dressers below, chosen by the node's own `what`:
 # the rendering generalised, the appearance did not move.
 #
@@ -557,23 +559,6 @@ proc cfg-member-nodes {cname key f addr} {
             coll $cname elkey $key field $f member $m]
     }
     return $out
-}
-proc cfg-render {parent nodes} {
-    set T $::cfg_T
-    # the top storey's parent is the ROOT item, which treesync spells
-    # 0 — the walk starts there and says so rather than passing the
-    # empty string a tree cannot describe
-    if {$parent eq ""} { set parent 0 }
-    set rows [lmap n $nodes { list [dict get $n key] $n }]
-    set m [treesync::sync $T {make cfg-row-make update cfg-row-update} \
-               $rows $parent]
-    foreach n $nodes {
-        set item [dict get $m [dict get $n key]]
-        cfg-row-register $item $n
-        if {[dict exists $n children]} {
-            cfg-render $item [dict get $n children]
-        }
-    }
 }
 # WHAT A ROW CAN BE FOUND BY afterwards: an editable row by its
 # address, a family row by its descriptor. Rebuilt every pass, in the
