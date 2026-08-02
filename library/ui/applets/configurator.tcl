@@ -83,7 +83,7 @@ proc cfg-restyle {} {
     $T configure -background [ui-color field]
     foreach c {Cname Cval Cflag Cdoc} {
         $T column configure $c -textcolor [ui-color fg] \
-            -background [list [ui-color select] {active} \
+            -background [list [ui-color hover] {active} \
                               [ui-color trough] {}]
     }
     foreach {el key} {eTxt fg eVal link eDoc fg eFlag #cc7832 eGrp fg} {
@@ -155,10 +155,16 @@ proc cfg-build {W} {
     # own, and left alone it is the toolkit's grey against a themed
     # desk. Its normal, active and pressed faces come from the same
     # palette the rest of the applet is dressed in.
+    #
+    # Under the pointer it is the HOVER ground and not the selection
+    # band: the header's letters are one colour whatever state it is
+    # in, so a ground that needs the selection's own ink would black
+    # them out (the owner, 2026-08-02 — the light theme's dark blue
+    # under unchanged black). ui-tint keeps the hue and the ink both.
     foreach c {Cname Cval Cflag Cdoc} {
         $T column configure $c -font TitleFont \
             -textcolor [ui-color fg] \
-            -background [list [ui-color select] {active} \
+            -background [list [ui-color hover] {active} \
                               [ui-color trough] {}] \
             -borderwidth 1 -arrowgravity right
     }

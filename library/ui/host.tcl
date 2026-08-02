@@ -152,9 +152,20 @@ proc ui-style-sync {} {
         dict set ::ui_palette selectfg \
             [ui-readable [dict get $::ui_palette select]]
     }
+    # POINTED AT IS NOT PICKED. The selection band is a ground with an
+    # ink of its own; a header or a row merely UNDER THE POINTER keeps
+    # the ordinary ink, so it cannot wear that band — awlight's dark
+    # blue behind unchanged black letters is a heading that goes blank
+    # as you reach for it (the owner, 2026-08-02). So the hover ground
+    # is the header's own, tinted a little toward the selection: the
+    # same hue says the same thing, and the ordinary ink stays on it.
+    dict set ::ui_palette hover \
+        [ui-tint [dict get $::ui_palette trough] \
+                 [dict get $::ui_palette select] 0.22]
     set st $::ui_palette
     foreach {opt key} {
         background bg foreground fg activeBackground select
+        activeForeground selectfg
         selectBackground select highlightBackground bg
         troughColor trough insertBackground fg
     } {
@@ -195,6 +206,22 @@ proc ui-readable {bg} {
     lassign $c r g b
     expr {(0.2126*$r + 0.7152*$g + 0.0722*$b) / 65535.0 > 0.5
           ? "#1c1c1c" : "#eeeeec"}
+}
+# A colour a LITTLE way toward another one — the one derivation this
+# bridge allows itself, and only because the palette it derives from
+# is not ours to extend: the ttk theme names the roles it names, and
+# «the same ground, a hint of the accent in it» is not one of them.
+# Both ends of the mix are palette colours, so a theme change moves
+# the result with them.
+proc ui-tint {base accent frac} {
+    if {[catch {winfo rgb . $base} b] || [catch {winfo rgb . $accent} a]} {
+        return $base
+    }
+    set out {}
+    foreach x $b y $a {
+        lappend out [expr {round($x * (1.0 - $frac) + $y * $frac) / 256}]
+    }
+    format "#%02x%02x%02x" {*}$out
 }
 # The desk's usable rectangle {x y w h} and what a frame costs around
 # a client {border decotop} — an applet that sizes itself must fit
