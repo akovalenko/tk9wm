@@ -121,6 +121,38 @@ a real desk on a throwaway Xvfb with a panel in the config, because a
 panel is what pulls treectrl out of the kit's own `lib/`: a run that
 frames a client and shows a panel has proved both libraries loaded.
 
+## Where things live
+
+A signpost, not a specification — the name to grep for when you know
+WHAT you want and not where it is. The prose that follows, and the
+comment blocks in the code, are the actual account; this table only
+saves the first three greps. (Kept honest by being names, not
+descriptions: a renamed proc breaks a `rg` and gets noticed.)
+
+| looking for | grep for | in |
+| --- | --- | --- |
+| any X call at all | `x-*` (one proc = one shim call) | `substrate.tcl` |
+| an error meant to be outlived | `soft` | `substrate.tcl` |
+| focus, and its dead ends | `focus-repair`, `::focused` | `substrate.tcl` |
+| a frame being built or dressed | `policy-attach`, `title-metrics`, `frame-focus-color` | `policy.tcl` |
+| how a strip reserves screen | `strip-bands`, `carve-band`, `workarea` | `policy.tcl` |
+| what a panel measures up to | `panel-geometry`, `panel-measure`, `panel-thickness` | `policy.tcl` |
+| what a panel button IS | `panel-resolve`, `action`, `action_spec` | `policy.tcl` |
+| the system tray | `tray-extent`, `tray-thickness`, `tray-layout` | `policy.tcl` |
+| the desk's own furniture | `widgets-build`, `widget-measure`, `widget-band-opts` | `widget.tcl` |
+| a widget KIND | one file per kind | `library/widgets/` |
+| fonts, and what descends from them | `DeskFont`, `font_kin`, `wm-font`, `fonts-derive` | `policy.tcl` |
+| colours | `OUTLINE`, `gripof`, `frame-focus-color`, `ui-style` | `policy.tcl` |
+| chords, prefixes, the echo | `wm-bind`, `wm-keys`, `grab-keys-to`, `policy-key-echo` | `policy.tcl`, `substrate.tcl` |
+| a menu or any transient popup | `popup-shell`, `grab-keys-to` | `policy.tcl` |
+| the window list | `winlist-open` | `policy.tcl` |
+| what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy.tcl` |
+| the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy.tcl` |
+| the applet host and the door to it | `ui-open`, `ui-style`, `ui-restyle` | `ui/host.tcl` |
+| the configurator itself | `cfg-*` | `ui/applets/configurator.tcl` |
+| restart, replacement, self-exec | `reexec-head` | `substrate.tcl` |
+| a regression, and the shared preamble | `run-*.sh`, `check_invariants` | `tests/` |
+
 ## The files
 
 - `library/substrate.tcl` — the mechanism, without which no WM can be
