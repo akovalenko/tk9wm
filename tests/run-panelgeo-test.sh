@@ -173,6 +173,49 @@ proc geo-battery {} {
     gchk {row: ...and ends in the same place} \
         [lrange [$T item bbox 1 C0 eFace] 2 2] \
         [lrange [$T item bbox 2 C0 eFace] 2 2]
+    # --- ICONS ONLY: the row with nothing written in it. Every button
+    # wears its icon and a button whose icon did not resolve wears its
+    # badge, so the strip is icon-sized and no label is drawn at all.
+    # The arrow zone must survive it — a button that can match still
+    # needs somewhere to put the multi arrow (the owner) — and it is
+    # MIRRORED on the west, so an icon alone sits centred in its chip
+    # rather than against one wall of it.
+    set-panel-preset icons
+    update; update idletasks
+    gchk {icons: itemheight is the icon square alone, no label line} \
+        [expr {$isz + 16}] [$T cget -itemheight]
+    gchk {icons: nothing is written on either button} [list {} {}] \
+        [list [$T item element cget 1 C0 eBTxt -text] \
+              [$T item element cget 2 C0 eBTxt -text]]
+    gchk {icons: the badge still stands in for a missing icon} БЕ \
+        [$T item element cget 2 C0 ePTxt -text]
+    # treectrl folds an EQUAL pair back into one number, so the pair
+    # has to be re-made before it can be compared as one.
+    set ipx [$T style layout sBtnI eFace -ipadx]
+    if {[llength $ipx] == 1} { set ipx [list $ipx $ipx] }
+    gchk {icons: the arrow zone is mirrored, so the icon is centred} 1 \
+        [expr {[lindex $ipx 0] == [lindex $ipx 1]}]
+    gchk {icons: ...and that zone is still wider than a bare pad} 1 \
+        [expr {[lindex $ipx 1] > 8}]
+    gchk {icons: the arrow furniture is still in the style} 1 \
+        [expr {"eArrow" in [$T style elements sBtnI]}]
+    set-panel-preset row
+    update; update idletasks
+    # --- the panel's OWN font knob: the strip is lettered in PanelFont
+    # and now something can say so without moving the desk font and
+    # taking the titlebars with it.
+    # Measured on the THICKNESS of this (right-edge, vertical) strip:
+    # its item height is the icon square's and would not move for any
+    # font, while its width is the widest label's.
+    set was [panel-thickness default]
+    set-panel-font -size 2.0x
+    update; update idletasks
+    gchk {a panel font of its own makes the strip thicker} 1 \
+        [expr {[panel-thickness default] > $was}]
+    gchk {...and the titlebar font did not move with it} \
+        [font actual TitleFont -size] [font actual DeskFont -size]
+    set-panel-font -size 1.0x
+    update; update idletasks
     set-panel-preset stack
     update; update idletasks
     # ...and back to treectrl's own default (fill the cell), which is
@@ -226,12 +269,12 @@ else
     echo "OK: no battery failures"
 fi
 PASS=$(grep -c 'GEO PASS' "$HERE/wm-panelgeo.log")
-if [ "$PASS" = 31 ]; then
-    echo "OK: all 31 checks passed"
+if [ "$PASS" = 39 ]; then
+    echo "OK: all 39 checks passed"
 else
-    echo "FAIL: $PASS PASS lines, want 31"
+    echo "FAIL: $PASS PASS lines, want 39"
 fi
-if grep -q 'GEO BATTERY: 31 checks' "$HERE/wm-panelgeo.log"; then
+if grep -q 'GEO BATTERY: 39 checks' "$HERE/wm-panelgeo.log"; then
     echo "OK: the battery ran to completion"
 else
     echo "FAIL: the battery is missing or truncated"

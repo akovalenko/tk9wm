@@ -515,6 +515,17 @@ proc set-title-font {args} {
     wm-font TitleFont {*}$args
     retitle-frames
 }
+# ...and the same for the strip's lettering, which had the FONT all
+# along (PanelFont is one of the two the WM is written in) and no way
+# to say so: a desk that wanted smaller buttons had to move the desk
+# font and take the titlebars with it (the owner, 2026-08-02). A delta
+# on the base, exactly like the titlebar's — `set-panel-font -size
+# 0.85x` is the whole idiom, and the strip re-measures because its
+# geometry memo goes with the rebuild.
+proc set-panel-font {args} {
+    wm-font PanelFont {*}$args
+    panel-rebuild-soon
+}
 proc retitle-frames {} {
     title-metrics
     after idle ui-restyle   ;# the applets are set in this desk's fonts
@@ -5318,7 +5329,9 @@ proc set-panel-side {side} {
     panel-set $::panel_target side $side
 }
 proc set-panel-preset {preset} {
-    if {$preset ni {row stack}} { error "set-panel-preset: row or stack" }
+    if {$preset ni {row stack icons}} {
+        error "set-panel-preset: row, stack or icons"
+    }
     panel-set $::panel_target preset $preset
 }
 proc set-panel-icon-size {px} {
@@ -6395,6 +6408,14 @@ proc panel-geometry {name} {
 proc panel-measure {name} {
     set buttons [panel-resolve $name]
     set preset [panel-cfg $name preset]
+    # ICONS ONLY is the row preset with nothing written in it (the
+    # owner, 2026-08-02). Said that way it needs no third set of
+    # styles: the label element stays where it is and is given an
+    # empty string, so every union, pad and alignment below goes on
+    # meaning what it meant. What it DOES need is the iconic path
+    # forced — a strip of blank chips is not "icons only", so a button
+    # whose icon did not resolve wears the badge it already has.
+    set bare [expr {$preset eq "icons"}]
     set isz [panel-cfg $name icon_size]
     set vert [expr {[panel-cfg $name side] in {left right}}]
     set faces {}
@@ -6408,6 +6429,7 @@ proc panel-measure {name} {
         if {$img ne ""} { set iconic 1 }
         lappend faces $img
     }
+    if {$bare} { set iconic 1 }
     set line [font metrics PanelFont -linespace]
     # badge lettering follows the badge size (the winlist formula)
     set bfont [panel-badge-font $name]
@@ -6422,7 +6444,9 @@ proc panel-measure {name} {
         if {[dict exists [lindex $b 2] match]} { set zoned 1; break }
     }
     set zone [expr {$zoned ? $aw + 12 : 0}]
-    if {!$iconic} {
+    if {$bare} {
+        set content $isz
+    } elseif {!$iconic} {
         set content $line
     } elseif {$preset eq "stack"} {
         set content [expr {$isz + 2 + $line}]
@@ -6442,7 +6466,7 @@ proc panel-measure {name} {
         set maxw 0
         foreach b $buttons f $faces {
             lassign $b aname label settings
-            set tw [font measure PanelFont $label]
+            set tw [expr {$bare ? 0 : [font measure PanelFont $label]}]
             if {!$iconic} {
                 set cw $tw
             } else {
@@ -6454,18 +6478,20 @@ proc panel-measure {name} {
                 }
                 if {$preset eq "stack"} {
                     set cw [expr {max($iw, $tw)}]
+                } elseif {$bare} {
+                    set cw $iw
                 } else {
                     set cw [expr {$iw + 4 + $tw}]
                 }
             }
-            set maxw [expr {max($maxw, $cw + 20 + $zone)}]
+            set maxw [expr {max($maxw, $cw + 20 + ($bare ? 2 : 1) * $zone)}]
         }
         set thick [expr {$maxw + 2}]
     } else {
         set thick [expr {$itemh + 2}]
     }
     dict create faces $faces iconic $iconic itemh $itemh thick $thick \
-        zone $zone aw $aw fpad $FPAD fgap $FGAP vert $vert \
+        zone $zone aw $aw fpad $FPAD fgap $FGAP vert $vert bare $bare \
         preset $preset icon_size $isz badge_font $bfont
 }
 proc panel-thickness {name} { dict get [panel-geometry $name] thick }
@@ -6571,12 +6597,23 @@ proc panel-build {name idx} {
     set aw [dict get $g aw]
     set vert [dict get $g vert]
     set preset [dict get $g preset]
+    set bare [dict get $g bare]
     set isz [dict get $g icon_size]
     set bfont [dict get $g badge_font]
     set side [panel-cfg $name side]
     set buttons [panel-cfg $name shown]
     set ::panel_zone($name) $zone
     set er [expr {8 + $zone}]   ;# the face's east inner pad
+    # ...and the WEST one, which is the east one MIRRORED when nothing
+    # is written in the button (the owner, 2026-08-02: "the icon at
+    # the edge of the cell does not look great — maybe reserve the
+    # arrow's space on the right and a symmetric one on the left,
+    # purely for aesthetics"). With a label, the label fills the middle
+    # and the asymmetry never shows; with only an icon there, the whole
+    # arrow zone reads as empty space on one side and the icon sits
+    # off-centre in its own chip. Nothing is measured differently — it
+    # is the same pad on both sides.
+    set ipx [expr {$bare ? [list $er $er] : [list 8 $er]}]
     set P .panel$idx
     set old [panel-window $name]   ;# BEFORE the claim below erases it
     set ::panel_win($name) $P
@@ -6637,7 +6674,7 @@ proc panel-build {name idx} {
     if {[winfo exists $P.t] && [info exists ::panel_sig($name)]
             && $::panel_sig($name) eq $sig} {
         set T $P.t
-        panel-items-sync $T $name $buttons $faces $iconic
+        panel-items-sync $T $name $buttons $faces $iconic [dict get $g bare]
         panel-place $name $P $T $g $side [llength $buttons]
         return
     }
@@ -6676,20 +6713,20 @@ proc panel-build {name idx} {
     # the union element itself are ignored by treectrl.
     $T style create sBtn
     $T style elements sBtn {eFace eBTxt}
-    $T style layout sBtn eFace -union eBTxt -ipadx [list 8 $er] -ipady 3 \
+    $T style layout sBtn eFace -union eBTxt -ipadx $ipx -ipady 3 \
         -padx 2 -pady $fgap -expand ns
     $T style layout sBtn eBTxt -expand ns
     if {$iconic && $preset eq "stack"} {
         $T style create sBtnI -orient vertical
         $T style elements sBtnI {eFace eBIcon eBTxt}
         $T style layout sBtnI eFace -union {eBIcon eBTxt} \
-            -ipadx [list 8 $er] -ipady 3 -padx 2 -pady $fgap -expand wens
+            -ipadx $ipx -ipady 3 -padx 2 -pady $fgap -expand wens
         $T style layout sBtnI eBIcon -expand we -pady {0 2}
         $T style layout sBtnI eBTxt -expand we
         $T style create sBtnB -orient vertical
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
         $T style layout sBtnB eFace -union {ePRect eBTxt} \
-            -ipadx [list 8 $er] -ipady 3 -padx 2 -pady $fgap -expand wens
+            -ipadx $ipx -ipady 3 -padx 2 -pady $fgap -expand wens
         # The pad goes on the LETTERING, not on the rect around it: a
         # union element is not in the flow, and padding it grows the
         # union instead of spacing the flow (measured — the badge
@@ -6707,13 +6744,16 @@ proc panel-build {name idx} {
         $T style create sBtnI
         $T style elements sBtnI {eFace eBIcon eBTxt}
         $T style layout sBtnI eFace -union {eBIcon eBTxt} \
-            -ipadx [list 8 $er] -ipady 3 -padx 2 -pady $fgap -expand wens
-        $T style layout sBtnI eBIcon -expand ns -padx {0 4}
+            -ipadx $ipx -ipady 3 -padx 2 -pady $fgap -expand wens
+        # The gap after the icon is the LABEL's, so with no label
+        # there is none — left in, it hangs the icon off-centre in its
+        # own chip.
+        $T style layout sBtnI eBIcon -expand ns -padx [list 0 [expr {$bare ? 0 : 4}]]
         $T style layout sBtnI eBTxt -expand ns
         $T style create sBtnB
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
         $T style layout sBtnB eFace -union {ePRect eBTxt} \
-            -ipadx [list 8 $er] -ipady 3 -padx 2 -pady $fgap -expand wens
+            -ipadx $ipx -ipady 3 -padx 2 -pady $fgap -expand wens
         # ...and the same in the row preset, where the mis-placed pad
         # made the badge button WIDER than the rest and pushed its
         # right border out of line.
@@ -6722,7 +6762,7 @@ proc panel-build {name idx} {
         # badge's to take — taking it is what pushed this button's
         # right border out of the column.
         $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
-            -expand ns -padx {0 4}
+            -expand ns -padx [list 0 [expr {$bare ? 0 : 4}]]
         $T style layout sBtnB eBTxt -expand ns
     }
     # One column, one width: every label cell is min-sized to the
@@ -6739,7 +6779,8 @@ proc panel-build {name idx} {
             # face is wider than the strip, which treectrl answers by
             # pushing the label against the far edge.
             set mw $memw
-            if {$preset ne "stack" && $s in {sBtnI sBtnB}} {
+            if {$bare} { set mw 1 }
+            if {!$bare && $preset ne "stack" && $s in {sBtnI sBtnB}} {
                 set mw [expr {max(1, $memw - $isz - 4)}]
             }
             if {$preset eq "stack" && $s in {sBtnI sBtnB}} {
@@ -6790,7 +6831,7 @@ proc panel-build {name idx} {
                 -visible {yes multi no {}}
         }
     }
-    panel-items-sync $T $name $buttons $faces $iconic
+    panel-items-sync $T $name $buttons $faces $iconic $bare
     bind $T <ButtonPress-1> [list panel-click $name %x %y]
     panel-place $name $P $T $g $side [llength $buttons]
 }
@@ -6799,11 +6840,11 @@ proc panel-build {name idx} {
 # (updates and moves): two buttons swapping places is two items
 # changing places, nothing else stirs. The returned map IS
 # panel_items — what every flash, click and re-judgement asks.
-proc panel-items-sync {T name buttons faces iconic} {
+proc panel-items-sync {T name buttons faces iconic {bare 0}} {
     set rows {}
     foreach b $buttons f $faces {
         lassign $b aname label settings
-        lappend rows [list $aname [list $label $f $iconic]]
+        lappend rows [list $aname [list $label $f $iconic $bare]]
     }
     set ::panel_items($name) [treesync::sync $T \
         {make panel-btn-make update panel-btn-update} $rows]
@@ -6811,7 +6852,7 @@ proc panel-items-sync {T name buttons faces iconic} {
 # One dresser for a fresh item and a survivor alike: which of the
 # three styles a button wears and what its elements show is ROW
 # data, never item history.
-proc panel-btn-dress {T item label face iconic} {
+proc panel-btn-dress {T item label face iconic {bare 0}} {
     if {!$iconic} {
         $T item style set $item C0 sBtn
     } elseif {$face ne ""} {
@@ -6823,7 +6864,10 @@ proc panel-btn-dress {T item label face iconic} {
         $T item element configure $item C0 ePRect -fill $color
         $T item element configure $item C0 ePTxt -text $letters
     }
-    $T item element configure $item C0 eBTxt -text $label
+    # ...and in ICONS ONLY the label is simply not written. The
+    # element stays in the style (that is what keeps the unions and
+    # the alignment honest) and an empty text takes no room.
+    $T item element configure $item C0 eBTxt -text [expr {$bare ? "" : $label}]
 }
 proc panel-btn-make {T parent key data} {
     set item [$T item create]
@@ -7780,6 +7824,8 @@ knob set-desk-font   {group fonts kind {font DeskFont}  get {font actual DeskFon
                       doc {the font this desk is set in; everything derives from it}}
 knob set-title-font  {group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
                       doc {the titlebar font, as a delta from the desk font}}
+knob set-panel-font  {group fonts kind {font PanelFont} get {font-kin-opts PanelFont}
+                      doc {the panel buttons' font, as a delta from the desk font}}
 knob set-title-justify {group fonts kind {choice left center right}
                       get {set ::titlejust} doc {where the title sits in its bar}}
 knob set-minimize    {group windows kind {choice iconify refuse}
@@ -7815,9 +7861,9 @@ knob set-welcome     {group desk kind bool get {set ::welcome}
 knob set-panel-side  {group panel kind {choice bottom top left right}
                       get {panel-cfg default side}
                       doc {which screen edge the default panel rides}}
-knob set-panel-preset {group panel kind {choice row stack}
+knob set-panel-preset {group panel kind {choice row stack icons}
                       get {panel-cfg default preset}
-                      doc {iconic buttons as a row or label-under-icon}}
+                      doc {buttons as a row, label-under-icon, or icons alone}}
 knob set-panel-icon-size {group panel kind int
                       get {panel-cfg default icon_size}
                       doc {the button face size when any face is iconic}}
@@ -9052,6 +9098,16 @@ proc welcome-font-bump {dir} {
     custom-write [list set-desk-font {*}[knob-merge-opts set-desk-font \
         [list -size $new]]]
     if {[llength [info commands widgets-build]]} { widgets-build }
+}
+# THE THEME, FROM THE MAT — one click, and the whole desk changes
+# colour (the owner, 2026-08-02, asking for the switch to be right
+# there on the welcome note). It writes a customization like every
+# other link on the mat: the invitation goes on dogfooding the layer
+# it invites you to use, and the choice survives a restart because it
+# is written down rather than merely done.
+proc welcome-theme-flip {} {
+    set to [expr {$::theme eq "light" ? "dark" : "light"}]
+    custom-write [list set-theme $to]
 }
 # A PROGRAMMATIC WRITER MUST MERGE, not replace. The custom layer's
 # record for a knob IS its command, so writing «set-desk-font -size

@@ -694,7 +694,10 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   negative pixels — so a factor keeps whichever it is while `+2` would
   read backwards on half the desks in the world. `TitleFont` and
   `PanelFont` are the two the WM is written in, both identical to the
-  base until a config says otherwise.
+  base until a config says otherwise, and each has a knob of its own —
+  `set-panel-font -size 0.85x` letters the strip without moving the
+  titlebars, which was the only way to do it before (the owner,
+  2026-08-02).
 
   **One word, and every colour** (`set-theme dark|light`,
   `theme_palette`, `themed`). The same shape as the fonts and, as the
@@ -1174,9 +1177,18 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   stock), and icon-less buttons get an **auto-badge** (the label's
   letters on a crc32 color — the same trick as the winlist
   pseudo-icons), so a mixed panel keeps one height. An icon button's
-  layout is the `set-panel-preset row|stack` preset (`row` is "icon
-  text", `stack` puts the caption under the icon — the look for a thick
-  bottom strip or a narrow side one).
+  layout is the `set-panel-preset row|stack|icons` preset (`row` is
+  "icon text", `stack` puts the caption under the icon — the look for a
+  thick bottom strip or a narrow side one — and `icons` writes no
+  caption at all). `icons` is deliberately the ROW with nothing written
+  in it rather than a third set of styles: the label element stays
+  where it is and is given an empty string, so every union, pad and
+  alignment goes on meaning what it meant. It does force the iconic
+  path, because a strip of blank chips is not "icons only" — a button
+  whose icon did not resolve wears the badge it already has. And the
+  arrow zone below is MIRRORED on the western edge there, since with no
+  caption to fill the middle an icon would otherwise sit against one
+  wall of its own chip (the owner, 2026-08-02).
 
   A button with a **live matched window** says so continuously: an
   indicator bar along its bottom edge plus a light tint on the face
