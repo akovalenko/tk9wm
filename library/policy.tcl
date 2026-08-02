@@ -5690,6 +5690,14 @@ proc action-fire {name} {
         panel-focus-hit $hit
     } elseif {[dict exists $spec launch]} {
         puts "WM: action $name: launch"
+        # WHAT THE DESK ITSELF STARTED, which is a fact and not a
+        # guess. "The last thing that appeared" would be the guess:
+        # windows arrive on their own schedule and the answer would
+        # change under the hand reaching for it (the owner, 2026-08-02
+        # — "appear happens dynamically, you could pin the wrong
+        # thing"). This is set on the LAUNCH branch only: a press that
+        # merely found and raised an existing window started nothing.
+        set ::last_started $name
         action-flash $name firing
         set script [dict get $spec launch]
         if {[dict exists $spec env] || [dict exists $spec env-unset]} {
@@ -5705,6 +5713,46 @@ proc action-fire {name} {
     } else {
         puts "WM: action $name: nothing matched, nothing to launch"
     }
+}
+keep last_started ""   ;# the last deed this desk fired a launch for
+
+# PIN THE LAST THING I STARTED (the owner's own wording). The other
+# half of populating a panel, and the half a keyboard can do: run
+# something, decide you want it to stay, say so — without naming it,
+# because the desk already knows what it just ran.
+#
+# It writes an ordinary `panel-button` into the custom layer, which is
+# the same word the configurator writes and the same one a config
+# would carry, so what it produces can be read, moved and taken back
+# like anything else there. Something started by OTHER means is not
+# ours to know about and is pinned with the mouse instead.
+proc panel-pin-last {} {
+    if {$::last_started eq ""} {
+        policy-key-echo problem "nothing started from here yet — pin it\
+ with the mouse instead"
+        return
+    }
+    set name $::last_started
+    foreach pn [panel-names] {
+        if {[dict exists $::panels $pn refs $name]} {
+            policy-key-echo problem "«$name» is already on the «$pn» panel"
+            return
+        }
+    }
+    # ...onto the panel that holds the furniture, which is the tray's
+    # for want of a better answer while the ephemeral area has not
+    # named one of its own.
+    set pn [expr {[tray-panel] in [panel-names] ? [tray-panel]
+                  : [lindex [concat [panel-names] default] 0]}]
+    set was $::panel_target
+    set ::panel_target $pn
+    try {
+        custom-write [list panel-button $name]
+    } finally {
+        set ::panel_target $was
+    }
+    puts "WM: pinned «$name» to the «$pn» panel"
+    policy-key-echo keys "«$name» pinned to the panel"
 }
 proc action-flash {name state} {
     dict for {pname p} $::panels {
@@ -7896,6 +7944,8 @@ key-bundle accords {prefix {<Super>t} help {<Super>h}} {
     # backwards. It sits one letter under the prefix like the rest.
     bundle-bind [concat $p c] {applet configurator} \
         "everything this desk can be told"
+    bundle-bind [concat $p p] panel-pin-last \
+        "pin the last thing you started to the panel"
     bundle-bind [concat $p q] Quit
     # The keymap from the top — the same key that answers "what is
     # under this prefix" inside a sequence answers "what is there at
@@ -9421,7 +9471,7 @@ set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
-    key_echo key_echo_place KEY_ECHO_BAD KBMR_BG chord_hold
+    key_echo key_echo_place KEY_ECHO_BAD KBMR_BG chord_hold last_started
     titlebar_buttons titlebar_gestures fade font_kin
     widgets desk_window desk_background desk_background_said widget_gap
     theme

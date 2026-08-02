@@ -615,6 +615,13 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   so is the configurator, on `Super+t c` — the way in to everything
   else this desk can be told, so a desk that had to be furnished
   before it could be configured would have the dependency backwards.
+  `Super+t p` is its neighbour and the keyboard's half of populating a
+  panel: it pins THE LAST THING YOU STARTED, which is a fact the desk
+  holds rather than a guess about what appeared — the mark is set on
+  the launch branch alone, so a press that merely found and raised an
+  existing window does not move the answer. It writes an ordinary
+  `panel-button` into the custom layer, the same word the configurator
+  writes.
   Quit releases every client back to the root alive before stopping —
   with `.Xsession` exec'ing the window manager that ends the session,
   and a desk whose only exit is another terminal and a `kill` is the
