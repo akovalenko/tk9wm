@@ -123,3 +123,48 @@ if grep -q 'handler error' "$HERE/wm-terminal.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-terminal.log"
 fi
 check_invariants "$HERE/wm-terminal.log"
+
+# --- A DESK WITH NO EMULATOR AT ALL, which is the fresh machine and
+#     the reason the terminal deed carries a need of its own: the
+#     button used to be there and do nothing when pressed. It cannot
+#     name what it needs (the emulator is DETECTED), so the desk names
+#     the whole list it looked through. Driven by emptying the PATH,
+#     which is what "this machine has none of them" looks like from
+#     inside auto_execok.
+BARELOG="$HERE/wm-noterminal.log"
+rm -rf "$HERE/noterm-config"
+mkdir -p "$HERE/noterm-config"
+cat > "$HERE/noterm-config/tk9wm.tcl" <<'EOF'
+action shell {terminal {}}
+panel-button shell
+EOF
+XDG_CONFIG_HOME="$HERE/noterm-config" PATH=/var/empty \
+    "$LINUX/whale" "$WMTCL" > "$BARELOG" 2>&1 &
+BARE=$!
+sleep 2
+kill $BARE 2>/dev/null
+sleep 0.5
+
+echo "--- with an empty PATH:"
+grep -E 'terminal:|action shell|panel default up' "$BARELOG"
+if grep -q 'action shell waits on .* — the button stands by' "$BARELOG"; then
+    echo "OK: with no emulator anywhere, the terminal button STANDS BY"
+else
+    echo "FAIL: the terminal button did not say it was waiting"
+fi
+if grep -qE 'action shell waits on .*(xterm|kitty)' "$BARELOG"; then
+    echo "OK: ...and names what it looked through, since it cannot name one"
+else
+    echo "FAIL: the stands-by line does not say what it wanted"
+fi
+# ...and with that one button standing by there is nothing left to put
+# on a strip, so the desk reserves no band at all — the honest end of
+# "a button that would do nothing is not drawn".
+if grep -qE 'panel default up \([1-9]' "$BARELOG"; then
+    echo "FAIL: the button is on the strip after all:\
+ $(grep 'panel default up' "$BARELOG" | tail -1)"
+else
+    echo "OK: ...so nothing is drawn that would do nothing, and with the\
+ only button waiting the desk reserves no strip at all"
+fi
+check_invariants "$BARELOG"

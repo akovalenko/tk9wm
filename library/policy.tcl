@@ -5450,11 +5450,38 @@ proc action-realize {name} {
             if {[auto_execok $c] eq ""} { set state waiting; break }
         }
     }
+    # A TERMINAL DEED NEEDS A TERMINAL, and it is the one need an
+    # action cannot state for itself: WHICH emulator is a detection
+    # (terminal-resolve walks the config's word, $TERMINAL,
+    # x-terminal-emulator and then the adapters), so «needs xterm»
+    # would be a lie on a machine carrying kitty and nothing else.
+    # It is also the other quantifier: `needs` above is ALL-OF, every
+    # word on the PATH, and this is ANY-OF — so it is its own check
+    # rather than a clever entry in that list.
+    #
+    # The point is the fresh desk, and the owner's own case: a
+    # terminal button on a machine with no emulator used to be a
+    # button that did nothing when pressed. Now it stands by and says
+    # what it is waiting for, which is what `needs` was built to do
+    # («accepted with a sentence, not refused»).
+    set no_terminal 0
+    if {$state eq "active" && [action-type $raw] eq "terminal"
+            && [lindex [terminal-resolve] 0] eq ""} {
+        set state waiting
+        set no_terminal 1
+    }
     if {$state eq "active"} {
         set spec [action-derive $name $raw]
     } else {
         set spec $raw
-        puts "WM: action $name: needs [dict get $raw needs] — waiting"
+        # Said into the SPEC and not into the raw: what the config
+        # wrote is what the config wrote, and the lint below judges
+        # that. This is the desk's own reading, and it goes where the
+        # rest of the desk's readings go.
+        if {$no_terminal} {
+            dict set spec needs [dict keys $::terminal_adapters]
+        }
+        puts "WM: action $name: needs [dict get $spec needs] — waiting"
     }
     dict set spec state $state
     dict set ::action_spec $name $spec
