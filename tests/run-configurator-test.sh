@@ -862,6 +862,35 @@ EDGE=$(qu 'set T $::cfg_T
     ui-cell-done $T cancel
     set r')
 
+# ---- MARKING ROWS IS A KEYBOARD GESTURE TOO ----
+# The tree acts on several rows at once (Ctrl+Enter takes them) and
+# the only way to mark them was the mouse, on a desk that is
+# keyboard-first everywhere else. And with five rows marked, the row
+# menu was about... which one? It says so now, rather than unmarking
+# them: «take these five into a file of their own» is a thing one will
+# want to say (the owner, 2026-08-02).
+MARKS=$(qu 'set T $::cfg_T
+    focus $T
+    # from the tree itself, not from a remembered id: whatever this
+    # suite has been doing to the rows, the first knob under the first
+    # heading is always there
+    set grp [lindex [$T item children root] 0]
+    $T expand $grp
+    cfg-select [lindex [$T item children $grp] 0]
+    set r [list marked0 [llength [$T selection get]]]
+    event generate $T <Shift-Down> -when now
+    event generate $T <Shift-Down> -when now
+    lappend r grew [llength [$T selection get]]
+    set here [cfg-selected]
+    set m [cfg-row-menu-build]
+    lappend r says [string match "*of 3 marked*" [$m entrycget 0 -label]]
+    event generate $T <Control-space> -when now
+    lappend r unmarked [llength [$T selection get]]
+    event generate $T <Control-space> -when now
+    lappend r remarked [llength [$T selection get]]
+    cfg-select $here
+    set r')
+
 # ---- WHAT IS NOT WRITTEN IS STILL AN ANSWER ----
 # A widget that never said where it goes is not «nowhere» — it is at
 # the workarea's right, which is what the merged options hold; and the
@@ -1548,6 +1577,11 @@ if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
     echo "OK: a deed's type shows what it amounts to, and writing it is an edit"
 else
     echo "FAIL: the type row: $TYPEROW then $TYPESET"
+fi
+if [ "$MARKS" = "marked0 1 grew 3 says 1 unmarked 2 remarked 3" ]; then
+    echo "OK: Shift+arrow marks as it walks, Ctrl+space toggles, the menu says whose"
+else
+    echo "FAIL: the marks: $MARKS"
 fi
 case "$DERIVED" in
     "widget-on workarea widget-flag derived terminal-shown 1 terminal-flag derived")

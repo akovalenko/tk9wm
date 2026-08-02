@@ -207,6 +207,9 @@ proc cfg-build {W} {
     }
     bind $T <Control-p> {cfg-move above; break}
     bind $T <Control-n> {cfg-move below; break}
+    bind $T <Shift-Up>   {cfg-extend above; break}
+    bind $T <Shift-Down> {cfg-extend below; break}
+    bind $T <Control-space> {cfg-mark; break}
     # ...and the ends of the list, in both dialects: Home/End as every
     # list has them, Alt+< and Alt+> as emacs hands expect (the marker
     # is a shifted key, so the binding names the key and the shift —
@@ -1332,6 +1335,34 @@ proc cfg-selected {} {
     if {$it eq "" || $it == [$T item id root]} { return "" }
     return $it
 }
+# MARKING MORE THAN ONE ROW IS A KEYBOARD GESTURE TOO. The tree takes
+# several rows (Ctrl+Enter's take works on them) and the only way to
+# mark them was the mouse — on a desk that is keyboard-first
+# everywhere else (the owner, 2026-08-02). Shift+arrow walks and marks
+# as it goes; Ctrl+space marks the row one stands on, or unmarks it.
+# The ACTIVE row — the keyboard's cursor — moves either way, because
+# that is what every single-row gesture is about.
+proc cfg-extend {dir} {
+    set T $::cfg_T
+    set cur [cfg-selected]
+    if {$cur eq ""} return
+    set next [$T item id [list $cur $dir]]
+    if {$next eq "" || $next == $cur || $next == [$T item id root]} return
+    $T selection add $cur      ;# the row one started from is marked too
+    $T selection add $next
+    $T activate $next
+    $T see $next
+}
+proc cfg-mark {} {
+    set T $::cfg_T
+    set it [cfg-selected]
+    if {$it eq ""} return
+    if {[lsearch -exact [$T selection get] $it] >= 0} {
+        $T selection clear $it
+    } else {
+        $T selection add $it
+    }
+}
 proc cfg-move {dir} {
     set cur [cfg-selected]
     if {$cur eq ""} return
@@ -2196,7 +2227,17 @@ proc cfg-row-menu-build {} {
     }
     catch {destroy $T.rowpop}
     menu $T.rowpop -tearoff 0 -font DeskFont
-    $T.rowpop add command -label [dict get $s pretty] -state disabled
+    # WHICH ROW THIS IS ABOUT, said out loud when more than one is
+    # marked: the menu has always been about the row one STANDS on,
+    # and with five rows highlighted that was anybody's guess (the
+    # owner, 2026-08-02). Marking several stays legal — «take these
+    # five out into a file of their own» is a thing one will want to
+    # say — so the menu names its subject instead of unmarking them.
+    set marked [llength [$T selection get]]
+    $T.rowpop add command -state disabled \
+        -label [expr {$marked > 1
+                      ? "[dict get $s pretty] (of $marked marked)"
+                      : [dict get $s pretty]}]
     $T.rowpop add separator
     set mine [expr {[dict get $s owner] eq "custom"}]
     if {[dict get $s kind] eq "member"} {
