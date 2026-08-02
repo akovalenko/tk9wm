@@ -703,9 +703,15 @@ proc cfg-member-nodes {cname key f addr} {
     # ...and the same last row a family has: a dict of one's own keys
     # is the case the owner named for typing the name in the tree
     # itself («для env так очень уместно»), and an empty env used to
-    # be a node one could not tell open from shut.
-    lappend out [dict create what add key {@add} label "Add a key…" \
-        coll $cname elkey $key field $f addr [list @add-member {*}$addr]]
+    # be a node one could not tell open from shut. NOT for a dict
+    # whose schema is FIXED (`members fixed` — a bundle's params):
+    # offering «Add a key…» against a closed schema was an invitation
+    # to a refusal (the owner, 2026-08-03) — the declared keys are
+    # already rows, and there is nothing else a hand could add.
+    if {[dict get [cfg-field-meta $addr] members] ne "fixed"} {
+        lappend out [dict create what add key {@add} label "Add a key…" \
+            coll $cname elkey $key field $f addr [list @add-member {*}$addr]]
+    }
     return $out
 }
 # WHAT A ROW CAN BE FOUND BY afterwards: an editable row by its

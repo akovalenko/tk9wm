@@ -3497,16 +3497,44 @@ proc said-where {} {
     return $chain
 }
 
+# How high a word stands: the custom layer over the config over the
+# code and its bundles. wm-bind compares by THIS, not by arrival
+# time — see below.
+proc origin-rank {origin} {
+    switch -- $origin {
+        custom { return 3 }
+        config { return 2 }
+    }
+    return 1
+}
 proc wm-bind {spec script {name ""}} {
     set chords [lmap tok $spec {parse-chord $tok}]
     if {![llength $chords]} { error "wm-bind: empty chord sequence" }
     set path [lmap c $chords {join $c ,}]
     set origin [saying-now]
+    set was [keymap-origin $::keymap $path]
+    # A LOWER LAYER DOES NOT TAKE A HIGHER ONE'S CHORD. The map used
+    # to be last-writer-wins, which was right only because a full
+    # load replays the layers in rank order — a bundle re-declared
+    # LIVE (its params re-saved) replayed its binds over the custom
+    # word that had overridden one of them, while the tree went on
+    # calling that word «in force» (the owner, 2026-08-03). A bind is
+    # a REQUEST against the map; rank decides, whenever it arrives.
+    # The lower word is not lost: it lands in code_binds below, which
+    # is exactly the «would say» memory the claimant rows read.
+    if {$was ne "" && [origin-rank $was] > [origin-rank $origin]} {
+        if {$origin ni {custom config}} {
+            dict set ::code_binds $path \
+                [dict create script $script name $name origin $origin]
+        }
+        puts "WM: key [join [lmap c $chords {chord-name {*}$c}] { }]:\
+ $was keeps it — ${origin}'s word stands aside"
+        return
+    }
     # WHO IS LOSING THIS CHORD, if anybody: a bind over somebody
     # else's word is exactly the conflict the desk had no way to
     # mention, and the one line here is what the configurator's
     # warning will be built on.
-    set was [keymap-origin $::keymap $path]
     if {$was ne "" && $was ne $origin} {
         puts "WM: key [join [lmap c $chords {chord-name {*}$c}] { }]:\
  $origin takes it from $was"

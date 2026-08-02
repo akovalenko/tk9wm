@@ -471,6 +471,16 @@ qu 't-sel panel probe; cfg-move-elem above; list moved' >/dev/null
 sleep 1
 ORDER1=$(q 'lmap b [panel-cfg default shown] {lindex $b 0}')
 FILEORD=$(awk '/^panel-button /{printf "%s ",$2}' "$HERE/cfg-config/tk9wm.custom.tcl")
+# A REFUSED WORD LEAVES THE STANDING INSTANCE ALONE: one bad
+# parameter name used to take the whole family down while the tree
+# went on showing it on (the owner, 2026-08-03). Asked of accords
+# while it still stands, before the take below dismantles it; the
+# no-parameters family answers with its own sentence.
+BADPARAM=$(q 'set rc [catch {wm-keys accords -bogus 1} e]
+    set rc2 [catch {wm-keys windows -x 1} e2]
+    list rc $rc alive [dict exists $::key_bundles accords] \
+        said [string match "*no parameter*" $e] \
+        none [string match "*takes no parameters*" $e2]')
 qu 'set sel {}
     dict for {i d} $::cfg_node {
         if {[dict get $d what] eq "elem" && [dict get $d coll] eq "bindings"
@@ -1013,13 +1023,18 @@ TOPICS=$(qu 'proc lbl {it} {
     list panel [llength [lsearch -all -exact $tops panel]] \
          keys [llength [lsearch -all -exact $tops keys]] \
          under [lsort $under]')
-ADDROWS=$(qu 'set fam {}; set mem 0
+ADDROWS=$(qu 'set fam {}; set mem 0; set keysadd 0
     dict for {i d} $::cfg_node {
         if {[dict get $d what] ne "add"} continue
-        if {[lindex [dict get $d addr] 0] eq "@add-member"} { incr mem; continue }
+        if {[lindex [dict get $d addr] 0] eq "@add-member"} {
+            incr mem
+            if {[lindex [dict get $d addr] 2] eq "keys"} { incr keysadd }
+            continue
+        }
         lappend fam [dict get $d coll]
     }
-    list families [lsort -unique $fam] dicts [expr {$mem > 0}]')
+    list families [lsort -unique $fam] dicts [expr {$mem > 0}] \
+        keysadd $keysadd')
 # ...and taking one out is legal here, where saying it empty is legal too
 MEMBERDROP=$(qu 'cfg-member-drop {@member actions envy env FOO}
     after 300; update
@@ -1374,6 +1389,18 @@ SILENCE=$(q 'custom-write {wm-bind {Alt+Tab} {list mine} taken}
          covered [dict exists $e2 shadowed] \
          back [list [dict get $e3 owner] [dict exists $e3 shadowed]]')
 sleep 1
+# ---- a bundle re-declared live does not stomp the custom word ----
+# Re-saving a bundle's params replayed its binds over a custom
+# override, while the tree went on calling the override «in force»
+# (the owner, 2026-08-03). A bind is a REQUEST against the map; rank
+# decides, whenever it arrives.
+STOMP=$(q 'custom-write {wm-bind {Alt+space} {list mine2} taken2}
+    say-as custom {wm-keys windows}
+    set o [keymap-origin $::keymap [list [join [parse-chord Alt+space] ,]]]
+    custom-erase {wm-bind Alt+space}
+    reload-config
+    list holds $o')
+sleep 1
 
 # --- THE PALETTE MOVING UNDER AN OPEN APPLET, which is the desk's own
 #     <<ThemeChanged>>. `option add` dresses what is created next and
@@ -1548,6 +1575,16 @@ if [ "$MENUPAL" = "bg 1 active 1" ]; then
     echo "OK: a menu built after the flip wears the palette as it stands"
 else
     echo "FAIL: menu palette: $MENUPAL"
+fi
+if [ "$BADPARAM" = "rc 1 alive 1 said 1 none 1" ]; then
+    echo "OK: a refused bundle word leaves the standing instance alone"
+else
+    echo "FAIL: bad param: $BADPARAM"
+fi
+if [ "$STOMP" = "holds custom" ]; then
+    echo "OK: a bundle re-declared live leaves the custom word standing"
+else
+    echo "FAIL: stomp: $STOMP"
 fi
 case "$BADLIST|$BADLISTMSG" in
     "0|"*unmatched*) echo "OK: an unmatched quote is refused with a sentence, not a stack" ;;
@@ -1840,7 +1877,7 @@ echo "--- boxfocus={$BOXFOCUS} emptycell={$EMPTYCELL} colorseed={$COLORSEED}"
 echo "--- badchord={$BADCHORD} forgiven={$FORGIVEN}"
 echo "--- fieldsb={$FIELDSB} deloffer=$DELOFFER menupal={$MENUPAL}"
 echo "--- pickcheck={$PICKCHECK} made=$PICKMADE"
-echo "--- silence={$SILENCE}"
+echo "--- silence={$SILENCE} badparam={$BADPARAM} stomp={$STOMP}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
 if [ "$SCRIPTLINT" = "warn warn note clean restart-wm" ] \
         && [ "$BADPARSE" = "level warn parse 1" ]; then
@@ -1900,7 +1937,7 @@ if [ "$TOPICS" = "panel 1 keys 1 under {bindings bundles buttons}" ]; then
 else
     echo "FAIL: the topics: $TOPICS"
 fi
-if [ "$ADDROWS" = "families {actions bindings panel widgets} dicts 1" ]; then
+if [ "$ADDROWS" = "families {actions bindings panel widgets} dicts 1 keysadd 0" ]; then
     echo "OK: every family one may add to ends in a row that makes one"
 else
     echo "FAIL: the add rows: $ADDROWS"

@@ -8140,8 +8140,17 @@ proc key-bundle {name params body} {
     dict set ::key_bundle_defs $name [dict create params $params body $body]
 }
 # Inside a bundle body: bind, and remember what was bound so the next
-# instance can take it away.
+# instance can take it away. While the body runs in wm-keys's
+# transaction the bind is STAGED, not made — the chords are parsed
+# here and now, so a bad one fails the body with the working keymap
+# untouched, and the stage lands only after the whole body stood.
 proc bundle-bind {spec script {label ""}} {
+    if {[info exists ::key_bundle_staging]} {
+        lmap tok $spec {parse-chord $tok}
+        lappend ::key_bundle_staging [list $spec $script $label]
+        dict lappend ::key_bundle_current chords $spec
+        return
+    }
     wm-bind $spec $script $label
     dict lappend ::key_bundle_current chords $spec
 }
@@ -8150,13 +8159,57 @@ proc wm-keys {name args} {
         error "wm-keys: no such bundle «$name» —\
  one of: [dict keys $::key_bundle_defs]"
     }
-    # What the previous instance bound goes first, whatever happens
-    # next — but ONLY what is still the family's. A chord somebody has
-    # taken since (a `take` out of this very bundle, a plain wm-bind
-    # over it) belongs to them now, and a departing family that swept
-    # it away destroyed the one thing its owner meant to keep (the
-    # owner's desk, 2026-08-01: on-then-off after a take left three
-    # customizations that said their piece and answered nothing).
+    set def [dict get $::key_bundle_defs $name]
+    # -prefix on the call, prefix in the declaration: the dash is how
+    # one WRITES an option and not part of its name, and merging the
+    # two spellings quietly gave the body its defaults while the
+    # caller's values sat beside them under other keys (caught by the
+    # regression, which is what a regression is for).
+    set given {}
+    if {[lindex $args 0] ne "off"} {
+        foreach {k v} $args {
+            set k [string trimleft $k -]
+            if {![dict exists [dict get $def params] $k]} {
+                if {![dict size [dict get $def params]]} {
+                    error "wm-keys $name takes no parameters"
+                }
+                error "wm-keys $name: no parameter «$k» —\
+ one of: [dict keys [dict get $def params]]"
+            }
+            dict set given $k $v
+        }
+    }
+    # THE BODY RUNS AGAINST A STAGE, NOT THE MAP. A body may fail for
+    # any reason of its own — a bad parameter today, a bundle that
+    # reads somebody's xbindkeysrc and cannot parse it tomorrow (the
+    # owner, 2026-08-03) — and a failure used to leave the family
+    # half-dismantled: the previous instance was taken down FIRST,
+    # so one refused word turned the bundle off while the tree went
+    # on showing it standing. The transaction is the fix, not a
+    # pre-check: bundle-bind collects into the stage, the working
+    # keymap is not touched while the body runs, and a body that
+    # falls is simply discarded — the standing instance never moved.
+    if {[lindex $args 0] ne "off"} {
+        set params [dict merge [dict get $def params] $given]
+        set ::key_bundle_current [dict create params $params chords {}]
+        set ::key_bundle_staging {}
+        try {
+            # everything the body binds is the FAMILY's word,
+            # whichever layer asked for the family (see say-as)
+            say-as [list bundle $name] \
+                [list apply [list {params} [dict get $def body]] $params]
+        } on error {err opts} {
+            unset ::key_bundle_staging
+            return -options $opts $err
+        }
+    }
+    # THE WORDS ARE GOOD — now the previous instance leaves, but ONLY
+    # what is still the family's. A chord somebody has taken since (a
+    # `take` out of this very bundle, a plain wm-bind over it) belongs
+    # to them now, and a departing family that swept it away destroyed
+    # the one thing its owner meant to keep (the owner's desk,
+    # 2026-08-01: on-then-off after a take left three customizations
+    # that said their piece and answered nothing).
     if {[dict exists $::key_bundles $name]} {
         set kept 0
         foreach spec [dict get $::key_bundles $name chords] {
@@ -8173,30 +8226,11 @@ proc wm-keys {name args} {
         puts "WM: keys: bundle $name off"
         return
     }
-    set def [dict get $::key_bundle_defs $name]
-    # -prefix on the call, prefix in the declaration: the dash is how
-    # one WRITES an option and not part of its name, and merging the
-    # two spellings quietly gave the body its defaults while the
-    # caller's values sat beside them under other keys (caught by the
-    # regression, which is what a regression is for).
-    set given {}
-    foreach {k v} $args {
-        set k [string trimleft $k -]
-        if {![dict exists [dict get $def params] $k]} {
-            error "wm-keys $name: no parameter «$k» —\
- one of: [dict keys [dict get $def params]]"
-        }
-        dict set given $k $v
-    }
-    set params [dict merge [dict get $def params] $given]
-    set ::key_bundle_current [dict create params $params chords {}]
-    # everything the body binds is the FAMILY's word, whichever layer
-    # asked for the family (see say-as)
-    if {[catch {say-as [list bundle $name] \
-            [list apply [list {params} [dict get $def body]] $params]} err opts]} {
-        # what it managed to bind is still ours to take away later
-        dict set ::key_bundles $name $::key_bundle_current
-        return -options $opts $err
+    # ...and the staged binds land, in the family's own name
+    set staged $::key_bundle_staging
+    unset ::key_bundle_staging
+    say-as [list bundle $name] {
+        foreach b $staged { wm-bind {*}$b }
     }
     dict set ::key_bundles $name $::key_bundle_current
     puts "WM: keys: bundle $name on ([llength [dict get $::key_bundle_current chords]]\
@@ -8627,7 +8661,7 @@ collection keys {
     list collection-keys
     fields {
         state  {kind {choice on off} doc {the whole family, present or not}}
-        params {kind dict members plain
+        params {kind dict members fixed
                 doc {the bundle's own parameters (prefix, help, …)}}
     }
 }
