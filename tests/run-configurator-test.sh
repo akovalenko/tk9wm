@@ -481,6 +481,35 @@ BADPARAM=$(q 'set rc [catch {wm-keys accords -bogus 1} e]
     list rc $rc alive [dict exists $::key_bundles accords] \
         said [string match "*no parameter*" $e] \
         none [string match "*takes no parameters*" $e2]')
+# ---- a dict member edits from the tree, as itself ----
+# The write always went through the parent's whole word; the GESTURE
+# stopped at fields — Enter on a bundle's prefix only folded the leaf
+# (the owner, 2026-08-03). Driven by the real keystroke path
+# (cfg-activate), asked of the live bundle, and put back after.
+BUNDLEMEMBER=$(qu 'set it ""
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] eq "member" && [dict get $d coll] eq "keys"
+                && [dict get $d key] eq "accords"
+                && [dict get $d member] eq "prefix"} { set it $i }
+    }
+    foreach a [$::cfg_T item ancestors $it] {
+        catch {$::cfg_T item expand $a}
+    }
+    $::cfg_T see $it
+    update idletasks
+    cfg-select $it
+    cfg-activate
+    after 200; update
+    set r [list opened [winfo exists $::cfg_T.edit]]
+    ui-field-set $::cfg_T.edit {<Super>u}
+    ui-cell-done $::cfg_T commit
+    after 400; update
+    lappend r live [wm-call {dict get $::key_bundles accords params prefix}]
+    cfg-set [list @member keys accords params prefix] {<Super>t}
+    after 300
+    dict unset ::cfg_pending [list @member keys accords params prefix]
+    set r')
+sleep 1
 qu 'set sel {}
     dict for {i d} $::cfg_node {
         if {[dict get $d what] eq "elem" && [dict get $d coll] eq "bindings"
@@ -1585,6 +1614,11 @@ if [ "$STOMP" = "holds custom" ]; then
     echo "OK: a bundle re-declared live leaves the custom word standing"
 else
     echo "FAIL: stomp: $STOMP"
+fi
+if [ "$BUNDLEMEMBER" = "opened 1 live <Super>u" ]; then
+    echo "OK: a dict member edits from the tree, and the parent's word carries it"
+else
+    echo "FAIL: bundle member edit: $BUNDLEMEMBER"
 fi
 case "$BADLIST|$BADLISTMSG" in
     "0|"*unmatched*) echo "OK: an unmatched quote is refused with a sentence, not a stack" ;;

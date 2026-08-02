@@ -1582,8 +1582,14 @@ proc cfg-activate {{how primary}} {
                      commit cfg-add-commit refuse cfg-refuse may-i cfg-may-i]
             return
         }
+        # ...a MEMBER edits as itself too: the whole write still goes
+        # through its parent's word (cfg-apply merges the dict and
+        # re-states it), but the GESTURE used to stop at fields — on
+        # a bundle's prefix the Enter only folded the leaf (the
+        # owner, 2026-08-03: «элементы prefix и help в поддереве не
+        # редактируются»).
         if {[dict exists $::cfg_node $it]
-                && [dict get $::cfg_node $it what] eq "field"} {
+                && [dict get $::cfg_node $it what] in {field member}} {
             set name [cfg-node-addr $it]
         } else {
             $::cfg_T toggle $it
