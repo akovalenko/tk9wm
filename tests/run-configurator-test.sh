@@ -1148,17 +1148,32 @@ CUSTWHERE=$(q 'list config [llength [knob-where set-drag-slop config]] \
     custom [expr {[llength [knob-where set-drag-slop custom]] > 0}]')
 # the badge is a link and says so: a cell with something in it wears
 # the underlined font, an empty one does not
+# ...and a knob row NEVER has an empty badge now: the desk's own
+# value says `default` — a quiet handle to the row menu, where «Pin
+# this value as mine» lives undiscoverable otherwise (the owner,
+# 2026-08-02). Quiet = the `quiet` item state, so a theme flip
+# repaints it through the element like everything else. The truly
+# empty badge (an add row) keeps its plain font.
 LINKFONT=$(qu 'set T $::cfg_T
-    set said [$T item element cget \
-                  [dict get $::cfg_item set-edge-resist] Cflag eFlag -font]
-    set none -
-    dict for {n it} $::cfg_item {
-        if {[$T item element cget $it Cflag eFlag -text] eq ""} {
-            set none [$T item element cget $it Cflag eFlag -font]
+    set it [dict get $::cfg_item set-edge-resist]
+    set said [list [$T item element cget $it Cflag eFlag -font] \
+                  [expr {"quiet" in [$T item state get $it]}]]
+    set def -
+    dict for {n i} $::cfg_item {
+        if {[$T item element cget $i Cflag eFlag -text] eq "default"} {
+            set def [list [$T item element cget $i Cflag eFlag -font] \
+                         [expr {"quiet" in [$T item state get $i]}]]
             break
         }
     }
-    list said $said none $none')
+    set none -
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] eq "add"} {
+            set none [$T item element cget $i Cflag eFlag -font]
+            break
+        }
+    }
+    list said $said default $def none $none')
 # what the menu OFFERS on a config-owned row: nothing of ours to
 # erase, nothing to reset, a value to pin, and the way to the line
 MENU=$(qu 't-knob set-edge-resist
@@ -1379,7 +1394,7 @@ else
     echo "FAIL: scrollbar takefocus = $SBFOCUS"
 fi
 if [ "$BOXFOCUS" = "takefocus 0 stops {.tk9wm-configurator.b.save\
- .tk9wm-configurator.b.revert .tk9wm-configurator.b.erase}" ]; then
+ .tk9wm-configurator.b.revert}" ]; then
     echo "OK: the ring box decorates without being a Tab stop of its own"
 else
     echo "FAIL: ring box focus: $BOXFOCUS"
@@ -1747,7 +1762,7 @@ if [ "$DESKSAID" = "value 0.61 said 1" ] \
 else
     echo "FAIL: the layer push: $DESKSAID / $OURSSAID"
 fi
-if [ "$TOPICS" = "panel 1 keys 1 under {bundles buttons}" ]; then
+if [ "$TOPICS" = "panel 1 keys 1 under {bindings bundles buttons}" ]; then
     echo "OK: one heading per subject — the families hang under theirs"
 else
     echo "FAIL: the topics: $TOPICS"
@@ -1799,8 +1814,9 @@ else
     echo "FAIL: layers of provenance: $CUSTWHERE"
 fi
 case "$LINKFONT" in
-    "said LinkFont none DeskFont")
-        echo "OK: a badge with something to say is underlined, an empty one is not" ;;
+    "said {LinkFont 0} default {LinkFont 1} none DeskFont")
+        echo "OK: every knob row wears a handle — loud when it has news,\
+ quiet on a default, and an empty badge stays plain" ;;
     *) echo "FAIL: the badge's font: $LINKFONT" ;;
 esac
 case "$MENU" in

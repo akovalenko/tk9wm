@@ -8601,6 +8601,7 @@ collection panel {
 }
 collection bindings {
     key chord ordered no key-words yes insert {a binding}
+    topic {keys bindings}
     doc {every chord this desk answers to, and what it runs}
     list collection-bindings
     fields {

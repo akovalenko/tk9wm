@@ -65,6 +65,14 @@ proc cfg-ink {what} {
     set c [expr {[string index $what 0] eq "#" ? $what : [ui-color $what]}]
     list [ui-color selectfg] selected $c {}
 }
+# The badge's three inks: the selection's own on the band, the QUIET
+# one on a `default` handle, the loud one on everything with news.
+# A state rather than a per-item fill, so a theme flip repaints every
+# badge through the element and leaves nothing wearing the old
+# palette.
+proc cfg-ink-flag {} {
+    list [ui-color selectfg] selected [ui-color fg] quiet "#cc7832" {}
+}
 # PUTTING ON A PALETTE THAT MOVED — the applet's half of the desk's
 # <<ThemeChanged>> (the owner, 2026-08-02: "the configurator does not
 # repaint on the fly"). The option database dresses a widget once, at
@@ -86,9 +94,10 @@ proc cfg-restyle {} {
             -background [list [ui-color hover] {active} \
                               [ui-color trough] {}]
     }
-    foreach {el key} {eTxt fg eVal link eDoc fg eFlag #cc7832 eGrp fg} {
+    foreach {el key} {eTxt fg eVal link eDoc fg eGrp fg} {
         $T element configure $el -fill [cfg-ink $key]
     }
+    $T element configure eFlag -fill [cfg-ink-flag]
     $T element configure eSel -fill [list [ui-color select] selected] \
         -outline [list [ui-color link] selected]
     # ...and the plain-Tk furniture, which has no theme of its own.
@@ -175,10 +184,13 @@ proc cfg-build {W} {
     # went invisible the moment it was picked (the owner, 2026-08-02).
     # cfg-ink is the two-state fill, and every element that draws
     # letters over eSel takes it.
+    # `quiet` marks a row whose badge is an affordance rather than an
+    # alarm (the «default» handle): same element, its own ink.
+    $T state define quiet
     $T element create eTxt  text -fill [cfg-ink fg]   -lines 1 -font DeskFont
     $T element create eVal  text -fill [cfg-ink link] -lines 1 -font DeskFont
     $T element create eDoc  text -fill [cfg-ink fg]   -lines 1 -font DeskFont
-    $T element create eFlag text -fill [cfg-ink #cc7832] -lines 1 -font DeskFont
+    $T element create eFlag text -fill [cfg-ink-flag] -lines 1 -font DeskFont
     $T element create eGrp  text -fill [cfg-ink fg]   -lines 1 -font TitleFont
     $T element create eSel  rect -fill [list [ui-color select] selected] \
         -outline [list [ui-color link] selected] -outlinewidth 1
@@ -203,11 +215,14 @@ proc cfg-build {W} {
     grid rowconfigure $W 1 -weight 1
     grid columnconfigure $W 0 -weight 1
     frame $W.b -takefocus 0
+    # Save and Revert only: «Erase customization» stood here too, and
+    # a button in the WINDOW'S OWN row read as «all of it» while it
+    # worked on the selected row (the owner, 2026-08-02). The gesture
+    # lives where its subject is — «Erase my word» in the row's menu;
+    # cfg-erase stays as its engine.
     ttk::button $W.b.save   -text Save   -underline 0 -command cfg-save
     ttk::button $W.b.revert -text Revert -underline 0 -command cfg-revert
-    ttk::button $W.b.erase  -text "Erase customization" -underline 0 \
-        -command cfg-erase
-    foreach b [list $W.b.save $W.b.revert $W.b.erase] {
+    foreach b [list $W.b.save $W.b.revert] {
         ui-focusable $b; ui-accel $b
     }
     # ANCHORED AT ITS TOP-LEFT, and filling what the box gives it: a
@@ -217,7 +232,7 @@ proc cfg-build {W} {
     # be the one that stays.
     label  $W.b.note -takefocus 0 -anchor nw -justify left -text $::cfg_hint \
         -foreground [ui-color link]
-    pack $W.b.save $W.b.revert $W.b.erase -side left -padx 4 -pady 4
+    pack $W.b.save $W.b.revert -side left -padx 4 -pady 4
     pack $W.b.note -side left -padx 12 -fill both -expand 1
     grid $W.b -row 2 -columnspan 2 -sticky ew
     # ...and the box stops propagating its children's appetite: a
@@ -798,6 +813,8 @@ proc cfg-flag-set {it flags} {
     set text [join $flags " "]
     $::cfg_T item element configure $it Cflag eFlag -text $text \
         -font [expr {$text eq "" ? "DeskFont" : "LinkFont"}]
+    $::cfg_T item state set $it \
+        [expr {$text eq "default" ? "quiet" : "!quiet"}]
 }
 proc cfg-knob-dress {T item name meta} {
     $T item element configure $item Cdoc eDoc -text [dict get $meta doc]
@@ -1357,7 +1374,11 @@ proc cfg-show-value {it name value} {
     # WHOSE VALUE IS THIS, at a glance (the owner's ask): a dot for
     # changed-but-unsaved, then the layer that owns it — `custom` for
     # a click of yours that stuck (erasable), `cfg` for your
-    # hand-written config, nothing at all for the desk's own default.
+    # hand-written config. The desk's own value says `default` — not
+    # news, a HANDLE: the row's menu was undiscoverable exactly where
+    # its best offer lives («Pin this value as mine» — the owner,
+    # 2026-08-02), so the badge is always there to click, wearing the
+    # quiet ink so a fresh desk is not a column of alarms.
     set flags {}
     if {[dict exists $::cfg_pending $name]} { lappend flags "* unsaved" }
     switch -- [cfg-owner $name] {
@@ -1376,6 +1397,7 @@ proc cfg-show-value {it name value} {
         }
         config { lappend flags cfg }
     }
+    if {![llength $flags]} { lappend flags default }
     cfg-flag-set $it $flags
 }
 
