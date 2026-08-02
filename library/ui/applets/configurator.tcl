@@ -479,28 +479,52 @@ proc cfg-select-first {} {
 proc cfg-nodes {} {
     set out {}
     # the knobs, gathered into their groups, groups in name order and
-    # knobs in name order inside them — the tree's reading order, and
-    # the order cfg_item is rebuilt in (cfg-end walks that dict)
+    # knobs in name order inside them — the tree's reading order
     set groups {}
     dict for {name meta} $::cfg_table {
         dict lappend groups [dict get $meta group] $name
     }
-    foreach group [lsort [dict keys $groups]] {
-        set kids {}
-        foreach name [lsort [dict get $groups $group]] {
-            lappend kids [dict create what knob key $name label $name \
-                addr $name meta [dict get $::cfg_table $name]]
-        }
-        lappend out [dict create what grp key [list grp $group] \
-            label $group button 1 children $kids]
-    }
-    # ...then the families, in the table's own order
+    # ONE SUBJECT, ONE HEADING. A group of knobs and a family can be
+    # the same subject: `panel` was a heading of knobs and a heading
+    # of buttons, standing twice in the tree — confusing to read now
+    # and wrong once a subtree is something one addresses (the owner,
+    # 2026-08-02). A family that named a topic hangs UNDER it as a
+    # subsection of its own; one that named none is a topic itself and
+    # stands where it always did.
+    set under {}
     dict for {cname cmeta} $::cfg_coll {
-        lappend out [dict create what coll key [list coll $cname] \
-            label $cname button 1 coll $cname doc [dict get $cmeta doc] \
-            children [cfg-element-nodes $cname $cmeta]]
+        if {[dict exists $cmeta topic]} {
+            dict lappend under [lindex [dict get $cmeta topic] 0] $cname
+        }
+    }
+    foreach topic [lsort -unique [concat [dict keys $groups] [dict keys $under]]] {
+        set kids {}
+        if {[dict exists $groups $topic]} {
+            foreach name [lsort [dict get $groups $topic]] {
+                lappend kids [dict create what knob key $name label $name \
+                    addr $name meta [dict get $::cfg_table $name]]
+            }
+        }
+        foreach cname [dict getdef $under $topic {}] {
+            lappend kids [cfg-coll-node $cname \
+                [lindex [dict get $::cfg_coll $cname topic] 1]]
+        }
+        lappend out [dict create what grp key [list grp $topic] \
+            label $topic button 1 children $kids]
+    }
+    # ...then the families that are subjects in their own right, in
+    # the table's own order
+    dict for {cname cmeta} $::cfg_coll {
+        if {[dict exists $cmeta topic]} continue
+        lappend out [cfg-coll-node $cname $cname]
     }
     return $out
+}
+proc cfg-coll-node {cname label} {
+    set cmeta [dict get $::cfg_coll $cname]
+    dict create what coll key [list coll $cname] \
+        label $label button 1 coll $cname doc [dict get $cmeta doc] \
+        children [cfg-element-nodes $cname $cmeta]
 }
 proc cfg-element-nodes {cname cmeta} {
     set out {}
@@ -515,6 +539,20 @@ proc cfg-element-nodes {cname cmeta} {
             dict set node children [cfg-field-nodes $cname $key $e]
         }
         lappend out $node
+    }
+    # ...AND A LAST ROW THAT MAKES ONE MORE. A family one may add to
+    # ends in «Add a button…», which is both the plus every list of
+    # this shape has and the answer to an empty family: a subtree with
+    # nothing in it showed neither what it held nor whether it was
+    # open at all (the owner, 2026-08-02, on actions, panel and env).
+    # The row is where the new element will stand, so standing on it
+    # and typing is the whole gesture where a name is all that is
+    # needed; the families that need more than a name open their
+    # dialog from the same row.
+    if {[dict exists $cmeta insert]} {
+        lappend out [dict create what add key {@add} \
+            label "Add [dict get $cmeta insert]…" coll $cname \
+            addr [list @add $cname]]
     }
     return $out
 }
@@ -558,6 +596,12 @@ proc cfg-member-nodes {cname key f addr} {
             addr [list @member $cname $key $f $m] \
             coll $cname elkey $key field $f member $m]
     }
+    # ...and the same last row a family has: a dict of one's own keys
+    # is the case the owner named for typing the name in the tree
+    # itself («для env так очень уместно»), and an empty env used to
+    # be a node one could not tell open from shut.
+    lappend out [dict create what add key {@add} label "Add a key…" \
+        coll $cname elkey $key field $f addr [list @add-member {*}$addr]]
     return $out
 }
 # WHAT A ROW CAN BE FOUND BY afterwards: an editable row by its
@@ -592,6 +636,12 @@ proc cfg-row-register {item n} {
             dict set ::cfg_node $item [dict create what shadow \
                 coll [dict get $n coll] key [dict get $n elkey] \
                 owner [dict get $n owner]]
+        }
+        add {
+            # `key` empty, and present: every row that names a family
+            # names a key too, and this one belongs to no element yet
+            dict set ::cfg_node $item [dict create what add key {} \
+                coll [dict get $n coll] addr [dict get $n addr]]
         }
     }
 }
@@ -639,6 +689,12 @@ proc cfg-row-update {T item key node} {
             $T item element configure $item Cdoc eDoc \
                 -text "one of [dict get $node field] — empty here is a\
  value, and Del takes it away"
+        }
+        add {
+            $T item element configure $item Cval eVal -text ""
+            cfg-flag-set $item {}
+            $T item element configure $item Cdoc eDoc \
+                -text "type a name here — or Insert, which is the same row"
         }
     }
 }
@@ -1244,18 +1300,22 @@ proc cfg-move {dir} {
     set next [$::cfg_T item id [list $cur $dir]]
     if {$next ne "" && $next != $cur} { cfg-select $next }
 }
-# The first and last KNOB, not the first and last row: a group header
-# is a place to fold, not a place to be (and the tree may well open
-# with one at the top).
+# THE ENDS OF THE TREE, not the ends of the knob table. End walked the
+# knobs, so it landed wherever the knobs stopped — in front of the
+# families, with rows still below it (the owner, 2026-08-02: «как-то
+# неаккуратно»). The last row of a tree is the last open descendant of
+# the last top node, and the first is simply the first.
 proc cfg-end {which} {
-    set names [dict keys $::cfg_item]
-    if {![llength $names]} return
-    set name [expr {$which eq "first" ? [lindex $names 0] : [lindex $names end]}]
-    # ...and the group it lives in has to be open to be seen
-    set it [dict get $::cfg_item $name]
-    set parent [$::cfg_T item parent $it]
-    if {$parent ne "" && ![$::cfg_T item state get $parent open]} {
-        $::cfg_T expand $parent
+    set T $::cfg_T
+    set kids [$T item children root]
+    if {![llength $kids]} return
+    if {$which eq "first"} {
+        cfg-select [lindex $kids 0]
+        return
+    }
+    set it [lindex $kids end]
+    while {[$T item state get $it open] && [llength [$T item children $it]]} {
+        set it [lindex [$T item children $it] end]
     }
     cfg-select $it
 }
@@ -1333,6 +1393,24 @@ proc cfg-activate {{how primary}} {
  above it is; Delete takes it back if it is yours"
             return
         }
+        # ...and the «Add…» row IS the gesture: where a name is all
+        # that is needed, one types it in the row itself (the owner:
+        # «прикольно было бы вставлять путём редактирования new name
+        # прямо в дереве, для env так очень уместно») — and the name
+        # is typed in the NAME column, because that is what is being
+        # said. What needs more than a name opens its dialog instead.
+        if {[dict exists $::cfg_node $it]
+                && [dict get $::cfg_node $it what] eq "add"} {
+            set addr [dict get $::cfg_node $it addr]
+            if {![cfg-add-inline? $addr]} {
+                cfg-insert
+                return
+            }
+            ui-cell-edit $::cfg_T $it Cname $addr \
+                [dict create how $how kind text value "" element eTxt \
+                     commit cfg-add-commit refuse cfg-refuse may-i cfg-may-i]
+            return
+        }
         if {[dict exists $::cfg_node $it]
                 && [dict get $::cfg_node $it what] eq "field"} {
             set name [cfg-node-addr $it]
@@ -1342,6 +1420,25 @@ proc cfg-activate {{how primary}} {
         }
     }
     ui-cell-edit $::cfg_T $it Cval $name [cfg-cell-opts $name $how]
+}
+# WHICH «Add…» ROWS TAKE A NAME AND NOTHING ELSE. A key in a dict of
+# one's own and a named deed are made out of a name; a button needs
+# the action it points at, a widget its type, a binding its chord —
+# those keep their dialog, which is where those answers are given.
+proc cfg-add-inline? {addr} {
+    if {[lindex $addr 0] eq "@add-member"} { return 1 }
+    return [expr {[lindex $addr 1] eq "actions"}]
+}
+# The commit half: what the typed name MAKES. Answers 1/0 like every
+# other commit, so a refusal leaves the name under the hand that
+# typed it.
+proc cfg-add-commit {addr name} {
+    set name [string trim $name]
+    if {$name eq ""} { return 1 }        ;# typed nothing: nothing made
+    if {[lindex $addr 0] eq "@add-member"} {
+        return [cfg-add-member [lrange $addr 1 end] $name]
+    }
+    return [cfg-insert-action "" $name]
 }
 # WHAT THE EDITOR NEEDS TO KNOW ABOUT A CELL — and the three answers
 # it cannot have on its own. The data is this applet's reading of the
@@ -2500,9 +2597,23 @@ proc cfg-insert {} {
  family or one of its elements"
         return
     }
+    set what [dict get $::cfg_node $it what]
+    # standing ON the «Add…» row: it says where the new one lands, so
+    # Insert here is the same gesture the row itself performs (typing
+    # the name), for the hands that reach for the key
+    if {$what eq "add"} {
+        set addr [dict get $::cfg_node $it addr]
+        if {[lindex $addr 0] eq "@add-member"} {
+            set ::cfg_member_into [lrange $addr 1 end]
+            cfg-pick-dialog "another one in the dict" {} \
+                "name for the new member" cfg-insert-member
+            return
+        }
+        cfg-insert-into [dict get $::cfg_node $it coll]
+        return
+    }
     # standing IN a dict — on it or on one of its members — Insert
     # means «another member», which is the only sensible reading
-    set what [dict get $::cfg_node $it what]
     if {$what eq "member"
             || ($what eq "field" && [dict exists $::cfg_node $it field]
                 && [dict exists [cfg-field-meta [list @field \
@@ -2514,7 +2625,10 @@ proc cfg-insert {} {
             "name for the new member" cfg-insert-member
         return
     }
-    switch -- [dict get $::cfg_node $it coll] {
+    cfg-insert-into [dict get $::cfg_node $it coll]
+}
+proc cfg-insert-into {coll} {
+    switch -- $coll {
         actions  { cfg-pick-dialog "new action" {} \
                        "name for the new action" cfg-insert-action }
         panel    { cfg-insert-panel-dialog }
@@ -2528,20 +2642,23 @@ proc cfg-insert {} {
 # a fresh button label walks.
 proc cfg-insert-member {choice typed} {
     if {$typed eq ""} { return }
-    set into $::cfg_member_into
+    cfg-add-member $::cfg_member_into $typed
+}
+# One key into a dict — from the dialog above, or typed straight into
+# the tree's own «Add a key…» row. Answers 1/0 like a commit.
+proc cfg-add-member {into name} {
     if {[cfg-member? $into]} { set into [cfg-member-parent $into] }
     set d [cfg-cur $into]
     if {[catch {dict size $d}]} { set d {} }
-    if {[dict exists $d $typed]} {
-        cfg-status "[cfg-pretty $into] already has $typed"
-        return
+    if {[dict exists $d $name]} {
+        return [cfg-refuse "[cfg-pretty $into] already has $name"]
     }
-    dict set d $typed ""
-    if {[cfg-set $into $d]} {
-        after idle cfg-refresh
-        cfg-status "$typed is in [cfg-pretty $into], empty — type its value,\
+    dict set d $name ""
+    if {![cfg-set $into $d]} { return 0 }
+    after idle cfg-refresh
+    cfg-status "$name is in [cfg-pretty $into], empty — type its value,\
  or Del takes it out again"
-    }
+    return 1
 }
 proc cfg-insert-action {choice typed} {
     set name [expr {$choice ne "" ? $choice : $typed}]

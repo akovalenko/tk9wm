@@ -193,16 +193,31 @@ FOLLOW=$(qu 'list host [font actual DeskFont -size] \
                   seed [wm-call {font actual DeskFont -size}]')
 
 # the ends of the list, in both dialects
+# ...and the ends are the TREE's ends. End walked the knob table, so
+# it landed in front of the families with rows still below it (the
+# owner, 2026-08-02): the last row is the last open descendant of the
+# last top node, the first is the first heading. A heading's name
+# lives in another element than a knob's, so the probe asks both.
 ENDS=$(qu 'set T $::cfg_T
            focus $T
+           proc row-any {} {
+               set it [cfg-selected]
+               if {$it eq ""} { return "" }
+               foreach e {eTxt eGrp} {
+                   if {![catch {$::cfg_T item element cget $it Cname $e -text} t]} {
+                       return $t
+                   }
+               }
+               return ""
+           }
            event generate $T <KeyPress-End>
-           set last [cfg-name-of [cfg-selected]]
+           set last [row-any]
            event generate $T <KeyPress-Home>
-           set first [cfg-name-of [cfg-selected]]
+           set first [row-any]
            event generate $T <Alt-greater>
-           set lastalt [cfg-name-of [cfg-selected]]
+           set lastalt [row-any]
            event generate $T <Alt-less>
-           set firstalt [cfg-name-of [cfg-selected]]
+           set firstalt [row-any]
            list $first $last [expr {$first eq $firstalt && $last eq $lastalt}]')
 
 # a modifier mask is not a value for a human: it reads back as it is
@@ -821,10 +836,73 @@ MEMBEREDIT=$(qu 'cfg-set {@member actions envy env GTK_IM_MODULE} fcitx
     list dict [cfg-cur {@field actions envy env}] \
          pend [dict exists $::cfg_pending {@field actions envy env}] \
          mpend [dict exists $::cfg_pending {@member actions envy env GTK_IM_MODULE}]')
+# ---- ONE SUBJECT, ONE HEADING, and a row that makes one more ----
+# `panel` was a heading of knobs AND a heading of buttons, standing
+# twice (the owner, 2026-08-02); a family that shares its subject
+# hangs under it as a subsection now. And every family one may add to
+# ends in an «Add …» row — the plus, and the answer to a subtree with
+# nothing in it, which showed neither its contents nor whether it was
+# open at all.
+TOPICS=$(qu 'proc lbl {it} {
+        foreach e {eGrp eTxt} {
+            if {![catch {$::cfg_T item element cget $it Cname $e -text} t]} {
+                return $t
+            }
+        }
+        return ""
+    }
+    set tops {}
+    set under {}
+    foreach it [$::cfg_T item children root] {
+        lappend tops [lbl $it]
+        if {[lbl $it] ni {panel keys}} continue
+        foreach k [$::cfg_T item children $it] {
+            if {[dict exists $::cfg_node $k]
+                    && [dict get $::cfg_node $k what] eq "coll"} {
+                lappend under [lbl $k]
+            }
+        }
+    }
+    list panel [llength [lsearch -all -exact $tops panel]] \
+         keys [llength [lsearch -all -exact $tops keys]] \
+         under [lsort $under]')
+ADDROWS=$(qu 'set fam {}; set mem 0
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] ne "add"} continue
+        if {[lindex [dict get $d addr] 0] eq "@add-member"} { incr mem; continue }
+        lappend fam [dict get $d coll]
+    }
+    list families [lsort -unique $fam] dicts [expr {$mem > 0}]')
 # ...and taking one out is legal here, where saying it empty is legal too
 MEMBERDROP=$(qu 'cfg-member-drop {@member actions envy env FOO}
     after 300; update
     cfg-cur {@field actions envy env}')
+# ...and the row IS the gesture where a name is all that is needed:
+# stand on it, type, and the key is in the dict (the owner:
+# «вставлять путём редактирования new name прямо в дереве, для env
+# так очень уместно»). The name is typed in the NAME column.
+ADDINLINE=$(qu 'set addr {@field actions envy env}
+    set field [dict get $::cfg_fitem $addr]
+    set row ""
+    foreach k [$::cfg_T item children $field] {
+        if {[dict exists $::cfg_node $k]
+                && [dict get $::cfg_node $k what] eq "add"} { set row $k }
+    }
+    # a cell one cannot see has no place to open an editor over: every
+    # storey above the row has to stand open first
+    for {set a $field} {$a ne "" && $a != 0} {set a [$::cfg_T item parent $a]} {
+        $::cfg_T expand $a
+    }
+    update idletasks
+    cfg-select $row
+    cfg-activate primary
+    after 400; update
+    set opened [winfo exists $::cfg_T.edit]
+    ui-field-set $::cfg_T.edit LANG
+    ui-cell-done $::cfg_T commit
+    after 500; update
+    list opened $opened keys [dict keys [cfg-cur $addr]]')
+
 qu 'cfg-revert; list back' >/dev/null
 sleep 1
 
@@ -1107,8 +1185,8 @@ case $FOLLOW in
     *) echo "FAIL: font follow: $FOLLOW" ;;
 esac
 case $ENDS in
-    "set-desk-background set-workarea-follow 1")
-        echo "OK: Home/End and Alt+< / Alt+> reach the same two ends" ;;
+    "desk {Add a widget…} 1")
+        echo "OK: Home/End and Alt+< / Alt+> reach the same two ends of the TREE" ;;
     *) echo "FAIL: ends: $ENDS" ;;
 esac
 case $MODS in
@@ -1359,7 +1437,22 @@ if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
 else
     echo "FAIL: the type row: $TYPEROW then $TYPESET"
 fi
-if [ "$MEMBERS" = "kids {GTK_IM_MODULE FOO} value xim empty {{}}" ] \
+if [ "$TOPICS" = "panel 1 keys 1 under {bundles buttons}" ]; then
+    echo "OK: one heading per subject — the families hang under theirs"
+else
+    echo "FAIL: the topics: $TOPICS"
+fi
+if [ "$ADDROWS" = "families {actions bindings panel widgets} dicts 1" ]; then
+    echo "OK: every family one may add to ends in a row that makes one"
+else
+    echo "FAIL: the add rows: $ADDROWS"
+fi
+if [ "$ADDINLINE" = "opened 1 keys {GTK_IM_MODULE LANG}" ]; then
+    echo "OK: a name typed into the add row of a dict is a new key"
+else
+    echo "FAIL: the inline add: $ADDINLINE"
+fi
+if [ "$MEMBERS" = "kids {GTK_IM_MODULE FOO {Add a key…}} value xim empty {{}}" ] \
         && [ "$MEMBEREDIT" = "dict {GTK_IM_MODULE fcitx FOO {}} pend 1 mpend 0" ] \
         && [ "$MEMBERDROP" = "GTK_IM_MODULE fcitx" ]; then
     echo "OK: a dict is a subtree — a member edits as itself and is said as its parent"

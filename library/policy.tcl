@@ -7682,6 +7682,15 @@ proc custom-reorder {keys} {
 # A FAMILY IS A DICT OF ELEMENTS, and its fields are leaves inside
 # every one of them — «actions @ launch» rather than a table of its
 # own. What it serves the editor is unchanged; where it is kept is.
+#
+# Two words here are for the editor's tree rather than for the
+# machinery. `insert {a button}` says a new element may be MADE and
+# what to call one in a sentence — a family without it is fixed in
+# code (the bundles). `topic {panel buttons}` says this family shares
+# its subject with a group of knobs: `panel` was a heading of knobs
+# AND a heading of buttons, standing twice in the tree and mattering
+# once the addressing goes by subtree (the owner, 2026-08-02) — so
+# the family hangs under that topic as a subsection called `buttons`.
 proc collection {name meta} {
     config-node [list $name] [dict merge {node family} [dict remove $meta fields]]
     # THE ELEMENT ITSELF is a node too, and the one thing it has to
@@ -7703,12 +7712,13 @@ proc collection-fields {name} { config-nodes-under [list $name @] }
 # truth about the same language (spec-fields maps the language's
 # kinds onto this tree's editors).
 collection actions [list \
-    key name ordered no \
+    key name ordered no insert {an action} \
     doc {named deeds — run-or-raise by name, prior to any button} \
     list collection-actions \
     fields [spec-fields action]]
 collection panel {
-    key name ordered yes merge merges
+    key name ordered yes merge merges insert {a button}
+    topic {panel buttons}
     doc {the default panel — references to actions, in strip order}
     list collection-panel
     fields {
@@ -7717,7 +7727,7 @@ collection panel {
     }
 }
 collection bindings {
-    key chord ordered no key-words yes
+    key chord ordered no key-words yes insert {a binding}
     doc {every chord this desk answers to, and what it runs}
     list collection-bindings
     fields {
@@ -7726,7 +7736,7 @@ collection bindings {
     }
 }
 collection widgets {
-    key name ordered yes
+    key name ordered yes insert {a widget}
     doc {the desk's widgets, sharing their areas in declaration order}
     list collection-widgets
     fields {
@@ -7738,7 +7748,7 @@ collection widgets {
     }
 }
 collection keys {
-    key bundle ordered no
+    key bundle ordered no topic {keys bundles}
     doc {families of bindings that come and go together — members fixed in code}
     list collection-keys
     fields {
