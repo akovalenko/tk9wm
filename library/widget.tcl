@@ -23,6 +23,11 @@
 #   the WM keeps     where it sits, which layer it is on, how big its
 #                    container is, and when it dies.
 #
+# ...and two of those options are the WM TALKING BACK — `-band` and
+# `-across`, told to the type rather than declared by anybody (see
+# widget-band-opts). They are how a type learns which of its two
+# dimensions is the expensive one without learning where it lives.
+#
 # WIDGETS ARE CHEAP — the owner's premise, and it buys the whole
 # design: every widget is destroyed and built again on a config reload,
 # exactly as the panels are. So a widget never has to know how to
@@ -104,7 +109,9 @@ proc wm-widget-type {name spec} {
 #   -layer   top (over the clients, like the panel) or desk (under all
 #            of them, on the desktop). Default top.
 #   -padding pixels of air inside the container, default 4.
-# Anything else is handed to the type verbatim.
+# Anything else is handed to the type verbatim — along with -band and
+# -across, which are not declared here at all: the desk adds them on
+# the way to the type (widget-band-opts).
 proc wm-widget {name args} {
     if {[llength $args] % 2} { error "wm-widget $name: options come in pairs" }
     set opts [dict merge {
@@ -161,6 +168,61 @@ proc widget-host-rect {name opts} {
     return {}
 }
 
+# WHAT THE STRIP TELLS THE TYPE — the other direction of the contract,
+# and the answer to "a widget knows which measurement is expensive"
+# (the owner, 2026-08-02). The obvious reading was that the TYPE
+# declares the expensive dimension, and it buys nothing: the desk
+# cannot re-lay somebody else's insides from a declaration, it can only
+# refuse to grow and clip what it asked for. Told the other way it is
+# worth having — the desk says which way the strip runs and how much
+# thickness is already paid for, and the type lays ITSELF out:
+#
+#   -band    vertical | horizontal — which way the strip runs, so
+#            THICKNESS is the other axis and that is the costly one.
+#            `none` for a widget on the desk, where nothing is scarce.
+#   -across  how many pixels of that thickness the strip's other
+#            tenants have already bought. Growing into paid thickness
+#            is FREE; past it the strip has to get fatter.
+#
+# The second one is what keeps the first from lying. "Always grow along
+# the band" reads well and is wrong: a vertical strip whose buttons lie
+# in a `row` is broad already, and squeezing a clock into one line
+# there buys nothing and costs legibility. With `-across` that case
+# states itself — the thickness is paid, so spend it.
+#
+# NOT A KNOB, which is why these are merged into a COPY of the
+# declaration and never into ::widgets: nobody writes them, the
+# configurator has nothing to show for them, and a config that names
+# one anyway is simply overruled here.
+#
+# The paid thickness counts the buttons and the tray and DELIBERATELY
+# not the other widgets riding the same strip. It could: a fat meter
+# next door has genuinely paid for depth a clock could spend. But that
+# answer would depend on declaration order (the measuring pass fills
+# ::widget_thick as it goes) and would differ between the measuring
+# pass and the build, which is the one thing a layout decision must
+# not do — it has to come out the same both times or the widget is
+# built at a size nobody reserved.
+proc widget-band-opts {name opts} {
+    set on [dict get $opts -on]
+    if {[lindex $on 0] ne "panel"} {
+        return [dict merge $opts {-band none -across 0}]
+    }
+    set p [lindex $on 1]
+    if {$p eq ""} { set p default }
+    # panel-cfg answers for an undeclared panel with the defaults rather
+    # than throwing, and that is the honest answer here too.
+    set vert [expr {[panel-cfg $p side] in {left right}}]
+    set paid [panel-thickness $p]
+    if {[tray-panel] eq $p} { set paid [expr {max($paid, [tray-thickness])}] }
+    dict merge $opts [list \
+        -band [expr {$vert ? "vertical" : "horizontal"}] -across $paid]
+}
+# The declaration as the TYPE sees it — the only form that should ever
+# reach a build or a tick.
+proc widget-opts {name} {
+    widget-band-opts $name [dict get $::widgets $name]
+}
 
 # Only an area with a WINDOW of its own has a layer to lose — which is
 # to say, only when the desk window is switched off. Inside a panel or
@@ -217,7 +279,7 @@ proc widgets-extent {panel} {
 # measured, thrown away. The size cannot be asked of the host, because
 # what the host reserves depends on the answer.
 proc widget-measure {name} {
-    set opts [dict get $::widgets $name]
+    set opts [widget-opts $name]
     set type [dict get $opts -type]
     if {![dict exists $::widget_types $type]} {
         puts "WM: widget $name: no type «$type» is declared"
@@ -371,7 +433,7 @@ proc area-build {area place idx} {
         : [panel-cfg $what side] in {left right}}]
     set i 0
     foreach name $members {
-        set c [widget-content $A.w$name $name [dict get $::widgets $name]]
+        set c [widget-content $A.w$name $name [widget-opts $name]]
         if {$c eq ""} continue
         if {$vert} {
             grid $c -row $i -column 0 -sticky ew -pady [expr {$i ? 2 : 0}]
@@ -450,7 +512,7 @@ proc widget-tick {name} {
     if {![info exists ::widget_win($name)]} return
     set c $::widget_win($name)
     if {![winfo exists $c]} { unset ::widget_win($name); return }
-    set opts [dict get $::widgets $name]
+    set opts [widget-opts $name]
     set spec [dict get $::widget_types [dict get $opts -type]]
     if {[dict exists $spec tick]} {
         if {[catch {uplevel #0 [list {*}[dict get $spec tick] $c $opts]} err]} {

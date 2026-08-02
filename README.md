@@ -678,8 +678,24 @@ frames a client and shows a panel has proved both libraries loaded.
   place. Widgets are CHEAP: a reload destroys and rebuilds every one,
   so a widget never needs a reconfigure path, a partial update or any
   state to migrate. What it must not do is block — it runs in the WM's
-  own event loop. The clock is thirty lines: two labels, a heartbeat,
-  and two derived fonts.
+  own event loop. The clock is sixty lines: two labels, a heartbeat,
+  two derived fonts, and the handful that pick between its two shapes.
+
+  The desk also TELLS a type about the strip, which is the other
+  direction of the same contract (the owner, 2026-08-02): `-band`
+  (`vertical`, `horizontal`, or `none` on the desk) says which way the
+  strip runs, so the thickness across it is the costly measurement, and
+  `-across` says how many pixels of that thickness the buttons and the
+  tray have ALREADY bought. Nobody declares either — they are merged in
+  on the way to `build` and `tick`. Told rather than asked, because a
+  type declaring "height is expensive for me" buys nothing: the desk
+  cannot re-lay somebody else's insides from a declaration, only refuse
+  to grow and clip. `-across` is what keeps the rule honest — "always
+  grow along the band" would squeeze a clock into one line on a
+  vertical strip whose buttons made it broad anyway, paying a price
+  nobody was charging. The clock is the worked example: two lines side
+  by side on a bottom bar, stacked on the desk, and on a side strip
+  whichever the paid width allows.
 
   **The widget area, and the desk as one window** (`set-desk-window`,
   default on). Widgets that name the same host and the same corner
@@ -1391,7 +1407,11 @@ runs as a single shell call:
   panel grew for it — and then, one option changed, at the screen's
   corner on the desk layer; a reload rebuilding it from nothing; and a
   bigger DESK font carrying both its lines with it, nothing about the
-  widget edited), `run-fade-test.sh` (translucency: the pixel arithmetic against a
+  widget edited), `run-widgetband-test.sh` (what the strip tells the
+  type: the same clock declaration comes out a row on a horizontal bar
+  and a stack on the desk, and on a vertical strip it takes the row
+  only when the buttons have already paid for the width),
+  `run-fade-test.sh` (translucency: the pixel arithmetic against a
   sampled desk, no map/unmap/reparent across the change, Unfade
   exact, and a style rule that makes a client rest translucent),
   `run-keyecho-test.sh` (what a sequence says about itself and the

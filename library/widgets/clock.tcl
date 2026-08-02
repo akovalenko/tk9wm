@@ -7,6 +7,13 @@
 # in proportion when the desk font moves, which a pair of hard numbers
 # would not (see the typography section in policy.tcl).
 #
+# It is also the WORKED EXAMPLE of the other half of the contract: the
+# two lines go one above the other or side by side, and the clock
+# decides which from what the desk told it about the strip (-band and
+# -across, see widget.tcl). No idea where it lives, and still the right
+# shape for the place — which is the whole point of telling the type
+# instead of asking it.
+#
 # Its own options, on top of the ones every widget takes:
 #   -time-format   a `clock format` string, default %H:%M
 #   -date-format   ...and the smaller line, default %a %d %b
@@ -41,9 +48,71 @@ proc clock-widget-build {w opts} {
     set bg [dict get $opts -background]
     label $w.time -font ClockFont -foreground $fg -background $bg -anchor center
     label $w.date -font DateFont  -foreground $fg -background $bg -anchor center
-    pack $w.time -side top -fill x
-    pack $w.date -side top -fill x
+    # The text first, because the shape is decided on what it will say.
     clock-widget-tick $w $opts
+    if {[clock-widget-shape $w $opts] eq "row"} {
+        pack $w.time -side left
+        pack $w.date -side left -padx [list $::clock_gap 0]
+    } else {
+        pack $w.time -side top -fill x
+        pack $w.date -side top -fill x
+    }
+}
+
+# Air between the two lines when they lie side by side.
+keep clock_gap 6
+
+# WHICH WAY THE TWO LINES GO — all of what -band and -across buy, in
+# one proc:
+#
+#   on a HORIZONTAL strip the thickness is HEIGHT, so the row is the
+#   cheap shape and the stack is taken only when the strip is already
+#   deep enough to hold it for nothing;
+#   on a VERTICAL strip it is the other way round — the stack is the
+#   narrow shape, and the row is taken when the paid width already
+#   covers it. That second case is the one that makes -across worth
+#   having: a vertical panel whose buttons lie ACROSS it is broad
+#   already, and a clock squeezed into one line there would be paying
+#   a price nobody was charging.
+#
+# With -across 0 both branches come out as "grow along the band", which
+# is the approximation this started as — now a special case and not the
+# rule.
+proc clock-widget-shape {w opts} {
+    # what the strip is charged for this widget besides the text: the
+    # frame's own padding, and the border widget-claims-band counts.
+    set edges [expr {2 * [dict get $opts -padding] + 2}]
+    switch -- [dict get $opts -band] {
+        horizontal {
+            set stack [expr {[font metrics ClockFont -linespace]
+                           + [font metrics DateFont -linespace] + $edges}]
+            return [expr {[dict get $opts -across] >= $stack ? "stack" : "row"}]
+        }
+        vertical {
+            set row [expr {[clock-widget-width ClockFont [$w.time cget -text]]
+                         + [clock-widget-width DateFont [$w.date cget -text]]
+                         + $::clock_gap + $edges}]
+            return [expr {[dict get $opts -across] >= $row ? "row" : "stack"}]
+        }
+    }
+    return stack   ;# on the desk nothing is scarce
+}
+
+# How wide the text can EVER get in this font, which is not how wide it
+# is now: the digits of a proportional font differ in width, so a clock
+# measured at 09:59 would change its mind one minute later. Its width
+# still moves and widget-tick re-places it for that — what must not
+# move is the shape.
+proc clock-widget-width {font text} {
+    set wide 0
+    set fat 0
+    foreach d {0 1 2 3 4 5 6 7 8 9} {
+        set w [font measure $font $d]
+        if {$w > $wide} { set wide $w; set fat $d }
+    }
+    set map {}
+    foreach d {0 1 2 3 4 5 6 7 8 9} { lappend map $d $fat }
+    font measure $font [string map $map $text]
 }
 
 proc clock-widget-tick {w opts} {
