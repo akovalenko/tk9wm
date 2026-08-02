@@ -862,6 +862,22 @@ EDGE=$(qu 'set T $::cfg_T
     ui-cell-done $T cancel
     set r')
 
+# ---- WHAT IS NOT WRITTEN IS STILL AN ANSWER ----
+# A widget that never said where it goes is not «nowhere» — it is at
+# the workarea's right, which is what the merged options hold; and the
+# terminal the desk worked out for itself was known and not shown (the
+# owner, 2026-08-02). Both are derived values, marked as not written.
+qu 'cfg-insert-widget пробка clock; list made' >/dev/null
+sleep 1
+DERIVED=$(qu 'cfg-refresh
+    after 300; update
+    set on [dict get $::cfg_fitem {@field widgets пробка -on}]
+    set t [dict get $::cfg_item set-terminal]
+    list widget-on [$::cfg_T item element cget $on Cval eVal -text] \
+         widget-flag [$::cfg_T item element cget $on Cflag eFlag -text] \
+         terminal-shown [expr {[$::cfg_T item element cget $t Cval eVal -text] ne ""}] \
+         terminal-flag [$::cfg_T item element cget $t Cflag eFlag -text]')
+
 # ---- THE DESK SAYS A WORD OF ITS OWN, AND THE LIST CATCHES UP ----
 # There is one writer for the custom layer and both sides call it —
 # but only the writer knew. The owner hid the welcome mat from the
@@ -1533,6 +1549,11 @@ if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
 else
     echo "FAIL: the type row: $TYPEROW then $TYPESET"
 fi
+case "$DERIVED" in
+    "widget-on workarea widget-flag derived terminal-shown 1 terminal-flag derived")
+        echo "OK: an unsaid field and an unsaid knob show what they amount to" ;;
+    *) echo "FAIL: derived values: $DERIVED" ;;
+esac
 if [ "$NOOP" = "saved 0 same 0 changed 1 back 0" ]; then
     echo "OK: typing back our own saved word is no edit, and a real one still is"
 else

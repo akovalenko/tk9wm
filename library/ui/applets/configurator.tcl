@@ -731,6 +731,19 @@ proc cfg-flag-set {it flags} {
 proc cfg-knob-dress {T item name meta} {
     $T item element configure $item Cdoc eDoc -text [dict get $meta doc]
     cfg-show-value $item $name [dict get $meta value]
+    # A KNOB NOBODY SAID CAN STILL HAVE AN ANSWER, and hiding it left
+    # the row blank where the desk in fact knew what it was doing (the
+    # owner, 2026-08-02: the terminal is worked out and not shown).
+    # Said as a field's derived value is said, and for the same
+    # reason: it is not written anywhere, and the row must not read as
+    # if it were.
+    if {[dict get $meta value] ne "" || ![dict exists $meta derived]
+            || [dict get $meta derived] eq ""
+            || [dict exists $::cfg_pending $name]} return
+    $T item element configure $item Cval eVal -text [dict get $meta derived]
+    cfg-flag-set $item derived
+    $T item element configure $item Cdoc eDoc \
+        -text "worked out, not written — [dict get $meta doc]"
 }
 # An ELEMENT: its key, a summary of what the layers said, and a flag
 # with the owner badge — plus ✗ for a bind a later word buried

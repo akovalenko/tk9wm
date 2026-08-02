@@ -4206,6 +4206,16 @@ proc terminal-beast-of {name} {
 # `set-terminal xterm /usr/bin/uxterm` — they pass "$@" through).
 # The verdict is cached until a reload; one log line says what was
 # picked and on whose word.
+# What the desk WOULD use with nobody saying — the resolution, and on
+# whose word it stands: «xterm (probed)» is a guess about this
+# machine, «kitty ($TERMINAL)» is somebody's environment, and the two
+# are different promises. Shown in the tree where the knob is unsaid.
+proc terminal-derived {} {
+    set r [terminal-resolve]
+    if {![llength $r]} { return "" }
+    lassign $r beast path source
+    return "$beast ($source)"
+}
 proc terminal-resolve {} {
     if {$::terminal_found ne ""} { return $::terminal_found }
     set found {}
@@ -6366,11 +6376,20 @@ proc panels-build {} {
     foreach name [panel-names] {
         dict set ::panels $name shown [panel-resolve $name 1]
     }
+    # A PANEL WITH NO BUTTONS IS STILL A PANEL WHEN THE TRAY IS IN IT.
+    # `set-tray on` alone left the desk with no strip at all — the
+    # band a tray sits in is a panel, and a panel was only built for
+    # its buttons, so the owner turned the tray on and nothing
+    # appeared until he added a clock (2026-08-02). The tray's own
+    # panel is ensured, so pointing the tray at a name nobody declared
+    # still gives it somewhere to be.
+    if {$::tray_on} { panel-ensure [tray-panel] }
     set idx 0
     set built {}
     dict for {name p} $::panels {
         incr idx
-        if {[llength [dict get $p shown]]} {
+        if {[llength [dict get $p shown]]
+                || ($::tray_on && [tray-panel] eq $name)} {
             panel-build $name $idx
             lappend built $name
         }
@@ -6931,6 +6950,10 @@ proc tray-reconcile {} {
             destroy .tray
         }
     }
+    # ...and the BAND it lives in comes and goes with it: a panel is
+    # built for its buttons, and a tray-only panel has none (see
+    # panels-build).
+    panel-rebuild-soon
     tray-layout
 }
 # The ARGB experiment, off by default and deliberately so.
@@ -7665,6 +7688,7 @@ knob set-tray-argb   {group tray kind bool
                       get {expr {$::tray_argb ? "on" : "off"}}
                       doc {offer an ARGB visual (needs a compositor)}}
 knob set-terminal    {group terminal kind terminal get {set ::terminal_choice}
+                      derived {terminal-derived}
                       doc {which terminal emulator this desk favors}}
 knob set-emacs-frames {group emacs kind {choice gui terminal}
                       get {set ::emacs_frames}
@@ -7711,6 +7735,16 @@ proc knob-table {} {
         lassign [knob-said $name [dict get $meta kind]] said value
         if {!$said} { catch {set value [uplevel #0 [dict get $meta get]]} }
         set extra [dict create value $value owner [knob-owner $name]]
+        # WHAT IT AMOUNTS TO WITH NOBODY SAYING IT — and where that
+        # answer came from. A knob whose default is DETECTED on this
+        # machine is not making the same promise as one baked into the
+        # code, and the difference is exactly what somebody deciding
+        # whether to write a word of their own needs to see (the
+        # owner, 2026-08-02, on the terminal). Only asked where the
+        # knob offers an answer, and only while nothing is said.
+        if {$value eq "" && [dict exists $meta derived]} {
+            catch {dict set extra derived [uplevel #0 [dict get $meta derived]]}
+        }
         # a font also answers what it COMPUTES to — the number a
         # chooser must start from, and the truth about what is drawn
         if {[lindex [dict get $meta kind] 0] eq "font"} {
@@ -7976,7 +8010,13 @@ proc collection-widgets {} {
                 break
             }
         }
-        lappend out [dict create key $name values $values \
+        # ...AND WHAT THE UNSAID FIELDS AMOUNT TO. A widget that never
+        # said where it goes is not «nowhere»: it is at the workarea's
+        # right, which is what the merged options hold — and the tree
+        # has a way to show exactly that (a derived value, marked as
+        # not written). The owner, 2026-08-02: «placement виджета по
+        # умолчанию нигде, на самом деле на workarea справа».
+        lappend out [dict create key $name values $values derived $opts \
                          owner [knob-owner "wm-widget $name"]]
     }
     # ...and the TYPES: what a new widget can be — the Insert dialog's

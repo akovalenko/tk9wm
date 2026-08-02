@@ -93,6 +93,32 @@ sleep 1
 kill $WM 2>/dev/null
 sleep 0.5
 
+# ---- A TRAY-ONLY DESK STILL HAS A BAND ----
+# `set-tray on` and nothing else left the desk with no strip at all: a
+# panel was built for its BUTTONS, and the band a tray sits in is a
+# panel. The owner turned the tray on and nothing appeared until he
+# added a clock (2026-08-02).
+rm -rf "$HERE/traybare-config"
+mkdir -p "$HERE/traybare-config"
+printf '%s\n' 'set-welcome off' 'set-tray on' \
+    > "$HERE/traybare-config/tk9wm.tcl"
+XDG_CONFIG_HOME="$HERE/traybare-config" \
+    "$LINUX/whale" "$WMTCL" > "$HERE/wm-traybare.log" 2>&1 &
+WMBARE=$!
+sleep 2
+BARE=$(printf '%s\n' 'set out {}
+    foreach n [panel-names] {
+        if {[info exists ::panel_win($n)]} {
+            lappend out $n [winfo exists $::panel_win($n)] \
+                [winfo ismapped $::panel_win($n)]
+        }
+    }
+    list strips $out tray [expr {[winfo exists .tray] ? 1 : 0}]' \
+    > "$HERE/traybare-config/q.tcl"
+    "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/traybare-config/q.tcl")
+kill $WMBARE 2>/dev/null
+sleep 0.5
+
 echo "--- strip: 2 icons «$STRIP», 1 icon «$STRIP1»"
 echo "--- icon A=$ICON_A in slot $SLOT_A, parent=$PARENT_A, ${GEOM_A}; icon B=$ICON_B"
 echo "--- tray lines:"
@@ -164,6 +190,12 @@ if grep -q 'soft failure' "$HERE/wm-tray.log"; then
     echo "NOTE: soft failures:"; grep 'soft failure' "$HERE/wm-tray.log"
 fi
 
+echo "--- a tray with no buttons: $BARE"
+case "$BARE" in
+    "strips {default 1 1} tray 1")
+        echo "OK: a tray with no buttons still gets a band to sit in" ;;
+    *) echo "FAIL: the tray-only desk: $BARE" ;;
+esac
 echo "--- tray colour: after custom {$TRAYCOLOR1}, after erase {$TRAYCOLOR2}"
 case "$TRAYCOLOR1|$TRAYCOLOR2" in
     "{#ff00ff} #ff00ff|{#2e3436} #2e3436")
