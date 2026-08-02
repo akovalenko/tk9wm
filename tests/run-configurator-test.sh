@@ -786,6 +786,26 @@ NOTEGROW=$(qu 'set W [winfo toplevel $::cfg_T]
     set narrow [$W.b cget -height]
     list grew [expr {$narrow > $wide}] wide $wide narrow $narrow')
 
+# ---- THE DESK SAYS A WORD OF ITS OWN, AND THE LIST CATCHES UP ----
+# There is one writer for the custom layer and both sides call it —
+# but only the writer knew. The owner hid the welcome mat from the
+# desk and the configurator went on offering him `set-welcome on`
+# (2026-08-02); the desk's own future words (pin this window where it
+# stands) need the other half of that. Last of the scenes, because it
+# writes the layer for real.
+qu 'cfg-status ""; list cleared' >/dev/null
+q 'custom-write {set-fade 0.61}' >/dev/null
+sleep 1
+DESKSAID=$(qu 'list value [cfg-cur set-fade] \
+    said [string match "*itself*" [[winfo toplevel $::cfg_T].b.note cget -text]]')
+# ...and our OWN word is not announced back at us: an echo of what
+# this window just said is not news to it
+qu 'cfg-status ""; cfg-write {set-fade 0.63}; list wrote' >/dev/null
+sleep 1
+OURSSAID=$(qu 'list said [string match "*itself*" \
+    [[winfo toplevel $::cfg_T].b.note cget -text]]')
+OURSVAL=$(q 'set ::fade')
+
 # the window must SIT INSIDE the workarea: a tall tree used to be
 # born with its bottom edge under the panel
 GEO=$(q 'set w [lindex [array names ::frameof] 0]
@@ -1436,6 +1456,12 @@ if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
     echo "OK: a deed's type shows what it amounts to, and writing it is an edit"
 else
     echo "FAIL: the type row: $TYPEROW then $TYPESET"
+fi
+if [ "$DESKSAID" = "value 0.61 said 1" ] \
+        && [ "$OURSSAID" = "said 0" ] && [ "$OURSVAL" = 0.63 ]; then
+    echo "OK: a word the desk said itself reached the open editor, and only that word"
+else
+    echo "FAIL: the layer push: $DESKSAID / $OURSSAID"
 fi
 if [ "$TOPICS" = "panel 1 keys 1 under {bundles buttons}" ]; then
     echo "OK: one heading per subject — the families hang under theirs"

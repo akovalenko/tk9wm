@@ -8433,7 +8433,7 @@ proc custom-homes {} {
         dict set ::custom_home $key $file
     }
 }
-proc custom-write {command} {
+proc custom-write {command {by desk}} {
     if {[catch {knob-key $command} key]} {
         error "custom-write: not a command list: $command"
     }
@@ -8455,6 +8455,24 @@ proc custom-write {command} {
         puts "WM: custom overrides the config: $key"
     }
     puts "WM: custom: $command"
+    ui-layer-push $key $by
+}
+# ...AND WHOEVER IS LOOKING AT THE LAYER IS TOLD. There is one writer
+# for the custom layer and always was — the configurator's edits come
+# here over the send door, the desk's own words (the welcome mat
+# retiring itself) call it directly — but only the writer knew. So an
+# applet standing open showed the layer as it was BEFORE: the owner
+# hid the mat from the desk and the configurator went on offering him
+# `set-welcome on` (2026-08-02). This is the other half, and it is
+# what the desk's own future words need — «pin this window by
+# WM_CLASS to where it stands» writes custom from a keystroke, with
+# the editor open beside it.
+#
+# Asynchronous on purpose: the writer must not wait on a window, and
+# a host that is not there is not an error.
+proc ui-layer-push {key by} {
+    if {"tk9wm-ui" ni [winfo interps]} return
+    catch {send -async -- tk9wm-ui [list ui-layer-changed custom $key $by]}
 }
 # The verbs whose declaration order is meaning, in the order their
 # sections go out — the registry says both (see config-verb).

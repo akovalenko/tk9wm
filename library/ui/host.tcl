@@ -797,6 +797,28 @@ proc ui-cell-say {T sentence} {
     uplevel #0 [list {*}$cmd $sentence]
 }
 
+# ---- THE DESK SAYS WHEN A LAYER MOVED UNDER US --------------------
+# An applet renders what the live desk answers, which is right until
+# the desk changes something WITHOUT being asked by this window: the
+# welcome mat retiring itself writes `set-welcome off` into the custom
+# layer, and an open configurator went on showing `on` (the owner,
+# 2026-08-02). The writer is shared already — there is one custom-write
+# and both sides call it — so what was missing was only the word that
+# it happened.
+#
+# An applet that cares declares `changed CMD` in its meta and is
+# called with the layer and the key. A withdrawn one is skipped: it
+# will be built or re-read when it comes back.
+proc ui-layer-changed {layer key {by desk}} {
+    dict for {name meta} $::ui_applets {
+        if {![dict exists $meta changed]} continue
+        set top .tk9wm-$name
+        if {![winfo exists $top] || [wm state $top] eq "withdrawn"} continue
+        if {[catch {uplevel #0 [list {*}[dict get $meta changed] $layer $key $by]} err]} {
+            puts "UI: applet $name: told of $layer $key and threw: $err"
+        }
+    }
+}
 proc ui-applet {name meta} { dict set ::ui_applets $name $meta }
 set ui_applets {}
 # The applet files, and WHEN they are read again: normally never — a

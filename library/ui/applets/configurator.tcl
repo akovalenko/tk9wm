@@ -32,7 +32,8 @@
 # pending knob through custom-write; Revert is a config reload, the
 # desk's own undo. A row whose knob the CONFIG also sets wears a cfg
 # badge — the loader's truth made visible.
-ui-applet configurator {title "tk9wm configurator" build cfg-build}
+ui-applet configurator {title "tk9wm configurator" build cfg-build \
+                            changed cfg-layer-changed}
 
 set cfg_table {}     ;# knob-table, as last fetched
 set cfg_coll {}      ;# collection-table, as last fetched
@@ -389,6 +390,23 @@ proc cfg-owner {name} {
 # wanted the freshest tree, and the re-run is exactly that.
 set cfg_refreshing 0
 set cfg_refresh_again 0
+# THE DESK MOVED A LAYER WITHOUT BEING ASKED BY THIS WINDOW — a word
+# it said for itself (the welcome mat retiring), or one said from a
+# keystroke while the editor stood open. Reconcile, which is all a
+# refresh ever does; a value under the hand keeps the hand's own word,
+# because a preview outranks what the layers say until it is dropped.
+proc cfg-layer-changed {layer key by} {
+    if {$by eq "configurator" || ![winfo exists $::cfg_T]} return
+    cfg-refresh
+    cfg-status "the desk said «$key» itself — this list has caught up"
+}
+# EVERY WORD OF OURS GOES OUT UNDER OUR NAME, so the desk's word back
+# to us can be told from the echo of our own (see cfg-layer-changed).
+# One writer for the layer, and it has always been the desk's — this
+# only tells it who is speaking.
+proc cfg-write {command} {
+    wm-call [list custom-write $command configurator]
+}
 proc cfg-refresh {} {
     if {$::cfg_refreshing} { set ::cfg_refresh_again 1; return }
     set ::cfg_refreshing 1
@@ -1938,7 +1956,7 @@ proc cfg-save {} {
             dict set adeltas [lindex $name 2] [lindex $name 3] \
                 [dict get $pend value]
         } else {
-            wm-call [list custom-write [dict get $pend cmd]]
+            cfg-write [dict get $pend cmd]
         }
     }
     if {[dict size $adeltas]} { cfg-save-actions $adeltas }
@@ -1955,8 +1973,7 @@ proc cfg-save-actions {deltas} {
         set e [cfg-elem-rec actions $key]
         set said ""
         if {$e ne "" && [dict exists $e said]} { set said [dict get $e said] }
-        wm-call [list custom-write \
-                     [list action $key [dict merge $said $delta]]]
+        cfg-write [list action $key [dict merge $said $delta]]
     }
 }
 # ADOPTION (the owner's decision 2). A set custom already owns takes
@@ -1973,8 +1990,8 @@ proc cfg-save-panel {deltas} {
         set key [dict get $e key]
         if {![dict exists $deltas $key]} continue
         set said [expr {[dict exists $e said] ? [dict get $e said] : ""}]
-        wm-call [list custom-write [list panel-button $key \
-            [dict merge $said [dict get $deltas $key]]]]
+        cfg-write [list panel-button $key \
+            [dict merge $said [dict get $deltas $key]]]
     }
 }
 # Taking the set whole: own the panel, then every reference in panel
@@ -1984,7 +2001,7 @@ proc cfg-save-panel {deltas} {
 # one not at all — which is what a Delete is.
 proc cfg-adopt-panel {deltas {skip {}}} {
     set c [dict get $::cfg_coll panel]
-    wm-call [list custom-write {panel-buttons-own default}]
+    cfg-write {panel-buttons-own default}
     foreach e [dict get $c elements] {
         set key [dict get $e key]
         if {$skip ne "" && $key eq $skip} continue
@@ -1992,7 +2009,7 @@ proc cfg-adopt-panel {deltas {skip {}}} {
         if {[dict exists $deltas $key]} {
             set said [dict merge $said [dict get $deltas $key]]
         }
-        wm-call [list custom-write [list panel-button $key $said]]
+        cfg-write [list panel-button $key $said]
     }
 }
 # Erase the selected knob's customization: the click taken back, the
@@ -2424,19 +2441,19 @@ proc cfg-delete {} {
  writes a silence of your own over it, which is itself a\
  customization — Delete on that takes it back and the chord returns.\
  Silence it?"]} return
-            wm-call [list custom-write [list wm-unbind [split $key " "]]]
+            cfg-write [list wm-unbind [split $key " "]]
         }
         widgets {
             if {![cfg-confirm "«$key» is not your widget. Dropping it\
  writes a removal of your own over it, which is itself a\
  customization — Delete on that takes it back. Remove it?"]} return
-            wm-call [list custom-write [list wm-widget-remove $key]]
+            cfg-write [list wm-widget-remove $key]
         }
         actions {
             if {![cfg-confirm "«$key» is the [dict get $e owner]'s deed.\
  Dropping it writes a removal of your own over it, which is itself a\
  customization — Delete on that takes it back. Remove it?"]} return
-            wm-call [list custom-write [list action-remove $key]]
+            cfg-write [list action-remove $key]
         }
     }
     cfg-refresh
@@ -2561,13 +2578,13 @@ proc cfg-take {} {
                 return
             }
             foreach b [dict keys $bundles] {
-                wm-call [list custom-write [list wm-keys $b off]]
+                cfg-write [list wm-keys $b off]
             }
             foreach e $taken {
-                wm-call [list custom-write [list wm-bind \
+                cfg-write [list wm-bind \
                     [split [dict get $e key] " "] \
                     [dict get $e values script] \
-                    [dict get $e values name]]]
+                    [dict get $e values name]]
             }
             cfg-refresh
             if {[dict size $bundles]} {
@@ -2667,7 +2684,7 @@ proc cfg-insert-action {choice typed} {
         return [cfg-refuse "an action named $name already stands —\
  pick another name"]
     }
-    if {[catch {wm-call [list custom-write [list action $name {}]]} err]} {
+    if {[catch {cfg-write [list action $name {}]} err]} {
         return [cfg-refuse [cfg-brief $err]]
     }
     cfg-refresh
@@ -2695,8 +2712,7 @@ proc cfg-insert-button {name} {
     # the action. Referencing a waiting or still-undeclared action is
     # legitimate (the button waits with it), so no name is refused;
     # the status only says what will show when.
-    if {[catch {wm-call [list custom-write \
-                             [list panel-button $name {}]]} err]} {
+    if {[catch {cfg-write [list panel-button $name {}]} err]} {
         return [cfg-refuse [cfg-brief $err]]
     }
     cfg-refresh
@@ -2718,8 +2734,7 @@ proc cfg-insert-widget {name type} {
         return [cfg-refuse "a widget named $name already stands —\
  pick another name"]
     }
-    if {[catch {wm-call [list custom-write \
-                             [list wm-widget $name -type $type]]} err]} {
+    if {[catch {cfg-write [list wm-widget $name -type $type]} err]} {
         return [cfg-refuse [cfg-brief $err]]
     }
     cfg-refresh
@@ -2740,8 +2755,7 @@ proc cfg-insert-bind {spec script} {
  [cfg-holder-sentence $held]. Binding here takes the chord while both\
  stand; the other word comes back when yours goes."]} { return 0 }
     }
-    if {[catch {wm-call [list custom-write \
-                             [list wm-bind [split $spec " "] $script]]} err]} {
+    if {[catch {cfg-write [list wm-bind [split $spec " "] $script]} err]} {
         return [cfg-refuse [cfg-brief $err]]
     }
     cfg-refresh
