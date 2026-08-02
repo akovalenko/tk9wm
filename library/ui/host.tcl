@@ -393,6 +393,32 @@ proc bgerror {msg} {
     if {[info exists ::errorInfo]} { puts $::errorInfo }
 }
 
+# ---- WHAT IS BUILT ON FIRST USE, BUILT NOW (the owner's ask) ------
+# Dialogs, menus and popups appear when somebody presses the key that
+# needs them — which is also when a defect in their construction
+# appears, and only if somebody presses it. The accelerator clash he
+# found (two buttons promising Alt+C) was exactly that: sitting in a
+# window nobody opens in the suite.
+#
+# So a builder can be registered here, and a run can ask for all of
+# them at once: each is built, torn down, and anything that threw is
+# named. The registration is what makes a lazily-built thing testable
+# without a hand on the keyboard.
+set ui_lazy {}
+proc ui-lazy {name build {teardown {}}} {
+    dict set ::ui_lazy $name [list $build $teardown]
+}
+proc ui-build-all {} {
+    set bad {}
+    dict for {name pair} $::ui_lazy {
+        lassign $pair build teardown
+        if {[catch {uplevel #0 $build} err]} {
+            lappend bad [list $name $err]
+        }
+        catch {uplevel #0 $teardown}
+    }
+    return $bad
+}
 # ---- A TREE FROM NODES (config-tree, step 4) ----------------------
 # The walk the configurator grew is not the configurator's: any applet
 # rendering a tree wants the same thing — a list of records, each with

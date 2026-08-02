@@ -2712,6 +2712,12 @@ proc cfg-problems {} {
         cfg-status "nothing has gone wrong since the desk came up"
         return
     }
+    cfg-problems-show $all
+}
+# ...the window itself, apart from the question of whether there is
+# anything to put in it — which is what lets a test build it cold
+# (ui-lazy below) instead of waiting for something to go wrong.
+proc cfg-problems-show {all} {
     set w .cfg-problems
     catch {destroy $w}
     toplevel $w -class Tk9wmUi
@@ -2845,6 +2851,15 @@ proc cfg-insert-widget-picked {choice entry} {
 # One shape serves buttons and widgets: a list to pick from, an entry
 # beside it. The commit callback gets what was picked and what was
 # typed; buttons use one of the two, widgets need both.
+# THE LAZILY BUILT THINGS, DECLARED. A run with ui-build-all behind it
+# opens every one of them once — which is how a clash or a typo in a
+# window nobody visits in the suite gets caught by the suite.
+ui-lazy "problems view" {
+    cfg-problems-show {{what probe text {a probe} where {}}}
+} {destroy .cfg-problems}
+ui-lazy "insert dialog" {
+    cfg-pick-dialog "probe" {one two} "name" {}
+} {destroy .cfg-insert}
 proc cfg-pick-dialog {title choices entrylabel commit} {
     set w .cfg-insert
     catch {destroy $w}

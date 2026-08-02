@@ -658,6 +658,9 @@ BLINK=$(qu 'set ::blinked 0
                 fired $::blinked]
     destroy .blinkprobe
     set r')
+# EVERYTHING LAZY, BUILT NOW: the clash he found was in a window the
+# suite never opened, so the suite opens all of them and then asks
+EAGER=$(qu 'list bad [ui-build-all] clashes [llength [ui-accel-clashes]]')
 ACCEL=$(qu 'llength [ui-accel-clashes]')
 # ...and the guard is not decorative: two buttons asking for the same
 # letter leave the first answering and the second no longer promising
@@ -1295,6 +1298,11 @@ case "$LINTNOTMOD" in
         echo "OK: a remark wears its own word and says nothing about saving" ;;
     *) echo "FAIL: the linter's mark: $LINTNOTMOD" ;;
 esac
+if [ "$EAGER" = "bad {} clashes 0" ]; then
+    echo "OK: everything built on first use builds now, and promises nothing twice"
+else
+    echo "FAIL: the eager build: $EAGER"
+fi
 if [ "$ACCEL" = 0 ]; then
     echo "OK: no two buttons in this applet promise the same Alt-letter"
 else
