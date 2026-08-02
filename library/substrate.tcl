@@ -3115,16 +3115,31 @@ proc keymap-set {node keys entry} {
 # words of an exec), which is why the name is optional.
 # wm-unbind SPEC — the other half of the map, and the customization
 # layer needs it: a click that takes a binding away has to be able to
-# SAY so, and re-declaring cannot express a removal. The grab of a
-# top chord is left alone: it is shared by everything under it, and
-# an ungrab would silence the siblings; a chord with nothing under it
-# simply falls through to the client, which is what it did before
-# anybody bound it. Empty submaps are pruned, so the help list does
-# not show a prefix that leads nowhere.
+# SAY so, and re-declaring cannot express a removal. Empty submaps are
+# pruned, so the help list does not show a prefix that leads nowhere —
+# and the grab goes with the last binding under it (keys-drop-orphan).
 proc wm-unbind {spec} {
     set chords [lmap tok $spec {parse-chord $tok}]
     if {![llength $chords]} { error "wm-unbind: empty chord sequence" }
     set ::keymap [keymap-unset $::keymap [lmap c $chords {join $c ,}]]
+    keys-drop-orphan [lindex $chords 0]
+}
+# ...AND THE GRAB GOES WITH THE LAST BINDING UNDER IT. A top chord's
+# grab is shared by everything beneath it, so no single unbind may
+# drop it — but a top chord with NOTHING left under it is a key held
+# hostage: the server keeps sending it here (GrabModeAsync leaves
+# nothing to replay to the client afterwards), so the desk answers
+# nothing and the client never sees the key at all. The owner bound a
+# bare `t`, took the binding back, and lost the letter (2026-08-02);
+# the note that used to stand here claimed such a chord «falls through
+# to the client», and this is what finally makes that true.
+proc keys-drop-orphan {top} {
+    if {[dict exists $::keymap [join $top ,]]} return
+    set i [lsearch -exact $::grabbed_top $top]
+    if {$i < 0} return
+    set ::grabbed_top [lreplace $::grabbed_top $i $i]
+    ungrab-chord $top
+    puts "WM: key top chord [chord-name {*}$top] released"
 }
 # ...and the same, but only if the chord is still OURS. What a family
 # of bindings takes away when it leaves is its own contribution and
@@ -3137,6 +3152,7 @@ proc wm-unbind-owned {spec origin} {
     set path [lmap c $chords {join $c ,}]
     if {[keymap-origin $::keymap $path] ne $origin} { return 0 }
     set ::keymap [keymap-unset $::keymap $path]
+    keys-drop-orphan [lindex $chords 0]
     return 1
 }
 # WHOSE the binding at this chord path is — the fourth word of a
@@ -3285,6 +3301,16 @@ proc grab-chord {chord} {
     }
     foreach locks {0 2 16 18} {
         x-grab-key $kc [expr {$mods | $locks}] $::root
+    }
+    x-sync 0
+}
+# ...and the same four, given back (see keys-drop-orphan).
+proc ungrab-chord {chord} {
+    lassign $chord mods ks
+    set kc [x-keycode $ks]
+    if {$kc == 0} return
+    foreach locks {0 2 16 18} {
+        x-ungrab-key $kc [expr {$mods | $locks}] $::root
     }
     x-sync 0
 }

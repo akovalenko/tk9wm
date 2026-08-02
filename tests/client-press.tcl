@@ -1,7 +1,7 @@
-# Demo client that REPORTS what the pointer does to it: argv = title
-# geometry color ?secs?. Every button press and release inside the
-# client is printed, which is how a test tells "the WM took this
-# gesture" from "the WM let it through".
+# Demo client that REPORTS what the pointer and the keyboard do to it:
+# argv = title geometry color ?secs?. Every button press and release
+# inside the client is printed, and every key it receives, which is how
+# a test tells "the WM took this gesture" from "the WM let it through".
 package require Tk
 lassign $argv title geom color secs
 if {$secs eq ""} { set secs 8 }
@@ -15,6 +15,10 @@ label .l -text $title -background $color -font {Sans 14}
 pack .l -expand 1 -fill both
 bind . <ButtonPress>   {puts "CLIENT $title: press %b at %x,%y state %s"}
 bind . <ButtonRelease> {puts "CLIENT $title: release %b"}
+# A GRABBED KEY NEVER ARRIVES HERE, which is the whole point: a chord
+# the desk holds is a chord the client has lost, so this line is how a
+# test sees a grab given back.
+bind . <KeyPress>      {puts "CLIENT $title: key %K state %s"}
 after 3000 {puts "CLIENT $title: root=+[winfo rootx .]+[winfo rooty .]\
  size=[winfo width .]x[winfo height .]"}
 after [expr {$secs * 1000}] exit
