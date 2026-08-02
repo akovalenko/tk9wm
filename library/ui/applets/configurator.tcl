@@ -426,92 +426,7 @@ proc cfg-refresh-body {} {
     set ::cfg_node {}
     set ::cfg_fitem {}
     set ::cfg_fresh {}
-    # the top storey — the knob groups (sorted), then the families in
-    # the table's own order — reconciled as ONE list of root children
-    set groups {}
-    dict for {name meta} $::cfg_table {
-        dict lappend groups [dict get $meta group] $name
-    }
-    set rows {}
-    foreach group [lsort [dict keys $groups]] {
-        lappend rows [list [list grp $group] {}]
-    }
-    dict for {cname cmeta} $::cfg_coll {
-        lappend rows [list [list coll $cname] [dict get $cmeta doc]]
-    }
-    set top [treesync::sync $T \
-                 {make cfg-top-make update cfg-top-update} $rows]
-    # the knobs, one storey down, each group its own parent. cfg_item
-    # is rebuilt in row order, group by group — cfg-end walks this
-    # dict's order as the tree's reading order.
-    foreach group [lsort [dict keys $groups]] {
-        set rows [lmap name [lsort [dict get $groups $group]] {
-            list $name [dict get $::cfg_table $name]
-        }]
-        set m [treesync::sync $T \
-                   {make cfg-knob-make update cfg-knob-update} $rows \
-                   [dict get $top [list grp $group]]]
-        foreach row $rows {
-            dict set ::cfg_item [lindex $row 0] \
-                [dict get $m [lindex $row 0]]
-        }
-    }
-    # the collections: elements under their family node, fields under
-    # the live elements — the same engine, a parent per level, and
-    # the descriptor maps rebuilt from what each sync returns
-    dict for {cname cmeta} $::cfg_coll {
-        set g [dict get $top [list coll $cname]]
-        dict set ::cfg_node $g [dict create what coll coll $cname]
-        set rows {}
-        foreach e [dict get $cmeta elements] {
-            lappend rows [list \
-                [list [dict get $e key] [dict exists $e ineffectual]] \
-                [list $cname $e]]
-        }
-        set m [treesync::sync $T \
-                   {make cfg-elem-make update cfg-elem-update} $rows $g]
-        foreach e [dict get $cmeta elements] {
-            set key [dict get $e key]
-            set dead [dict exists $e ineffectual]
-            set it [dict get $m [list $key $dead]]
-            set desc [dict create what elem coll $cname key $key]
-            if {$dead} { dict set desc dead 1 }
-            dict set ::cfg_node $it $desc
-            if {$dead} continue
-            set frows {}
-            set said [cfg-elem-values $cname $key]
-            set lint [expr {[dict exists $e lint] ? [dict get $e lint] : {}}]
-            dict for {f fmeta} [dict get $cmeta fields] {
-                if {![cfg-slot-shown? $f $fmeta $said]} continue
-                lappend frows [list $f \
-                    [list [list @field $cname $key $f] $fmeta \
-                     [lsearch -all -inline -index 1 $lint $f]]]
-            }
-            # ...and after them, the words this one stands OVER:
-            # same chord, another layer, not in force. They are rows,
-            # not fields — nothing in them is edited here, and the
-            # only gesture they answer is Delete on one of ours.
-            if {[dict exists $e shadowed]} {
-                foreach claim [dict get $e shadowed] {
-                    lappend frows [list [list @over [dict get $claim owner]] \
-                        [list shadow $claim]]
-                }
-            }
-            set fm [treesync::sync $T \
-                        {make cfg-field-make update cfg-field-update} \
-                        $frows $it]
-            dict for {f fit} $fm {
-                if {[lindex $f 0] eq "@over"} {
-                    dict set ::cfg_node $fit [dict create what shadow \
-                        coll $cname key $key owner [lindex $f 1]]
-                    continue
-                }
-                dict set ::cfg_node $fit [dict create what field \
-                    coll $cname key $key field $f]
-                dict set ::cfg_fitem [list @field $cname $key $f] $fit
-            }
-        }
-    }
+    cfg-render "" [cfg-nodes]
     # an element is BORN folded — the tree is an overview first; a
     # survivor keeps whatever the user made of it, which is the point
     foreach it $::cfg_fresh { $T collapse $it }
@@ -541,22 +456,172 @@ proc cfg-select-first {} {
 # times, because what an item shows is ROW data, never item history
 # (the strip's lesson). The engine attaches, positions and deletes;
 # nothing here touches a sibling.
-proc cfg-top-make {T parent key data} {
-    lassign $key what name
-    set item [$T item create -button yes]
-    if {$what eq "grp"} {
-        $T item style set $item Cname sGrp
-    } else {
-        # a family node wears its doc beside the name
-        $T item style set $item Cname sGrp Cdoc sDoc
-        $T item element configure $item Cdoc eDoc -text $data
+# ---- ONE WALK, NODE-DRIVEN (config-tree, step 3) -----------------
+# The tree used to be built by hand, one storey at a time: a loop for
+# the knob groups, a loop for the knobs, a loop for the families, a
+# loop for the elements, a loop for the fields — five loops and four
+# make/update pairs, so every level was its own code and a new level
+# meant more of it.
+#
+# It is one walk now. cfg-nodes says what the tree IS — a list of
+# records, each with its children — and cfg-render puts any such list
+# under any parent, registering the maps as it goes. What a row LOOKS
+# like is still the dressers below, chosen by the node's own `what`:
+# the rendering generalised, the appearance did not move.
+#
+# A node: what (its nature), key (unique among siblings — treesync's
+# identity), label, button, children, plus whatever its dresser and
+# the gestures want (addr for the editable ones, coll/key/field for
+# the family rows).
+proc cfg-nodes {} {
+    set out {}
+    # the knobs, gathered into their groups, groups in name order and
+    # knobs in name order inside them — the tree's reading order, and
+    # the order cfg_item is rebuilt in (cfg-end walks that dict)
+    set groups {}
+    dict for {name meta} $::cfg_table {
+        dict lappend groups [dict get $meta group] $name
     }
-    $T item element configure $item Cname eGrp -text $name
+    foreach group [lsort [dict keys $groups]] {
+        set kids {}
+        foreach name [lsort [dict get $groups $group]] {
+            lappend kids [dict create what knob key $name label $name \
+                addr $name meta [dict get $::cfg_table $name]]
+        }
+        lappend out [dict create what grp key [list grp $group] \
+            label $group button 1 children $kids]
+    }
+    # ...then the families, in the table's own order
+    dict for {cname cmeta} $::cfg_coll {
+        lappend out [dict create what coll key [list coll $cname] \
+            label $cname button 1 coll $cname doc [dict get $cmeta doc] \
+            children [cfg-element-nodes $cname $cmeta]]
+    }
+    return $out
+}
+proc cfg-element-nodes {cname cmeta} {
+    set out {}
+    foreach e [dict get $cmeta elements] {
+        set key [dict get $e key]
+        set dead [dict exists $e ineffectual]
+        set node [dict create what elem key [list $key $dead] label $key \
+            button [expr {!$dead}] coll $cname elkey $key rec $e]
+        if {$dead} {
+            dict set node dead 1
+        } else {
+            dict set node children [cfg-field-nodes $cname $key $e]
+        }
+        lappend out $node
+    }
+    return $out
+}
+proc cfg-field-nodes {cname key e} {
+    set out {}
+    set said [cfg-elem-values $cname $key]
+    set lint [expr {[dict exists $e lint] ? [dict get $e lint] : {}}]
+    dict for {f fmeta} [dict get $::cfg_coll $cname fields] {
+        if {![cfg-slot-shown? $f $fmeta $said]} continue
+        lappend out [dict create what field key $f label $f \
+            addr [list @field $cname $key $f] coll $cname elkey $key \
+            field $f meta $fmeta \
+            lint [lsearch -all -inline -index 1 $lint $f]]
+    }
+    # ...and after them, the words this one stands OVER: same chord,
+    # another layer, not in force. They are rows, not fields — nothing
+    # in them is edited here, and the only gesture they answer is
+    # Delete on one of ours.
+    if {[dict exists $e shadowed]} {
+        foreach claim [dict get $e shadowed] {
+            lappend out [dict create what shadow \
+                key [list @over [dict get $claim owner]] label "…instead of" \
+                coll $cname elkey $key owner [dict get $claim owner] \
+                claim $claim]
+        }
+    }
+    return $out
+}
+proc cfg-render {parent nodes} {
+    set T $::cfg_T
+    # the top storey's parent is the ROOT item, which treesync spells
+    # 0 — the walk starts there and says so rather than passing the
+    # empty string a tree cannot describe
+    if {$parent eq ""} { set parent 0 }
+    set rows [lmap n $nodes { list [dict get $n key] $n }]
+    set m [treesync::sync $T {make cfg-row-make update cfg-row-update} \
+               $rows $parent]
+    foreach n $nodes {
+        set item [dict get $m [dict get $n key]]
+        cfg-row-register $item $n
+        if {[dict exists $n children]} {
+            cfg-render $item [dict get $n children]
+        }
+    }
+}
+# WHAT A ROW CAN BE FOUND BY afterwards: an editable row by its
+# address, a family row by its descriptor. Rebuilt every pass, in the
+# walk's own order.
+proc cfg-row-register {item n} {
+    switch -- [dict get $n what] {
+        knob { dict set ::cfg_item [dict get $n addr] $item }
+        coll {
+            dict set ::cfg_node $item \
+                [dict create what coll coll [dict get $n coll]]
+        }
+        elem {
+            set desc [dict create what elem coll [dict get $n coll] \
+                          key [dict get $n elkey]]
+            if {[dict exists $n dead]} { dict set desc dead 1 }
+            dict set ::cfg_node $item $desc
+        }
+        field {
+            dict set ::cfg_node $item [dict create what field \
+                coll [dict get $n coll] key [dict get $n elkey] \
+                field [dict get $n field]]
+            dict set ::cfg_fitem [dict get $n addr] $item
+        }
+        shadow {
+            dict set ::cfg_node $item [dict create what shadow \
+                coll [dict get $n coll] key [dict get $n elkey] \
+                owner [dict get $n owner]]
+        }
+    }
+}
+proc cfg-row-make {T parent key node} {
+    set button [expr {[dict exists $node button] ? [dict get $node button] : 0}]
+    set item [$T item create -button $button]
+    switch -- [dict get $node what] {
+        grp  { $T item style set $item Cname sGrp }
+        coll { $T item style set $item Cname sGrp Cdoc sDoc }
+        elem { lappend ::cfg_fresh $item }
+    }
+    if {[dict get $node what] ni {grp coll}} {
+        $T item style set $item Cname sName Cval sVal Cflag sFlag Cdoc sDoc
+    }
+    $T item element configure $item Cname \
+        [expr {[dict get $node what] in {grp coll} ? "eGrp" : "eTxt"}] \
+        -text [dict get $node label]
+    cfg-row-update $T $item $key $node
     return $item
 }
-proc cfg-top-update {T item key data} {
-    if {[lindex $key 0] eq "coll"} {
-        $T item element configure $item Cdoc eDoc -text $data
+proc cfg-row-update {T item key node} {
+    switch -- [dict get $node what] {
+        grp {}
+        coll {
+            $T item element configure $item Cdoc eDoc -text [dict get $node doc]
+        }
+        knob {
+            cfg-knob-dress $T $item [dict get $node addr] [dict get $node meta]
+        }
+        elem {
+            cfg-elem-dress $T $item [dict get $node coll] [dict get $node rec]
+        }
+        field {
+            cfg-field-dress $T $item [dict get $node addr] \
+                [dict get $node meta] [dict get $node lint]
+        }
+        shadow {
+            cfg-field-dress $T $item shadow [dict get $node claim]
+        }
     }
 }
 # THE BADGE IS A HANDLE. What the flag cell says — whose word the row
@@ -574,16 +639,6 @@ proc cfg-flag-set {it flags} {
 proc cfg-knob-dress {T item name meta} {
     $T item element configure $item Cdoc eDoc -text [dict get $meta doc]
     cfg-show-value $item $name [dict get $meta value]
-}
-proc cfg-knob-make {T parent key data} {
-    set item [$T item create]
-    $T item style set $item Cname sName Cval sVal Cflag sFlag Cdoc sDoc
-    $T item element configure $item Cname eTxt -text $key
-    cfg-knob-dress $T $item $key $data
-    return $item
-}
-proc cfg-knob-update {T item key data} {
-    cfg-knob-dress $T $item $key $data
 }
 # An ELEMENT: its key, a summary of what the layers said, and a flag
 # with the owner badge — plus ✗ for a bind a later word buried
@@ -673,18 +728,6 @@ proc cfg-owner-words {e} {
     }
     return "the desk's own"
 }
-proc cfg-elem-make {T parent key data} {
-    lassign $data cname e
-    set item [$T item create -button [expr {![dict exists $e ineffectual]}]]
-    $T item style set $item Cname sName Cval sVal Cflag sFlag Cdoc sDoc
-    cfg-elem-dress $T $item $cname $e
-    lappend ::cfg_fresh $item
-    return $item
-}
-proc cfg-elem-update {T item key data} {
-    lassign $data cname e
-    cfg-elem-dress $T $item $cname $e
-}
 # An element's children are its FIELDS, edited by the same
 # kind-editors the knobs use; a buried bind has no children at all —
 # re-binding it is capture-chord's day, not a field edit here.
@@ -734,17 +777,6 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
     }
     cfg-flag-set $item $flags
     $T item element configure $item Cdoc eDoc -text $doc
-}
-proc cfg-field-make {T parent key data} {
-    set item [$T item create]
-    $T item style set $item Cname sName Cval sVal Cflag sFlag Cdoc sDoc
-    $T item element configure $item Cname eTxt \
-        -text [expr {[lindex $key 0] eq "@over" ? "…instead of" : $key}]
-    cfg-field-dress $T $item {*}$data
-    return $item
-}
-proc cfg-field-update {T item key data} {
-    cfg-field-dress $T $item {*}$data
 }
 # What an element is AT A GLANCE, per family: a button says which
 # fields speak, a binding shows its script, a bundle whether it
