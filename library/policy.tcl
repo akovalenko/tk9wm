@@ -7889,6 +7889,13 @@ key-bundle accords {prefix {<Super>t} help {<Super>h}} {
     bundle-bind [concat $p {w m}] winops
     bundle-bind [concat $p {w w}] winlist
     bundle-bind [concat $p {w r}] Reload
+    # The configurator is a STOCK chord and not a member of any set
+    # (the owner, 2026-08-02, choosing between the two): it is the way
+    # in to everything else this desk can be told, so a desk that has
+    # to be furnished before it can be configured has the dependency
+    # backwards. It sits one letter under the prefix like the rest.
+    bundle-bind [concat $p c] {applet configurator} \
+        "everything this desk can be told"
     bundle-bind [concat $p q] Quit
     # The keymap from the top — the same key that answers "what is
     # under this prefix" inside a sequence answers "what is there at

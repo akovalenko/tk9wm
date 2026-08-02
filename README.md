@@ -611,8 +611,11 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   `Close`, `Destroy`, plus `Unmaximize` and `Unfullscreen`. `Restart`,
   `Reload` and `Quit` are about the desk rather than a window (the
   lowercase `restart-wm` and `reload-config` remain, being the
-  implementations). **`Quit` is bound by default**, to `Super+t q`,
-  and releases every client back to the root alive before stopping —
+  implementations). **`Quit` is bound by default**, to `Super+t q`, and
+  so is the configurator, on `Super+t c` — the way in to everything
+  else this desk can be told, so a desk that had to be furnished
+  before it could be configured would have the dependency backwards.
+  Quit releases every client back to the root alive before stopping —
   with `.Xsession` exec'ing the window manager that ends the session,
   and a desk whose only exit is another terminal and a `kill` is the
   "how do I exit vim" joke with a login inside it. They are
