@@ -21,6 +21,9 @@ export HOME="$HERE/emacs-config/home"
 export XDG_RUNTIME_DIR="$HERE/emacs-config/rt"
 cat > "$HERE/emacs-config/tk9wm.tcl" <<'EOF'
 set-terminal xterm
+# the edit door talks to the same daemon the buttons do — the server
+# IS the addressing there, and this desk has only the one
+set-emacs-edit-daemon emtest
 action tg  {emacs {daemon emtest frame TELEGA eval {(setq tg-evaled 42)}
                    env {EMTEST via-env}} key {<Super>g}}
 action tgt {emacs {daemon emtest frame TTYEM eval {(setq tty-evaled t)} via terminal} key {<Super>h}}
@@ -51,6 +54,8 @@ sleep 1.5
 
 key() { xdotool key "$@"; sleep 0.5; }
 ec() { emacsclient -s emtest -e "$1" 2>/dev/null; }
+q() { printf '%s\n' "$1" > "$HERE/emacs-config/q.tcl"
+      "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/emacs-config/q.tcl"; }
 wait_for() { # wait_for SECONDS CMD... — poll until CMD succeeds
     n=$(( $1 * 2 )); shift
     while [ $n -gt 0 ]; do "$@" >/dev/null 2>&1 && return 0; sleep 0.5; n=$((n-1)); done
@@ -148,6 +153,47 @@ echo "--- a button's own env around a plain launch"
 key super+l
 sleep 1
 BENV=$(cat "$HERE/emacs-config/benv-out" 2>/dev/null)
+
+# THE EDIT DOOR — the other emacs verb. Not an identity: any frame of
+# the right server will do, and the only question is whether the file
+# lands in one that stands or in a fresh one. Driven through the proc
+# the configurator's «in emacs» is bound to.
+echo "--- the edit door: reuse, then create"
+printf 'one\ntwo\nthree\n' > "$HERE/emacs-config/reused.txt"
+printf 'one\ntwo\nthree\n' > "$HERE/emacs-config/fresh.txt"
+FRAMES0=$(ec '(length (frame-list))')
+q "edit-place emacs $HERE/emacs-config/reused.txt 2" >/dev/null
+sleep 2
+EDIT1=$(ec '(and (get-file-buffer "'"$HERE"'/emacs-config/reused.txt") t)')
+FRAMES1=$(ec '(length (frame-list))')
+q 'set-emacs-edit create' >/dev/null
+q "edit-place emacs $HERE/emacs-config/fresh.txt 3" >/dev/null
+sleep 2
+EDIT2=$(ec '(and (get-file-buffer "'"$HERE"'/emacs-config/fresh.txt") t)')
+FRAMES2=$(ec '(length (frame-list))')
+
+# ...and the same door in terminal mode, where reuse cannot be an
+# emacsclient flag: a terminal window is found by its WM_CLASS
+# instance, so the desk keeps ONE editing terminal and knows its name
+# (the daemon's name is in it — two servers must not share a window).
+# The first edit builds it; the second must find it and put the file
+# in the frame inside, which only the daemon can do.
+echo "--- the edit door in a terminal"
+printf 'one\ntwo\nthree\n' > "$HERE/emacs-config/tty1.txt"
+printf 'one\ntwo\nthree\n' > "$HERE/emacs-config/tty2.txt"
+q 'set-emacs-frames terminal' >/dev/null
+q 'set-emacs-edit reuse' >/dev/null
+q "edit-place emacs $HERE/emacs-config/tty1.txt 2" >/dev/null
+wait_for 20 xdotool search --classname '^emacs-tk9wm-emtest$' \
+    || echo "note: wait for the editing terminal ran out"
+sleep 2
+TEDIT1=$(ec '(and (get-file-buffer "'"$HERE"'/emacs-config/tty1.txt") t)')
+q "edit-place emacs $HERE/emacs-config/tty2.txt 3" >/dev/null
+wait_for 15 grep -q 'verdict: "edited"' "$HERE/wm-emacs.log" \
+    || echo "note: wait for the edited verdict ran out"
+sleep 1
+TEDIT2=$(ec '(and (get-file-buffer "'"$HERE"'/emacs-config/tty2.txt") t)')
+TWINS=$(xdotool search --classname '^emacs-tk9wm-emtest$' | wc -l)
 
 ec '(kill-emacs)' >/dev/null 2>&1
 xdotool windowkill "$PID2" 2>/dev/null
@@ -267,4 +313,24 @@ if [ "$KFNAME" = '"KEEPN"' ] && [ "$KFCLS" = '"KEEPN", "Emacs"' ]; then
     echo "OK: keep-frame-name on left the word standing in the title"
 else
     echo "FAIL: keep-frame-name on: name=$KFNAME class=$KFCLS"
+fi
+echo "--- edit door: frames $FRAMES0 -> $FRAMES1 -> $FRAMES2,\
+ visited $EDIT1 / $EDIT2"
+if [ "$EDIT1" = t ] && [ "$FRAMES1" = "$FRAMES0" ]; then
+    echo "OK: reuse put the file in a frame that already stood"
+else
+    echo "FAIL: reuse: visited=$EDIT1, frames $FRAMES0 -> $FRAMES1"
+fi
+if [ "$EDIT2" = t ] && [ "$FRAMES2" -gt "$FRAMES1" ]; then
+    echo "OK: create opened a frame of its own for the edit"
+else
+    echo "FAIL: create: visited=$EDIT2, frames $FRAMES1 -> $FRAMES2"
+fi
+echo "--- edit door in a terminal: visited $TEDIT1 / $TEDIT2,\
+ windows named for the server: $TWINS"
+if [ "$TEDIT1" = t ] && [ "$TEDIT2" = t ] && [ "$TWINS" = 1 ] \
+        && grep -q 'emacs: verdict: "edited"' "$HERE/wm-emacs.log"; then
+    echo "OK: one editing terminal, and the second file went into it"
+else
+    echo "FAIL: terminal door: $TEDIT1 / $TEDIT2, windows $TWINS"
 fi

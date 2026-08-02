@@ -630,6 +630,33 @@
 # from this config are assumed OURS — nothing verifies which terminal
 # a tty frame sits in, and naming frames to spoof your own desk is
 # your own game.
+#
+# ---- and the OTHER emacs verb: the edit door ----
+#
+# «Show me the line that says this» — the configurator's `in emacs`,
+# and whatever else comes to want it. A button is an IDENTITY (the
+# telega frame, create-or-raise); a door is a DESTINATION, and any
+# frame of the right emacs will do. Two knobs, no frame name:
+#   set-emacs-edit create           ;# reuse is the default
+#   set-emacs-edit-daemon work      ;# unsaid = the default server
+# Reuse hands emacsclient -r and lets it pick a frame of that server;
+# create says -c. The FILE rides as `+LINE FILE` rather than an eval,
+# which is also what makes the frame come to the front: emacsclient
+# raises the frame it visits a file in, and does nothing visible for a
+# bare --eval.
+#
+# The server is the whole of the addressing — which is why the door
+# needs no name where the buttons want one. An owner keeping telega.el
+# in a server of its own can be sure an edit will never land in that
+# frame, because it is not that server's business.
+#
+# In TERMINAL mode (set-emacs-frames terminal) there is no anonymous
+# frame to reuse — a terminal window is found by its WM_CLASS instance
+# and nothing else — so the desk keeps one editing terminal, named
+# `emacs-tk9wm` (with the daemon's name appended when one is said, so
+# two servers cannot fight over one window). Reuse raises that window
+# and asks the daemon to put the file in the frame inside it; create
+# opens a terminal of its own running emacsclient -nw.
 
 # ---- the customization layer ----
 #

@@ -5299,11 +5299,7 @@ proc edit-place {how file line} {
         error "edit-place: $line is not a line number"
     }
     switch -- $how {
-        emacs {
-            emacs-launch [dict create frame tk9wm-config \
-                eval "(progn (find-file [emacs-lisp-string $file])\
- (goto-line $line))"]
-        }
+        emacs { emacs-edit-open $file $line }
         terminal {
             set ed [expr {[info exists ::env(EDITOR)] && $::env(EDITOR) ne ""
                           ? $::env(EDITOR) : "vi"}]
@@ -5313,6 +5309,93 @@ proc edit-place {how file line} {
         default { error "edit-place: emacs or terminal, not $how" }
     }
     return
+}
+# ---- the edit door ----
+# «Open this file, at this line» is a different verb from «the telega
+# frame», and mixing them was what made the emacs layer look bigger
+# than it is (the owner's design round, 2026-08-02). A BUTTON is an
+# identity: create-or-raise, and the reuse is the action machinery's
+# own doing — match first, launch only when nothing answers. A door is
+# a DESTINATION: any frame of the right emacs will do, and the only
+# thing to decide is whether an edit lands in a frame that already
+# exists or in a fresh one.
+#
+# So the knob is named for the door it governs rather than for emacs
+# at large, and there is exactly one of it. Reuse is the default: a
+# person who asks to see a config line means «show me», not «give me
+# another window».
+keep emacs_edit reuse
+proc set-emacs-edit {mode} {
+    if {$mode ni {reuse create}} { error "set-emacs-edit: reuse or create" }
+    set ::emacs_edit $mode
+}
+# WHICH EMACS EDITS. The server is the whole of the addressing here —
+# emacsclient -s NAME -r picks a frame of THAT server and no other —
+# which is why the door needs no frame name while the buttons want
+# one: the owner keeps telega.el in a server of its own, and an edit
+# on the default server has no way to land in it even by accident
+# (his ruling, 2026-08-02: and were telega on the default server, «in
+# the emacs where I keep everything» is exactly where he would want
+# the file). Empty is the default server.
+keep emacs_edit_daemon {}
+proc set-emacs-edit-daemon {name} { set ::emacs_edit_daemon $name }
+proc emacs-edit-spec {} {
+    expr {$::emacs_edit_daemon eq ""
+          ? {} : [dict create daemon $::emacs_edit_daemon]}
+}
+# In a terminal there is no anonymous frame to reuse: a terminal
+# window is found by its WM_CLASS instance and nothing else, so the
+# desk keeps ONE editing terminal and knows its name. The server rides
+# that name — two daemons would otherwise fight over one window, which
+# is the same confusion the frame names exist to prevent.
+proc emacs-edit-terminal-name {} {
+    expr {$::emacs_edit_daemon eq ""
+          ? "emacs-tk9wm" : "emacs-tk9wm-$::emacs_edit_daemon"}
+}
+# THE FILE IS AN ARGUMENT, NOT AN EVAL. emacsclient takes `+LINE FILE`
+# itself, and a file argument is the shape that RAISES the frame it
+# lands in — where a bare --eval runs in an invisible one and says
+# nothing (the owner, measured 2026-08-02). Only the terminal-reuse
+# branch below cannot use it, because putting a file into a frame that
+# already exists inside a given terminal is a thing only the daemon
+# can do; that one carries his focus form instead.
+proc emacs-edit-open {file line} {
+    set spec [emacs-edit-spec]
+    set cmd [emacs-client-cmd $spec]
+    if {$::emacs_autodaemon eq "on"} { lappend cmd -a {} }
+    set place [list +$line $file]
+    if {$::emacs_frames ne "terminal"} {
+        lappend cmd [expr {$::emacs_edit eq "create" ? "-c" : "-r"}] -n
+        set cmd [concat $cmd $place]
+        puts "WM: emacs: edit $cmd"
+        exec {*}$cmd &
+        return
+    }
+    if {$::emacs_edit eq "create"} {
+        # ...nothing looked for and nothing shared: a terminal of its
+        # own, holding this one edit.
+        spawn-terminal [list name tk9wm-edit title [file tail $file] \
+            run [concat $cmd [list -nw] $place]]
+        return
+    }
+    set name [emacs-edit-terminal-name]
+    set hit [lindex [panel-matches "edit in emacs" \
+        [dict create match [list filter -class $name]]] 0]
+    if {$hit ne ""} {
+        # The window comes up at once and the daemon is asked in the
+        # background — the same two-step the emacs buttons use, for
+        # the same reason: no fire waits on a socket.
+        puts "WM: emacs: edit in $name 0x[format %x $hit]"
+        panel-focus-hit $hit
+        emacs-eval-bg $spec [emacs-template open-place.el \
+            "(tk9wm-name [emacs-lisp-string $name])\
+ (tk9wm-file [emacs-lisp-string $file]) (tk9wm-line $line)"]
+        return
+    }
+    set F "((name . [emacs-lisp-string $name])\
+ (tk9wm-frame . [emacs-lisp-string $name]))"
+    spawn-terminal [list name $name title $name \
+        run [concat $cmd [list -t -F $F] $place]]
 }
 proc emacs-eval-bg {spec expr} {
     set cmd [concat [emacs-client-cmd $spec] [list -e $expr]]
@@ -8306,6 +8389,12 @@ knob set-emacs-autodaemon {group emacs kind bool get {set ::emacs_autodaemon}
 knob set-emacs-keep-frame-name {group emacs kind bool
                       get {set ::emacs_keep_frame_name}
                       doc {leave the button's name in the frame's title}}
+knob set-emacs-edit {group emacs kind {choice reuse create}
+                      get {set ::emacs_edit}
+                      doc {where an edit lands — a frame one has, or a fresh one}}
+knob set-emacs-edit-daemon {group emacs kind text
+                      get {set ::emacs_edit_daemon}
+                      doc {which daemon opens an edit — unsaid is the default one}}
 # knob-table — the send-facing answer: the registry plus each knob's
 # current value, one dict. The configurator's whole worldview.
 # What a DERIVED font's knob is really set to: the delta the config
