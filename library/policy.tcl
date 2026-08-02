@@ -5936,6 +5936,8 @@ spec-keys action {
     match    {kind predicate doc {which window counts as already-running}}
     activate {kind script    doc {what a found window gets instead of the focus}}
     icon     {kind icon      doc {a face, for whatever panel carries it}}
+    badge    {kind text
+              doc {a letter or two laid over the icon — one picture, many deeds}}
     key      {kind chord     doc {the chord that does it — panel or no panel}}
     needs    {kind commands  doc {commands this deed waits for}}
     style    {kind text      doc {a style rule for the windows it finds}}
@@ -6534,6 +6536,9 @@ proc panel-measure {name} {
     set bfont [panel-badge-font $name]
     font configure $bfont -family [font actual PanelFont -family] \
         -size -[expr {max(7, $isz * 5 / 8)}]
+    set mfont [panel-mark-font $name]
+    font configure $mfont -family [font actual PanelFont -family] \
+        -size -[expr {max(7, $isz * 2 / 5)}]
     # the arrow zone: once ANY button can match, every button
     # reserves an east strip for the multi arrow — the row reads
     # uniformly, an unarmed button just shows calm space there
@@ -6591,7 +6596,7 @@ proc panel-measure {name} {
     }
     dict create faces $faces iconic $iconic itemh $itemh thick $thick \
         zone $zone aw $aw fpad $FPAD fgap $FGAP vert $vert bare $bare \
-        preset $preset icon_size $isz badge_font $bfont
+        preset $preset icon_size $isz badge_font $bfont mark_font $mfont
 }
 proc panel-thickness {name} { dict get [panel-geometry $name] thick }
 # One badge font per panel, created on demand and named after the
@@ -6602,6 +6607,26 @@ proc panel-badge-font {name} {
     set f "PanelBadge-$name"
     if {$f ni [font names]} { font create $f -weight bold }
     return $f
+}
+# ...and a SMALLER one for the mark laid over an icon. Its own font
+# and not the badge's: a badge IS the button's face and fills the
+# square, a mark sits in the corner of somebody else's picture and has
+# to stay out of the way of it. Per panel for the same reason the
+# badge font is — a mark's size follows the icon's, and icon sizes are
+# per panel.
+proc panel-mark-font {name} {
+    set f "PanelMark-$name"
+    if {$f ni [font names]} { font create $f -weight bold }
+    return $f
+}
+# WHAT A BUTTON WEARS OVER ITS ICON, when it says so. The point is not
+# to need a new picture for every variation of one program (the owner,
+# 2026-08-02): "run this in a terminal" wants the terminal's own icon,
+# and inventing a hundred and one terminal icons is not a plan. A
+# terminal with a `t` in the corner is tmux, and the base picture goes
+# on being the truth about what will open.
+proc panel-mark-of {settings} {
+    expr {[dict exists $settings badge] ? [dict get $settings badge] : ""}
 }
 # Every panel, from nothing: the live strips come down and are put
 # back up in declaration order. Wholesale and not per panel, because a
@@ -6699,6 +6724,7 @@ proc panel-build {name idx} {
     set bare [dict get $g bare]
     set isz [dict get $g icon_size]
     set bfont [dict get $g badge_font]
+    set mfont [dict get $g mark_font]
     set side [panel-cfg $name side]
     set buttons [panel-cfg $name shown]
     set ::panel_zone($name) $zone
@@ -6803,6 +6829,12 @@ proc panel-build {name idx} {
     $T element create eSep rect -fill [themed rule] -width 1 \
         -height [expr {$itemh - 14}]
     $T element create eArrow text -text ▾ -fill [themed dim] -font PanelFont
+    # The mark over an icon: small letters on a chip, so they read on
+    # any picture underneath. Both are drawn only when a button asked
+    # for one — an empty text and an unfilled rect draw nothing, which
+    # is cheaper than a state and says the same thing.
+    $T element create eMark text -fill [themed ink] -lines 1 -font $mfont
+    $T element create eMarkBg rect -outline [themed edge] -outlinewidth 1
     # Three button styles, assigned per item by what its face resolved
     # to: plain (today's text chip — every button when nothing is
     # iconic), icon, and badge; row and stack presets differ in the
@@ -6821,6 +6853,14 @@ proc panel-build {name idx} {
         $T style layout sBtnI eFace -union {eBIcon eBTxt} \
             -ipadx $ipx -ipady 3 -padx 2 -pady $fgap -expand wens
         $T style layout sBtnI eBIcon -expand we -pady {0 2}
+        $T style elements sBtnI [concat [$T style elements sBtnI] {eMarkBg eMark}]
+        # In a STACK the icon is centred over the label, so the mark
+        # rides its lower-right from the top edge down rather than
+        # from the bottom up.
+        $T style layout sBtnI eMarkBg -detach yes -union eMark -ipadx 2 -ipady 1
+        $T style layout sBtnI eMark -detach yes -expand sw \
+            -padx [list 0 [expr {max(0, $isz / 4)}]] \
+            -pady [list [expr {$fgap + 3 + $isz * 3 / 5}] 0]
         $T style layout sBtnI eBTxt -expand we
         $T style create sBtnB -orient vertical
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
@@ -6848,6 +6888,19 @@ proc panel-build {name idx} {
         # there is none — left in, it hangs the icon off-centre in its
         # own chip.
         $T style layout sBtnI eBIcon -expand ns -padx [list 0 [expr {$bare ? 0 : 4}]]
+        $T style elements sBtnI [concat [$T style elements sBtnI] {eMarkBg eMark}]
+        # OVER THE ICON, not over the button. A detached element is
+        # placed in the whole item, so «south-east» put the mark past
+        # the label at the far end of the chip — right where it does
+        # not belong. It is pinned by arithmetic instead, off the
+        # numbers this builder already has: expanding north and east
+        # anchors it south-WEST, and the pads walk it back to the
+        # icon's own lower-right corner.
+        set mx [expr {2 + [lindex $ipx 0] + $isz * 3 / 5}]
+        set my [expr {max(0, ($itemh - $isz) / 2)}]
+        $T style layout sBtnI eMarkBg -detach yes -union eMark -ipadx 2 -ipady 1
+        $T style layout sBtnI eMark -detach yes -expand ne \
+            -padx [list $mx 0] -pady [list 0 $my]
         $T style layout sBtnI eBTxt -expand ns
         $T style create sBtnB
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
@@ -6943,7 +6996,8 @@ proc panel-items-sync {T name buttons faces iconic {bare 0}} {
     set rows {}
     foreach b $buttons f $faces {
         lassign $b aname label settings
-        lappend rows [list $aname [list $label $f $iconic $bare]]
+        lappend rows [list $aname \
+            [list $label $f $iconic $bare [panel-mark-of $settings]]]
     }
     set ::panel_items($name) [treesync::sync $T \
         {make panel-btn-make update panel-btn-update} $rows]
@@ -6951,7 +7005,7 @@ proc panel-items-sync {T name buttons faces iconic {bare 0}} {
 # One dresser for a fresh item and a survivor alike: which of the
 # three styles a button wears and what its elements show is ROW
 # data, never item history.
-proc panel-btn-dress {T item label face iconic {bare 0}} {
+proc panel-btn-dress {T item label face iconic {bare 0} {mark ""}} {
     if {!$iconic} {
         $T item style set $item C0 sBtn
     } elseif {$face ne ""} {
@@ -6967,6 +7021,15 @@ proc panel-btn-dress {T item label face iconic {bare 0}} {
     # element stays in the style (that is what keeps the unions and
     # the alignment honest) and an empty text takes no room.
     $T item element configure $item C0 eBTxt -text [expr {$bare ? "" : $label}]
+    # ...and the mark, on the icon style only — a badge button's face
+    # is already its own lettering, and a mark over that is two answers
+    # to one question. No mark: no text and no fill, which draws
+    # nothing at all.
+    if {$face ne "" && $iconic} {
+        $T item element configure $item C0 eMark -text $mark
+        $T item element configure $item C0 eMarkBg \
+            -fill [expr {$mark eq "" ? "" : [themed raised]}]
+    }
 }
 proc panel-btn-make {T parent key data} {
     set item [$T item create]
@@ -9201,6 +9264,58 @@ proc welcome-font-bump {dir} {
         [list -size $new]]]
     if {[llength [info commands widgets-build]]} { widgets-build }
 }
+# FURNISHING A DESK IN ONE CLICK — the mat's other offer, and the
+# answer to "somebody who just wants to LOOK at this thing" (the
+# owner, 2026-08-02: a wizard is a fine idea and «I want to look at
+# tk9wm» is the wrong place for one). A set is a list of ordinary
+# config words written into the custom layer, so it is exactly what a
+# person would have typed and can be read, edited and taken back the
+# same way. No new mechanism, and nothing the layer has not seen.
+#
+# EVERY BUTTON CARRIES ITS OWN `needs`, which is what lets one set
+# serve every machine: a deed whose software is missing stands by and
+# is not drawn, so the same six lines give a tmux desk three buttons
+# and a bare one, one. Nothing here has to ask what is installed —
+# that question is already answered, once, by the thing that answers
+# it for hand-written configs too.
+#
+# THE SET OWNS THE PANEL (panel-buttons-own): applying it twice gives
+# the same desk rather than six buttons, and the ownership rule is the
+# custom layer's own — the whole set or nothing, no deltas over a
+# config's line-up.
+keep welcome_presets {
+    minimal {
+        {panel-buttons-own default}
+        {set-tray on}
+        {action terminal {terminal {} key {<Super>t t}}}
+        {action emacs {emacs {frame tk9wm-frame} needs emacs key {<Super>t e}}}
+        {action tmux {terminal {name tmux}
+                      run {sh -c {tmux attach || tmux new}}
+                      badge t needs tmux key {<Super>t m}}}
+        {panel-button terminal}
+        {panel-button emacs}
+        {panel-button tmux}
+    }
+}
+# The chords all hang under the desk's OWN prefix rather than taking
+# top-level keys: <Super>t t, <Super>t e, <Super>t m. That costs the
+# global namespace nothing — a prefix is exactly what one is for —
+# and each is guessable from the first letter of what it opens.
+#
+# The emacs button is bound to a CONSTANT FRAME NAME and so is
+# create-or-raise rather than always-new (the owner's call): a frame's
+# name is its WM_CLASS instance, so the match derives itself and the
+# second press finds the first press's window. No eval — the button
+# opens emacs, it does not tell emacs what to think.
+proc welcome-preset {name} {
+    if {![dict exists $::welcome_presets $name]} {
+        error "welcome-preset: no such set «$name»"
+    }
+    foreach cmd [dict get $::welcome_presets $name] { custom-write $cmd }
+    puts "WM: welcome: the «$name» set applied\
+ ([llength [dict get $::welcome_presets $name]] words)"
+}
+
 # THE THEME, FROM THE MAT — one click, and the whole desk changes
 # colour (the owner, 2026-08-02, asking for the switch to be right
 # there on the welcome note). It writes a customization like every

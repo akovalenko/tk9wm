@@ -72,6 +72,16 @@ proc welcome-widget-build {w opts} {
         ? "Go back to the dark theme" : "Try the light theme"}] {link theme}
     $w.t insert end " — every colour on this desk comes from that one\
  word, and this press sticks too.\n\n"
+    # ...and the one that FURNISHES rather than explains. Offered only
+    # while the desk has no panel of its own: on a desk that already
+    # has one it would be an invitation to throw away what is there,
+    # which is not what a welcome note is for.
+    if {![llength [panel-names]]} {
+        $w.t insert end "Set up the basics" {link basics}
+        $w.t insert end " — a panel with a tray and buttons for the\
+ terminal, emacs and tmux, each appearing only if this machine has it.\
+ Written as ordinary customizations you can then edit or take back.\n\n"
+    }
     $w.t insert end "Hide this forever" {link hide}
     $w.t insert end " — the desk writes your first customization and\
  this note never returns."
@@ -81,6 +91,7 @@ proc welcome-widget-build {w opts} {
     $w.t tag bind fup   <ButtonRelease-1> {welcome-font-bump up}
     $w.t tag bind fdn   <ButtonRelease-1> {welcome-font-bump down}
     $w.t tag bind theme <ButtonRelease-1> {welcome-theme-flip}
+    $w.t tag bind basics <ButtonRelease-1> {welcome-preset minimal}
     $w.t tag bind hide <ButtonRelease-1> {welcome-hide}
     $w.t configure -state disabled
     pack $w.t -expand 1 -fill both
