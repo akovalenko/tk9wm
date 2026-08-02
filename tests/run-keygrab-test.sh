@@ -28,6 +28,9 @@ set-welcome off
 wm-bind t {puts "WM: the desk took t"} took-t
 wm-bind {<Super>g a} {puts "WM: the desk took a"} took-a
 wm-bind {<Super>g b} {puts "WM: the desk took b"} took-b
+# ...and a modifier written the way a hand types it
+wm-bind {<super>5} {puts "WM: the desk took 5"} took-5
+wm-bind ctrl+6 {puts "WM: the desk took 6"} took-6
 EOF
 
 XDG_CONFIG_HOME="$HERE/keygrab-config" \
@@ -59,6 +62,17 @@ sleep 0.5
 AFTER=$(grep -c 'the desk took t' "$HERE/wm-keygrab.log" || true)
 HEARD2=$(grep -c 'key t ' "$HERE/keygrab-client.log" || true)
 RELEASED=$(grep -c 'key top chord t released' "$HERE/wm-keygrab.log" || true)
+
+# ---- a modifier is a NAME, not a spelling ----
+# «super» and «ctrl» are what a hand types; the desk takes them and
+# goes on showing the canonical form, which is how one learns it
+xdotool key super+5
+sleep 0.3
+xdotool key ctrl+6
+sleep 0.5
+LOWER=$(grep -ac 'the desk took 5' "$HERE/wm-keygrab.log" || true)
+LOWER2=$(grep -ac 'the desk took 6' "$HERE/wm-keygrab.log" || true)
+SHOWN=$(grep -ac 'key top chord Super+5 grabbed' "$HERE/wm-keygrab.log" || true)
 
 # ---- the sibling case: one of two goes, the other still answers ----
 q 'wm-unbind {<Super>g a}' >/dev/null
@@ -93,6 +107,11 @@ if [ "$SIB" -ge 1 ]; then
     echo "OK: dropping one binding under a prefix left its sibling answering"
 else
     echo "FAIL: the sibling under Super+g stopped answering ($SIB)"
+fi
+if [ "$LOWER" = 1 ] && [ "$LOWER2" = 1 ] && [ "$SHOWN" = 1 ]; then
+    echo "OK: «super» and «ctrl» are taken as typed, and shown as the desk spells them"
+else
+    echo "FAIL: lowercase modifiers (super=$LOWER ctrl=$LOWER2 shown=$SHOWN)"
 fi
 if [ "$GONE" -ge 1 ]; then
     echo "OK: with the last binding under it gone, the prefix let its chord go"

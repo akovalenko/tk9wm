@@ -3000,6 +3000,20 @@ foreach name {Shift_L Shift_R Control_L Control_R Alt_L Alt_R
 }
 set KS_ESC [x-keysym Escape]
 
+# A MODIFIER'S NAME IS NOT ITS SPELLING (the owner, 2026-08-02:
+# «возможно при биндах super мелкими буквами лучше допускать»). The
+# set of modifier names is fixed and closed, and no keysym is one of
+# them, so there is nothing ambiguous about taking the case one
+# happens to type — while the desk goes on SHOWING the canonical
+# spelling everywhere (chord-name, the help list, the echo), which is
+# how one comes to write it that way.
+proc modmask-of {name} {
+    if {[info exists ::modmaskof($name)]} { return $::modmaskof($name) }
+    foreach {n bit} [array get ::modmaskof] {
+        if {[string equal -nocase $n $name]} { return $bit }
+    }
+    return ""
+}
 # Both spellings, and that is the point: <Super>t is how one WRITES a
 # chord and Super+t is how the desk SHOWS it (chord-name, the log, the
 # echo, the help list), so whatever is on the screen can be typed
@@ -3011,14 +3025,16 @@ set KS_ESC [x-keysym Escape]
 proc parse-chord {tok} {
     set mods 0
     while {[regexp {^<([^>]+)>(.*)$} $tok -> m rest]} {
-        if {![info exists ::modmaskof($m)]} { error "unknown modifier <$m>" }
-        set mods [expr {$mods | $::modmaskof($m)}]
+        set bit [modmask-of $m]
+        if {$bit eq ""} { error "unknown modifier <$m>" }
+        set mods [expr {$mods | $bit}]
         set tok $rest
     }
     set fields [split $tok +]
     foreach m [lrange $fields 0 end-1] {
-        if {![info exists ::modmaskof($m)]} { error "unknown modifier «$m»" }
-        set mods [expr {$mods | $::modmaskof($m)}]
+        set bit [modmask-of $m]
+        if {$bit eq ""} { error "unknown modifier «$m»" }
+        set mods [expr {$mods | $bit}]
     }
     set tok [lindex $fields end]
     if {$tok eq ""} { error "chord without a key" }

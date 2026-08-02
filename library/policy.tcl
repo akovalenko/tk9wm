@@ -2638,8 +2638,23 @@ proc set-winlist-cycle {onoff} {
 # rgba-png), a smaller one stays smaller. A miss logs once and
 # returns "" — the caller shows its no-icon look. Every resolution is
 # cached per {spec size}: panel rebuilds reuse, nothing leaks.
+# ...AND MORE OF hicolor THAN ONE SIZE OF IT. 48x48 alone missed
+# whole applications: kitty ships 256x256 and scalable and nothing
+# else, so a button for it had no face at all (the owner, 2026-08-02).
+# The order is the preference — the wanted size first, then bigger
+# ones (which resample down cleanly), and svg last of all, for which
+# see icon-file-of.
 keep icon_path [list ~/.local/share/icons/hicolor/48x48/apps \
-    /usr/share/icons/hicolor/48x48/apps /usr/share/pixmaps]
+    ~/.local/share/icons/hicolor/64x64/apps \
+    ~/.local/share/icons/hicolor/128x128/apps \
+    ~/.local/share/icons/hicolor/256x256/apps \
+    ~/.local/share/icons/hicolor/scalable/apps \
+    /usr/share/icons/hicolor/48x48/apps \
+    /usr/share/icons/hicolor/64x64/apps \
+    /usr/share/icons/hicolor/128x128/apps \
+    /usr/share/icons/hicolor/256x256/apps \
+    /usr/share/icons/hicolor/scalable/apps \
+    /usr/share/pixmaps]
 proc set-icon-path {dirs} {
     set ::icon_path $dirs
     # The cache needs no clearing: what a spec resolves to is part of
@@ -2650,16 +2665,25 @@ proc set-icon-path {dirs} {
 }
 # WHERE a spec's png lives, if anywhere — the search on its own, so
 # the answer can be compared with what a cached icon was made from.
+# SVG IS THE LAST RESORT, and that is a change of mind with its
+# reason intact (the owner, 2026-08-02): nanosvg still renders less
+# well than a real png, so every png anywhere on the path beats every
+# svg — the extension is the OUTER loop. But a poor icon is better
+# than none, which is what the applications that ship scalable-only
+# were getting.
 proc icon-file-of {spec} {
     # Tcl 9 dropped implicit ~ expansion — expand at use time, so a
     # config-supplied ~ path works too
     if {[string match */* $spec] || [string match ~* $spec]
-            || [string match -nocase *.png $spec]} {
+            || [string match -nocase *.png $spec]
+            || [string match -nocase *.svg $spec]} {
         return [file tildeexpand $spec]
     }
-    foreach dir $::icon_path {
-        set p [file join [file tildeexpand $dir] $spec.png]
-        if {[file exists $p]} { return $p }
+    foreach ext {png svg} {
+        foreach dir $::icon_path {
+            set p [file join [file tildeexpand $dir] $spec.$ext]
+            if {[file exists $p]} { return $p }
+        }
     }
     return ""
 }
@@ -2701,8 +2725,9 @@ proc resolve-icon {spec size} {
     }
     set img ""
     if {$path eq ""} {
-        puts "WM: icon «$spec»: no Tk image, no $spec.png in icon-path"
-    } elseif {[catch {image create photo -file [file normalize $path]} img]} {
+        puts "WM: icon «$spec»: no Tk image, no $spec.png or $spec.svg\
+ in icon-path"
+    } elseif {[catch {icon-photo $path $size} img]} {
         puts "WM: icon «$spec»: $img"
         set img ""
     } else {
@@ -2718,11 +2743,23 @@ proc resolve-icon {spec size} {
 # is what makes it a replacement and not an overlay — without it a
 # smaller icon would keep the old one's edges around itself.
 proc icon-refresh {img path size} {
-    set fresh [image create photo -file [file normalize $path]]
+    set fresh [icon-photo $path $size]
     set fresh [shrink-photo $fresh $size]
     $img blank
     $img copy $fresh -shrink
     image delete $fresh
+}
+# AN SVG IS DRAWN AT THE SIZE, not drawn and then squeezed: the
+# format reader takes the height it should render at, which is the one
+# thing vector art is for. Anything else is read as it is and the
+# resampler below deals with it.
+proc icon-photo {path size} {
+    set path [file normalize $path]
+    if {[string match -nocase *.svg $path]} {
+        return [image create photo -file $path \
+                    -format [list svg -scaletoheight $size]]
+    }
+    return [image create photo -file $path]
 }
 # Downsample a photo to fit target (nearest neighbor, keeps alpha);
 # a fitting image passes through untouched.

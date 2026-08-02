@@ -1,8 +1,10 @@
 #!/bin/sh
 # Regression for resolve-icon — the polymorphic `icon` value: a Tk
 # image name passes through untouched, a file path loads any format
-# Tk reads, a bare name is searched as NAME.png (png ONLY) through
-# the icon-path directories; an oversized image is resampled down
+# Tk reads, a bare name is searched as NAME.png through the icon-path
+# directories and, only where no png of that name exists anywhere,
+# as NAME.svg — the last resort, because a poor icon beats none (the
+# owner, 2026-08-02); an oversized image is resampled down
 # with alpha, a smaller one stays smaller, everything is cached per
 # {spec size}, and a miss logs once and yields "". Integration: the
 # panel button face resolves a bare name, and a wm-style icon key
@@ -18,8 +20,9 @@ sleep 1
 rm -rf "$HERE/iconpath-config"
 mkdir -p "$HERE/iconpath-config/icons"
 
-# test icons: an oversized square, a small one, and an svg decoy that
-# a bare-name lookup must NOT pick
+# test icons: an oversized square, a small one, an svg standing beside
+# a png of the same name (the png must win), and an svg with no png
+# anywhere — which is the case that used to have no icon at all
 cat > "$HERE/iconpath-config/make-png.tcl" <<'EOF'
 package require Tk
 lassign $argv path size color
@@ -32,8 +35,11 @@ EOF
     "$HERE/iconpath-config/icons/ff.png" 128 '#cc4444'
 "$LINUX/whale" "$HERE/iconpath-config/make-png.tcl" \
     "$HERE/iconpath-config/icons/small.png" 24 '#4e9a06'
-echo '<svg xmlns="http://www.w3.org/2000/svg"/>' \
-    > "$HERE/iconpath-config/icons/svgonly.svg"
+svg() { printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="64"\
+ height="64" viewBox="0 0 64 64"><rect width="64" height="64" fill="#3465a4"/></svg>' \
+    > "$1"; }
+svg "$HERE/iconpath-config/icons/svgonly.svg"
+svg "$HERE/iconpath-config/icons/ff.svg"    ;# beside ff.png, and must lose
 
 cat > "$HERE/iconpath-config/tk9wm.tcl" <<'EOF'
 set-icon-path [list __ICONS__]
@@ -54,7 +60,9 @@ proc icon-battery {} {
         {tk image name passes through untouched}    imgOwn {resolve-icon imgOwn 48}
         {small icon is not upscaled}                24 {image width [resolve-icon small 48]}
         {miss yields empty}                         {} {resolve-icon nosuchicon 48}
-        {bare name never picks svg}                 {} {resolve-icon svgonly 48}
+        {a png beats an svg of the same name}       48 {image width [resolve-icon ff 48]}
+        {an svg is taken when no png is anywhere}   1  {expr {[resolve-icon svgonly 48] ne ""
+            && [image height [resolve-icon svgonly 48]] <= 48}}
         {winlist style icon resolves to row size}   1  {expr {[lindex [winlist-icon $tk 22] 0] eq "image"
             && [image width [lindex [winlist-icon $tk 22] 1]] <= 22}}
         {panel face carries the resolved image}     1  {expr {[[panel-tree default] item element cget 1 C0 eBIcon -image] ne ""}}
@@ -121,12 +129,12 @@ else
     echo "OK: no battery failures"
 fi
 PASS=$(grep -c 'ICON PASS' "$HERE/wm-iconpath.log")
-if [ "$PASS" = 9 ]; then
-    echo "OK: all 9 checks passed"
+if [ "$PASS" = 10 ]; then
+    echo "OK: all 10 checks passed"
 else
-    echo "FAIL: $PASS PASS lines, want 9"
+    echo "FAIL: $PASS PASS lines, want 10"
 fi
-if grep -q 'ICON BATTERY: 9 checks' "$HERE/wm-iconpath.log"; then
+if grep -q 'ICON BATTERY: 10 checks' "$HERE/wm-iconpath.log"; then
     echo "OK: the battery ran to completion"
 else
     echo "FAIL: the battery is missing or truncated"
