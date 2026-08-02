@@ -66,6 +66,17 @@
 #                           valid per vmask bits (CWX=1, CWY=2), grav
 #                           says what the point aims at (see
 #                           client-position-hint)
+#   policy-moveresize-request w X Y dir button
+#                           a client asks the WM to run a move or a
+#                           resize it cannot run itself (EWMH
+#                           _NET_WM_MOVERESIZE): X/Y is the root point
+#                           it was pressed at, dir is the EWMH
+#                           direction (0..7 the eight edges from
+#                           top-left clockwise, 8 move, 9 keyboard
+#                           resize, 10 keyboard move, 11 cancel), and
+#                           button is the one held down (0 for the
+#                           keyboard ones). The client has already
+#                           ungrabbed the pointer
 #   policy-close-unanswered w  a WM_DELETE_WINDOW went unanswered — the
 #                           window is still managed after the grace
 #                           period; show the user the client is silent
@@ -752,6 +763,10 @@ set WM_CLIENT_MACHINE 36   ;# XA_WM_CLIENT_MACHINE, predefined
 set WM_CLASS          67   ;# XA_WM_CLASS, predefined
 soft "intern _NET_WM_PID"  { set NET_WM_PID [x-intern _NET_WM_PID] }
 soft "intern _NET_WM_ICON" { set NET_WM_ICON [x-intern _NET_WM_ICON] }
+# Motif's, and older than everything else here — the property a client
+# writes to ask for no decoration at all. Not EWMH and never was; see
+# client-motif-decor for why it is still the living answer.
+soft "intern _MOTIF_WM_HINTS" { set MOTIF_WM_HINTS [x-intern _MOTIF_WM_HINTS] }
 
 # ---------------- EWMH minimum ----------------
 # Enough for toolkits to see "a WM is present": _NET_SUPPORTING_WM_CHECK on
@@ -792,6 +807,19 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     set NET_WM_STATE_MAXIMIZED_VERT [x-intern _NET_WM_STATE_MAXIMIZED_VERT]
     set NET_FRAME_EXTENTS [x-intern _NET_FRAME_EXTENTS]
     set NET_REQUEST_FRAME_EXTENTS [x-intern _NET_REQUEST_FRAME_EXTENTS]
+    # The drag a client asks US to run, because it cannot run it
+    # itself: a window whose titlebar is its own widget (every GTK4
+    # window is one) has nothing of ours to grab, and moving its own
+    # toplevel under a REPARENTING manager moves it inside our frame
+    # rather than moving the frame. So it presses, ungrabs the pointer
+    # and sends this — and gdk looks for the atom in _NET_SUPPORTED
+    # first, falling back to exactly that broken self-move when it is
+    # not there. Advertising it is half the feature.
+    set NET_WM_MOVERESIZE [x-intern _NET_WM_MOVERESIZE]
+    # ...and the semantic half of "do not decorate me": a splash
+    # screen, a dock or a torn-off toolbar names WHAT it is and lets
+    # the decoration follow from that (see client-window-types).
+    set NET_WM_WINDOW_TYPE [x-intern _NET_WM_WINDOW_TYPE]
     # The KDE-era twin of the extents, still read by Qt4-vintage
     # clients; four CARDINALs in the same order, so it costs one line
     # to keep them in step and nothing to be wrong about.
@@ -836,6 +864,7 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
               $NET_WM_STATE $NET_WM_STATE_HIDDEN $NET_WM_STATE_FULLSCREEN \
               $NET_WM_STATE_MAXIMIZED_HORZ $NET_WM_STATE_MAXIMIZED_VERT \
               $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS \
+              $NET_WM_MOVERESIZE $NET_WM_WINDOW_TYPE \
               $NET_CLIENT_LIST $NET_CLIENT_LIST_STACKING $NET_WORKAREA \
               $NET_NUMBER_OF_DESKTOPS $NET_CURRENT_DESKTOP \
               $NET_DESKTOP_GEOMETRY $NET_DESKTOP_VIEWPORT \
@@ -1311,6 +1340,23 @@ proc dispatch-event {ev} {
                 # the property on that window.
                 puts "WM: frame extents requested for 0x[format %x $A]"
                 publish-frame-extents $A
+            } elseif {[info exists ::NET_WM_MOVERESIZE]
+                    && $B == $::NET_WM_MOVERESIZE
+                    && [info exists ::managed($A)]} {
+                # EWMH 4.3, the client-side drag: data.l is
+                # {x_root y_root direction button source}. The press
+                # that started it landed in the CLIENT — a GTK
+                # headerbar is its own widget — and the client has let
+                # the pointer go before sending (the spec makes it),
+                # so the gesture is ours to run from here on. Which
+                # gesture is the direction's to say, and the policy
+                # owns every one of them already.
+                lassign $data mrx mry dir btn
+                puts "WM: moveresize request dir=$dir button=$btn on\
+ 0x[format %x $A]"
+                soft "moveresize request" {
+                    policy-moveresize-request $A $mrx $mry $dir $btn
+                }
             } elseif {$::tray_owner != 0 && $A == $::tray_owner
                     && $B == $::TRAY_OPCODE} {
                 # The tray protocol's one request: data.l[1] is the
@@ -2040,6 +2086,64 @@ proc client-initial-maximized {w} {
     if {$fmt ne "32"} { return 0 }
     expr {$::NET_WM_STATE_MAXIMIZED_HORZ in $value
           || $::NET_WM_STATE_MAXIMIZED_VERT in $value}
+}
+
+# ---------------- what a client asks about its DECORATION ----------------
+# Two hints and one question: does this window want a frame around it?
+# A window that draws its own titlebar inside itself — every GTK4
+# window is one, and every GTK3 window with a GtkHeaderBar — has to be
+# able to say so, or it wears two titlebars: its own, and ours around
+# it.
+#
+# _MOTIF_WM_HINTS is how it says so, and has been since Motif 1.1.
+# Nothing ever replaced it: gtk_window_set_decorated,
+# Qt::FramelessWindowHint, SDL's borderless flag and AWT's
+# setUndecorated all write THIS — five 32-bit words
+# {flags functions decorations input_mode status} whose property TYPE
+# is the atom itself rather than CARDINAL (read with AnyPropertyType or
+# find nothing). Measured on this machine's own toolkits (2026-08-02):
+# gnome-text-editor and zenity, both GTK4, both map carrying
+# {0x3 0x1 0x0 0x0 0x0} — the flags claim the functions and decorations
+# words, functions are ALL, decorations are NONE.
+#
+# The answer is the decorations MASK the client meant, or "" for "it
+# did not say" — no property, or flags that do not claim that word.
+# MWM_DECOR_ALL is folded away here instead of being left for the
+# caller: with that bit set the rest of the word says what to TAKE OFF
+# the full set, and the complement is what everybody actually wants.
+proc client-motif-decor {w} {
+    if {![info exists ::MOTIF_WM_HINTS]} { return "" }
+    lassign [soft "read _MOTIF_WM_HINTS" { x-prop-get $w $::MOTIF_WM_HINTS }] \
+        type fmt value
+    if {$fmt ne "32" || [llength $value] < 3} { return "" }
+    lassign $value flags functions decor
+    if {!($flags & 2)} { return "" }        ;# MWM_HINTS_DECORATIONS
+    # BORDER 2, RESIZEH 4, TITLE 8, MENU 16, MINIMIZE 32, MAXIMIZE 64;
+    # bit 0 is MWM_DECOR_ALL, the inversion.
+    if {$decor & 1} { set decor [expr {~$decor}] }
+    expr {$decor & 0x7e}
+}
+
+# _NET_WM_WINDOW_TYPE — the same question asked semantically. The list
+# is in the client's order of preference and a WM takes the first type
+# it recognizes (EWMH 5.6), so the order is kept. Names come back
+# stripped of the atom prefix and lowercased — `splash`, `dock`,
+# `dialog` — because what a type MEANS is the policy's to decide, and
+# it should not have to hold a dozen interned atoms to ask.
+proc client-window-types {w} {
+    if {![info exists ::NET_WM_WINDOW_TYPE]} { return {} }
+    lassign [soft "read _NET_WM_WINDOW_TYPE" {
+        x-prop-get $w $::NET_WM_WINDOW_TYPE
+    }] type fmt value
+    if {$fmt ne "32"} { return {} }
+    set names {}
+    foreach a $value {
+        set n [soft "name a window type" { x-atom-name $a }]
+        if {[regexp {^_NET_WM_WINDOW_TYPE_(.+)$} $n -> tail]} {
+            lappend names [string tolower $tail]
+        }
+    }
+    return $names
 }
 # The refusal, and why it can be made to stick: ICCCM gives a WM no way
 # to reply "no" to WM_CHANGE_STATE — but WM_STATE is the channel every

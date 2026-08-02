@@ -260,6 +260,19 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   legacy twin `_KDE_NET_WM_FRAME_STRUT` is laid down next to it, which
   is what Qt4-era clients read).
 
+  **The drag a client asks for** (`_NET_WM_MOVERESIZE`): a window that
+  draws its own titlebar has nothing of ours to grab, so it presses,
+  ungrabs the pointer and names the gesture it wants — the eight
+  edges, the move, or either keyboard mode, all of which the policy
+  already has (`policy-moveresize-request` is a door onto them, so an
+  asked-for drag obeys the same edge resistance and size hints as one
+  begun by hand). Advertising the atom in `_NET_SUPPORTED` is half the
+  feature: gdk looks for it there and, not finding it, moves the
+  window ITSELF — which under a reparenting manager moves the client
+  inside our frame, i.e. tears it off its decoration. Read alongside
+  it: `_NET_WM_WINDOW_TYPE`, the semantic half of "do not decorate me"
+  (see `hinted-decor`).
+
   **And the outward half of EWMH** — what a client learns about the
   DESK rather than about itself: `_NET_CLIENT_LIST` (in order of
   arrival) and `_NET_CLIENT_LIST_STACKING` (bottom-up, read from the
@@ -358,8 +371,27 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   **`decor full|border|none`** — how much frame a window wears: the
   full thing, only the grip border without the title strip, or nothing
   at all (the frame is exactly the client; such a window cannot be
-  grabbed with the mouse — move/resize from the keyboard). Then
-  **`place`** — the geometry a window is born with, see below.
+  grabbed by an edge of ours — the modifier drag, the keyboard modes
+  and the client's own `_NET_WM_MOVERESIZE` are what move it). The
+  DEFAULT of this key is not `full` but **what the window itself asked
+  for** (`hinted-decor`, below) — and naming it in a rule OVERRULES
+  the window, which is the point of it being a key. Then **`place`** —
+  the geometry a window is born with, see below.
+
+  **What the window asked for** (`hinted-decor`): a client that draws
+  its own titlebar — every GTK4 window, every GTK3 one with a
+  headerbar, Qt's frameless flag, SDL's borderless — says so with
+  `_MOTIF_WM_HINTS`, the Motif hint of 1989 that nothing ever
+  replaced, and the decorations word lands on our three steps by
+  itself: empty is `none`, `MWM_DECOR_TITLE` is `full`, a border
+  without a title is `border` (`MWM_DECOR_ALL`, which inverts the
+  reading, is folded away in `client-motif-decor`). Said nothing?
+  `_NET_WM_WINDOW_TYPE` answers instead, the way EWMH reads it: the
+  desk's furniture (`desktop`, `dock`, `splash`, the popup kinds)
+  carries no frame, a torn-off `toolbar` or `menu` is decorated small,
+  and `normal`/`dialog`/`utility` are ordinary windows. Honoring this
+  is not a courtesy — a GTK4 window framed by us wears TWO titlebars,
+  one of them useless.
 
   **`filter`** — a declarative predicate for every match site (the
   `wm-style` rules, a panel button's `match`): `{filter -class {*

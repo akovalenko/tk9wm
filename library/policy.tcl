@@ -642,8 +642,9 @@ proc set-title-justify {j} {
 # minimize (iconify|refuse) — this client's answer to an iconify
 # request, overriding the desk-wide set-minimize.
 # decor (full|border|none) — how much frame this client wears; see
-# chrome-of. place (a term list) — the geometry it is born with; see
-# parse-place.
+# chrome-of, and hinted-decor for what the window itself asked for
+# (this key OVERRULES that). place (a term list) — the geometry it is
+# born with; see parse-place.
 keep style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
@@ -663,7 +664,13 @@ proc wm-style {pred settings} {
 }
 proc style-of {w} {
     if {[info exists ::styleof($w)]} { return $::styleof($w) }
-    set st [dict create increments respect decor full]
+    # The seed carries the CLIENT's own answer about its decoration
+    # (hinted-decor), and the rules merge OVER it — so a `decor` named
+    # in the config beats the window's hint by the same mechanism that
+    # makes a later rule beat an earlier one, with no special case
+    # anywhere. Which is the order the owner asked for (2026-08-02):
+    # what a hint decides, a config line must be able to overrule.
+    set st [dict create increments respect decor [hinted-decor $w]]
     foreach rule $::style_rules {
         lassign $rule pred settings
         if {[catch {uplevel #0 [list {*}$pred $w]} match]} {
@@ -760,6 +767,42 @@ proc filter {args} {
         }
     }
     return 1
+}
+
+# ---- what the CLIENT asked for, before any rule speaks ----
+# The default `decor` is not a constant. A window that draws its own
+# titlebar inside itself asks for no frame, and honoring that is not a
+# courtesy: a GTK4 window given ours wears TWO titlebars, one of them
+# useless. So the style's starting point is what the WINDOW said, and
+# `full` is merely what a window that said nothing gets.
+#
+# The Motif mask maps onto our three steps almost by itself, because
+# the three steps ARE the distinctions Motif drew: no bits at all is
+# `none`; a mask carrying MWM_DECOR_TITLE is `full`; anything left —
+# a border, resize handles, no title strip — is exactly `border`.
+#
+# The EWMH types answer only when Motif said nothing, and follow the
+# spec's own reading: the furniture of the desk (a desktop, a dock, a
+# splash, the popup kinds that arrive override-redirect anyway) carries
+# no frame; a torn-off toolbar or menu is decorated small, which is
+# what `border` is for; a dialog or a utility window is an ordinary
+# decorated window and says so by not being anything else.
+proc hinted-decor {w} {
+    set d [client-motif-decor $w]
+    if {$d ne ""} {
+        if {$d == 0} { return none }
+        if {$d & 8}  { return full }        ;# MWM_DECOR_TITLE
+        return border
+    }
+    foreach type [client-window-types $w] {
+        switch -- $type {
+            desktop - dock - splash - notification - tooltip -
+            dropdown_menu - popup_menu - combo - dnd { return none }
+            toolbar - menu { return border }
+            normal - dialog - utility { return full }
+        }
+    }
+    return full
 }
 
 # ---- decor: how much frame a client wears ----
@@ -9893,4 +9936,59 @@ proc mouse-gesture {kind X Y} {
     } else {
         rz-move $t $w $X $Y
     }
+}
+
+# ---- the drag a CLIENT asks for: EWMH _NET_WM_MOVERESIZE ----
+# A window that draws its own titlebar has nothing of OURS to grab, so
+# it does the only thing left: it presses, lets the pointer go, and
+# asks for the gesture by name. Every gesture it can name is already
+# here — this is a door onto them and not a second implementation of
+# any, which is also why a client-asked drag obeys the same edge
+# resistance and the same size hints as one begun by hand.
+#
+# The directions are EWMH's: 0..7 walk the eight edges from the
+# top-left corner clockwise (our own compass, in another order), 8 is
+# the move, 9 and 10 are the KEYBOARD modes — which this desk has, and
+# which a GTK window menu's Move/Resize items send — and 11 cancels.
+array set mrdir {0 nw 1 n 2 ne 3 e 4 se 5 s 6 sw 7 w}
+proc policy-moveresize-request {w X Y dir button} {
+    if {![info exists ::frameof($w)]} return
+    set t $::frameof($w)
+    # Cancel ends the gesture WHERE IT STANDS. Not a rollback: the
+    # client is saying it lost the button, not that the user changed
+    # their mind, and a window snapping back to where the drag began
+    # would be the bigger surprise. Undoing is what Escape does inside
+    # our own keyboard modes, and it stays theirs.
+    if {$dir == 11} {
+        if {[info exists ::mdrag]} { mouse-gesture release $X $Y }
+        return
+    }
+    if {$dir == 10} { move-keyboard $w;   return }
+    if {$dir == 9}  { resize-keyboard $w; return }
+    popups-close
+    raise-group $w
+    focus-to $w
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
+    if {$dir == 8} {
+        set ::mdrag [list move $t $w $X $Y $fx $fy]
+        set cursor fleur
+    } elseif {[info exists ::mrdir($dir)]} {
+        set e $::mrdir($dir)
+        set ::rz [list $e $X $Y \
+            [winfo width $t.slot] [winfo height $t.slot] $fx $fy $w]
+        set ::mdrag [list resize $t $w]
+        set cursor $::rzcursor($e)
+    } else {
+        puts "WM: moveresize direction $dir is none of EWMH's — ignored"
+        return
+    }
+    # The timestamp this grab needs is the press the client is still
+    # holding, and we have it: the click-to-focus grab takes every
+    # button with AnyModifier, so that very press came through the
+    # substrate and left its time in ::evtime.
+    if {![grab-pointer-to mouse-gesture $cursor]} {
+        unset -nocomplain ::mdrag ::rz
+        return
+    }
+    puts "WM: gesture [lindex $::mdrag 0] on 0x[format %x $w], asked for"
 }
