@@ -7717,7 +7717,7 @@ collection panel {
     }
 }
 collection bindings {
-    key chord ordered no
+    key chord ordered no key-words yes
     doc {every chord this desk answers to, and what it runs}
     list collection-bindings
     fields {
@@ -8050,9 +8050,29 @@ proc keymap-payload {node keys} {
 proc collection-table {} {
     set out {}
     dict for {name meta} [config-families] {
-        dict set out $name [dict merge $meta [uplevel #0 [dict get $meta list]]]
+        dict set out $name [dict merge $meta [collection-verb $name] \
+                                [uplevel #0 [dict get $meta list]]]
     }
     return $out
+}
+# WHICH WORD SAYS THIS FAMILY, AND IN WHAT SHAPE — read off the verb
+# registry rather than written down a second time. A family is a
+# node; the word that says it is the one whose `at` lands there and
+# which is not a denial or a sweep. The SHAPE is what an editor needs
+# to build a call without knowing the family by name (config-tree,
+# step 3): `spec` and `overrides` take a delta dict, `options` a whole
+# option dict spread into the call, `pair` positional values, and
+# `params` dashed ones.
+proc collection-verb {name} {
+    dict for {verb meta} $::verb_registry {
+        if {[lindex [dict get $meta at] 0] ne $name} continue
+        if {[dict exists $meta denies] || [dict exists $meta sweep]} continue
+        return [dict create verb $verb \
+            layer-key [dict get $meta key] \
+            shape [expr {[dict exists $meta value]
+                         ? [dict get $meta value] : "spec"}]]
+    }
+    return {}
 }
 
 # The traced vocabulary derives from the registry — one list, not two

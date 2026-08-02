@@ -1850,36 +1850,54 @@ proc cfg-command {name value} {
 #              options, its other pendings, then this edit;
 #   keys     — off is a word of its own; anything else re-declares
 #              the bundle from its params.
+# THE CALL A FIELD EDIT MAKES, built from the family's SHAPE and not
+# from its name (config-tree, step 3). The registry says which word
+# says a family and what its arguments look like; this switch is on
+# that shape, so a new family whose word has a shape already known
+# needs nothing here at all.
 proc cfg-field-command {name value} {
     lassign $name - coll key f
-    switch -- $coll {
-        actions { return [list action $key [list $f $value]] }
-        panel   { return [list panel-button $key [list $f $value]] }
-        bindings {
-            set script [expr {$f eq "script" ? $value
-                : [cfg-cur [list @field bindings $key script]]}]
-            set bname [expr {$f eq "name" ? $value
-                : [cfg-cur [list @field bindings $key name]]}]
-            return [list wm-bind [split $key " "] $script $bname]
+    set fam [dict get $::cfg_coll $coll]
+    set verb [dict get $fam verb]
+    set el [expr {[dict exists $fam key-words] ? [split $key " "] : $key}]
+    switch -- [dict get $fam shape] {
+        spec - overrides {
+            # a merging word: the delta is this one field
+            return [list $verb $el [list $f $value]]
         }
-        widgets {
-            set opts [cfg-elem-values widgets $key]
+        options {
+            # a replacing word: everything it holds goes out again,
+            # this field's new value among it (previews included —
+            # they are the word arriving early)
+            set opts [cfg-elem-values $coll $key]
             dict for {a p} $::cfg_pending {
-                if {[cfg-field? $a] && [lindex $a 1] eq "widgets"
+                if {[cfg-field? $a] && [lindex $a 1] eq $coll
                         && [lindex $a 2] eq $key} {
                     dict set opts [lindex $a 3] [dict get $p value]
                 }
             }
             dict set opts $f $value
-            return [list wm-widget $key {*}$opts]
+            return [list $verb $el {*}$opts]
         }
-        keys {
+        pair {
+            # positional values, in the family's own field order
+            set cmd [list $verb $el]
+            foreach ff [dict keys [dict get $fam fields]] {
+                lappend cmd [expr {$ff eq $f ? $value
+                    : [cfg-cur [list @field $coll $key $ff]]}]
+            }
+            return $cmd
+        }
+        params {
+            # dashed values, plus the one bare word this shape has:
+            # a family turned off is said by turning it off, not by
+            # handing it an empty parameter list
             if {$f eq "state" && $value eq "off"} {
-                return [list wm-keys $key off]
+                return [list $verb $el off]
             }
             set params [expr {$f eq "params" ? $value
-                : [cfg-cur [list @field keys $key params]]}]
-            set cmd [list wm-keys $key]
+                : [cfg-cur [list @field $coll $key params]]}]
+            set cmd [list $verb $el]
             dict for {k v} $params { lappend cmd -$k $v }
             return $cmd
         }
@@ -2424,10 +2442,8 @@ proc cfg-erase-word {coll key e} {
 # never drift apart.
 proc cfg-layer-key {coll key e} {
     if {[dict exists $e lkey]} { return [dict get $e lkey] }
-    switch -- $coll {
-        panel   { return "panel-button $key" }
-        actions { return "action $key" }
-        widgets { return "wm-widget $key" }
+    if {[dict exists $::cfg_coll $coll layer-key]} {
+        return "[dict get $::cfg_coll $coll layer-key] $key"
     }
     return "$coll $key"
 }
