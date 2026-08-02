@@ -4607,6 +4607,79 @@ proc pipe-output-close {ch} {
     catch {close $ch}
 }
 
+# ---- exec that does not stop the desk ----------------------------
+# The owner's idea (2026-08-01), and his own bug report the next day:
+# he bound `exec xedit` to a chord and the whole desk waited for the
+# editor to be closed. A binding's script runs in a coroutine now (see
+# run-script), so `exec` can PARK instead of blocking: the pipeline is
+# started, the event loop keeps turning, and the output comes back as
+# the command's value exactly as it always did.
+#
+# THE GLOBAL COMMAND IS SHADOWED, and that is the owner's call
+# (2026-08-02), reversing the earlier «never touch exec»: the
+# objection was that a synchronous exec is legitimate in the config
+# and inside the desk's own code, and it stays legitimate — with no
+# coroutine under it this forwards to the real one and blocks exactly
+# as before. So the config load is synchronous (his answer: «конфиг
+# считаем синхронный, по крайней мере пока»), the desk's own
+# `exec update-alternatives --query` is untouched, and only scripts
+# that run on a LIVE desk get the cooperative form.
+#
+# What it does NOT try to be is all of exec. Anything with a leading
+# switch, a redirection or a trailing `&` goes to the real one: `&`
+# does not block in the first place, and the rest is exec's own
+# grammar, which `open |…` does not share in full. A plain command or
+# a pipeline — which is what a binding writes — is what parks.
+if {![llength [info commands ::exec-blocking]]} { rename exec ::exec-blocking }
+proc exec {args} {
+    if {[info coroutine] eq "" || ![exec-plain? {*}$args]} {
+        return [::exec-blocking {*}$args]
+    }
+    return [coop-exec {*}$args]
+}
+proc exec-plain? {args} {
+    if {![llength $args] || [string match -* [lindex $args 0]]} { return 0 }
+    foreach a $args {
+        if {$a eq "&"} { return 0 }
+        if {[regexp {^([0-9]?[<>]|>>|>&)} $a]} { return 0 }
+    }
+    return 1
+}
+# Two deliberate differences from exec, both in the direction a desk
+# wants: what the child says on stderr is part of the answer rather
+# than an error in itself, and only a non-zero exit fails — with the
+# output carried into the message, because that is the sentence worth
+# reading when a bound command goes wrong.
+proc coop-exec {args} {
+    set f [fut::new]
+    if {[catch {open |[list {*}$args 2>@1] r} ch]} {
+        return -code error $ch
+    }
+    chan configure $ch -blocking 0
+    set ::coop_buf($ch) {}
+    fut::oncancel $f [list coop-exec-close $ch]
+    fileevent $ch readable [list coop-exec-read $ch $f]
+    return [fut::take $f]
+}
+proc coop-exec-read {ch f} {
+    append ::coop_buf($ch) [read $ch]
+    if {![eof $ch]} return
+    set out [string trimright $::coop_buf($ch) \n]
+    fileevent $ch readable {}
+    unset ::coop_buf($ch)
+    chan configure $ch -blocking 1
+    if {[catch {close $ch} err opts]} {
+        fut::fail $f [string trim "$out\n$err"] $opts
+        return
+    }
+    fut::fulfill $f $out
+}
+proc coop-exec-close {ch} {
+    catch {fileevent $ch readable {}}
+    unset -nocomplain ::coop_buf($ch)
+    catch {close $ch}
+}
+
 
 # ---- the emacs layer ----
 # A button that means "the telega frame of the telega daemon" — on the
@@ -5320,10 +5393,11 @@ proc action-fire {name} {
         puts "WM: action $name: found 0x[format %x $hit]"
         action-flash $name found
         if {[dict exists $spec activate]} {
-            if {[catch {uplevel #0 \
-                    [list {*}[dict get $spec activate] $hit]} err]} {
-                puts "WM: action $name: activate FAILED: $err"
-            }
+            # in a coroutine, like every script that runs on a
+            # live desk: an activate hook that waits (emacsclient,
+            # say) must not stop the desk while it does
+            run-script "action $name" \
+                [list {*}[dict get $spec activate] $hit]
             return
         }
         panel-focus-hit $hit
@@ -5340,9 +5414,7 @@ proc action-fire {name} {
         }
         set via ""
         if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
-        if {[catch {run-via $via $script} err]} {
-            problem-record "action $name" $err
-        }
+        run-script "action $name" [list run-via $via $script]
     } else {
         puts "WM: action $name: nothing matched, nothing to launch"
     }

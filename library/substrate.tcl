@@ -269,6 +269,35 @@ proc unless-already {test script} {
     uplevel #0 $script
 }
 
+# ---- a script that may PARK, and a desk that keeps answering ------
+# The scripts a config writes — a binding, a launch, an activate hook
+# — ran straight in the event loop, so anything synchronous inside
+# them stopped the desk dead: the owner bound `exec xedit` and the
+# whole desk waited for the editor to be closed (2026-08-02). They run
+# in a coroutine of their own now, which is the whole of what makes
+# the cooperative `exec` able to park. A script that never parks
+# behaves exactly as it did, at the cost of one coroutine.
+#
+# PARALLEL BY DEFAULT (the owner's answer, same day): every run gets a
+# coroutine of its own, so the same chord pressed again while the
+# first run is still parked simply starts a second one. Waiting for
+# the window, or for the process — the debounce — is something an
+# ACTION may come to declare for itself; it is not a rule to impose on
+# every script.
+#
+# The error lands where it always did: in the problem store, under the
+# name of whatever ran. That holds after a park too — the catch is
+# inside the coroutine, so a failure on the far side of a yield is
+# still this script's failure and not the event loop's.
+keep script_seq 0
+proc run-script {what script} {
+    coroutine ::script[incr ::script_seq] apply {{what script} {
+        if {[catch {uplevel #0 $script} err]} {
+            problem-record $what $err
+        }
+    }} $what $script
+}
+
 # Line buffering FIRST, before anything can have something to say. It
 # used to be set where the redirect was armed, which was fine while
 # every message before that point was a fatal one on its way to a
@@ -3644,10 +3673,14 @@ proc handle-key {state kc time} {
         puts "WM: key [chord-name $mods $ks] -> action"
         set ::key_invoke_mods $mods
         set t0 [clock milliseconds]
-        if {[catch {uplevel #0 $payload} err]} {
-            # the log is not where a hand on the keyboard is looking
-            problem-record "key $said" $err
-        }
+        # IN A COROUTINE, so a script that waits on something parks
+        # instead of stopping the desk (run-script). The failure still
+        # lands in the problem store under this chord's name — the log
+        # is not where a hand on the keyboard is looking — and the
+        # measurement below now says what it always meant to: how long
+        # the desk was HELD, which for a parking script is only until
+        # it parks.
+        run-script "key $said" $payload
         # ...and HOW LONG it took, because a desk that stops answering
         # for three seconds is a defect whoever wrote the binding
         # cannot see from the inside
