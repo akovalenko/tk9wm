@@ -110,6 +110,22 @@ BUNDLEBACK=$(qk 'wm-keys windows
                  list alttab [dict exists $::keymap [join [parse-chord {<Alt>Tab}] ,]] \
                       close [chord-of Close]')
 
+# A BINDING THAT HOLDS THE DESK says so afterwards — the plan's answer
+# to «forbid a bare exec»: measure instead, because a slow send, a long
+# after and a loop hang the desk exactly as well
+qk 'set ::key_hold_warn 300
+    wm-bind {<Super>F9} {after 700} slowpoke
+    list armed' >/dev/null
+key super+F9
+sleep 1
+HELD=$(qk 'set out none
+    foreach p [problems] {
+        if {[string match {*held the desk*} [dict get $p text]]} {
+            set out [list [dict get $p what] held]
+        }
+    }
+    set out')
+
 kill $WM $CA $CB 2>/dev/null
 
 # Actors by manage order (the 0.5 s spacing makes it deterministic).
@@ -119,6 +135,7 @@ echo "--- actors: A=$AID B=$BID"
 echo "--- key/menu/focus lines:"
 grep -E 'key |winops|winlist|focus ->' "$HERE/wm-key.log"
 
+echo "--- held={$HELD}"
 echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-key.log"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
@@ -188,3 +205,9 @@ case "$BUNDLEOFF|$BUNDLEBACK" in
         echo "OK: the reflex bundle goes off and comes back whole" ;;
     *) echo "FAIL: bundle off/on: $BUNDLEOFF | $BUNDLEBACK" ;;
 esac
+
+if [ "$HELD" = "{key Super+F9} held" ]; then
+    echo "OK: a binding that held the desk says how long, afterwards"
+else
+    echo "FAIL: the hold measure: $HELD"
+fi

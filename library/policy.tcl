@@ -5675,6 +5675,9 @@ proc spec-fields {name} {
         if {[dict exists $meta xor]} {
             dict set out $k xor [dict get $meta xor]
         }
+        # a slot that HOLDS A SCRIPT says so, so the editor knows to
+        # ask the linter when one is written into it
+        if {$kind eq "script"} { dict set out $k lint script }
         # ...and so does what an EMPTY value means here, because the
         # editor cannot show the difference between «not said» and
         # «said, and empty» without knowing there is one
@@ -5783,6 +5786,76 @@ proc problem-brief {text} {
 #
 # A verdict: {key K level warn|note text SENTENCE}. `key` is the
 # word it hangs off — the configurator flags that row with it.
+# ---- LINTING A SCRIPT WHERE IT IS WRITTEN -------------------------
+# The most useful moment is the EDITOR (the owner, 2026-08-01): that
+# is where a typo happens and where the person is standing. So this
+# is not a new mechanism — it is the linter that already judges a
+# deed's words, called from a second place, with the same shape of
+# verdict. Everything here is ADVICE: a config may legitimately name
+# a command that does not exist yet, and nothing is refused.
+proc script-one-command {script} {
+    set s [string trim $script]
+    if {[string first "\n" $s] >= 0 || [string first ";" $s] >= 0} { return {} }
+    if {[catch {llength $s} n] || !$n} { return {} }
+    return $s
+}
+# The owner's own example: `wm-restart` for `restart-wm` — the parts
+# are right and their order is not, which is the mistake a
+# dash-joined vocabulary invites. Nothing cleverer is attempted;
+# a wrong guess would be worse than none.
+proc word-orders {parts} {
+    if {[llength $parts] <= 1} { return [list $parts] }
+    set out {}
+    for {set i 0} {$i < [llength $parts]} {incr i} {
+        set rest [lreplace $parts $i $i]
+        foreach tail [word-orders $rest] {
+            lappend out [linsert $tail 0 [lindex $parts $i]]
+        }
+    }
+    return $out
+}
+proc nearest-command {cmd} {
+    set parts [split $cmd -]
+    if {[llength $parts] < 2 || [llength $parts] > 3} { return "" }
+    foreach order [word-orders $parts] {
+        set cand [join $order -]
+        if {$cand ne $cmd && [llength [info commands $cand]]} { return $cand }
+    }
+    return ""
+}
+proc script-lint {script} {
+    set out {}
+    if {![info complete $script]} {
+        lappend out [list level warn text \
+            "this does not parse — an unmatched quote or brace"]
+        return $out
+    }
+    set words [script-one-command $script]
+    if {[llength $words]} {
+        set cmd [lindex $words 0]
+        if {![llength [info commands $cmd]]} {
+            set say "«$cmd» is not a command this desk knows"
+            set near [nearest-command $cmd]
+            if {$near ne ""} { append say " — did you mean «$near»?" }
+            lappend out [list level warn text $say]
+        }
+    }
+    # ...and the exec rules the deeds already hear, said here too
+    set e [exec-words-of $script]
+    if {[llength $e]} {
+        lassign $e ewords bg
+        if {$bg} {
+            lappend out [list level note text \
+                "this is «Run $ewords» said the long way — Run is the door\
+ the desk knows about"]
+        } else {
+            lappend out [list level warn text \
+                "an exec with no & holds the desk still until it returns;\
+ «Run $ewords» does not"]
+        }
+    }
+    return $out
+}
 proc spec-lint {name settings} {
     set table [spec-table $name]
     set out {}
@@ -6644,6 +6717,17 @@ keep tray_sid 0
 keep tray_order {}        ;# icon windows, in dock order
 keep tray_seen_extent 0   ;# the length the panel last reserved for us
 keep tray_geo ""          ;# the strip geometry we last asked for
+# A SCRIPT THAT HOLDS THE DESK is worth knowing about whatever the
+# reason (the plan's answer to «forbid a bare exec»: measure instead
+# of forbidding — a slow `send`, a long `after` and a loop hang the
+# desk exactly as well, and no linter can see them).
+keep key_hold_warn 1000   ;# ms — over this, the desk says it was held
+proc set-key-hold-warn {ms} {
+    if {![string is integer -strict $ms] || $ms < 1} {
+        error "set-key-hold-warn: milliseconds, please"
+    }
+    set ::key_hold_warn $ms
+}
 keep tray_argb 0          ;# the default follows the compositor, see below
 keep tray_strip_argb 0    ;# ...and what the LIVE strip was built with
 keep tray_laid_size 0     ;# the cell size the live cells were laid out at
@@ -7446,6 +7530,8 @@ knob set-icon-path   {group panel kind {list directories} get {set ::icon_path}
 knob set-winlist-cycle {group keys kind bool
                       get {expr {$::winlist_cycle_opt ? "on" : "off"}}
                       doc {alt-tab as the fvwm cycle, or a static menu}}
+knob set-key-hold-warn {group keys kind int get {set ::key_hold_warn}
+    doc {ms a binding may hold the desk before it is reported}}
 knob set-key-echo    {group keys kind text get {set ::key_echo}
                       doc {ms of hesitation before a chord shows itself; off = never}}
 knob set-key-echo-place {group keys kind text get {set ::key_echo_place}
@@ -7629,7 +7715,7 @@ collection bindings {
     doc {every chord this desk answers to, and what it runs}
     list collection-bindings
     fields {
-        script {kind text doc {what the chord runs}}
+        script {kind text lint script doc {what the chord runs}}
         name   {kind text doc {how the help list names it}}
     }
 }

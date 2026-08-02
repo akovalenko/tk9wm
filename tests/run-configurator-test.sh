@@ -756,6 +756,27 @@ GEO=$(q 'set w [lindex [array names ::frameof] 0]
               [expr {$fx >= $wax && $fy >= $way
                      && $fx + $fw <= $wax + $ww && $fy + $fh <= $way + $wh}]')
 
+# ---- the linter, called where a script is WRITTEN ----
+# (the owner, 2026-08-01: «проверка скриптов мне актуальна скорее
+# именно при работе в редакторе»)
+SCRIPTLINT=$(q 'set out {}
+    foreach case {{wm-restart} {exec xterm} {exec xterm &} {restart-wm}} {
+        set v [lindex [script-lint $case] 0]
+        lappend out [expr {$v eq "" ? "clean" : [dict get $v level]}]
+    }
+    lappend out [nearest-command wm-restart]
+    set out')
+BADPARSE=$(q 'set v [lindex [script-lint "set x \{"] 0]
+    list level [dict get $v level] parse [string match {*does not parse*} \
+        [dict get $v text]]')
+# ...and the editor says what it hears, without refusing the value
+EDITLINT=$(qu 'set addr {@field bindings {Super+5} script}
+    set ok [cfg-set $addr {wm-restart}]
+    set W [winfo toplevel $::cfg_T]
+    list ok $ok said [string match {*restart-wm*} [$W.b.note cget -text]]')
+qu 'cfg-revert; list back' >/dev/null
+sleep 1
+
 # ---- SAID, AND EMPTY (the owner's question, 2026-08-02) ----
 # «отсутствует ли он или присутствует пустой, а это влияет на семантику
 # action» — the tree showed one empty cell for both, and only one of
@@ -1260,6 +1281,17 @@ else
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
+if [ "$SCRIPTLINT" = "warn warn note clean restart-wm" ] \
+        && [ "$BADPARSE" = "level warn parse 1" ]; then
+    echo "OK: a script is judged where it is written, and the near miss is named"
+else
+    echo "FAIL: script-lint: $SCRIPTLINT parse=$BADPARSE"
+fi
+if [ "$EDITLINT" = "ok 1 said 1" ]; then
+    echo "OK: the editor takes the value and passes the linter's word along"
+else
+    echo "FAIL: the editor's lint: $EDITLINT"
+fi
 if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
         && [ "$TYPESET" = "value generic said 1" ]; then
     echo "OK: a deed's type shows what it amounts to, and writing it is an edit"

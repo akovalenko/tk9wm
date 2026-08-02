@@ -3617,9 +3617,19 @@ proc handle-key {state kc time} {
         keyseq-end
         puts "WM: key [chord-name $mods $ks] -> action"
         set ::key_invoke_mods $mods
+        set t0 [clock milliseconds]
         if {[catch {uplevel #0 $payload} err]} {
             # the log is not where a hand on the keyboard is looking
             problem-record "key $said" $err
+        }
+        # ...and HOW LONG it took, because a desk that stops answering
+        # for three seconds is a defect whoever wrote the binding
+        # cannot see from the inside
+        set held [expr {[clock milliseconds] - $t0}]
+        if {[info exists ::key_hold_warn] && $held >= $::key_hold_warn} {
+            problem-record "key $said" "this binding held the desk for\
+ [format %.1f [expr {$held / 1000.0}]] s — nothing else was answered while\
+ it ran (a launch wants `Run`, and a wait wants a coroutine)"
         }
     } else {
         if {$::keyseq eq ""} {

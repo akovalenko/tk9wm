@@ -1686,8 +1686,27 @@ proc cfg-apply {name value} {
             }
         }
     }
+    # THE LINTER, AT THE MOMENT ONE WRITES (the owner: this is the
+    # moment that matters — the typo is fresh and the person is
+    # standing here). Advice, never a refusal: the value is already
+    # committed above, and what comes back is a sentence to read.
+    set say [cfg-lint-note $name $value]
+    if {$say ne ""} {
+        cfg-status $say
+        return 1
+    }
     cfg-status ""
     return 1
+}
+proc cfg-lint-note {name value} {
+    if {![cfg-field? $name]} { return "" }
+    set meta [cfg-field-meta $name]
+    if {![dict exists $meta lint] || [dict get $meta lint] ne "script"} {
+        return ""
+    }
+    set v [lindex [wm-call [list script-lint $value]] 0]
+    if {$v eq ""} { return "" }
+    return "[dict get $v text]"
 }
 # How a knob's value becomes its command: the multi-argument kinds
 # SPREAD (set-desk-font -family X -size N), a list travels whole as
