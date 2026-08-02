@@ -64,6 +64,14 @@ proc welcome-widget-build {w opts} {
     $w.t insert end " — one press turns the one font everything\
  derives from, and it sticks (a customization, like any click\
  here).\n\n"
+    # ...and its opposite number for colour. The word on the link is
+    # what a press WILL DO, not what the desk is now: a switch that
+    # names its own current state reads as a label and gets pressed by
+    # somebody expecting to arrive where it already is.
+    $w.t insert end [expr {$::theme eq "light"
+        ? "Go back to the dark theme" : "Try the light theme"}] {link theme}
+    $w.t insert end " — every colour on this desk comes from that one\
+ word, and this press sticks too.\n\n"
     $w.t insert end "Hide this forever" {link hide}
     $w.t insert end " — the desk writes your first customization and\
  this note never returns."
@@ -72,6 +80,7 @@ proc welcome-widget-build {w opts} {
     $w.t tag bind keys  <ButtonRelease-1> {key-help-open}
     $w.t tag bind fup   <ButtonRelease-1> {welcome-font-bump up}
     $w.t tag bind fdn   <ButtonRelease-1> {welcome-font-bump down}
+    $w.t tag bind theme <ButtonRelease-1> {welcome-theme-flip}
     $w.t tag bind hide <ButtonRelease-1> {welcome-hide}
     $w.t configure -state disabled
     pack $w.t -expand 1 -fill both

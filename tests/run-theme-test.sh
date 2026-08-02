@@ -79,6 +79,19 @@ EOF
 reload
 OSTRIP=$(strip); ODESK=$(desk)
 OSAID=$(ask 'dict get [knob-table] set-desk-background')
+
+# --- THE SWITCH ON THE WELCOME MAT (the owner, 2026-08-02). One click
+#     turns the whole desk, and it STICKS: the mat writes a
+#     customization like every other link on it, so the choice
+#     survives a restart instead of merely happening. Driven through
+#     the proc the link is bound to — the click itself is the mat
+#     widget's business and run-widget-test's.
+MATWAS=$(ask 'set ::theme')
+ask 'welcome-theme-flip' >/dev/null
+sleep 1
+MATNOW=$(ask 'set ::theme')
+MATSAID=$(ask 'expr {[dict exists $::layer_knobs custom set-theme]
+                     ? [dict get $::layer_knobs custom set-theme] : "nothing"}')
 kill $WM 2>/dev/null
 
 echo "--- light: strip $LSTRIP desk $LDESK"
@@ -117,6 +130,17 @@ case "$OSAID" in
     *"value #4e9a06"*)
         echo "OK: a said colour answers the word that was said" ;;
     *) echo "FAIL: the said knob does not report it: $OSAID"; FAIL=1 ;;
+esac
+echo "--- the mat's switch: $MATWAS -> $MATNOW, custom says: $MATSAID"
+if [ "$MATWAS" = light ] && [ "$MATNOW" = dark ]; then
+    echo "OK: the mat's switch turns the desk to the other theme"
+else
+    echo "FAIL: the mat's switch went $MATWAS -> $MATNOW"; FAIL=1
+fi
+case "$MATSAID" in
+    "set-theme dark")
+        echo "OK: ...and writes it down, so the choice survives a restart" ;;
+    *) echo "FAIL: the custom layer says «$MATSAID»"; FAIL=1 ;;
 esac
 if grep -qE 'build failed|handler error|no such colour role' "$LOG"; then
     echo "FAIL: errors in the log:"
