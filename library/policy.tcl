@@ -267,6 +267,14 @@ proc title-metrics {} {
 # in both themes. A light `edge` would have to differ from `unfocus`
 # to do its job, and there is no light grey that does.
 #
+# The light `select` is deliberately not the palest blue that still
+# reads as blue. It was, and against the furniture it sits on the band
+# barely showed at all (the owner, 2026-08-02) — a selection has to be
+# findable at a glance, and on a light ground that means going darker
+# rather than more saturated. It stops where the ordinary dark ink is
+# still comfortable on it, because a menu row draws its text in that
+# ink whether it is selected or not.
+#
 # What ISN'T here: a hierarchy of colours ("this one, only 10% greener"
 # — the owner's next step, deliberately left out). Every role is stated
 # outright, twenty lines a theme, and a table one can read is worth
@@ -287,7 +295,7 @@ keep theme_palette {
         focus   #3465a4   unfocus #6b7278   modal   #c17d11   alert   #cc4444
         found   #4e9a06   firing  #ce5c00   live    #b8d39a   livebar #4e9a06
         bad     #a40000
-        field   #ffffff   link    #1a4a8a   select  #cfe0f5   trough  #e4e2de
+        field   #ffffff   link    #1a4a8a   select  #a3c4ea   trough  #e4e2de
     }
 }
 # The titlebars stay DARK in both themes — the focus blue and a grey
@@ -2404,6 +2412,30 @@ proc fullscreen-toggle {w} {
 # grab-keys-to) — while the pointer stays free: a click on an item
 # picks it, a click anywhere else does its normal job and closes the
 # popup on the way (the popups-close calls in the click paths).
+# THE MOUSE IS WELCOME AND SAYS SO. These menus are keyboard-first
+# and always took a click as well, with nothing on the screen to admit
+# it: the pointer moved over a row and the row said nothing back (the
+# owner, 2026-08-02). The obvious cure is the wrong one — moving the
+# SELECTION under the pointer is exactly the mouse and the keyboard
+# fighting over one piece of state, which he named as the thing he
+# hates, and it loses the keyboard's place the moment a sleeve brushes
+# the mouse.
+#
+# So hover is its OWN mark, on its own axis: the selection band stays
+# where the keyboard put it, and the row under the pointer is
+# UNDERLINED. Two indications that cannot contradict each other,
+# because they are not answering the same question — one says "this is
+# where you are", the other "this is what you would get". They land on
+# the same row often enough, and that reads as agreement rather than
+# as a conflict resolved.
+#
+# An item STATE and not a re-configure, which is what makes it cost
+# nothing: treectrl keys the font off the state, so hovering is one
+# state flip and no element is rebuilt.
+unless-already {[dict exists $::font_kin HoverFont]} {
+    wm-font HoverFont -from TitleFont -underline 1
+}
+proc popup-hover-font {} { list HoverFont hover TitleFont {} }
 proc popup-shell {m ih} {
     popups-close
     toplevel $m -background $::OUTLINE
@@ -2412,9 +2444,29 @@ proc popup-shell {m ih} {
         -showlines no -borderwidth 0 -highlightthickness 0 \
         -background [themed raised] -itemheight $ih
     bindtags $m.t [list $m.t all]
+    $m.t state define hover
     $m.t element create eSel rect -fill [list [themed select] selected {} {}]
-    $m.t element create eTxt text -fill [themed ink] -lines 1 -font TitleFont
+    $m.t element create eTxt text -fill [themed ink] -lines 1 \
+        -font [popup-hover-font]
+    bind $m.t <Motion> [list popup-hover $m.t %x %y]
+    bind $m.t <Leave>  [list popup-hover $m.t -1 -1]
     return $m.t
+}
+# Which row the pointer is over, marked and unmarked. Off the widget
+# (-1 -1 from <Leave>) marks nothing, so a menu the mouse has left
+# carries no stale underline while the keyboard goes on working.
+proc popup-hover {T x y} {
+    set item ""
+    if {$x >= 0} {
+        set id [$T identify $x $y]
+        if {[lindex $id 0] eq "item"} { set item [lindex $id 1] }
+    }
+    if {[info exists ::popup_hovered($T)] && $::popup_hovered($T) eq $item} return
+    foreach it [$T item children root] {
+        catch {$T item state set $it {!hover}}
+    }
+    if {$item ne ""} { catch {$T item state set $item {hover}} }
+    set ::popup_hovered($T) $item
 }
 proc popup-show {m W H X Y} {
     lassign [screen-size] sw sh
@@ -2999,7 +3051,8 @@ proc winlist-open {wins anchor} {
     $T column create -width $iconw -tags Cicon
     $T column create -squeeze yes -expand yes -tags C0
     $T configure -treecolumn C0
-    $T element create eNum text -fill [themed dim] -lines 1 -font TitleFont
+    $T element create eNum text -fill [themed dim] -lines 1 \
+        -font [popup-hover-font]
     $T element create eIcon image
     $T element create ePRect rect
     $T element create ePTxt text -fill white -lines 1 -font IconFont
@@ -3423,7 +3476,8 @@ proc winops {{w 0}} {
     $T column create -squeeze yes -expand yes -tags C0
     $T column create -width [expr {$ih + 4}] -tags Ckey
     $T configure -treecolumn C0
-    $T element create eKey text -fill [themed dim] -lines 1 -font TitleFont
+    $T element create eKey text -fill [themed dim] -lines 1 \
+        -font [popup-hover-font]
     $T style create sAct
     $T style elements sAct {eSel eTxt}
     $T style layout sAct eSel -detach yes -iexpand xy
