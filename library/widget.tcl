@@ -114,9 +114,15 @@ proc wm-widget-type {name spec} {
 # the way to the type (widget-band-opts).
 proc wm-widget {name args} {
     if {[llength $args] % 2} { error "wm-widget $name: options come in pairs" }
+    # The colours are left EMPTY here and resolved at build time from
+    # the theme (widget-band-opts). Frozen at declaration they would be
+    # frozen at the moment the config was read, and a widget then kept
+    # the old ground while the desk changed under it — exactly the trap
+    # the welcome mat is written to avoid, and now the reason nothing
+    # states a colour in a declaration.
     set opts [dict merge {
         -type "" -on workarea -place {right vcenter} -layer top
-        -padding 4 -background #2e3436 -foreground #eeeeec
+        -padding 4 -background {} -foreground {}
     } $args]
     if {[dict get $opts -type] eq ""} {
         error "wm-widget $name: -type is what it IS"
@@ -204,6 +210,15 @@ proc widget-host-rect {name opts} {
 # not do — it has to come out the same both times or the widget is
 # built at a size nobody reserved.
 proc widget-band-opts {name opts} {
+    # ...and the theme's colours for whatever the declaration left
+    # unsaid, resolved HERE so they are this build's colours and not
+    # the config-reading's.
+    if {[dict get $opts -background] eq ""} {
+        dict set opts -background [themed ground]
+    }
+    if {[dict get $opts -foreground] eq ""} {
+        dict set opts -foreground [themed ink]
+    }
     set on [dict get $opts -on]
     if {[lindex $on 0] ne "panel"} {
         return [dict merge $opts {-band none -across 0}]
@@ -320,6 +335,10 @@ keep desk_window 1
 # furniture sits on it, so it reads deeper (the owner asked for the two
 # to differ, 2026-07-30). Any colour, and set-desk-background takes it.
 keep desk_background #14181b
+# ...and the word a layer spoke about it, empty while nobody has: what
+# the configurator reads, and what tells theme-derive-said whether this
+# colour still follows the theme (see the theme section in policy.tcl).
+keep desk_background_said {}
 proc set-desk-window {on} {
     if {![string is boolean -strict $on]} {
         error "set-desk-window: on or off"
@@ -340,6 +359,7 @@ proc set-desk-window {on} {
 # preview a lie for this one knob (the owner, 2026-08-01). The build
 # is idempotent and cheap — it recolors the window it already has.
 proc set-desk-background {colour} {
+    set ::desk_background_said $colour
     set ::desk_background $colour
     # the applets' light-or-dark follows this colour: tell them
     if {[llength [info commands ui-restyle]]} { after idle ui-restyle }
@@ -418,7 +438,7 @@ proc area-build {area place idx} {
     lassign $area kind what
     set members [widgets-in-area $area $place]
     if {![llength $members]} return
-    set bg [dict get [dict get $::widgets [lindex $members 0]] -background]
+    set bg [dict get [widget-opts [lindex $members 0]] -background]
     set host [widget-host-window $area]
     set own ""
     if {$host eq ""} {

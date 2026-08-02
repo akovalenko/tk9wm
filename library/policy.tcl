@@ -239,6 +239,116 @@ proc title-metrics {} {
 # white outlined square holding a thin white glyph, drawn flat on the
 # titlebar color. The glyphs are svg — re-rendered crisp at whatever
 # size the font dictates, never scaled bitmaps.
+# ---- the desk's colours: a THEME, and what is derived from it -------
+#
+# «I want a light theme» IN ONE WORD (the owner, 2026-08-02), and the
+# shape follows the fonts: the theme is the SOURCE, a colour knob is an
+# OVERRIDE, and the configurator says which of the two a row is looking
+# at. Colours are the easier half of that pattern, as he said when he
+# asked for it — a colour is either overridden whole or inherited, with
+# no third thing. So where a font holds a RELATION to its base (a
+# factor, a delta) and is re-derived, a colour is a LOOKUP: the theme
+# names roles, and a role answers with a colour.
+#
+# THE ROLES ARE THE INTERFACE, not the colours. Nothing in the desk
+# says #2e3436 any more; it says `ground` and gets whatever this theme
+# paints furniture with. That is what makes a second theme a table
+# entry rather than a grep, and it is also why several roles that
+# happen to share a colour today are still separate roles — `ground`
+# and `edge` are both #2e3436 in the dark theme and must not be in a
+# light one. That split earned itself immediately: `edge` and `rule`
+# were one role for about ten minutes, and collapsing them painted the
+# panel's button outlines in the ground's own colour — invisible. They
+# are a BORDER and a HAIRLINE and only looked alike.
+#
+# `edge` is the one role that is the same in both themes, and says why:
+# it is the constant dark outline that keeps two touching frames from
+# fusing into one grey field, and the titlebars it separates are dark
+# in both themes. A light `edge` would have to differ from `unfocus`
+# to do its job, and there is no light grey that does.
+#
+# What ISN'T here: a hierarchy of colours ("this one, only 10% greener"
+# — the owner's next step, deliberately left out). Every role is stated
+# outright, twenty lines a theme, and a table one can read is worth
+# more than a derivation one has to run.
+keep theme dark
+keep theme_palette {
+    dark {
+        ground  #2e3436   raised  #555753   ink     #eeeeec   dim     #babdb6
+        edge    #2e3436   rule    #888a85   desk    #14181b   slot    #202020
+        focus   #3465a4   unfocus #888a85   modal   #c17d11   alert   #cc4444
+        found   #4e9a06   firing  #ce5c00   live    #5d6e59   livebar #8ae234
+        bad     #a40000
+        field   #22272a   link    #8ab4f8   select  #204a87   trough  #3a4144
+    }
+    light {
+        ground  #f2f1ef   raised  #e4e2de   ink     #1c1c1c   dim     #555753
+        edge    #2e3436   rule    #babdb6   desk    #d3d7cf   slot    #c8ccc4
+        focus   #3465a4   unfocus #6b7278   modal   #c17d11   alert   #cc4444
+        found   #4e9a06   firing  #ce5c00   live    #b8d39a   livebar #4e9a06
+        bad     #a40000
+        field   #ffffff   link    #1a4a8a   select  #cfe0f5   trough  #e4e2de
+    }
+}
+# The titlebars stay DARK in both themes — the focus blue and a grey
+# beside it — and that is not laziness. The titlebar glyphs are white
+# svg rendered once per size (btn-images), not once per ground, so a
+# pale titlebar would need the ink to follow it and the whole glyph
+# cache to be per-colour. A light desk with accent titlebars is also
+# what most light schemes actually look like.
+proc themed {role} {
+    set p [dict get $::theme_palette $::theme]
+    if {[dict exists $p $role]} { return [dict get $p $role] }
+    error "themed: no such colour role: $role"
+}
+proc set-theme {name} {
+    if {![dict exists $::theme_palette $name]} {
+        error "set-theme: no such theme «$name» — [join [dict keys $::theme_palette] { or }]"
+    }
+    set ::theme $name
+    theme-apply
+}
+# LIVE, like every knob that touches something one can see — and here
+# that means nearly everything, so it is nearly everything that gets
+# rebuilt. Cheap by construction: the panels, the widgets and the desk
+# window are all things this desk already destroys and remakes on a
+# reload, and the frames are re-dressed the way a focus change dresses
+# them. The applets are told over the same door a font change uses.
+proc theme-apply {} {
+    # The variables a role STANDS BEHIND, unless somebody said their
+    # own word. Roles with no knob simply follow.
+    set ::OUTLINE [themed edge]
+    set ::KBMR_BG [themed modal]
+    set ::KEY_ECHO_BAD [themed bad]
+    set ::panel_live_face [themed live]
+    set ::panel_live_bar [themed livebar]
+    theme-derive-said
+    # Through the DEFERRED builders, not the direct ones: set-theme is a
+    # config line as often as it is a click, and a strip rebuilt in the
+    # middle of a load lays itself out against half a config (the
+    # lesson panels-held already records). Idle is also where five
+    # knobs turned in one config collapse into one build.
+    if {[llength [info commands panel-rebuild-soon]]} { panel-rebuild-soon }
+    if {[llength [info commands widgets-rebuild-soon]]} {
+        desk-window-build
+        widgets-rebuild-soon
+    }
+    if {[llength [info commands tray-recolor]]} { tray-recolor }
+    foreach {ww tt} [array get ::frameof] {
+        frame-recolor $tt [frame-focus-color $ww]
+    }
+    after idle ui-restyle
+}
+# The two colours that DO have a knob: the variable holds what the
+# theme gives, and the parallel `_said` one holds the word a layer
+# spoke, which is what the configurator reads. Empty there is what
+# makes the row say «worked out, not written» — the same shape the
+# terminal's answer has, and the reason none of that had to be built
+# again for this.
+proc theme-derive-said {} {
+    if {$::desk_background_said eq ""} { set ::desk_background [themed desk] }
+    if {$::tray_bg_said eq ""} { set ::tray_bg [themed ground] }
+}
 # Frame colors: the focus highlight pair, the modal amber a keyboard
 # move/resize wears, the matching lighter shade for each one's corner
 # grips, and the constant dark outline that keeps two touching frames
@@ -246,7 +356,8 @@ proc title-metrics {} {
 # into one gray field).
 keep OUTLINE #2e3436
 set KBMR_BG #c17d11
-array set gripof {#3465a4 #6b93c0 #888a85 #a5a7a1 #c17d11 #e0a94a}
+array set gripof {#3465a4 #6b93c0 #888a85 #a5a7a1 #c17d11 #e0a94a
+                  #6b7278 #8d949a}
 
 set SVG_CLOSE {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 <path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" stroke="#ffffff"
@@ -1102,18 +1213,18 @@ proc policy-attach {w cw ch} {
     # arrives through policy-transient below.
     set ::leaderof($w) [transient-for $w]
     lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $top + $B}]] X Y
-    toplevel $t -background #3465a4
+    toplevel $t -background [themed focus]
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
     # The decoration underlay: a canvas filling the whole frame, drawn
     # below every other child (created first — sibling stacking is
     # creation order). It paints the border background, the 1px outline
     # and the corner grips; being a child of $t it inherits the frame's
     # cursor and its events reach the rz-* handlers via the $t bindtag.
-    canvas $t.deco -highlightthickness 0 -borderwidth 0 -background #3465a4
+    canvas $t.deco -highlightthickness 0 -borderwidth 0 -background [themed focus]
     place $t.deco -x 0 -y 0 -relwidth 1 -relheight 1
     bind $t.deco <Configure> {deco-draw %W %w %h}
     titlebar-build $t $w [client-buttons $w] "client 0x[format %x $w]"
-    frame $t.slot -width $cw -height $ch -background #202020
+    frame $t.slot -width $cw -height $ch -background [themed slot]
     # Resize by the border: the border strips are the bare toplevel, and a
     # bind on a toplevel fires for its children too — so positions are
     # computed from ROOT coords (%x/%y would be child-relative there) and
@@ -1504,7 +1615,7 @@ proc frame-recolor {t bg} {
 }
 proc frame-focus-color {w} {
     if {[kbmr-owns $w]} { return $::KBMR_BG }   ;# the mode outranks focus
-    expr {$w == $::focused ? "#3465a4" : "#888a85"}
+    expr {$w == $::focused ? [themed focus] : [themed unfocus]}
 }
 proc policy-paint-focus {w} {
     set ::focus_hist [linsert \
@@ -1661,7 +1772,7 @@ proc policy-close-unanswered {w} {
 proc wink-frame {w n} {
     if {![info exists ::frameof($w)]} return
     frame-recolor $::frameof($w) \
-        [expr {$n % 2 ? "#cc4444" : [frame-focus-color $w]}]
+        [expr {$n % 2 ? [themed alert] : [frame-focus-color $w]}]
     if {$n > 0} { after 160 [list wink-frame $w [expr {$n - 1}]] }
 }
 
@@ -1864,7 +1975,7 @@ proc policy-pick-refocus {w} {
 proc titlebar-build {t w names title} {
     treectrl $t.title -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background #3465a4 -itemheight $::titleh
+        -background [themed focus] -itemheight $::titleh
     # class binds stripped (a dumb label, not a tree) — but the FRAME's
     # tag stays: press-end must hear a ButtonRelease that happens over
     # the title, or the drag state outlives the drag (the rz-* handlers
@@ -1886,7 +1997,7 @@ proc titlebar-build {t w names title} {
     $t.title configure -treecolumn C0
     $t.title element create eTxt text -fill white -lines 1 -font TitleFont
     $t.title element create eBox rect -outline white -outlinewidth 1 \
-        -fill [list #2e3436 pressed {} {}]
+        -fill [list [themed ground] pressed {} {}]
     $t.title style create sTitle
     $t.title style elements sTitle eTxt
     $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
@@ -2288,10 +2399,10 @@ proc popup-shell {m ih} {
     wm overrideredirect $m 1
     treectrl $m.t -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background #555753 -itemheight $ih
+        -background [themed raised] -itemheight $ih
     bindtags $m.t [list $m.t all]
-    $m.t element create eSel rect -fill [list #3465a4 selected {} {}]
-    $m.t element create eTxt text -fill white -lines 1 -font TitleFont
+    $m.t element create eSel rect -fill [list [themed select] selected {} {}]
+    $m.t element create eTxt text -fill [themed ink] -lines 1 -font TitleFont
     return $m.t
 }
 proc popup-show {m W H X Y} {
@@ -2356,10 +2467,10 @@ proc popup-show {m W H X Y} {
 # side of the line.
 proc wm-window {t title cw ch closescript} {
     lassign [list $::border $::decotop $::titleh] B top titleh
-    toplevel $t -background #3465a4
+    toplevel $t -background [themed focus]
     wm overrideredirect $t 1
     set ::closeof($t) $closescript
-    canvas $t.deco -highlightthickness 0 -borderwidth 0 -background #3465a4
+    canvas $t.deco -highlightthickness 0 -borderwidth 0 -background [themed focus]
     place $t.deco -x 0 -y 0 -relwidth 1 -relheight 1
     bind $t.deco <Configure> {deco-draw %W %w %h}
     # The same strip every client wears, from the same builder, with a
@@ -2367,7 +2478,7 @@ proc wm-window {t title cw ch closescript} {
     # no client to command and nothing sensible to maximize), and it is
     # dragged by its titlebar like anything else on this desk.
     titlebar-build $t 0 {close} $title
-    frame $t.slot -width $cw -height $ch -background #202020
+    frame $t.slot -width $cw -height $ch -background [themed slot]
     lassign [screen-size] sw sh
     set W [expr {$cw + 2*$B}]
     set H [expr {$ch + $top + $B}]
@@ -2406,13 +2517,13 @@ proc confirm {title question yeslabel script} {
     set ::confirm_script $script
     set ::confirm_choice 0        ;# the safe one
     label $slot.q -text $question -font TitleFont \
-        -background #202020 -foreground white
+        -background [themed slot] -foreground [contrast-fg [themed slot]]
     place $slot.q -x $pad -y $pad
     set by [expr {$ch - $pad - $bh}]
     foreach {which text x} [list \
             no  Cancel    [expr {$cw - 2*$pad - 2*$bw}] \
             yes $yeslabel [expr {$cw - $pad - $bw}]] {
-        label $slot.$which -text $text -font TitleFont -foreground white
+        label $slot.$which -text $text -font TitleFont
         place $slot.$which -x $x -y $by -width $bw -height $bh
         bind $slot.$which <ButtonPress-1> [list confirm-fire $which]
     }
@@ -2426,8 +2537,9 @@ proc confirm {title question yeslabel script} {
 proc confirm-paint {} {
     foreach {which on} [list no [expr {!$::confirm_choice}] \
                              yes $::confirm_choice] {
-        .confirm.slot.$which configure \
-            -background [expr {$on ? "#3465a4" : "#2e3436"}]
+        set bg [expr {$on ? [themed focus] : [themed ground]}]
+        .confirm.slot.$which configure -background $bg \
+            -foreground [contrast-fg $bg]
     }
 }
 proc confirm-key {kind name mods} {
@@ -2876,7 +2988,7 @@ proc winlist-open {wins anchor} {
     $T column create -width $iconw -tags Cicon
     $T column create -squeeze yes -expand yes -tags C0
     $T configure -treecolumn C0
-    $T element create eNum text -fill #babdb6 -lines 1 -font TitleFont
+    $T element create eNum text -fill [themed dim] -lines 1 -font TitleFont
     $T element create eIcon image
     $T element create ePRect rect
     $T element create ePTxt text -fill white -lines 1 -font IconFont
@@ -3300,7 +3412,7 @@ proc winops {{w 0}} {
     $T column create -squeeze yes -expand yes -tags C0
     $T column create -width [expr {$ih + 4}] -tags Ckey
     $T configure -treecolumn C0
-    $T element create eKey text -fill #babdb6 -lines 1 -font TitleFont
+    $T element create eKey text -fill [themed dim] -lines 1 -font TitleFont
     $T style create sAct
     $T style elements sAct {eSel eTxt}
     $T style layout sAct eSel -detach yes -iexpand xy
@@ -6475,7 +6587,11 @@ proc panel-build {name idx} {
     # built from nothing — its styles ARE the structure — and
     # treesync starts over with it (its map dies with the widget).
     if {$old ne "" && $old ne $P} { destroy $old }
-    set sig [list [dict remove $g faces] $side]
+    # ...and the THEME belongs in the signature for the same reason the
+    # styles do: a style carries its colours, so a strip that kept its
+    # tree across a theme change kept the old theme's paint with it —
+    # measured, and the desk went half-light (2026-08-02).
+    set sig [list [dict remove $g faces] $side $::theme]
     if {[winfo exists $P]} {
         $P configure -background $::OUTLINE
     } else {
@@ -6493,7 +6609,7 @@ proc panel-build {name idx} {
     destroy $P.t
     set T [treectrl $P.t -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background #2e3436 -itemheight $itemh \
+        -background [themed ground] -itemheight $itemh \
         -orient [expr {$vert ? "vertical" : "horizontal"}]]
     bindtags $T [list $T all]
     $T state define found    ;# the flash: predicate found a window
@@ -6503,18 +6619,18 @@ proc panel-build {name idx} {
     $T column create -tags C0
     if {$vert} { $T column configure C0 -width [expr {$thick - 2}] }
     $T element create eFace rect \
-        -fill [list #4e9a06 found #ce5c00 firing \
-                    $::panel_live_face live #555753 {}] \
-        -outline #888a85 -outlinewidth 1
+        -fill [list [themed found] found [themed firing] firing \
+                    $::panel_live_face live [themed raised] {}] \
+        -outline [themed rule] -outlinewidth 1
     $T element create eBIcon image
     $T element create ePRect rect
     $T element create ePTxt text -fill white -lines 1 -font $bfont
-    $T element create eBTxt text -fill white -lines 1 -font PanelFont
+    $T element create eBTxt text -fill [themed ink] -lines 1 -font PanelFont
     $T element create eLive rect -fill [list $::panel_live_bar live] \
         -height 3
-    $T element create eSep rect -fill #888a85 -width 1 \
+    $T element create eSep rect -fill [themed rule] -width 1 \
         -height [expr {$itemh - 14}]
-    $T element create eArrow text -text ▾ -fill #d3d7cf -font PanelFont
+    $T element create eArrow text -text ▾ -fill [themed dim] -font PanelFont
     # Three button styles, assigned per item by what its face resolved
     # to: plain (today's text chip — every button when nothing is
     # iconic), icon, and badge; row and stack presets differ in the
@@ -6848,6 +6964,7 @@ keep tray_icon_size 24    ;# the freedesktop-conventional cell
 keep tray_gap 4           ;# between cells
 keep tray_pad 3           ;# around the row
 keep tray_bg #2e3436      ;# what shows through a transparent icon
+keep tray_bg_said {}      ;# ...and the word a layer spoke, if it did
 keep tray_sid 0
 keep tray_order {}        ;# icon windows, in dock order
 keep tray_seen_extent 0   ;# the length the panel last reserved for us
@@ -7062,6 +7179,7 @@ proc tray-refit-cells {} {
     tray-refit $::tray_icon_size
 }
 proc set-tray-background {color} {
+    set ::tray_bg_said $color
     set ::tray_bg $color
     tray-recolor
 }
@@ -7651,7 +7769,10 @@ knob set-root-cursor {group desk kind text get {set ::root_cursor}
 knob set-desk-window {group desk kind bool
                       get {expr {$::desk_window ? "on" : "off"}}
                       doc {the desk as one window of ours, or hands off the root}}
-knob set-desk-background {group desk kind color get {set ::desk_background}
+knob set-theme       {group desk kind {choice dark light} get {set ::theme}
+                      doc {the desk's colours in one word; every colour derives from it}}
+knob set-desk-background {group desk kind color get {set ::desk_background_said}
+                      derived {themed desk}
                       doc {the desk window's color}}
 knob set-welcome     {group desk kind bool get {set ::welcome}
                       doc {the welcome note on the desk}}
@@ -7680,7 +7801,8 @@ knob set-tray        {group tray kind bool
                       doc {be the display's system tray}}
 knob set-tray-panel  {group tray kind text get {set ::tray_panel}
                       doc {whose strip the tray is part of}}
-knob set-tray-background {group tray kind color get {set ::tray_bg}
+knob set-tray-background {group tray kind color get {set ::tray_bg_said}
+                      derived {themed ground}
                       doc {what shows through a transparent icon}}
 knob set-tray-icon-size {group tray kind int get {set ::tray_icon_size}
                       doc {the tray cell's side, in pixels}}
@@ -8823,22 +8945,23 @@ proc ui-freshen-push {} {
 # ui-style — the bridge from the desk's look to the applets' (the
 # owner's ask: the fonts must ARRIVE; and at least one light scheme).
 # The host asks over the send door and applies what it is told, so an
-# applet is set in the desk's own fonts — and the palette comes in two
-# schemes picked automatically: the luminance of set-desk-background
-# decides whether the applets dress light or dark. The WM's own chrome
-# keeps its colors for now; a full set-theme is its own future step.
+# applet is set in the desk's own fonts, and dressed in the desk's own
+# THEME. It used to guess the scheme from the luminance of
+# set-desk-background, which was the honest stopgap while the WM's own
+# chrome had no theme to speak of; now that it has one the guess is
+# gone, and an applet wears whatever set-theme says — including when
+# somebody overrides the desk colour alone, where the guess used to
+# flip the configurator out from under a desk that had not changed.
 proc ui-style {} {
-    lassign [winfo rgb . $::desk_background] r g b
-    set light [expr {(0.2126*$r + 0.7152*$g + 0.0722*$b) / 65535.0 > 0.5}]
-    set palette [expr {$light
-        ? {bg #f2f1ef fg #1c1c1c field #ffffff link #1a4a8a
-           select #cfe0f5 trough #e4e2de}
-        : {bg #2e3436 fg #eeeeec field #22272a link #8ab4f8
-           select #204a87 trough #3a4144}}]
+    set palette {}
+    foreach {key role} {bg ground fg ink field field link link
+                        select select trough trough} {
+        lappend palette $key [themed $role]
+    }
     dict create \
         deskfont  [font actual DeskFont] \
         titlefont [font actual TitleFont] \
-        scheme    [expr {$light ? "light" : "dark"}] \
+        scheme    $::theme \
         generation [ui-generation] \
         workarea  [workarea] \
         chrome    [list $::border $::decotop] \
@@ -8982,9 +9105,12 @@ set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
-    key_echo key_echo_place titlebar_buttons titlebar_gestures fade font_kin
-    widgets desk_window desk_background widget_gap
-    tray_on tray_icon_size tray_gap tray_pad tray_bg tray_argb tray_panel
+    key_echo key_echo_place KEY_ECHO_BAD KBMR_BG
+    titlebar_buttons titlebar_gestures fade font_kin
+    widgets desk_window desk_background desk_background_said widget_gap
+    theme
+    tray_on tray_icon_size tray_gap tray_pad tray_bg tray_bg_said tray_argb
+    tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
     emacs_wait
     welcome key_bundles action_raw action_spec action_lint

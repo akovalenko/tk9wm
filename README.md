@@ -142,7 +142,7 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 | the desk's own furniture | `widgets-build`, `widget-measure`, `widget-band-opts` | `widget.tcl` |
 | a widget KIND | one file per kind | `library/widgets/` |
 | fonts, and what descends from them | `DeskFont`, `font_kin`, `wm-font`, `fonts-derive` | `policy.tcl` |
-| colours | `OUTLINE`, `gripof`, `frame-focus-color`, `ui-style` | `policy.tcl` |
+| colours | `themed`, `theme_palette`, `theme-apply`, `gripof` | `policy.tcl` |
 | chords, prefixes, the echo | `wm-bind`, `wm-keys`, `grab-keys-to`, `policy-key-echo` | `policy.tcl`, `substrate.tcl` |
 | a menu or any transient popup | `popup-shell`, `grab-keys-to` | `policy.tcl` |
 | the window list | `winlist-open` | `policy.tcl` |
@@ -695,6 +695,29 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   read backwards on half the desks in the world. `TitleFont` and
   `PanelFont` are the two the WM is written in, both identical to the
   base until a config says otherwise.
+
+  **One word, and every colour** (`set-theme dark|light`,
+  `theme_palette`, `themed`). The same shape as the fonts and, as the
+  owner put it when he asked for it, the easier half: a colour is
+  either overridden whole or inherited, with no third thing — so where
+  a font holds a RELATION to its base and is re-derived, a colour is a
+  lookup. The theme names ROLES (`ground`, `ink`, `edge`, `rule`,
+  `desk`, `slot`, `focus`…) and nothing in the desk says `#2e3436` any
+  more; it says `ground`. That is what makes a second theme a table
+  entry instead of a grep, and it is why roles that share a colour
+  today are still separate roles: `edge` and `rule` were briefly one,
+  and the merge painted the panel's button outlines in the ground's own
+  colour — a border and a hairline, alike only by accident. The two
+  colour knobs (`set-desk-background`, `set-tray-background`) are
+  OVERRIDES: each keeps the word a layer spoke beside the value in
+  force, so the configurator shows an unsaid one as worked out rather
+  than blank — the same `derived` answer the terminal knob already
+  had, which is why none of that had to be built twice. The applets
+  follow the theme too; they used to guess light-or-dark from the
+  luminance of the desk colour, which flipped the configurator out
+  from under a desk that had not changed. Titlebars stay dark in both
+  themes on purpose: their glyphs are white svg cached per SIZE, not
+  per ground.
 
   **Widgets — furniture that is not a window** (`wm-widget`,
   `library/widget.tcl`, one file per kind under `library/widgets/`). A
@@ -1443,6 +1466,10 @@ runs as a single shell call:
   type: the same clock declaration comes out a row on a horizontal bar
   and a stack on the desk, and on a vertical strip it takes the row
   only when the buttons have already paid for the width),
+  `run-theme-test.sh` (one word repaints the strip and the desktop and
+  takes them back; an override stands where it was spoken and NOWHERE
+  else, the strip beside it still following the theme; and an unsaid
+  colour knob answers what it is worked out to be),
   `run-fade-test.sh` (translucency: the pixel arithmetic against a
   sampled desk, no map/unmap/reparent across the change, Unfade
   exact, and a style rule that makes a client rest translucent),

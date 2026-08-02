@@ -1,0 +1,127 @@
+#!/bin/sh
+# Regression for THE THEME — «I want a light theme» in one word (the
+# owner, 2026-08-02), and the shape it borrowed from the fonts: the
+# theme is the source, a colour knob is an override, and a row says
+# which of the two it is looking at.
+#
+# What is measured, all of it off the SCREEN except the last:
+#
+#  - one word repaints the desk: the strip and the desktop behind it
+#    both change, and change BACK, with nothing else edited;
+#  - an OVERRIDE outranks the theme and only where it was spoken — a
+#    desk colour of one's own stands while the strip beside it still
+#    follows the theme, which is the whole claim of "overridden whole
+#    or inherited, no third thing";
+#  - and the configurator's half: an unsaid colour answers what it is
+#    WORKED OUT to be (the `derived` field the terminal knob already
+#    had), a said one answers the word that was said.
+. "$(dirname "$0")/common.sh"
+export DISPLAY=:67
+rm -f /tmp/.X67-lock /tmp/.X11-unix/X67
+Xvfb :67 -screen 0 900x500x24 >/dev/null 2>&1 &
+XVFB=$!
+CONF=$(mktemp -d)
+trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+
+LOG="$HERE/wm-theme.log"
+conf() { cat > "$CONF/tk9wm.tcl"; }
+reload() {
+    "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :67 >/dev/null 2>&1
+    sleep 1.5
+}
+pix() {
+    import -window root png:- 2>/dev/null | convert png:- -format \
+        "%[pixel:p{$1,$2}]" info:-
+}
+# The bare right end of the strip — past the one button, and no tray to
+# share it with — and the middle of the desktop, where nothing sits.
+strip() { pix 800 480; }
+desk()  { pix 450 200; }
+ask() {
+    printf '%s\n' "$1" > "$CONF/ask.tcl"
+    "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$CONF/ask.tcl" 2>&1
+}
+
+conf <<'EOF'
+set-welcome off
+set-theme light
+action терминал { launch {exec xterm &} }
+panel-button терминал
+EOF
+sleep 1
+XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
+WM=$!
+sleep 2.5
+LSTRIP=$(strip); LDESK=$(desk)
+LSAID=$(ask 'dict get [knob-table] set-desk-background')
+import -display :67 -window root "$HERE/theme-light.png" 2>/dev/null \
+    && echo "DRIVER: screenshot -> $HERE/theme-light.png"
+
+conf <<'EOF'
+set-welcome off
+set-theme dark
+action терминал { launch {exec xterm &} }
+panel-button терминал
+EOF
+reload
+DSTRIP=$(strip); DDESK=$(desk)
+import -display :67 -window root "$HERE/theme-dark.png" 2>/dev/null \
+    && echo "DRIVER: screenshot -> $HERE/theme-dark.png"
+
+# The override: a desk colour of one's own under the light theme.
+conf <<'EOF'
+set-welcome off
+set-theme light
+set-desk-background #4e9a06
+action терминал { launch {exec xterm &} }
+panel-button терминал
+EOF
+reload
+OSTRIP=$(strip); ODESK=$(desk)
+OSAID=$(ask 'dict get [knob-table] set-desk-background')
+kill $WM 2>/dev/null
+
+echo "--- light: strip $LSTRIP desk $LDESK"
+echo "--- dark:  strip $DSTRIP desk $DDESK"
+echo "--- light + an override: strip $OSTRIP desk $ODESK"
+echo "--- the knob, unsaid: $LSAID"
+echo "--- ...and said:      $OSAID"
+
+echo "--- verdict"
+FAIL=0
+want() {
+    if [ "$2" = "$3" ]; then
+        echo "OK: $1 ($2)"
+    else
+        echo "FAIL: $1 — got $2, wanted $3"; FAIL=1
+    fi
+}
+want "one word and the strip is light"        "$LSTRIP" "srgb(242,241,239)"
+want "...and the desktop behind it too"       "$LDESK"  "srgb(211,215,207)"
+want "the other word takes the strip back"    "$DSTRIP" "srgb(46,52,54)"
+want "...and the desktop with it"             "$DDESK"  "srgb(20,24,27)"
+want "an override stands where it was spoken" "$ODESK"  "srgb(78,154,6)"
+want "...and NOWHERE else — the strip beside it still follows the theme" \
+    "$OSTRIP" "srgb(242,241,239)"
+# The configurator's half, asked of the live desk rather than drawn.
+case "$LSAID" in
+    *"value {}"*) echo "OK: nobody said a desk colour, so the knob says nothing" ;;
+    *) echo "FAIL: the unsaid knob claims a value: $LSAID"; FAIL=1 ;;
+esac
+case "$LSAID" in
+    *"derived #d3d7cf"*)
+        echo "OK: ...and answers what it is WORKED OUT to be, from the theme" ;;
+    *) echo "FAIL: the unsaid knob offers no derived answer: $LSAID"; FAIL=1 ;;
+esac
+case "$OSAID" in
+    *"value #4e9a06"*)
+        echo "OK: a said colour answers the word that was said" ;;
+    *) echo "FAIL: the said knob does not report it: $OSAID"; FAIL=1 ;;
+esac
+if grep -qE 'build failed|handler error|no such colour role' "$LOG"; then
+    echo "FAIL: errors in the log:"
+    grep -E 'build failed|handler error|no such colour role' "$LOG"
+    FAIL=1
+fi
+check_invariants "$LOG"
+exit $FAIL
