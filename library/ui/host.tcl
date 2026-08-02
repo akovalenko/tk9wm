@@ -516,12 +516,32 @@ proc bgerror {msg} {
     if {[info exists ::errorInfo]} { puts $::errorInfo }
 }
 
+# ---- A DIALOG REFUSES IN THE DIALOG -------------------------------
+# A commit that closes the window first and complains after — into
+# whatever status line its applet keeps — reads as swallowed silence
+# from where one sits (the owner, 2026-08-02, twice over: a bad
+# chord, then a nameless widget). So a dialog with something to
+# refuse says it under its own entries, in red, and keeps the floor;
+# WHAT is valid and how to say it wrong is the caller's knowledge
+# (the check callback below), holding the door is the dialog's job.
+proc ui-dialog-say {w msg} {
+    if {![winfo exists $w.say]} {
+        label $w.say -takefocus 0 -anchor w -justify left \
+            -foreground "#cc4040"
+        pack $w.say -fill x -padx 6 -pady 2
+    }
+    $w.say configure -text $msg
+    bell
+}
 # ---- A PICKER: choose one, name one (config-tree, step 4) --------
 # Pick from a list, type a name, commit — the shape every «make a new
 # one» dialog in this desk has. It was the configurator's; nothing
 # about it ever was, so it lives here with the rest of the layer the
-# next applet gets for free.
-proc ui-pick-dialog {w parent wtitle title choices entrylabel commit} {
+# next applet gets for free. The optional CHECK is the validating
+# half: called with {choice typed}, it answers "" for good words or
+# the sentence to refuse them with — said in the dialog, which then
+# stays open on the line that needs fixing.
+proc ui-pick-dialog {w parent wtitle title choices entrylabel commit {check {}}} {
     catch {destroy $w}
     toplevel $w -class Tk9wmUi
     wm title $w $wtitle
@@ -545,7 +565,7 @@ proc ui-pick-dialog {w parent wtitle title choices entrylabel commit} {
     ui-focusable $w.e
     frame $w.b -takefocus 0
     ttk::button $w.b.ok -text OK -underline 0 \
-        -command [list ui-pick-commit $w $commit]
+        -command [list ui-pick-commit $w $commit $check]
     ttk::button $w.b.cancel -text Cancel -underline 0 \
         -command [list destroy $w]
     foreach b [list $w.b.ok $w.b.cancel] { ui-focusable $b; ui-accel $b }
@@ -556,17 +576,23 @@ proc ui-pick-dialog {w parent wtitle title choices entrylabel commit} {
     pack $w.e -fill x -padx 6
     pack $w.b -fill x
     bind $w <Escape> [list destroy $w]
-    bind $w.list <Double-ButtonPress-1> [list ui-pick-commit $w $commit]
-    bind $w.list <Return> [list ui-pick-commit $w $commit]
-    bind $w.e <Return> [list ui-pick-commit $w $commit]
+    bind $w.list <Double-ButtonPress-1> [list ui-pick-commit $w $commit $check]
+    bind $w.list <Return> [list ui-pick-commit $w $commit $check]
+    bind $w.e <Return> [list ui-pick-commit $w $commit $check]
     focus [expr {[llength $choices] ? "$w.list" : "$w.e"}]
 }
-proc ui-pick-commit {w commit} {
+proc ui-pick-commit {w commit check} {
     set choice ""
     if {[llength [$w.list curselection]]} {
         set choice [$w.list get [lindex [$w.list curselection] 0]]
     }
     set typed [string trim [$w.e get]]
+    # the caller's word on what valid means — refused words keep the
+    # dialog standing, and the refusal is right under the entries
+    if {[llength $check]} {
+        set say [uplevel #0 [list {*}$check $choice $typed]]
+        if {$say ne ""} { ui-dialog-say $w $say ; return }
+    }
     destroy $w
     # BOTH answers go to whoever asked — which of them wins is the
     # caller's question, and a dialog that decided it for them would

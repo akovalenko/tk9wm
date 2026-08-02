@@ -1301,6 +1301,33 @@ FIELDSB=$(qu 'set T $::cfg_T
     lappend r sb2 [winfo exists $T.edit.sb] h2 [$T.edit.t cget -height]
     cfg-entry-done cancel
     set r')
+# ---- the picker refuses in the picker ----
+# The caller says what valid means (the check), the dialog holds the
+# door: a nameless widget used to fall through in silence — the
+# commit returned 0 to a dialog already closed (the owner,
+# 2026-08-02). Driven through the OK button, which is the wired path.
+PICKCHECK=$(qu 'cfg-insert-widgets-dialog
+    set w .cfg-insert
+    $w.b.ok invoke
+    set r [list open [winfo exists $w] \
+        nameless [expr {[winfo exists $w.say] ? [$w.say cget -text] : {}}]]
+    $w.e insert 0 "секунды"
+    $w.b.ok invoke
+    lappend r typeless [expr {[winfo exists $w.say] ? [$w.say cget -text] : {}}]
+    $w.list selection set 0
+    $w.b.ok invoke
+    after 300; update
+    lappend r closed [expr {![winfo exists $w]}]
+    cfg-insert-widgets-dialog
+    set w .cfg-insert
+    $w.list selection set 0
+    $w.e insert 0 "секунды"
+    $w.b.ok invoke
+    lappend r dup [expr {[winfo exists $w.say] ? [$w.say cget -text] : {}}]
+    destroy $w
+    set r')
+sleep 0.5
+PICKMADE=$(q 'dict exists $::widgets секунды')
 # ---- the menu names what Del would do, on a row that is not ours ----
 # The earlier scenes turned the windows bundle off and took accords
 # apart, so no code word is left standing; the windows family comes
@@ -1497,6 +1524,14 @@ if [ "$FIELDSB" = "sb 1 h 6 sb2 0 h2 2" ]; then
     echo "OK: past six lines the field scrolls, and the bar leaves with the lines"
 else
     echo "FAIL: field scrollbar: $FIELDSB"
+fi
+if [ "$PICKCHECK" = "open 1 nameless {name the widget first}\
+ typeless {pick a type from the list} closed 1\
+ dup {a widget named секунды already stands — pick another name}" ] \
+        && [ "$PICKMADE" = 1 ]; then
+    echo "OK: the picker refuses bad words in the dialog and lets good ones through"
+else
+    echo "FAIL: pick check: $PICKCHECK made=$PICKMADE"
 fi
 if [ "$DELOFFER" = 1 ]; then
     echo "OK: the row menu offers Del's act under its own name"
@@ -1804,6 +1839,7 @@ echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- boxfocus={$BOXFOCUS} emptycell={$EMPTYCELL} colorseed={$COLORSEED}"
 echo "--- badchord={$BADCHORD} forgiven={$FORGIVEN}"
 echo "--- fieldsb={$FIELDSB} deloffer=$DELOFFER menupal={$MENUPAL}"
+echo "--- pickcheck={$PICKCHECK} made=$PICKMADE"
 echo "--- silence={$SILENCE}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
 if [ "$SCRIPTLINT" = "warn warn note clean restart-wm" ] \

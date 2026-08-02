@@ -2836,7 +2836,8 @@ proc cfg-insert {} {
         if {[lindex $addr 0] eq "@add-member"} {
             set ::cfg_member_into [lrange $addr 1 end]
             cfg-pick-dialog "another one in the dict" {} \
-                "name for the new member" cfg-insert-member
+                "name for the new member" cfg-insert-member \
+                cfg-member-trouble
             return
         }
         cfg-insert-into [dict get $::cfg_node $it coll]
@@ -2852,7 +2853,8 @@ proc cfg-insert {} {
                         [dict get $::cfg_node $it field]]] members])} {
         set ::cfg_member_into [cfg-node-addr $it]
         cfg-pick-dialog "another one in the dict" {} \
-            "name for the new member" cfg-insert-member
+            "name for the new member" cfg-insert-member \
+            cfg-member-trouble
         return
     }
     cfg-insert-into [dict get $::cfg_node $it coll]
@@ -2860,7 +2862,8 @@ proc cfg-insert {} {
 proc cfg-insert-into {coll} {
     switch -- $coll {
         actions  { cfg-pick-dialog "new action" {} \
-                       "name for the new action" cfg-insert-action }
+                       "name for the new action" cfg-insert-action \
+                       cfg-action-trouble }
         panel    { cfg-insert-panel-dialog }
         widgets  { cfg-insert-widgets-dialog }
         bindings { cfg-insert-binding-dialog }
@@ -3114,16 +3117,51 @@ proc cfg-holder-sentence {held} {
 proc cfg-insert-panel-dialog {} {
     set cards [dict get $::cfg_coll panel cards]
     cfg-pick-dialog "new panel button — an action" $cards \
-        "or an action's name" cfg-insert-button-picked
+        "or an action's name" cfg-insert-button-picked cfg-button-trouble
 }
 proc cfg-insert-widgets-dialog {} {
     set types [dict get $::cfg_coll widgets types]
     cfg-pick-dialog "new widget — pick its type" $types \
-        "name for the new widget" cfg-insert-widget-picked
+        "name for the new widget" cfg-insert-widget-picked \
+        cfg-widget-trouble
 }
 proc cfg-insert-widget-picked {choice entry} {
     # for widgets the LIST is the type and the ENTRY is the name
     cfg-insert-widget $entry $choice
+}
+# WHAT VALID MEANS, dialog by dialog — the checks ui-pick-dialog asks
+# before it lets a commit through. A widget with no name used to fall
+# through in silence: the commit proc returned 0 to a dialog that had
+# already closed (the owner, 2026-08-02). The commit procs keep their
+# own guards — they are the backstop for programmatic callers — but
+# the sentence a person needs lands here, in the dialog, on the line
+# that needs fixing.
+proc cfg-widget-trouble {choice typed} {
+    if {$typed eq ""} { return "name the widget first" }
+    if {$choice eq ""} { return "pick a type from the list" }
+    if {[cfg-elem-rec widgets $typed] ne ""} {
+        return "a widget named $typed already stands — pick another name"
+    }
+    return ""
+}
+proc cfg-action-trouble {choice typed} {
+    set name [expr {$choice ne "" ? $choice : $typed}]
+    if {$name eq ""} { return "name the action first" }
+    if {[cfg-elem-rec actions $name] ne ""} {
+        return "an action named $name already stands — pick another name"
+    }
+    return ""
+}
+proc cfg-member-trouble {choice typed} {
+    expr {$typed eq "" ? "name the key first" : ""}
+}
+proc cfg-button-trouble {choice typed} {
+    set name [expr {$choice ne "" ? $choice : $typed}]
+    if {$name eq ""} { return "pick an action, or name one" }
+    if {[cfg-elem-rec panel $name] ne ""} {
+        return "$name is already on the panel"
+    }
+    return ""
 }
 # One shape serves buttons and widgets: a list to pick from, an entry
 # beside it. The commit callback gets what was picked and what was
@@ -3131,9 +3169,9 @@ proc cfg-insert-widget-picked {choice entry} {
 # The picker lives in the host now (ui-pick-dialog): a list to choose
 # from, a name to type, and a commit — nothing about it was ever this
 # applet's, and the next one gets it for free.
-proc cfg-pick-dialog {title choices entrylabel commit} {
+proc cfg-pick-dialog {title choices entrylabel commit {check {}}} {
     ui-pick-dialog .cfg-insert [winfo toplevel $::cfg_T] \
-        "tk9wm: $title" $title $choices $entrylabel $commit
+        "tk9wm: $title" $title $choices $entrylabel $commit $check
 }
 # THE LAZILY BUILT THINGS, DECLARED. A run with ui-build-all behind it
 # opens every one of them once — which is how a clash or a typo in a
@@ -3181,7 +3219,7 @@ proc cfg-bind-commit {w} {
     set spec [string trim [$w.chord get]]
     set script [string trim [$w.script get]]
     if {[cfg-bind-trouble $spec $script err]} {
-        cfg-dialog-say $w $err
+        ui-dialog-say $w $err
         return
     }
     destroy $w
@@ -3201,13 +3239,4 @@ proc cfg-bind-trouble {spec script varname} {
         return 1
     }
     return 0
-}
-proc cfg-dialog-say {w msg} {
-    if {![winfo exists $w.say]} {
-        label $w.say -takefocus 0 -anchor w -justify left \
-            -foreground "#cc4040"
-        pack $w.say -fill x -padx 6 -pady 2
-    }
-    $w.say configure -text $msg
-    bell
 }
