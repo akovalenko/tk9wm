@@ -63,6 +63,19 @@ LINTNOTMOD=$(qu 'set i [dict get $::cfg_fitem {@field actions dummy launch}]
     set t [$::cfg_T item element cget $i Cflag eFlag -text]
     list flag [list $t] unsaved [expr {[string match "*unsaved*" $t]}]')
 
+# ---- IT OPENS AT A SIZE ONE CAN READ ----
+# The fit is a one-shot (the walls must not walk on every refresh) and
+# the shot was being spent by the BUILD's own refresh — measuring a
+# tree the toplevel had never laid out, against a hint box wrapped to
+# a width nobody knew yet. The owner's configurator opened with room
+# for two rows (2026-08-02). The walls are closed by the first fit
+# with the window actually on the screen; this asks for the outcome.
+OPENFIT=$(qu 'set T $::cfg_T
+    set W [winfo toplevel $T]
+    list rows [expr {[winfo height $T] / [$T cget -itemheight]}] \
+         done $::cfg_fit_done mapped [winfo ismapped $W] \
+         byhand $::cfg_user_sized')
+
 # ONCE THE USER HAS SIZED IT, the fit steps aside — asserted early,
 # before the scenes that deliberately break procs, and undone right
 # after so the later size checks still measure the fit.
@@ -1469,6 +1482,17 @@ case "$AINS|$ADEL" in
     "1|0") echo "OK: Insert declares a fresh action, Delete takes it back" ;;
     *) echo "FAIL: action insert/delete: ins=$AINS del=$ADEL" ;;
 esac
+echo "--- openfit: $OPENFIT"
+OFROWS=$(echo "$OPENFIT" | awk '{print $2}')
+OFDONE=$(echo "$OPENFIT" | awk '{print $4}')
+OFMAP=$(echo "$OPENFIT" | awk '{print $6}')
+OFHAND=$(echo "$OPENFIT" | awk '{print $8}')
+if [ "$OFROWS" -ge 10 ] && [ "$OFDONE" = 1 ] && [ "$OFMAP" = 1 ] \
+        && [ "$OFHAND" = 0 ]; then
+    echo "OK: it opens with room to read, and the walls were closed on screen"
+else
+    echo "FAIL: the first fit: $OPENFIT"
+fi
 echo "--- geometry: $GEO"
 case $GEO in
     *"fits 1") echo "OK: the applet window sits inside the workarea" ;;

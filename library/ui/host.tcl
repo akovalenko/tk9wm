@@ -437,8 +437,14 @@ proc ui-pick-dialog {w parent wtitle title choices entrylabel commit} {
     wm title $w $wtitle
     wm transient $w $parent
     label $w.l -takefocus 0 -anchor w -text $title
+    # -exportselection 0, AND IT IS NOT A DETAIL: a listbox that owns
+    # the X selection loses its highlight the moment anything else
+    # takes it — typing in the name field below does exactly that. The
+    # dialog that asks for a pick AND a name was unusable because of
+    # it: the owner found that the only way through was to type the
+    # name first and then click the list, in that order (2026-08-02).
     listbox $w.list -font DeskFont -height [expr {max(3, min(10,
-        [llength $choices]))}] \
+        [llength $choices]))}] -exportselection 0 \
         -background [ui-color field] -foreground [ui-color fg] \
         -selectbackground [ui-color select]
     ui-focusable $w.list
@@ -855,6 +861,13 @@ proc ui-open {name} {
     }
     set meta [dict get $::ui_applets $name]
     toplevel $top -class Tk9wmUi
+    # BUILT OUT OF SIGHT. A toplevel is on the screen from the moment
+    # it exists, so an applet that measures and sizes itself while
+    # building does all of that in public: the configurator showed a
+    # starting size, then jumped to its real one (the owner,
+    # 2026-08-02). Withdrawn, it builds, fills and fits with nobody
+    # watching, and the first thing seen is the finished window.
+    wm withdraw $top
     wm title $top [expr {[dict exists $meta title]
                          ? [dict get $meta title] : "tk9wm: $name"}]
     # CLOSING WITHDRAWS, it does not destroy: an applet holds no
@@ -869,6 +882,8 @@ proc ui-open {name} {
         catch {destroy $top}
         return
     }
+    update idletasks     ;# let the build's own sizing settle first...
+    wm deiconify $top    ;# ...and only then is there anything to see
     puts "UI: applet $name up"
 }
 

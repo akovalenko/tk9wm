@@ -7730,7 +7730,8 @@ collection widgets {
     doc {the desk's widgets, sharing their areas in declaration order}
     list collection-widgets
     fields {
-        -type    {kind text doc {what the widget IS — see wm-widget-type}}
+        -type    {kind choice choices-from types
+                  doc {what the widget IS — see wm-widget-type}}
         -on      {kind text doc {workarea, screen, or panel NAME}}
         -place   {kind text doc {edge words of the place grammar}}
         -padding {kind int  doc {air inside the container, px}}

@@ -273,7 +273,7 @@ proc cfg-fit-mapped {W} {
 # doing.
 set cfg_user_sized 0
 set cfg_fit_done 0    ;# the walls are set once and then left alone
-set cfg_fit_size {}
+set cfg_fit_size {}   ;# EVERY size the fit has asked for, see cfg-note-wrap
 set cfg_col_fit {}    ;# column -> the -width the fit last set there
 set cfg_col_user {}   ;# columns dragged by hand — theirs now
 proc cfg-note-wrap {W w} {
@@ -289,9 +289,21 @@ proc cfg-note-wrap {W w} {
         $l configure -wraplength $room
         cfg-note-room $W $l $room
     }
-    if {!$::cfg_user_sized && [llength $::cfg_fit_size]} {
-        lassign $::cfg_fit_size fw fh
-        if {abs($w - $fw) > 2 || abs([winfo height $W] - $fh) > 2} {
+    # A HAND ON THE BORDER IS A SIZE WE NEVER ASKED FOR — and «we»
+    # means any of our asks, not just the last one. A resize is
+    # granted by the desk asynchronously, so the Configure for the
+    # size the window had BEFORE a fit can still be in flight when
+    # that fit ends; compared against the newest number alone it read
+    # as a hand on the border, and the window declared itself
+    # user-sized while it was still opening (measured, 2026-08-02).
+    if {$::cfg_fit_done && !$::cfg_user_sized && [llength $::cfg_fit_size]} {
+        set h [winfo height $W]
+        set ours 0
+        foreach s $::cfg_fit_size {
+            lassign $s fw fh
+            if {abs($w - $fw) <= 2 && abs($h - $fh) <= 2} { set ours 1 ; break }
+        }
+        if {!$ours} {
             set ::cfg_user_sized 1
             puts "UI: configurator: sized by hand — the fit steps aside"
         }
@@ -883,14 +895,25 @@ proc cfg-fit {} {
     # move a window, not shrink it.
     set W [winfo toplevel $T]
     if {$::cfg_user_sized} return     ;# their window now, not ours
-    # ...AND ONCE IS ENOUGH. The fit is a first guess at a size
-    # nobody has an opinion about yet; re-measuring on every refresh
-    # meant a window that resized itself when one pressed Erase, or
-    # anything else that reloads (the owner, 2026-08-02: «даже если
-    # геометрия не от юзера — перемеривать на ходу не стоит»). The
-    # columns still re-measure above; only the walls stand still.
+    # ...AND ONCE IS ENOUGH — once the window has been SEEN. The fit
+    # is a first guess at a size nobody has an opinion about yet;
+    # re-measuring on every refresh meant a window that resized itself
+    # when one pressed Erase, or anything else that reloads (the
+    # owner, 2026-08-02: «даже если геометрия не от юзера —
+    # перемеривать на ходу не стоит»). The columns still re-measure
+    # above; only the walls stand still.
+    #
+    # WHICH fit gets to set them is the whole of the two-row bug (the
+    # owner, same day): the build's own refresh fits too, and it fits
+    # a tree the toplevel has never laid out — provisional column
+    # widths, a row count that is barely anything — so as a one-shot
+    # it won the race and the window opened at two rows' height. So
+    # the walls are open while the window is out of sight (the host
+    # builds it withdrawn, and it may re-measure as often as it likes
+    # there); the first fit with the window actually on the screen is
+    # the one that closes them.
     if {$::cfg_fit_done} return
-    set ::cfg_fit_done 1
+    set closes [winfo ismapped $W]
     lassign [ui-workarea] - - ww wh
     lassign [ui-chrome] B top
     set maxw [expr {$ww - 2*$B - [winfo reqwidth $W.box.sb] - 8}]
@@ -904,7 +927,19 @@ proc cfg-fit {} {
     set want [expr {min($wall + 24, $maxw)}]
     if {[winfo exists $W.b.note]} {
         set room [expr {$want - [winfo x $W.b.note] - 12}]
-        if {$room > 80} { $W.b.note configure -wraplength $room }
+        if {$room > 80} {
+            $W.b.note configure -wraplength $room
+            # ...AND THE BOX'S OWN HEIGHT WITH IT. The ceiling below is
+            # the workarea minus what this window carries, and the box
+            # is the biggest part of that. Its height is set by the
+            # Configure handler — that is, for whatever width the
+            # window last HAD — so a fit that reads it is subtracting a
+            # box belonging to another window: with a tall enough one,
+            # nothing is left and the tree opens with room for two rows
+            # (the owner, 2026-08-02). Ask for the height that goes
+            # with the width we are about to ask for.
+            cfg-note-room $W $W.b.note $room
+        }
         update idletasks
     }
     set maxh [expr {$wh - $top - $B - [winfo reqheight $W.b] - 8}]
@@ -922,7 +957,13 @@ proc cfg-fit {} {
     set over [expr {[winfo reqwidth $W] + 2*$B - $ww}]
     if {$over > 0} { $T configure -width [expr {[$T cget -width] - $over}] }
     update idletasks
-    set ::cfg_fit_size [list [winfo reqwidth $W] [winfo reqheight $W]]
+    lappend ::cfg_fit_size [list [winfo reqwidth $W] [winfo reqheight $W]]
+    # ...AND ONLY NOW ARE THE WALLS CLOSED. Until they are, every
+    # Configure this window sees is our own doing or the desk's answer
+    # to it (a clamp into the workarea, a frame settling) — never a
+    # hand on the border, because there is nothing to take hold of
+    # yet. See cfg-note-wrap, which is what this gates.
+    if {$closes} { set ::cfg_fit_done 1 }
 }
 
 # ---- the field address ----
@@ -984,8 +1025,22 @@ proc cfg-slot-shown? {f fmeta said} {
 proc cfg-kind-of {name} {
     if {[cfg-member? $name]} { return text }
     if {[cfg-field? $name]} {
-        return [dict get $::cfg_coll [lindex $name 1] \
-                    fields [lindex $name 3] kind]
+        set coll [lindex $name 1]
+        set fmeta [dict get $::cfg_coll $coll fields [lindex $name 3]]
+        # A CATALOGUE IS THE FAMILY'S OWN. Some choices are known only
+        # to the live desk — what a widget may BE is whatever
+        # wm-widget-type has declared by now — so the field says WHERE
+        # its values live rather than listing them in a registry that
+        # would go stale. A free-text type was how «bogusgadget» got
+        # committed and stood there as a widget that cannot be built
+        # (the owner, 2026-08-02).
+        if {[dict exists $fmeta choices-from]} {
+            set src [dict get $fmeta choices-from]
+            if {[dict exists $::cfg_coll $coll $src]} {
+                return [list choice {*}[dict get $::cfg_coll $coll $src]]
+            }
+        }
+        return [dict get $fmeta kind]
     }
     dict get $::cfg_table $name kind
 }
@@ -2603,6 +2658,7 @@ proc cfg-problems-show {all} {
     label $w.l -takefocus 0 -anchor w \
         -text "[llength $all] since the desk came up, newest first"
     listbox $w.list -font DeskFont -height [expr {max(3, min(12, [llength $all]))}] \
+        -exportselection 0 \
         -background [ui-color field] -foreground [ui-color fg] \
         -selectbackground [ui-color select]
     ui-focusable $w.list
