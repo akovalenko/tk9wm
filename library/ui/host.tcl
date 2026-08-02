@@ -474,6 +474,16 @@ proc ui-field-inset {path} {
     return [list [expr {$b + $bx}] [expr {$b + $by}]]
 }
 proc ui-field-get {path} { string trimright [$path.t get 1.0 end] \n }
+# HOW MANY LINES ARE THERE TO SEE — which is not how many lines the
+# VALUE has. ui-field-get trims the trailing newlines, rightly (the
+# one Tk keeps at the end is nobody's), and a caller who sized a field
+# by that count left the last empty line homeless: Return at the end
+# of a one-line field put the cursor on a second line the field had no
+# room for, and the room only arrived once a letter was typed on it
+# (the owner, 2026-08-03). The widget's own end knows better.
+proc ui-field-lines {path} {
+    lindex [split [$path.t index end-1c] .] 0
+}
 proc ui-field-set {path text} {
     $path.t delete 1.0 end
     $path.t insert 1.0 $text
@@ -777,10 +787,12 @@ proc ui-cell-open {T item column addr opts} {
     # A THREE-LINE SCRIPT WANTS THREE LINES. The field is a text, so
     # it can have them — and it has undo, which an entry never did
     # (the owner's preference, 2026-08-01).
-    set lines [llength [split $val \n]]
-    ui-field $T.edit -height [expr {max(1, min(6, $lines))}] \
-        -onleave [list ui-cell-leave $T]
+    ui-field $T.edit -onleave [list ui-cell-leave $T]
     ui-field-set $T.edit $val
+    # ...and the count is the FIELD's, the same one growing uses later:
+    # two ways of counting the same lines is how they come to disagree
+    set lines [ui-field-lines $T.edit]
+    $T.edit.t configure -height [expr {max(1, min(6, $lines))}]
     ui-field-select-all $T.edit
     ui-field-scroll $T.edit [expr {$lines > 6}]
     # GRID, and the button gets a column of its own: PACKED, the
@@ -861,7 +873,7 @@ proc ui-cell-open {T item column addr opts} {
 # the scrollbar takes over (ui-field-scroll).
 proc ui-cell-grow {T y1 y2} {
     if {![winfo exists $T.edit.t]} return
-    set lines [llength [split [ui-field-get $T.edit] \n]]
+    set lines [ui-field-lines $T.edit]
     ui-field-scroll $T.edit [expr {$lines > 6}]
     set want [expr {max(1, min(6, $lines))}]
     if {[$T.edit.t cget -height] == $want} return

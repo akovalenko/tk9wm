@@ -1345,6 +1345,27 @@ FIELDSB=$(qu 'set T $::cfg_T
     lappend r sb2 [winfo exists $T.edit.sb] h2 [$T.edit.t cget -height]
     cfg-entry-done cancel
     set r')
+# ---- the line the cursor moved to is a line the field shows ----
+# A newline at the very END of the value used to buy no room at all:
+# the growth counted the lines of the TRIMMED value, so the empty last
+# one did not exist until a letter landed on it, and until then the
+# cursor sat below the bottom edge (the owner, 2026-08-03).
+NLGROW=$(qu 'set T $::cfg_T
+    set it [dict get $::cfg_item set-root-cursor]
+    $T see $it
+    update idletasks
+    cfg-entry $it set-root-cursor
+    after 200; update
+    ui-field-set $T.edit "один"
+    $T.edit.t tag remove sel 1.0 end
+    $T.edit.t mark set insert end-1c
+    event generate $T.edit.t <Shift-Return> -when now
+    update idletasks
+    set r [list h [$T.edit.t cget -height] \
+        row [lindex [split [$T.edit.t index insert] .] 0] \
+        value [ui-field-get $T.edit]]
+    cfg-entry-done cancel
+    set r')
 # ---- the picker refuses in the picker ----
 # The caller says what valid means (the check), the dialog holds the
 # door: a nameless widget used to fall through in silence — the
@@ -1580,6 +1601,11 @@ if [ "$FIELDSB" = "sb 1 h 6 sb2 0 h2 2" ]; then
     echo "OK: past six lines the field scrolls, and the bar leaves with the lines"
 else
     echo "FAIL: field scrollbar: $FIELDSB"
+fi
+if [ "$NLGROW" = "h 2 row 2 value один" ]; then
+    echo "OK: a newline at the end grows the field the cursor moved into"
+else
+    echo "FAIL: trailing newline growth: $NLGROW"
 fi
 if [ "$PICKCHECK" = "open 1 nameless {name the widget first}\
  typeless {pick a type from the list} closed 1\
@@ -1909,7 +1935,7 @@ fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- boxfocus={$BOXFOCUS} emptycell={$EMPTYCELL} colorseed={$COLORSEED}"
 echo "--- badchord={$BADCHORD} forgiven={$FORGIVEN}"
-echo "--- fieldsb={$FIELDSB} deloffer=$DELOFFER menupal={$MENUPAL}"
+echo "--- fieldsb={$FIELDSB} nlgrow={$NLGROW} deloffer=$DELOFFER menupal={$MENUPAL}"
 echo "--- pickcheck={$PICKCHECK} made=$PICKMADE"
 echo "--- silence={$SILENCE} badparam={$BADPARAM} stomp={$STOMP}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
