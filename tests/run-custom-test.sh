@@ -84,11 +84,16 @@ FILEORDER=$(grep -n 'panel-button\|wm-bind\|set-fade\|action ' "$HERE/custom-con
 # It used to be recorded and saved BEFORE it ran, so a refused word
 # stayed in the file and stopped the whole layer loading on the next
 # start — the owner lost a panel section to one mistyped chord.
-BADWRITE=$(q 'catch {custom-write {wm-bind {super+t r w} whatever}} err
-    list rc [catch {custom-write {wm-bind {super+t r w} whatever}}] \
-         filed [dict exists $::layer_knobs custom {wm-bind super+t r w}] \
+# The refused word must stay refused: this one was `super+t r w` until
+# modifier names became case-insensitive and both spellings legal —
+# which made the bad word GOOD and the assertion a false alarm rather
+# than a measurement. A modifier nobody has is the same test with a
+# token the parser cannot ever come to like.
+BADWRITE=$(q 'catch {custom-write {wm-bind {shmuper+t r w} whatever}} err
+    list rc [catch {custom-write {wm-bind {shmuper+t r w} whatever}}] \
+         filed [dict exists $::layer_knobs custom {wm-bind shmuper+t r w}] \
          said [string match {*unknown modifier*} $err]')
-BADFILE=$(grep -c 'super' "$HERE/custom-config/tk9wm.custom.tcl" 2>/dev/null; true)
+BADFILE=$(grep -c 'shmuper' "$HERE/custom-config/tk9wm.custom.tcl" 2>/dev/null; true)
 
 # ---- one table says where a word lands ----
 # The layers file a word under a key, the save puts the ordered kinds
@@ -129,6 +134,24 @@ sleep 1.5
 qf() { printf '%s\n' "$1" > "$HERE/custom-fresh/q.tcl"
        "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/custom-fresh/q.tcl"; }
 WELCOME=$(qf 'dict exists $::widgets __welcome')
+# ...AND THE SET IT OFFERS TO WRITE — «set up the basics», furnishing
+# a bare desk in one click. Every word of it goes through the ordinary
+# layer, so a key nobody registered would die at apply time and leave
+# the desk half furnished. It is also the EXAMPLE a first-time user
+# reads afterwards, which is why two of its words are the way they are
+# (the owner, 2026-08-02): the plain terminal says `type terminal`
+# outright instead of leaning on the empty-dict sugar, and the tmux
+# button carries a title of its own — a terminal left to name its
+# window takes the command's first word, and that word is `sh`.
+qf 'welcome-preset minimal' >/dev/null
+sleep 0.5
+PRESET=$(qf 'list type [action-type [dict get $::action_raw terminal]] \
+    title [expr {[dict exists $::action_raw tmux terminal title]
+                 ? [dict get $::action_raw tmux terminal title] : "none"}] \
+    actions [expr {[dict exists $::action_raw terminal]
+                   && [dict exists $::action_raw emacs]
+                   && [dict exists $::action_raw tmux]}]')
+PRESETFILE=$(grep -c '^action ' "$HERE/custom-fresh/tk9wm.custom.tcl")
 qf welcome-hide >/dev/null
 sleep 0.5
 AFTERHIDE=$(qf 'list $::welcome [dict exists $::widgets __welcome]')
@@ -183,6 +206,11 @@ if [ "$WELCOME" = 1 ]; then
     echo "OK: a fresh desk lays out the welcome mat"
 else
     echo "FAIL: no welcome widget on the fresh desk"
+fi
+if [ "$PRESET" = "type terminal title tmux actions 1" ] && [ "$PRESETFILE" = 3 ]; then
+    echo "OK: the starter set applied whole, and says its type and title outright"
+else
+    echo "FAIL: the starter set: {$PRESET}, action lines written: $PRESETFILE"
 fi
 if [ "$AFTERHIDE" = "off 0" ] \
         && grep -q 'set-welcome off' "$HERE/custom-fresh/tk9wm.custom.tcl"; then

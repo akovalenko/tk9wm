@@ -5043,12 +5043,38 @@ proc set-emacs-daemons {mode} {
     if {$mode ni {on off}} { error "set-emacs-daemons: on or off" }
     set ::emacs_daemons $mode
 }
-# Both knobs are consulted AT FIRE TIME, never baked in at the
+# ...and WHETHER THE FRAME KEEPS THE NAME IT WAS BORN WITH. It is born
+# with one because the name is how the desk finds the window: a
+# frame's name parameter is the instance half of its WM_CLASS. But
+# WM_CLASS is written once, at creation, and the name goes on being
+# the TITLE — so a frame made for a button called `telega` wears the
+# word TELEGA in its titlebar forever, where emacs would otherwise say
+# what buffer one is looking at.
+#
+# The owner's own pattern was to hand the title back by hand — a
+# button carrying `eval {(set-frame-name nil)}` — and that is the
+# better default (his call, 2026-08-02): the desk still finds the
+# window by class, the daemon still finds the frame by our own
+# tk9wm-frame parameter, and the titlebar goes back to saying
+# something. `keep-frame-name on` — desk-wide here, per button in the
+# spec — is for whoever wants the button's word standing in the title.
+keep emacs_keep_frame_name off
+proc set-emacs-keep-frame-name {mode} {
+    if {$mode ni {on off}} { error "set-emacs-keep-frame-name: on or off" }
+    set ::emacs_keep_frame_name $mode
+}
+# All these knobs are consulted AT FIRE TIME, never baked in at the
 # button's declaration — a knob set later in the config must win
 # (the styleof lesson, again).
 proc emacs-plain? {spec} {
     expr {$::emacs_daemons eq "off"
           || ([dict exists $spec daemon] && [dict get $spec daemon] eq "none")}
+}
+proc emacs-keep-name? {spec} {
+    if {[dict exists $spec keep-frame-name]} {
+        return [expr {[dict get $spec keep-frame-name] eq "on"}]
+    }
+    expr {$::emacs_keep_frame_name eq "on"}
 }
 # What used to be emacs-spec-check lives in the spec registry now:
 # the key list, the frame it cannot do without, the two words `via`
@@ -5119,6 +5145,25 @@ proc emacs-client-cmd {spec} {
     }
     return $cmd
 }
+# WHAT THE NEW FRAME IS TOLD, once, at birth: give the title back
+# (unless the button wants its word kept — see set-emacs-keep-frame-
+# name), and then whatever the button itself says. In that order, so
+# an eval that fails still leaves the title mended — and so an eval
+# that sets a title of its own has the last word.
+#
+# Only the LAUNCH carries the rename. The button's own eval rides
+# every activation too (emacs-activate), and a frame does not need to
+# be told a second time to be nameless.
+proc emacs-launch-eval {spec} {
+    set forms {}
+    if {![emacs-keep-name? $spec]} { lappend forms {(set-frame-name nil)} }
+    if {[dict exists $spec eval]} { lappend forms [dict get $spec eval] }
+    switch -- [llength $forms] {
+        0 { return {} }
+        1 { return [lindex $forms 0] }
+        default { return "(progn [join $forms { }])" }
+    }
+}
 # The launch half: nothing named ours exists, make it — daemon
 # included, -a '' starting one under the right socket if need be. The
 # gui shape is the owner's own command; the terminal shape is the SAME
@@ -5141,17 +5186,14 @@ proc emacs-launch {spec} {
         # runs once, at birth — with no server there is no
         # eval-on-hit and no tty repair, and the hit is the whole
         # story.
+        set ev [emacs-launch-eval $spec]
         if {$via eq "terminal"} {
             set run [concat $pre [list emacs -nw]]
-            if {[dict exists $spec eval]} {
-                lappend run --eval [dict get $spec eval]
-            }
-            spawn-terminal [list name $frame run $run]
+            if {$ev ne ""} { lappend run --eval $ev }
+            spawn-terminal [list name $frame title $frame run $run]
         } else {
             set cmd [concat $pre [list emacs --name $frame]]
-            if {[dict exists $spec eval]} {
-                lappend cmd --eval [dict get $spec eval]
-            }
+            if {$ev ne ""} { lappend cmd --eval $ev }
             puts "WM: emacs: launch $cmd"
             exec {*}$cmd &
         }
@@ -5177,13 +5219,19 @@ proc emacs-launch {spec} {
     if {[dict exists $spec autodaemon]} { set auto [dict get $spec autodaemon] }
     set cmd [emacs-client-cmd $spec]
     if {$auto eq "on"} { lappend cmd -a {} }
+    set ev [emacs-launch-eval $spec]
+    # A TITLE FOR THE TERMINAL, and it is the frame's word: a terminal
+    # left to name its own window takes the first word of the command
+    # it was given, which here is `env` or `emacsclient` — true, and
+    # useless (the owner's point about the tmux button, 2026-08-02).
+    # The name goes on being the WM_CLASS instance the match reads.
     if {$via eq "terminal"} {
         set run [concat $pre $cmd [list -t -F $F]]
-        if {[dict exists $spec eval]} { lappend run --eval [dict get $spec eval] }
-        spawn-terminal [list name $frame run $run]
+        if {$ev ne ""} { lappend run --eval $ev }
+        spawn-terminal [list name $frame title $frame run $run]
     } else {
         set cmd [concat $pre $cmd [list -c -F $F -n]]
-        if {[dict exists $spec eval]} { lappend cmd --eval [dict get $spec eval] }
+        if {$ev ne ""} { lappend cmd --eval $ev }
         puts "WM: emacs: launch $cmd"
         exec {*}$cmd &
     }
@@ -5231,6 +5279,7 @@ proc emacs-activate {spec w} {
     }
     emacs-eval-bg $spec [emacs-template activate-frame.el \
         "(tk9wm-name [emacs-lisp-string [dict get $spec frame]])\
+ (tk9wm-keep [expr {[emacs-keep-name? $spec] ? "t" : "nil"}])\
  (tk9wm-fix (lambda () $fix))"]
 }
 # A background emacsclient -e: the WM's event loop never waits on a
@@ -6075,6 +6124,8 @@ spec-keys emacs {
     eval       {kind text doc {elisp for the frame it makes}}
     via        {kind {choice gui terminal} doc {a gui frame, or one in a terminal}}
     autodaemon {kind {choice on off} doc {start a missing daemon, or refuse}}
+    keep-frame-name {kind {choice on off}
+                doc {keep the frame wearing this name — off hands the title back}}
     env        {kind envdict doc {environment for the daemon it may start}}
     env-unset  {kind words doc {variables it must NOT have — absent, not empty}}
 }
@@ -8252,6 +8303,9 @@ knob set-emacs-daemons {group emacs kind bool get {set ::emacs_daemons}
                       doc {daemons at all, or the plain lookup-or-run life}}
 knob set-emacs-autodaemon {group emacs kind bool get {set ::emacs_autodaemon}
                       doc {start a missing daemon, or treat it as an error}}
+knob set-emacs-keep-frame-name {group emacs kind bool
+                      get {set ::emacs_keep_frame_name}
+                      doc {leave the button's name in the frame's title}}
 # knob-table — the send-facing answer: the registry plus each knob's
 # current value, one dict. The configurator's whole worldview.
 # What a DERIVED font's knob is really set to: the delta the config
@@ -9473,9 +9527,9 @@ keep welcome_presets {
     minimal {
         {panel-buttons-own default}
         {set-tray on}
-        {action terminal {terminal {} key {<Super>t t}}}
+        {action terminal {type terminal key {<Super>t t}}}
         {action emacs {emacs {frame tk9wm-frame} needs emacs key {<Super>t e}}}
-        {action tmux {terminal {name tmux}
+        {action tmux {terminal {name tmux title tmux}
                       run {sh -c {tmux attach || tmux new}}
                       badge t needs tmux key {<Super>t m}}}
         {panel-button terminal}
@@ -9493,6 +9547,19 @@ keep welcome_presets {
 # name is its WM_CLASS instance, so the match derives itself and the
 # second press finds the first press's window. No eval — the button
 # opens emacs, it does not tell emacs what to think.
+#
+# The plain terminal says `type terminal` OUTRIGHT rather than leaning
+# on the sugar of an empty `terminal {}` (the owner, 2026-08-02). The
+# sugar is not going anywhere — his own config is full of it — but
+# what the desk WRITES for somebody is also the example they will read
+# and copy, and the word we recommend is the word it should show.
+#
+# The tmux button says a TITLE as well as a name, because the two are
+# different marks and only one of them derives itself. A terminal
+# left to title its own window names it after the command's first
+# word, and this command is `sh -c "tmux attach || tmux new"` — so a
+# window whose whole point is tmux introduced itself, in the taskbar
+# and to the eye, as «sh» (the owner, 2026-08-02).
 proc welcome-preset {name} {
     if {![dict exists $::welcome_presets $name]} {
         error "welcome-preset: no such set «$name»"

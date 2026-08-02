@@ -2,11 +2,16 @@
 ;; round-trip: the daemon decides and reports a verdict string for the
 ;; WM's log.
 ;;
-;; API (the WM wraps this file's form in a let providing both):
+;; API (the WM wraps this file's form in a let providing all three):
 ;;   tk9wm-name  the frame's name, a string
 ;;   tk9wm-fix   a function of no arguments: the button's eval, run
 ;;               inside the frame on every activation (a no-op
 ;;               function when the button carries none)
+;;   tk9wm-keep  non-nil to leave a REBUILT frame wearing the name;
+;;               nil hands the title straight back, which is what the
+;;               launch does too (set-emacs-keep-frame-name).  The two
+;;               halves must agree, or a frame changes its title
+;;               depending on which of them last made it.
 ;;
 ;; The eval rides EVERY activation — the frame may have wandered off
 ;; to other work, and the button means "back here".  A smarter policy
@@ -53,7 +58,9 @@
                                (cons 'tk9wm-frame tk9wm-name)))))
       (select-frame-set-input-focus f)
       (redisplay t)
-      (with-selected-frame f (funcall tk9wm-fix))
+      (with-selected-frame f
+        (unless tk9wm-keep (set-frame-name nil))
+        (funcall tk9wm-fix))
       "rebuilt"))
    (t (format "frame %s missing, %d tty terminals to rebuild on"
               tk9wm-name (length terms)))))

@@ -561,13 +561,27 @@
 # launch ensures the daemon (emacsclient -a '' auto-starts one under
 # that socket name), creates the frame named and runs the eval in it:
 #
-#   emacsclient -s telega -a '' -c -F '((name . "TELEGA"))' \
-#       --eval '(telega)' -n
+#   emacsclient -s telega -a '' -c \
+#       -F '((name . "TELEGA") (tk9wm-frame . "TELEGA"))' -n \
+#       --eval '(progn (set-frame-name nil) (telega))'
 #
 # Keys: `frame` (required — the identity), `daemon` (the -s socket;
 # omit for the default daemon; `none` — see the plain life below),
 # `eval`, `via gui|terminal` (this action's answer to the question
-# below), `autodaemon on|off` and `env` (both below).
+# below), `autodaemon on|off`, `keep-frame-name on|off` and `env`
+# (all below).
+#
+# THE NAME IS FOR FINDING THE WINDOW, NOT FOR READING. WM_CLASS is
+# written once, when the frame is born, and the name goes on being the
+# TITLE — so without a word from us the telega frame says «TELEGA» in
+# its titlebar forever, where emacs would have said which buffer one
+# is looking at. So the launch hands the title straight back, with a
+# (set-frame-name nil) of its own before the button's eval; the desk
+# still finds the window by class, and the daemon still finds the
+# frame by a parameter of ours that no rename can take away. Wanting
+# the button's word to STAND in the title is a knob:
+#   set-emacs-keep-frame-name on     ;# desk-wide
+#   emacs {frame TELEGA keep-frame-name on}          ;# per action
 #
 # AUTO-STARTING DAEMONS is a choice. Default on — emacsclient -a ''
 # brings the daemon up under the right socket in the same breath —

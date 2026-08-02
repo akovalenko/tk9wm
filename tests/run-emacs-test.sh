@@ -26,11 +26,15 @@ action tg  {emacs {daemon emtest frame TELEGA eval {(setq tg-evaled 42)}
 action tgt {emacs {daemon emtest frame TTYEM eval {(setq tty-evaled t)} via terminal} key {<Super>h}}
 action pl  {emacs {frame PLAINF daemon none eval {(setq plain t)}} key {<Super>j}}
 action na  {emacs {daemon ghostd frame GHOSTF autodaemon off} key {<Super>k}}
-# the owner's pattern: name the frame (which is what WM_CLASS is made
-# from) and hand the TITLE straight back to emacs. The desk must still
-# find the frame afterwards — by a handle its name cannot take away.
+# the owner's pattern, said by hand: name the frame (which is what
+# WM_CLASS is made from) and hand the TITLE straight back to emacs.
+# The desk must still find the frame afterwards — by a handle its name
+# cannot take away. Said by hand it is now a no-op twice over: the
+# launch does the same thing on its own (see KEEPN below).
 action nm  {emacs {daemon emtest frame NAMEBACK eval {(set-frame-name nil)}}
             key {<Super>y}}
+# ...and the button that WANTS its word standing in the title.
+action kf  {emacs {daemon emtest frame KEEPN keep-frame-name on} key {<Super>u}}
 action eb  {launch {exec sh -c "printenv BENV > $::env(HOME)/../benv-out" &}
             env {BENV yes} key {<Super>l}}
 panel-button tg
@@ -60,14 +64,20 @@ wait_for 20 sh -c 'grep -q "managed.*TELEGA" '"$HERE"'/wm-emacs.log || xdotool s
 sleep 1
 GID=$(xdotool search --classname '^TELEGA$' | head -1)
 GCLS=$(xprop -id "$GID" WM_CLASS 2>/dev/null | sed 's/.*= //')
+# WM_CLASS is written once and stays; the NAME is the title, and the
+# launch gives that back to emacs unless the button says otherwise.
+GNAME=$(ec '(frame-parameter (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) "TELEGA")) (frame-list)) (quote name))')
 ec '(setq tg-evaled 0)' >/dev/null   # the frame wandered off...
 key super+g            # must FIND now, not launch again — and RE-EVAL
 sleep 2
 GEVAL2=$(ec 'tg-evaled')
 
 echo "--- terminal path"
+# Found by tk9wm-frame throughout, never by name: the launch hands the
+# frame's name back to emacs by default now (set-emacs-keep-frame-name
+# off), and the parameter is the handle that survives that.
 key super+h
-wait_for 20 sh -c 'ec() { emacsclient -s emtest -e "$1" 2>/dev/null; }; [ "$(ec "(and (seq-find (lambda (f) (equal (frame-parameter f (quote name)) \"TTYEM\")) (frame-list)) t)")" = t ]' \
+wait_for 20 sh -c 'ec() { emacsclient -s emtest -e "$1" 2>/dev/null; }; [ "$(ec "(and (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) \"TTYEM\")) (frame-list)) t)")" = t ]' \
     || echo "note: wait for tty frame ran out"
 sleep 1
 ec '(setq tty-evaled 0)' >/dev/null
@@ -78,17 +88,25 @@ sleep 0.5
 TEVAL2=$(ec 'tty-evaled')
 
 echo "--- the C-x 5 2 scenario: another frame in, TTYEM out"
-ec '(let ((f (seq-find (lambda (f) (equal (frame-parameter f (quote name)) "TTYEM")) (frame-list))))
+ec '(let ((f (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) "TTYEM")) (frame-list))))
       (make-frame (list (cons (quote terminal) (frame-terminal f)) (cons (quote name) "BEE"))) t)' >/dev/null
-ec '(progn (delete-frame (seq-find (lambda (f) (equal (frame-parameter f (quote name)) "TTYEM")) (frame-list))) t)' >/dev/null
+ec '(progn (delete-frame (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) "TTYEM")) (frame-list))) t)' >/dev/null
 ec '(setq tty-evaled nil)' >/dev/null
 sleep 1
 key super+h            # hit again: must REBUILD the named frame
 wait_for 10 grep -q 'verdict: "rebuilt"' "$HERE/wm-emacs.log" \
     || echo "note: wait for the rebuilt verdict ran out"
 sleep 0.5
-REBUILT=$(ec '(and (seq-find (lambda (f) (equal (frame-parameter f (quote name)) "TTYEM")) (frame-list)) t)')
-TOP=$(ec '(frame-parameter (tty-top-frame (frame-terminal (seq-find (lambda (f) (frame-parameter f (quote tty))) (frame-list)))) (quote name))')
+REBUILT=$(ec '(and (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) "TTYEM")) (frame-list)) t)')
+# ON TOP means the very frame we found is the one the terminal shows —
+# an identity, not a name to match: the frame stopped wearing the
+# button's word the moment the rebuild handed its title back.
+TOP=$(ec '(let ((f (seq-find (lambda (x) (equal (frame-parameter x (quote tk9wm-frame)) "TTYEM")) (frame-list))))
+            (and f (eq f (tty-top-frame (frame-terminal f))) t))')
+TOPWHO=$(ec '(let ((f (seq-find (lambda (x) (equal (frame-parameter x (quote tk9wm-frame)) "TTYEM")) (frame-list))))
+            (and f (list (frame-parameter (tty-top-frame (frame-terminal f)) (quote name))
+                         (frame-parameter (tty-top-frame (frame-terminal f)) (quote tk9wm-frame))
+                         (frame-parameter f (quote name)))))')
 REEVAL=$(ec 'tty-evaled')
 GEVAL=$(ec 'tg-evaled')
 DENV=$(ec '(getenv "EMTEST")')
@@ -104,6 +122,13 @@ key super+y            # the second hit must RAISE it, not build another
 sleep 2
 NMCOUNT1=$(ec '(length (frame-list))')
 NMVERDICT=$(grep -c 'verdict: "gui"' "$HERE/wm-emacs.log")
+
+echo "--- a button that keeps its name"
+key super+u
+wait_for 20 xdotool search --classname '^KEEPN$'
+sleep 1
+KFCLS=$(xprop -id "$(xdotool search --classname '^KEEPN$' | head -1)" WM_CLASS 2>/dev/null | sed 's/.*= //')
+KFNAME=$(ec '(frame-parameter (seq-find (lambda (f) (equal (frame-parameter f (quote tk9wm-frame)) "KEEPN")) (frame-list)) (quote name))')
 
 echo "--- the plain life: daemon none"
 key super+j
@@ -180,10 +205,10 @@ if grep -q 'emacs: verdict: "rebuilt"' "$HERE/wm-emacs.log"; then
 else
     echo "FAIL: no rebuilt-verdict"
 fi
-if [ "$REBUILT" = t ] && [ "$TOP" = '"TTYEM"' ]; then
+if [ "$REBUILT" = t ] && [ "$TOP" = t ]; then
     echo "OK: the named frame is back and on top of its tty"
 else
-    echo "FAIL: rebuilt=$REBUILT top=$TOP"
+    echo "FAIL: rebuilt=$REBUILT top=$TOP (top frame / ours: $TOPWHO)"
 fi
 if [ "$REEVAL" = t ]; then
     echo "OK: the rebuild re-ran the button's eval"
@@ -232,4 +257,14 @@ if [ "$NMCOUNT0" = "$NMCOUNT1" ] && [ "$NMVERDICT" -ge 1 ] \
 else
     echo "FAIL: name-back: name=$NMNAME frames $NMCOUNT0 -> $NMCOUNT1,\
  gui verdicts $NMVERDICT"
+fi
+if [ "$GNAME" != '"TELEGA"' ]; then
+    echo "OK: the launch handed the title back on its own (name=$GNAME)"
+else
+    echo "FAIL: the gui frame still wears the button's word as its title"
+fi
+if [ "$KFNAME" = '"KEEPN"' ] && [ "$KFCLS" = '"KEEPN", "Emacs"' ]; then
+    echo "OK: keep-frame-name on left the word standing in the title"
+else
+    echo "FAIL: keep-frame-name on: name=$KFNAME class=$KFCLS"
 fi
