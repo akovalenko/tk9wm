@@ -367,7 +367,12 @@ proc ui-accel-clashes {} {
 # focus anywhere in its subtree. Reusable on purpose — the next
 # applet gets a scrolled thing too.
 proc ui-ring-box {path args} {
-    ttk::frame $path -style UiRing.TFrame -borderwidth 2 -relief solid {*}$args
+    # OUT OF THE FOCUS CYCLE ITSELF: the box decorates, the widget in
+    # it focuses. Left to Tk's heuristic the frame was a Tab stop of
+    # its own — the ring lit with nothing focused in it, an empty
+    # stop right before the real one (the owner, 2026-08-02).
+    ttk::frame $path -style UiRing.TFrame -borderwidth 2 -relief solid \
+        -takefocus 0 {*}$args
     catch {ttk::style configure UiRing.TFrame -bordercolor [ui-color bg]}
     catch {ttk::style configure UiRingOn.TFrame -bordercolor [ui-color link]}
     bind $path <FocusIn>  +[list ui-ring-follow $path %W]
@@ -749,7 +754,18 @@ proc ui-cell-open {T item column addr opts} {
     set inner [ui-field-inset $T.edit]
     set etx "" ; set ety ""
     if {[dict get $o element] ne ""} {
-        lassign [$T item bbox $item $column [dict get $o element]] etx ety
+        lassign [$T item bbox $item $column [dict get $o element]] \
+            etx ety ex2 ey2
+        # AN EMPTY ELEMENT HAS NO BOX, ONLY AN ANCHOR: treectrl
+        # answers with a zero-size rectangle at the anchor point —
+        # the vertical MIDDLE of the cell — and an overlay placed by
+        # it hung pixels below its row on every empty cell's first
+        # edit (the owner, 2026-08-02). The anchor's x is still where
+        # the letters will start; its y is not a top and is replaced
+        # by the cell's own.
+        if {$etx ne "" && ($ex2 == $etx || $ey2 == $ety)} {
+            set ety [expr {$y1 + [lindex $inner 1]}]
+        }
     }
     if {$etx eq ""} { set etx $x1 ; set ety $y1 }
     # ...AND NO WIDER THAN WHAT IS ACTUALLY THERE TO SEE. The field is

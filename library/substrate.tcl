@@ -3167,6 +3167,15 @@ proc parse-chord {tok} {
     set tok [lindex $fields end]
     if {$tok eq ""} { error "chord without a key" }
     set ks [x-keysym $tok]
+    # A KEYSYM'S CASE IS MEANING ONLY WHERE TWO NAMES EXIST: `a` and
+    # `A` are different keysyms, but there is no `f4` beside `F4` —
+    # and the hand that types the modifier loose types the key loose
+    # too (the owner, 2026-08-02: Alt+f4). When the exact name is
+    # nobody, the title-case and upper-case spellings get their turn;
+    # a name that exists exactly is never second-guessed, so the real
+    # letter pairs keep their difference.
+    if {$ks == 0} { set ks [x-keysym [string totitle $tok]] }
+    if {$ks == 0} { set ks [x-keysym [string toupper $tok]] }
     if {$ks == 0} { error "unknown keysym «$tok»" }
     list $mods $ks
 }

@@ -841,14 +841,20 @@ q 'custom-write {wm-bind {<Super>9} {list one
 list two}}' >/dev/null
 sleep 1
 MULTILINE=$(qu 'set out {}
+    set head {}
     dict for {i d} $::cfg_node {
-        if {[dict get $d what] ne "field"} continue
+        if {[dict get $d what] ni {field elem}} continue
         if {[dict get $d coll] ne "bindings"} continue
         if {[dict get $d key] ne "Super+9"} continue
-        if {[dict get $d field] ne "script"} continue
-        set out [$::cfg_T item element cget $i Cval eVal -text]
+        if {[dict get $d what] eq "field"
+                && [dict get $d field] eq "script"} {
+            set out [$::cfg_T item element cget $i Cval eVal -text]
+        }
+        if {[dict get $d what] eq "elem"} {
+            set head [$::cfg_T item element cget $i Cval eVal -text]
+        }
     }
-    list cell [list $out]')
+    list cell [list $out] head [list $head]')
 # ---- THE EDITOR STAYS INSIDE THE TREE ----
 # a cell reaching past the tree's right edge gave the field a width
 # partly outside the window: the text believed it had room it did not
@@ -1195,6 +1201,72 @@ MENU2=$(qu 't-knob set-edge-resist
     }
     set r')
 
+# ---- the ring box decorates, it is not a Tab stop ----
+# The frame round the tree and its scrollbar took a focus stop of its
+# own — the ring lit with nothing focused in it (the owner,
+# 2026-08-02). The whole Tab cycle is walked: the tree is a stop, the
+# box around it never.
+BOXFOCUS=$(qu 'set box [winfo parent $::cfg_T]
+    set stops {}
+    set w $::cfg_T
+    for {set i 0} {$i < 30} {incr i} {
+        set w [tk_focusNext $w]
+        if {$w eq $::cfg_T || $w in $stops} break
+        lappend stops $w
+    }
+    list takefocus [$box cget -takefocus] stops $stops')
+# ---- the editor sits ON an empty cell, not under it ----
+# An empty text element answers bbox with a zero-size rectangle at
+# its anchor — the cell's vertical middle — and the overlay took that
+# point for a top: the first edit of any empty cell opened pixels
+# below its row (the owner, 2026-08-02).
+EMPTYCELL=$(qu 'set T $::cfg_T
+    set addr set-emacs-edit-daemon
+    set it [dict get $::cfg_item $addr]
+    $T see $it
+    update idletasks
+    lassign [$T item bbox $it Cval] cx cy
+    cfg-entry $it $addr
+    after 200; update
+    set r [list empty [expr {[cfg-cur $addr] eq ""}] \
+        dx [expr {[winfo x $T.edit] - $cx}] \
+        dy [expr {[winfo y $T.edit] - $cy}]]
+    cfg-entry-done cancel
+    set r')
+# ---- the color chooser opens on the DERIVED color ----
+# An unsaid color knob is wearing the theme's answer, and handing the
+# dialog the empty value threw before anything mapped: the ▾ silently
+# did nothing (the owner, 2026-08-02). The dialog itself cannot run
+# headless; the seed it opens on can.
+COLORSEED=$(qu 'set s [cfg-color-seed set-desk-background]
+    list nonempty [expr {$s ne ""}] \
+         true [expr {$s eq [cfg-cur set-desk-background]
+                     || $s eq [wm-call {themed desk}]}]')
+# ---- a bad chord is refused IN the dialog, a loose-case one is taken --
+# The commit used to close the dialog and complain into the main
+# window's status line — swallowed silence, from where one sat. And
+# f9 is F9 said loosely: no keysym exists beside it to make the case
+# meaning (the owner, 2026-08-02: Alt+f4).
+BADCHORD=$(qu 'cfg-insert-binding-dialog
+    set w .cfg-insert
+    $w.chord insert 0 "Alt+f44"
+    $w.script insert 0 "list x"
+    cfg-bind-commit $w
+    after 100; update
+    set r [list open [winfo exists $w] \
+        say [expr {[winfo exists $w.say] ? [$w.say cget -text] : {}}]]
+    destroy $w
+    set r')
+FORGIVEN=$(qu 'cfg-insert-binding-dialog
+    set w .cfg-insert
+    $w.chord insert 0 "Alt+f9"
+    $w.script insert 0 "list forgiven"
+    cfg-bind-commit $w
+    after 300; update
+    list closed [expr {![winfo exists $w]}] \
+         same [wm-call {expr {[parse-chord f9] eq [parse-chord F9]}}] \
+         held [dict exists [wm-call {chord-holder {Alt+F9}}] who]')
+
 # --- THE PALETTE MOVING UNDER AN OPEN APPLET, which is the desk's own
 #     <<ThemeChanged>>. `option add` dresses what is created next and
 #     nothing that stands, so without the announcement the applet keeps
@@ -1305,6 +1377,32 @@ if [ "$SBFOCUS" = 0 ]; then
     echo "OK: the scrollbar is out of the focus cycle"
 else
     echo "FAIL: scrollbar takefocus = $SBFOCUS"
+fi
+if [ "$BOXFOCUS" = "takefocus 0 stops {.tk9wm-configurator.b.save\
+ .tk9wm-configurator.b.revert .tk9wm-configurator.b.erase}" ]; then
+    echo "OK: the ring box decorates without being a Tab stop of its own"
+else
+    echo "FAIL: ring box focus: $BOXFOCUS"
+fi
+if [ "$EMPTYCELL" = "empty 1 dx 0 dy 0" ]; then
+    echo "OK: the editor opens ON an empty cell, not below it"
+else
+    echo "FAIL: empty-cell overlay: $EMPTYCELL"
+fi
+if [ "$COLORSEED" = "nonempty 1 true 1" ]; then
+    echo "OK: the color chooser has a true seed on an unsaid knob"
+else
+    echo "FAIL: color seed: $COLORSEED"
+fi
+case "$BADCHORD" in
+    "open 1 say "*"unknown keysym"*)
+        echo "OK: a bad chord keeps the dialog open and says so in it" ;;
+    *) echo "FAIL: bad chord in the dialog: $BADCHORD" ;;
+esac
+if [ "$FORGIVEN" = "closed 1 same 1 held 1" ]; then
+    echo "OK: a loose-case keysym is taken, and the bind stands"
+else
+    echo "FAIL: forgiving chord: $FORGIVEN"
 fi
 case "$BADLIST|$BADLISTMSG" in
     "0|"*unmatched*) echo "OK: an unmatched quote is refused with a sentence, not a stack" ;;
@@ -1593,6 +1691,8 @@ else
     echo "FAIL: the clash guard: $CLASH"
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
+echo "--- boxfocus={$BOXFOCUS} emptycell={$EMPTYCELL} colorseed={$COLORSEED}"
+echo "--- badchord={$BADCHORD} forgiven={$FORGIVEN}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
 if [ "$SCRIPTLINT" = "warn warn note clean restart-wm" ] \
         && [ "$BADPARSE" = "level warn parse 1" ]; then
@@ -1631,7 +1731,7 @@ if [ "$PIN" = "pend 1 reset normal" ]; then
 else
     echo "FAIL: the pin: $PIN"
 fi
-if [ "$MULTILINE" = "cell {{list one ⏎ list two}}" ]; then
+if [ "$MULTILINE" = "cell {{list one ⏎ list two}} head {{list one ⏎ list two}}" ]; then
     echo "OK: a newline in a cell is drawn, not printed as a control box"
 else
     echo "FAIL: the multi-line cell: $MULTILINE"

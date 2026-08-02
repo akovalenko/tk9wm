@@ -824,7 +824,7 @@ proc cfg-knob-dress {T item name meta} {
 proc cfg-elem-dress {T item cname e} {
     $T item element configure $item Cname eTxt -text [dict get $e key]
     $T item element configure $item Cval eVal \
-        -text [cfg-elem-summary $cname $e]
+        -text [cfg-inline-text [cfg-elem-summary $cname $e]]
     set flags {}
     if {[dict exists $e ineffectual]} { lappend flags ✗ }
     if {[dict exists $e waiting]} { lappend flags waiting }
@@ -912,7 +912,7 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
     # not the one answering
     if {$addr eq "shadow"} {
         $T item element configure $item Cval eVal \
-            -text [dict get $fmeta script]
+            -text [cfg-inline-text [dict get $fmeta script]]
         $T item element configure $item Cflag eFlag \
             -text [expr {[dict get $fmeta owner] eq "custom" ? "✗ yours" : "✗ cfg"}]
         $T item element configure $item Cdoc eDoc \
@@ -1316,15 +1316,19 @@ proc cfg-value-text {name value} {
             return "\[[llength $value] $noun\]"
         }
     }
-    # A NEWLINE IS DRAWN, NOT PRINTED. A three-line script in a
-    # one-line cell put treectrl's control-character box on the screen
-    # — «vt», which is a thing to decipher rather than read (the
-    # owner, 2026-08-02). The value itself is untouched: this is the
-    # cell's rendering of it, and the editor still opens on the real
-    # text. (Trimming it first was the other half of his thought, and
-    # the answer there is no: a trailing backslash means something.)
-    return [string map [list \n " ⏎ "] $value]
+    return [cfg-inline-text $value]
 }
+# A NEWLINE IS DRAWN, NOT PRINTED. A three-line script in a one-line
+# cell put treectrl's control-character box on the screen — «vt»,
+# which is a thing to decipher rather than read (the owner,
+# 2026-08-02). The value itself is untouched: this is the CELL'S
+# rendering of it, and the editor still opens on the real text.
+# (Trimming it first was the other half of his thought, and the
+# answer there is no: a trailing backslash means something.) One
+# renderer for every one-line cell — the element's own header row and
+# a shadowed claimant showed the box where their field rows did not
+# (the owner, 2026-08-02, second look).
+proc cfg-inline-text {value} { string map [list \n " ⏎ "] $value }
 # What the EDITOR starts with — the value as one would type it. A
 # font's actual dict is a mouthful of options; its family and size
 # are what a hand wants to touch (and set-desk-font takes exactly
@@ -1753,9 +1757,25 @@ proc cfg-list-commit {name} {
 # -parent, on both pickers: without it Tk's dialogs are neither
 # transient nor grouped, and they sink behind the window that opened
 # them (the owner watched both do it).
+# WHAT THE COLOR CHOOSER OPENS ON: the said word when there is one,
+# the DERIVED color when there is none. An unsaid color knob is not
+# colorless — it is wearing the theme's answer — and handing the
+# dialog the empty value threw before anything mapped: the ▾ on a
+# themed set-desk-background silently did nothing, the error sank in
+# bgerror (the owner, 2026-08-02).
+proc cfg-color-seed {name} {
+    set v [cfg-cur $name]
+    if {$v ne ""} { return $v }
+    if {[dict exists $::cfg_table $name derived]} {
+        return [dict get $::cfg_table $name derived]
+    }
+    return ""
+}
 proc cfg-color-dialog {name} {
+    set seed [cfg-color-seed $name]
     set c [tk_chooseColor -parent [winfo toplevel $::cfg_T] \
-        -initialcolor [cfg-cur $name] -title "tk9wm: $name"]
+        {*}[expr {$seed ne "" ? [list -initialcolor $seed] : {}}] \
+        -title "tk9wm: $name"]
     if {$c ne ""} { cfg-picked $name $c }
 }
 # The dialog seeds from the COMPUTED font — what the desk actually
@@ -3099,9 +3119,43 @@ proc cfg-insert-binding-dialog {} {
     bind $w.script <Return> [list cfg-bind-commit $w]
     focus $w.chord
 }
+# REFUSED WHERE IT WAS TYPED. The commit used to close the dialog
+# first and complain after — into the main window's status line, from
+# where the dialog had stood a bad chord read as swallowed silence
+# (the owner, 2026-08-02: Alt+f4). The dialog keeps the floor until
+# its words are good: the refusal appears under the entries, and the
+# hand is still on the line that needs fixing.
 proc cfg-bind-commit {w} {
     set spec [string trim [$w.chord get]]
     set script [string trim [$w.script get]]
+    if {[cfg-bind-trouble $spec $script err]} {
+        cfg-dialog-say $w $err
+        return
+    }
     destroy $w
     cfg-insert-bind $spec $script
+}
+# What is wrong with the dialog's words, before anything runs: an
+# empty half, or a chord token the desk cannot parse. The DESK is the
+# parser — asking it keeps one grammar (case-forgiving keysyms
+# included) serving the file and the dialog alike.
+proc cfg-bind-trouble {spec script varname} {
+    upvar 1 $varname err
+    if {$spec eq ""}   { set err "name a chord first" ; return 1 }
+    if {$script eq ""} { set err "say what it runs"   ; return 1 }
+    if {[catch {wm-call \
+            [list lmap tok [split $spec " "] {parse-chord $tok}]} e]} {
+        set err [cfg-brief $e]
+        return 1
+    }
+    return 0
+}
+proc cfg-dialog-say {w msg} {
+    if {![winfo exists $w.say]} {
+        label $w.say -takefocus 0 -anchor w -justify left \
+            -foreground "#cc4040"
+        pack $w.say -fill x -padx 6 -pady 2
+    }
+    $w.say configure -text $msg
+    bell
 }
