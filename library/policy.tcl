@@ -6906,12 +6906,18 @@ proc panel-build {name idx} {
     $T element create eSep rect -fill [themed rule] -width 1 \
         -height [expr {$itemh - 14}]
     $T element create eArrow text -text ▾ -fill [themed dim] -font PanelFont
-    # The mark over an icon: small letters on a chip, so they read on
+    # The mark over a face: small letters on a chip, so they read on
     # any picture underneath. Both are drawn only when a button asked
-    # for one — an empty text and an unfilled rect draw nothing, which
+    # for one — an empty text and an unpainted rect draw nothing, which
     # is cheaper than a state and says the same thing.
+    #
+    # The chip's OUTLINE is dressed alongside its fill and not fixed
+    # here. Standing on its own it drew the empty chip on every icon
+    # that never asked for a mark — a black hairline, a rect with no
+    # text in it and its padding for size (the owner's report,
+    # 2026-08-02). "Unpainted" has to mean both paints.
     $T element create eMark text -fill [themed ink] -lines 1 -font $mfont
-    $T element create eMarkBg rect -outline [themed edge] -outlinewidth 1
+    $T element create eMarkBg rect -outlinewidth 1
     # Three button styles, assigned per item by what its face resolved
     # to: plain (today's text chip — every button when nothing is
     # iconic), icon, and badge; row and stack presets differ in the
@@ -6929,22 +6935,13 @@ proc panel-build {name idx} {
         $T style elements sBtnI {eFace eBIcon eBTxt}
         $T style layout sBtnI eFace -union {eBIcon eBTxt} \
             -ipadx $ipx -ipady 3 -padx 2 -pady $fgap -expand wens
-        $T style layout sBtnI eBIcon -expand we -pady {0 2}
-        $T style elements sBtnI [concat [$T style elements sBtnI] {eMarkBg eMark}]
-        # In a STACK the icon is centred over the label, so the mark
-        # rides its lower-right from the top edge down rather than
-        # from the bottom up.
-        # In a STACK the icon is centred over the label, so where its
-        # far edge falls depends on which of the two is wider — a
-        # number this layout does not have. Aligned to the icon as if
-        # it started at the face's edge, which is exact whenever the
-        # label is the narrower of the two and near enough otherwise.
-        set mw [expr {[font measure $mfont M] + 4}]
-        $T style layout sBtnI eMarkBg -detach yes -union eMark -ipadx 2 -ipady 1
-        $T style layout sBtnI eMark -detach yes -expand se \
-            -minwidth [font measure $mfont M] \
-            -padx [list [expr {max(0, 2 + 8 + $isz - $mw)}] 0] \
-            -pady [list [expr {$fgap + 3 + $isz * 3 / 5}] 0]
+        # The icon's cell is the icon SQUARE, exactly as the badge's is
+        # below — an image that came out smaller (a 24px file on a 48px
+        # strip is not upscaled) sits centred in the square its button
+        # was measured for, instead of dragging the mark that hangs off
+        # its corner out into the open.
+        $T style layout sBtnI eBIcon -minwidth $isz -minheight $isz \
+            -expand we -pady {0 2}
         $T style layout sBtnI eBTxt -expand we
         $T style create sBtnB -orient vertical
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
@@ -6963,6 +6960,30 @@ proc panel-build {name idx} {
         $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
             -expand we -pady {0 2}
         $T style layout sBtnB eBTxt -expand we
+        # In a STACK the face is CENTRED over the label, so where its
+        # far edge falls depends on which of the two is wider — a
+        # number this layout does not have. Walking the mark in from
+        # the item's left edge, as the row preset does, therefore lands
+        # it on the caption whenever the caption is the wider — which
+        # in a stack it usually is (seen: a `t` sitting in the middle
+        # of the word under the icon).
+        #
+        # It is centred instead, and then walked half its distance out:
+        # expanding BOTH sides splits the slack evenly, so a pad on one
+        # side moves the element by half of it. Centre plus half the
+        # icon's width, less half the mark's, is the icon's own corner
+        # — whatever the caption does. Vertically there is nothing to
+        # guess: the icon is at the top, so the mark hangs from there.
+        # Both faces, for the reason panel-btn-dress gives.
+        set mw [font measure $mfont M]
+        set mline [font metrics $mfont -linespace]
+        foreach s {sBtnI sBtnB} {
+            $T style elements $s [concat [$T style elements $s] {eMarkBg eMark}]
+            $T style layout $s eMarkBg -detach yes -union eMark -ipadx 2 -ipady 1
+            $T style layout $s eMark -detach yes -expand wse -minwidth $mw \
+                -padx [list [expr {max(0, $isz - $mw - 4)}] 0] \
+                -pady [list [expr {max(0, $fgap + 3 + $isz - $mline)}] 0]
+        }
     } elseif {$iconic} {
         $T style create sBtnI
         $T style elements sBtnI {eFace eBIcon eBTxt}
@@ -6971,34 +6992,10 @@ proc panel-build {name idx} {
         # The gap after the icon is the LABEL's, so with no label
         # there is none — left in, it hangs the icon off-centre in its
         # own chip.
-        $T style layout sBtnI eBIcon -expand ns -padx [list 0 [expr {$bare ? 0 : 4}]]
-        $T style elements sBtnI [concat [$T style elements sBtnI] {eMarkBg eMark}]
-        # OVER THE ICON, not over the button. A detached element is
-        # placed in the whole item, so «south-east» put the mark past
-        # the label at the far end of the chip — right where it does
-        # not belong. It is pinned by arithmetic instead, off the
-        # numbers this builder already has: expanding north and east
-        # anchors it south-WEST, and the pads walk it back to the
-        # icon's own lower-right corner.
-        # The widest a one-or-two letter mark can be, plus the chip's
-        # own padding: right-aligning to THAT keeps every mark inside
-        # the icon instead of letting the long ones run past it.
-        set mw [expr {[font measure $mfont M] + 4}]
-        set mx [expr {max(0, 2 + [lindex $ipx 0] + $isz - $mw)}]
-        set my [expr {max(0, ($itemh - $isz) / 2)}]
-        $T style layout sBtnI eMarkBg -detach yes -union eMark -ipadx 2 -ipady 1
-        # A FIXED BOX, not a chip that shrinks to its letter. Right-
-        # aligning a variable width to the icon's edge put the short
-        # marks well inside it and the long ones against it — the same
-        # corner looking like two different places. One box, the
-        # letter centred in it, and every mark sits where the last one
-        # did. Sized for ONE letter, which is what nearly every mark
-        # is: a box built for the rare pair left the common case
-        # swimming in it, and on a small icon ate the picture it is
-        # there to annotate.
-        $T style layout sBtnI eMark -detach yes -expand ne \
-            -minwidth [font measure $mfont M] \
-            -padx [list $mx 0] -pady [list 0 $my]
+        # ...and the icon's cell is the icon square here too — see the
+        # stack preset above.
+        $T style layout sBtnI eBIcon -minwidth $isz -minheight $isz \
+            -expand ns -padx [list 0 [expr {$bare ? 0 : 4}]]
         $T style layout sBtnI eBTxt -expand ns
         $T style create sBtnB
         $T style elements sBtnB {eFace ePRect ePTxt eBTxt}
@@ -7014,6 +7011,37 @@ proc panel-build {name idx} {
         $T style layout sBtnB ePTxt -minwidth $isz -minheight $isz \
             -expand ns -padx [list 0 [expr {$bare ? 0 : 4}]]
         $T style layout sBtnB eBTxt -expand ns
+        # OVER THE FACE, not over the button. A detached element is
+        # placed in the whole item, so «south-east» put the mark past
+        # the label at the far end of the chip — right where it does
+        # not belong. It is pinned by arithmetic instead, off the
+        # numbers this builder already has: expanding north and east
+        # anchors it south-WEST, and the pads walk it back to the
+        # face's own lower-right corner. The icon and the badge occupy
+        # the same square in the same place, so one set of numbers
+        # lands the mark on either.
+        # The widest a one-or-two letter mark can be, plus the chip's
+        # own padding: right-aligning to THAT keeps every mark inside
+        # the face instead of letting the long ones run past it.
+        set mw [expr {[font measure $mfont M] + 4}]
+        set mx [expr {max(0, 2 + [lindex $ipx 0] + $isz - $mw)}]
+        set my [expr {max(0, ($itemh - $isz) / 2)}]
+        foreach s {sBtnI sBtnB} {
+            $T style elements $s [concat [$T style elements $s] {eMarkBg eMark}]
+            $T style layout $s eMarkBg -detach yes -union eMark -ipadx 2 -ipady 1
+            # A FIXED BOX, not a chip that shrinks to its letter.
+            # Right-aligning a variable width to the face's edge put
+            # the short marks well inside it and the long ones against
+            # it — the same corner looking like two different places.
+            # One box, the letter centred in it, and every mark sits
+            # where the last one did. Sized for ONE letter, which is
+            # what nearly every mark is: a box built for the rare pair
+            # left the common case swimming in it, and on a small icon
+            # ate the picture it is there to annotate.
+            $T style layout $s eMark -detach yes -expand ne \
+                -minwidth [font measure $mfont M] \
+                -padx [list $mx 0] -pady [list 0 $my]
+        }
     }
     # One column, one width: every label cell is min-sized to the
     # widest button's content, so the faces around them come out the
@@ -7119,14 +7147,22 @@ proc panel-btn-dress {T item label face iconic {bare 0} {mark ""}} {
     # element stays in the style (that is what keeps the unions and
     # the alignment honest) and an empty text takes no room.
     $T item element configure $item C0 eBTxt -text [expr {$bare ? "" : $label}]
-    # ...and the mark, on the icon style only — a badge button's face
-    # is already its own lettering, and a mark over that is two answers
-    # to one question. No mark: no text and no fill, which draws
-    # nothing at all.
-    if {$face ne "" && $iconic} {
+    # ...and the mark, over whichever face resolved. It was the icon's
+    # alone, on the reading that a badge is already lettering and a
+    # mark over that is two answers to one question. The owner asked
+    # for both (2026-08-02) and the reading was wrong: they answer
+    # DIFFERENT questions — the face says what opens, the mark says
+    # which variation of it — and the badge is only lettering by
+    # accident of having no picture to draw. Whatever the button wears,
+    # it wears its mark the same way.
+    #
+    # No mark: no text, no fill AND no outline. Leaving the outline on
+    # drew an empty chip as a hairline over every unmarked icon.
+    if {$iconic} {
         $T item element configure $item C0 eMark -text $mark
         $T item element configure $item C0 eMarkBg \
-            -fill [expr {$mark eq "" ? "" : [themed raised]}]
+            -fill [expr {$mark eq "" ? "" : [themed raised]}] \
+            -outline [expr {$mark eq "" ? "" : [themed edge]}]
     }
 }
 proc panel-btn-make {T parent key data} {
