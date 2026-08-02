@@ -50,7 +50,39 @@ chan configure stdout -buffering line
 # The transport, host side: eval in the WM, get the answer. The WM's
 # send name rode in on argv — the WM knows what it is called, the
 # host should not guess.
-proc wm-call {script} { send -- $::ui_wmapp $script }
+#
+# ...AND WITH NO DESK BEHIND IT (config-tree, step 4: an applet has to
+# work standalone as well as wired to a WM — the requirement on
+# anything that leaves for a library). Started with `-` for the WM's
+# name, the host answers the calls it can answer by itself and refuses
+# the rest OUT LOUD: an applet that needs the desk says so in a
+# sentence instead of hanging on a send to nobody.
+proc wm-call {script} {
+    if {$::ui_wmapp ne "-"} { return [send -- $::ui_wmapp $script] }
+    return [ui-standalone $script]
+}
+proc ui-standalone? {} { expr {$::ui_wmapp eq "-"} }
+proc ui-standalone {script} {
+    switch -- [lindex $script 0] {
+        ui-style {
+            # the theme the toolkit itself has, which is the honest
+            # answer when no desk has an opinion
+            set f [font actual TkDefaultFont]
+            return [dict create scheme light \
+                deskfont [list -family [dict get $f -family] -size 10] \
+                titlefont [list -family [dict get $f -family] -size 10 \
+                                -weight bold] \
+                bg #d6d6d6 fg #202020 field #ffffff select #b0c4de \
+                trough #c0c0c0 link #204a87]
+        }
+        problems  { return {} }
+        problem-record { puts "UI: $script" ; return }
+        workarea  { return [list 0 0 [winfo screenwidth .] [winfo screenheight .]] }
+        chrome    { return {} }
+    }
+    error "«[lindex $script 0]» needs the desk, and this host was\
+ started without one"
+}
 
 # The style bridge, host side: fetch the desk's fonts and palette
 # (ui-style in the WM) and wear them. Named fonts re-CONFIGURE, so a
@@ -65,6 +97,7 @@ proc ui-style-sync {} {
         puts "UI: style sync failed: $st"
         return
     }
+    if {![dict exists $st scheme]} { return }
     set ::ui_palette $st
     foreach {name key} {DeskFont deskfont TitleFont titlefont} {
         if {[lsearch -exact [font names] $name] < 0} { font create $name }

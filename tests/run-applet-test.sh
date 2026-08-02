@@ -62,6 +62,18 @@ BID=$(xdotool search --classname '^tk9wm-about$' | head -1)
 # leave first.
 q 'after 100 restart-wm; list ordered' >/dev/null 2>&1
 sleep 3
+# ---- A HOST WITH NO DESK AT ALL (config-tree, step 4) ----
+# started with `-` for the WM's name, it dresses itself from the
+# toolkit and opens an applet; what genuinely needs the desk is
+# refused in a sentence rather than hung on a send to nobody
+"$LINUX/whale" "$ROOT/library/ui/host.tcl" - about \
+    > "$HERE/ui-solo.log" 2>&1 &
+SOLO=$!
+sleep 3
+SOLOWIN=$(xdotool search --classname '^tk9wm-about$' | wc -l)
+kill $SOLO 2>/dev/null
+sleep 0.5
+
 # ---- THE WALK IS THE HOST'S, and asks the desk for nothing ----
 # (config-tree, step 4: what the next applet gets for free). A bare
 # toplevel, a tree of its own, two storeys of nodes — no wm-call, no
@@ -185,6 +197,12 @@ if [ "$N" -ge 2 ]; then
     echo "OK: after the restart the window was FOUND — a match, not a memory"
 else
     echo "FAIL: found-lines: $N, want 2 (one before, one after restart)"
+fi
+if [ "$SOLOWIN" -ge 1 ] && ! grep -qi "error" "$HERE/ui-solo.log"; then
+    echo "OK: the host runs with no desk behind it and still opens an applet"
+else
+    echo "FAIL: standalone host: windows=$SOLOWIN"
+    sed -n '1,5p' "$HERE/ui-solo.log"
 fi
 if [ "$WALK" = "rows 2 deep 1 seen {one deeper two}" ]; then
     echo "OK: the host's walk builds a tree of nodes with no desk behind it"
