@@ -719,6 +719,20 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   themes on purpose: their glyphs are white svg cached per SIZE, not
   per ground.
 
+  A theme that moves is ANNOUNCED, the way Tk announces its own: the
+  host generates `<<DeskStyle>>` on every open applet's toplevel, and
+  whoever cares binds it. Without that a live change repainted nothing
+  that already stood — `option add` dresses what is created next — and
+  the ttk half following made it worse by being half. The configurator
+  repaints BY NAME rather than by walking its widget tree, because a
+  blind walk also repaints what is deliberately not the palette's
+  colour: the flag's orange, a refusal's red on the status line. A
+  restyle that eats the error message is worse than one that misses a
+  frame. And a selection band carries its own INK — awlight selects
+  with a dark blue, treectrl draws a row's text in one colour, so a
+  picked row went black-on-navy and vanished until every text element
+  learned the two-state fill.
+
   **Widgets — furniture that is not a window** (`wm-widget`,
   `library/widget.tcl`, one file per kind under `library/widgets/`). A
   widget knows how to fill a FRAME and nothing about where it hangs:
