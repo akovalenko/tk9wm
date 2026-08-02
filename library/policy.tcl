@@ -5415,6 +5415,10 @@ proc emacs-eval-bg {spec expr} {
 # (the owner, 2026-08-01). Running out of it is not silent any more:
 # it is a problem with the last lines the daemon said, which is the
 # whole of what one needs to see.
+#
+# A config word, NOT a knob: running out of patience decides nothing
+# except when the desk starts talking about the wait, and a dial for
+# that is noise in the configurator (the owner, 2026-08-02).
 keep emacs_wait 60000
 proc set-emacs-timeout {ms} { set ::emacs_wait $ms }
 proc emacs-eval-run {cmd} {
@@ -8355,8 +8359,6 @@ knob set-edge-resist {group windows kind int get {set ::edge_resist}
                       doc {pixels a carried window sticks to a workarea edge}}
 knob set-fade        {group windows kind {float 0 1} get {set ::fade}
                       doc {how solid a faded window stays}}
-knob set-emacs-timeout {group emacs kind int get {set ::emacs_wait}
-                        doc {how long a daemon may take to answer, ms}}
 knob set-root-cursor {group desk kind text get {set ::root_cursor}
                       doc {the cursor over the bare desk}}
 knob set-desk-window {group desk kind bool
@@ -9785,14 +9787,15 @@ set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
-    key_echo key_echo_place KEY_ECHO_BAD KBMR_BG chord_hold last_started
+    key_echo key_echo_place key_hold_warn KEY_ECHO_BAD KBMR_BG chord_hold
+    last_started
     titlebar_buttons titlebar_gestures fade font_kin
     widgets desk_window desk_background desk_background_said widget_gap
     theme
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_bg_said tray_argb
     tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
-    emacs_wait
+    emacs_wait emacs_edit emacs_edit_daemon emacs_keep_frame_name
     welcome key_bundles action_raw action_spec action_lint
 }
 proc policy-snapshot-defaults {} {

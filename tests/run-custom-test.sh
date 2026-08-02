@@ -112,6 +112,27 @@ KEYS=$(q 'join [list [knob-key {wm-bind {<Super>9} x}] \
     [knob-key {panel-buttons-own default}]] " | "')
 SECTIONS=$(q 'config-ordered-verbs')
 
+# ---- a knob's state is a variable the reset knows ----
+# «Reset to saved» on a knob is reload-config, and a reload restores
+# only what config_vars names: a knob reading a bare ::variable that
+# the list does not carry keeps its previewed value through every
+# reload — the owner watched set-emacs-edit-daemon shrug off Reset to
+# saved (2026-08-02), three emacs knobs having been born after the
+# list was written. The walk finds the NEXT forgotten one.
+RESETTABLE=$(q 'set bad {}
+    dict for {name meta} [knob-registry] {
+        if {[regexp {^\s*set ::(\w+)\s*$} [dict get $meta get] -> v]
+                && $v ni $::config_vars} { lappend bad $name }
+    }
+    list missing $bad')
+q 'say-as custom {set-emacs-edit-daemon telega}
+   say-as custom {set-emacs-edit create}
+   say-as custom {set-emacs-keep-frame-name on}' >/dev/null
+q reload-config >/dev/null
+sleep 0.5
+RESETBACK=$(q 'list daemon $::emacs_edit_daemon \
+    edit $::emacs_edit keep $::emacs_keep_frame_name')
+
 # the word that came out of the included file goes BACK to it, and
 # the main file keeps the include line and its own words only
 INCLUDED=$(q 'list slop $::drag_slop home [dict get $::custom_home set-drag-slop]')
@@ -162,6 +183,7 @@ echo "--- layer lines:"
 grep -aE 'custom|welcome' "$HERE/wm-custom.log" "$HERE/wm-fresh.log" | grep -v widget
 echo "--- badwrite={$BADWRITE} in-file=$BADFILE"
 echo "--- verbs={$VERBS} sections={$SECTIONS}"
+echo "--- resettable={$RESETTABLE} resetback={$RESETBACK}"
 echo "--- keys={$KEYS}"
 echo "--- included={$INCLUDED} mine=$MINE main=$MAINHAS/$MAININC"
 echo "--- verdict"
@@ -255,6 +277,16 @@ if [ "$SECTIONS" = "wm-font wm-widget panel-buttons-own panel-button" ]; then
     echo "OK: the ordered sections come from the table, in its own order"
 else
     echo "FAIL: sections: $SECTIONS"
+fi
+if [ "$RESETTABLE" = "missing {}" ]; then
+    echo "OK: every bare-variable knob is a variable the reset knows"
+else
+    echo "FAIL: knobs a reload cannot restore: $RESETTABLE"
+fi
+if [ "$RESETBACK" = "daemon {} edit reuse keep off" ]; then
+    echo "OK: previewed emacs knobs go back to their defaults on reload"
+else
+    echo "FAIL: after reload: $RESETBACK"
 fi
 
 if [ "$BADWRITE" = "rc 1 filed 0 said 1" ] && [ "$BADFILE" = 0 ]; then
