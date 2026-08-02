@@ -2633,6 +2633,11 @@ proc cfg-insert-action {choice typed} {
 
 # The commit half of each Insert, dialogless — the programmatic door
 # the tests drive, like cfg-set beside the editors.
+# PICKED WINS, and what was typed is the road to a button whose label
+# is fresh — the rule the picker used to know about this one caller.
+proc cfg-insert-button-picked {choice typed} {
+    cfg-insert-button [expr {$choice ne "" ? $choice : $typed}]
+}
 proc cfg-insert-button {name} {
     if {$name eq ""} { return 0 }
     if {[cfg-elem-rec panel $name] ne ""} {
@@ -2837,7 +2842,7 @@ proc cfg-holder-sentence {held} {
 proc cfg-insert-panel-dialog {} {
     set cards [dict get $::cfg_coll panel cards]
     cfg-pick-dialog "new panel button — an action" $cards \
-        "or an action's name" cfg-insert-button
+        "or an action's name" cfg-insert-button-picked
 }
 proc cfg-insert-widgets-dialog {} {
     set types [dict get $::cfg_coll widgets types]
@@ -2851,6 +2856,13 @@ proc cfg-insert-widget-picked {choice entry} {
 # One shape serves buttons and widgets: a list to pick from, an entry
 # beside it. The commit callback gets what was picked and what was
 # typed; buttons use one of the two, widgets need both.
+# The picker lives in the host now (ui-pick-dialog): a list to choose
+# from, a name to type, and a commit — nothing about it was ever this
+# applet's, and the next one gets it for free.
+proc cfg-pick-dialog {title choices entrylabel commit} {
+    ui-pick-dialog .cfg-insert [winfo toplevel $::cfg_T] \
+        "tk9wm: $title" $title $choices $entrylabel $commit
+}
 # THE LAZILY BUILT THINGS, DECLARED. A run with ui-build-all behind it
 # opens every one of them once — which is how a clash or a typo in a
 # window nobody visits in the suite gets caught by the suite.
@@ -2860,55 +2872,6 @@ ui-lazy "problems view" {
 ui-lazy "insert dialog" {
     cfg-pick-dialog "probe" {one two} "name" {}
 } {destroy .cfg-insert}
-proc cfg-pick-dialog {title choices entrylabel commit} {
-    set w .cfg-insert
-    catch {destroy $w}
-    toplevel $w -class Tk9wmUi
-    wm title $w "tk9wm: $title"
-    wm transient $w [winfo toplevel $::cfg_T]
-    label $w.l -takefocus 0 -anchor w -text $title
-    listbox $w.list -font DeskFont -height [expr {max(3, min(10,
-        [llength $choices]))}] \
-        -background [ui-color field] -foreground [ui-color fg] \
-        -selectbackground [ui-color select]
-    ui-focusable $w.list
-    foreach c $choices { $w.list insert end $c }
-    label $w.el -takefocus 0 -anchor w -text $entrylabel
-    entry $w.e -font DeskFont -background [ui-color field] \
-        -foreground [ui-color fg] -insertbackground [ui-color fg]
-    ui-focusable $w.e
-    frame $w.b -takefocus 0
-    ttk::button $w.b.ok -text OK -underline 0 \
-        -command [list cfg-pick-commit $w $commit]
-    ttk::button $w.b.cancel -text Cancel -underline 0 \
-        -command [list destroy $w]
-    foreach b [list $w.b.ok $w.b.cancel] { ui-focusable $b; ui-accel $b }
-    pack $w.b.ok $w.b.cancel -side left -padx 4 -pady 4
-    pack $w.l -fill x -padx 6 -pady {6 2}
-    pack $w.list -expand 1 -fill both -padx 6
-    pack $w.el -fill x -padx 6 -pady {6 2}
-    pack $w.e -fill x -padx 6
-    pack $w.b -fill x
-    bind $w <Escape> [list destroy $w]
-    bind $w.list <Double-ButtonPress-1> [list cfg-pick-commit $w $commit]
-    bind $w.list <Return> [list cfg-pick-commit $w $commit]
-    bind $w.e <Return> [list cfg-pick-commit $w $commit]
-    focus [expr {[llength $choices] ? "$w.list" : "$w.e"}]
-}
-proc cfg-pick-commit {w commit} {
-    set choice ""
-    if {[llength [$w.list curselection]]} {
-        set choice [$w.list get [lindex [$w.list curselection] 0]]
-    }
-    set typed [string trim [$w.e get]]
-    destroy $w
-    if {$commit eq "cfg-insert-button"} {
-        # picked wins; typed is the fresh-label road
-        cfg-insert-button [expr {$choice ne "" ? $choice : $typed}]
-    } else {
-        $commit $choice $typed
-    }
-}
 proc cfg-insert-binding-dialog {} {
     set w .cfg-insert
     catch {destroy $w}

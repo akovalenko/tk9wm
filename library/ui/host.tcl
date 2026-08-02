@@ -426,6 +426,57 @@ proc bgerror {msg} {
     if {[info exists ::errorInfo]} { puts $::errorInfo }
 }
 
+# ---- A PICKER: choose one, name one (config-tree, step 4) --------
+# Pick from a list, type a name, commit — the shape every «make a new
+# one» dialog in this desk has. It was the configurator's; nothing
+# about it ever was, so it lives here with the rest of the layer the
+# next applet gets for free.
+proc ui-pick-dialog {w parent wtitle title choices entrylabel commit} {
+    catch {destroy $w}
+    toplevel $w -class Tk9wmUi
+    wm title $w $wtitle
+    wm transient $w $parent
+    label $w.l -takefocus 0 -anchor w -text $title
+    listbox $w.list -font DeskFont -height [expr {max(3, min(10,
+        [llength $choices]))}] \
+        -background [ui-color field] -foreground [ui-color fg] \
+        -selectbackground [ui-color select]
+    ui-focusable $w.list
+    foreach c $choices { $w.list insert end $c }
+    label $w.el -takefocus 0 -anchor w -text $entrylabel
+    entry $w.e -font DeskFont -background [ui-color field] \
+        -foreground [ui-color fg] -insertbackground [ui-color fg]
+    ui-focusable $w.e
+    frame $w.b -takefocus 0
+    ttk::button $w.b.ok -text OK -underline 0 \
+        -command [list ui-pick-commit $w $commit]
+    ttk::button $w.b.cancel -text Cancel -underline 0 \
+        -command [list destroy $w]
+    foreach b [list $w.b.ok $w.b.cancel] { ui-focusable $b; ui-accel $b }
+    pack $w.b.ok $w.b.cancel -side left -padx 4 -pady 4
+    pack $w.l -fill x -padx 6 -pady {6 2}
+    pack $w.list -expand 1 -fill both -padx 6
+    pack $w.el -fill x -padx 6 -pady {6 2}
+    pack $w.e -fill x -padx 6
+    pack $w.b -fill x
+    bind $w <Escape> [list destroy $w]
+    bind $w.list <Double-ButtonPress-1> [list ui-pick-commit $w $commit]
+    bind $w.list <Return> [list ui-pick-commit $w $commit]
+    bind $w.e <Return> [list ui-pick-commit $w $commit]
+    focus [expr {[llength $choices] ? "$w.list" : "$w.e"}]
+}
+proc ui-pick-commit {w commit} {
+    set choice ""
+    if {[llength [$w.list curselection]]} {
+        set choice [$w.list get [lindex [$w.list curselection] 0]]
+    }
+    set typed [string trim [$w.e get]]
+    destroy $w
+    # BOTH answers go to whoever asked — which of them wins is the
+    # caller's question, and a dialog that decided it for them would
+    # be carrying one applet's habits into the library.
+    {*}$commit $choice $typed
+}
 # ---- WHAT IS BUILT ON FIRST USE, BUILT NOW (the owner's ask) ------
 # Dialogs, menus and popups appear when somebody presses the key that
 # needs them — which is also when a defect in their construction
