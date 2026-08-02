@@ -8825,9 +8825,27 @@ proc collection-bindings {} {
     foreach layer {custom config} {
         if {![dict exists $::layer_knobs $layer]} continue
         dict for {k cmd} [dict get $::layer_knobs $layer] {
-            # the key says wm-bind; the COMMAND may be the unbind that
-            # replaced it, and an unbind is not a binding to show
             if {[lindex $k 0] ne "wm-bind"} continue
+            # A SILENCE IS A WORD TOO (the owner, 2026-08-02): an
+            # unbind that buried somebody's bind used to leave no row
+            # at all — so the promise Delete makes, «Delete on that
+            # takes it back and the chord returns», had nothing to
+            # land on. The silence stands as a row of its own, owner
+            # and lkey riding it so Delete and «Erase my word» work
+            # unchanged; what it silenced hangs under it, the same
+            # way a live word carries its claimants.
+            if {[lindex $cmd 0] eq "wm-unbind"} {
+                if {[catch {lmap tok [lindex $cmd 1] \
+                                {join [parse-chord $tok] ,}} pk]} continue
+                if {[keymap-payload $::keymap $pk] ne ""} continue
+                set chord [join [lmap c $pk {chord-name {*}[split $c ,]}] " "]
+                lappend out [dict create key $chord \
+                    values [dict create script "" name ""] \
+                    owner $layer lkey $k ineffectual 1 \
+                    why "your silence — what it covers hangs under it;\
+ Delete takes the silence back and the chord returns"]
+                continue
+            }
             if {[lindex $cmd 0] ne "wm-bind"} continue
             if {[catch {lmap tok [lindex $cmd 1] \
                             {join [parse-chord $tok] ,}} pk]} continue
@@ -8837,22 +8855,49 @@ proc collection-bindings {} {
             set chord [join [lmap c $pk {chord-name {*}[split $c ,]}] " "]
             set claim [dict create owner $layer lkey $k \
                 script [lindex $cmd 2] name [lindex $cmd 3]]
-            if {[keymap-payload $::keymap $pk] eq ""} {
+            # a row with this chord — live, or a silence made above —
+            # takes the buried word as its claimant; only a chord no
+            # row shows at all is an orphan row of its own
+            set attached 0
+            set out [lmap e $out {
+                if {[dict get $e key] ne $chord} { set e } else {
+                    set attached 1
+                    dict lappend e shadowed $claim
+                }
+            }]
+            if {!$attached} {
                 lappend orphans [dict create key $chord \
                     values [dict create script [lindex $cmd 2] \
                                 name [lindex $cmd 3]] \
                     owner $layer lkey $k ineffectual 1 \
                     why "not in force — nothing answers this chord now"]
-                continue
             }
-            set out [lmap e $out {
-                if {[dict get $e key] ne $chord} { set e } else {
-                    dict lappend e shadowed $claim
-                }
-            }]
         }
     }
-    dict create elements [concat $out $orphans]
+    # ...AND THE CODE'S OWN WORD under whoever took its chord: the
+    # desk's defaults and the bundles' binds are not layer words, so
+    # the scan above cannot see them — the «would say» table
+    # (code_binds) can. A chord whose live word IS the record's owner
+    # needs no claimant; anything else — a layer's bind, a layer's
+    # silence — stands over the code's word and says so.
+    set claimed {}
+    foreach e $out {
+        if {![catch {lmap tok [split [dict get $e key] " "] \
+                         {join [parse-chord $tok] ,}} pk]
+                && [dict exists $::code_binds $pk]
+                && [keymap-origin $::keymap $pk] \
+                       ne [dict get $::code_binds $pk origin]} {
+            set rec [dict get $::code_binds $pk]
+            set claim [dict create owner code \
+                script [dict get $rec script] name [dict get $rec name]]
+            if {[lindex [dict get $rec origin] 0] eq "bundle"} {
+                dict set claim bundle [lindex [dict get $rec origin] 1]
+            }
+            dict lappend e shadowed $claim
+        }
+        lappend claimed $e
+    }
+    dict create elements [concat $claimed $orphans]
 }
 # Whose, in words a sentence can carry.
 proc owner-words {origin} {

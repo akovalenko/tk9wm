@@ -1281,6 +1281,72 @@ FORGIVEN=$(qu 'cfg-insert-binding-dialog
     list closed [expr {![winfo exists $w]}] \
          same [wm-call {expr {[parse-chord f9] eq [parse-chord F9]}}] \
          held [dict exists [wm-call {chord-holder {Alt+F9}}] who]')
+# ---- past six lines the field stops growing and starts scrolling ----
+# The scrollbar joins the text inside the same ring and leaves when
+# the lines do (the owner, 2026-08-02); the ring is the focus face,
+# the bar itself is no Tab stop.
+FIELDSB=$(qu 'set T $::cfg_T
+    set it [dict get $::cfg_item set-root-cursor]
+    $T see $it
+    update idletasks
+    cfg-entry $it set-root-cursor
+    after 200; update
+    ui-field-set $T.edit [join {a b c d e f g h} \n]
+    event generate $T.edit.t <KeyRelease> -when now
+    update idletasks
+    set r [list sb [winfo exists $T.edit.sb] h [$T.edit.t cget -height]]
+    ui-field-set $T.edit "a\nb"
+    event generate $T.edit.t <KeyRelease> -when now
+    update idletasks
+    lappend r sb2 [winfo exists $T.edit.sb] h2 [$T.edit.t cget -height]
+    cfg-entry-done cancel
+    set r')
+# ---- the menu names what Del would do, on a row that is not ours ----
+# The earlier scenes turned the windows bundle off and took accords
+# apart, so no code word is left standing; the windows family comes
+# back on first — a customization like any other, replayed on reload —
+# and Alt+Tab is the code-side word these scenes stand on.
+q 'custom-write {wm-keys windows}' >/dev/null
+sleep 1
+DELOFFER=$(qu 'cfg-refresh
+    after 300; update
+    set it ""
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] eq "elem" && [dict get $d coll] eq "bindings"
+                && [dict get $d key] eq "Alt+Tab"} { set it $i }
+    }
+    cfg-select $it
+    set m [cfg-row-menu-build]
+    set found 0
+    for {set i 0} {$i <= [$m index end]} {incr i} {
+        if {[$m type $i] eq "separator"} continue
+        if {[$m entrycget $i -label] eq "Silence this chord"} { set found 1 }
+    }
+    set found')
+# ---- a word over the desk's own shows what it covers, and so does
+#      a silence; erasing the silence brings the chord back ----
+SILENCE=$(q 'custom-write {wm-bind {Alt+Tab} {list mine} taken}
+    set e1 {}
+    foreach e [dict get [collection-bindings] elements] {
+        if {[dict get $e key] eq "Alt+Tab"} { set e1 $e }
+    }
+    custom-write {wm-unbind {Alt+Tab}}
+    set e2 {}
+    foreach e [dict get [collection-bindings] elements] {
+        if {[dict get $e key] eq "Alt+Tab"} { set e2 $e }
+    }
+    custom-erase {wm-bind Alt+Tab}
+    reload-config
+    set e3 {}
+    foreach e [dict get [collection-bindings] elements] {
+        if {[dict get $e key] eq "Alt+Tab"} { set e3 $e }
+    }
+    list over [dict exists $e1 shadowed] mine [dict get $e1 owner] \
+         silence [expr {[dict exists $e2 ineffectual]
+                        && [dict get $e2 owner] eq "custom"}] \
+         covered [dict exists $e2 shadowed] \
+         back [list [dict get $e3 owner] [dict exists $e3 shadowed]]')
+sleep 1
 
 # --- THE PALETTE MOVING UNDER AN OPEN APPLET, which is the desk's own
 #     <<ThemeChanged>>. `option add` dresses what is created next and
@@ -1294,6 +1360,14 @@ q 'set-theme light' >/dev/null
 sleep 2
 AFTER=$(qu 'list [lindex [$::cfg_T cget -background] 0] [ui-color selectfg]')
 SELINK=$(qu 'lindex [$::cfg_T element cget eTxt -fill] 0')
+# ...and a menu built AFTER the flip wears the palette as it stands:
+# menus are dressed by hand (ui-menu), not by the option database —
+# a timeline the ttk theme writes to as well, which is how the m menu
+# stayed dark on a light desk (the owner, 2026-08-02)
+MENUPAL=$(qu 'cfg-select [dict get $::cfg_item set-fade]
+    set m [cfg-row-menu-build]
+    list bg [expr {[$m cget -background] eq [ui-color bg]}] \
+         active [expr {[$m cget -activebackground] eq [ui-color select]}]')
 echo "--- style before: $BEFORE  after set-theme light: $AFTER"
 if [ "$BEFORE" != "$AFTER" ]; then
     echo "OK: the open applet repainted where it stood ($BEFORE -> $AFTER)"
@@ -1418,6 +1492,27 @@ if [ "$FORGIVEN" = "closed 1 same 1 held 1" ]; then
     echo "OK: a loose-case keysym is taken, and the bind stands"
 else
     echo "FAIL: forgiving chord: $FORGIVEN"
+fi
+if [ "$FIELDSB" = "sb 1 h 6 sb2 0 h2 2" ]; then
+    echo "OK: past six lines the field scrolls, and the bar leaves with the lines"
+else
+    echo "FAIL: field scrollbar: $FIELDSB"
+fi
+if [ "$DELOFFER" = 1 ]; then
+    echo "OK: the row menu offers Del's act under its own name"
+else
+    echo "FAIL: del offer: $DELOFFER"
+fi
+if [ "$SILENCE" = "over 1 mine custom silence 1 covered 1 back {code 0}" ]; then
+    echo "OK: a word or a silence over the desk's own shows what it covers,\
+ and erasing it brings the chord back"
+else
+    echo "FAIL: silence/instead-of: $SILENCE"
+fi
+if [ "$MENUPAL" = "bg 1 active 1" ]; then
+    echo "OK: a menu built after the flip wears the palette as it stands"
+else
+    echo "FAIL: menu palette: $MENUPAL"
 fi
 case "$BADLIST|$BADLISTMSG" in
     "0|"*unmatched*) echo "OK: an unmatched quote is refused with a sentence, not a stack" ;;
@@ -1708,6 +1803,8 @@ fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- boxfocus={$BOXFOCUS} emptycell={$EMPTYCELL} colorseed={$COLORSEED}"
 echo "--- badchord={$BADCHORD} forgiven={$FORGIVEN}"
+echo "--- fieldsb={$FIELDSB} deloffer=$DELOFFER menupal={$MENUPAL}"
+echo "--- silence={$SILENCE}"
 echo "--- walls={$WALLS} plainkey={$PLAINKEY} noroot={$NOROOT}"
 if [ "$SCRIPTLINT" = "warn warn note clean restart-wm" ] \
         && [ "$BADPARSE" = "level warn parse 1" ]; then

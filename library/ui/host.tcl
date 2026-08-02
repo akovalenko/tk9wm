@@ -432,6 +432,23 @@ proc ui-field {path args} {
 proc ui-field-forget {path w} {
     if {$w eq $path} { array unset ::ui_field_leave $path }
 }
+# THE SIXTH WALL STANDS, AND THE LINES KEEP COMING: past the tallest
+# a field opens at, a scrollbar joins the text inside the same ring —
+# the pair is one thing on the screen, exactly like the tree and its
+# scrollbar (the owner, 2026-08-02) — and leaves when the lines do.
+# Out of the focus cycle for the same reason the tree's is: a stop
+# with nothing to show for it is worse than no stop.
+proc ui-field-scroll {path on} {
+    if {$on && ![winfo exists $path.sb]} {
+        ttk::scrollbar $path.sb -orient vertical -takefocus 0 \
+            -command [list $path.t yview]
+        $path.t configure -yscrollcommand [list $path.sb set]
+        grid $path.sb -row 0 -column 1 -sticky ns
+    } elseif {!$on && [winfo exists $path.sb]} {
+        destroy $path.sb
+        $path.t configure -yscrollcommand {}
+    }
+}
 proc ui-field-leave {path which} {
     if {[info exists ::ui_field_leave($path)]
             && [llength $::ui_field_leave($path)]} {
@@ -694,9 +711,23 @@ proc ui-cell-edit {T item column addr opts} {
 # A CHOICE IS A MENU AT ITS CELL, not a cycle to click blind through
 # (the owner: four panel sides by repeated presses is cruel). A menu
 # holds the keyboard natively, and what the cell holds now is marked.
+# A POPUP MENU IS BUILT FRESH AND DRESSED BY HAND. The rest of this
+# bridge dresses its widgets explicitly from ui-color; menus leaned
+# on the option database — and that database is a timeline, not a
+# mirror: the ttk theme package files entries of its own beside ours,
+# and after a live light↔dark flip a freshly built menu came up
+# wearing the OLD theme (the owner, 2026-08-02). Explicit colors read
+# the palette as it stands, every time the menu is built.
+proc ui-menu {path} {
+    catch {destroy $path}
+    menu $path -tearoff 0 -font DeskFont \
+        -background [ui-color bg] -foreground [ui-color fg] \
+        -activebackground [ui-color select] \
+        -activeforeground [ui-color selectfg]
+    return $path
+}
 proc ui-cell-choice {T item column addr vals opts} {
-    catch {destroy $T.pop}
-    menu $T.pop -tearoff 0 -font DeskFont
+    ui-menu $T.pop
     set ::ui_cell_choice [dict get $opts value]
     foreach v $vals {
         $T.pop add radiobutton -label $v -variable ::ui_cell_choice -value $v \
@@ -725,6 +756,7 @@ proc ui-cell-open {T item column addr opts} {
         -onleave [list ui-cell-leave $T]
     ui-field-set $T.edit $val
     ui-field-select-all $T.edit
+    ui-field-scroll $T.edit [expr {$lines > 6}]
     # GRID, and the button gets a column of its own: PACKED, the
     # field (with -expand) claimed the whole cavity before the button
     # was packed at all — it existed, mapped 0, 1x1 in a corner,
@@ -735,7 +767,7 @@ proc ui-cell-open {T item column addr opts} {
         # from the keyboard — a gesture that costs nothing to guess
         ttk::button $T.edit.pick -text ▾ -takefocus 0 -width 2 \
             -command [list ui-cell-pick $T $addr $o]
-        grid $T.edit.pick -row 0 -column 1 -sticky ns
+        grid $T.edit.pick -row 0 -column 2 -sticky ns   ;# 1 is the scrollbar's
         # Down and F4 both — the gestures a combobox has taught every
         # pair of hands (the owner names F4 by its Windows habit;
         # Down is the X one)
@@ -799,10 +831,13 @@ proc ui-cell-open {T item column addr opts} {
 # the new line out of sight below the bottom edge (the owner,
 # 2026-08-02). The height follows what is in there — up to the same
 # six lines a field opens with at most — and the overlay is re-placed
-# around it, never smaller than the cell it stands on.
+# around it, never smaller than the cell it stands on. Past the six,
+# the scrollbar takes over (ui-field-scroll).
 proc ui-cell-grow {T y1 y2} {
     if {![winfo exists $T.edit.t]} return
-    set want [expr {max(1, min(6, [llength [split [ui-field-get $T.edit] \n]]))}]
+    set lines [llength [split [ui-field-get $T.edit] \n]]
+    ui-field-scroll $T.edit [expr {$lines > 6}]
+    set want [expr {max(1, min(6, $lines))}]
     if {[$T.edit.t cget -height] == $want} return
     $T.edit.t configure -height $want
     update idletasks

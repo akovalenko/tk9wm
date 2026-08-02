@@ -931,7 +931,9 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
         $T item element configure $item Cval eVal \
             -text [cfg-inline-text [dict get $fmeta script]]
         $T item element configure $item Cflag eFlag \
-            -text [expr {[dict get $fmeta owner] eq "custom" ? "✗ yours" : "✗ cfg"}]
+            -text [expr {[dict get $fmeta owner] eq "custom" ? "✗ yours"
+                         : [dict get $fmeta owner] eq "config" ? "✗ cfg"
+                         : "✗ default"}]
         $T item element configure $item Cdoc eDoc \
             -text "[cfg-owner-words $fmeta] word, not in force"
         return
@@ -1700,8 +1702,7 @@ proc cfg-slot-menu {} {
     }
     set f [lindex $name 3]
     set T $::cfg_T
-    catch {destroy $T.pop}
-    menu $T.pop -tearoff 0 -font DeskFont
+    ui-menu $T.pop
     set ::cfg_slot $f
     set value [cfg-cur $name]
     foreach other [concat [list $f] [dict get [cfg-field-meta $name] xor]] {
@@ -2335,8 +2336,7 @@ proc cfg-row-menu-build {} {
  on a family's element" error
         return ""
     }
-    catch {destroy $T.rowpop}
-    menu $T.rowpop -tearoff 0 -font DeskFont
+    ui-menu $T.rowpop
     # WHICH ROW THIS IS ABOUT, said out loud when more than one is
     # marked: the menu has always been about the row one STANDS on,
     # and with five rows highlighted that was anybody's guess (the
@@ -2398,6 +2398,15 @@ proc cfg-row-menu-build {} {
     $T.rowpop add command -label "Reset to saved" \
         -state [expr {[llength [dict get $s pending]] ? "normal" : "disabled"}] \
         -command [list cfg-row-do reset $s]
+    # ...and what Del would do here, under its own name: the keyboard
+    # gesture existed and nothing on the screen offered it (the
+    # owner, 2026-08-02). Only where Del genuinely acts — dropping
+    # somebody else's element; our own already reads «Erase my word»
+    # above, which is the same engine Del reaches.
+    set del [cfg-del-offer $s]
+    if {$del ne ""} {
+        $T.rowpop add command -label $del -command cfg-delete
+    }
     if {[dict get $s kind] eq "knob"} {
         # PINNING is the Enter-on-the-same-value gesture, said out
         # loud: a word of ours that holds what the layers below
@@ -2408,6 +2417,23 @@ proc cfg-row-menu-build {} {
     }
     cfg-row-menu-where $s
     return $T.rowpop
+}
+# The contextual name of the Del gesture on this row, or empty where
+# Del would only explain itself (a knob, a bundle, our own word, a
+# word already out of force). The act is cfg-delete itself — one
+# engine for the key and the menu, confirmations included.
+proc cfg-del-offer {s} {
+    if {[dict get $s kind] ne "elem"} { return "" }
+    set rec [dict get $s rec]
+    if {[dict get $rec owner] eq "custom"} { return "" }
+    if {[dict exists $rec ineffectual]} { return "" }
+    switch -- [dict get $s coll] {
+        bindings { return "Silence this chord" }
+        widgets  { return "Remove this widget" }
+        actions  { return "Remove this deed" }
+        panel    { return "Drop this button" }
+    }
+    return ""
 }
 proc cfg-row-menu-where {s} {
     set T $::cfg_T
@@ -2420,8 +2446,7 @@ proc cfg-row-menu-where {s} {
         set i 0
         foreach place $where {
             set m $T.rowpop.p[incr i]
-            catch {destroy $m}
-            menu $m -tearoff 0 -font DeskFont
+            ui-menu $m
             $m add command -label "in emacs" \
                 -command [list cfg-open-place emacs $place]
             $m add command -label "in \$EDITOR, in a terminal" \
@@ -2568,10 +2593,15 @@ proc cfg-delete {} {
         member { cfg-member-drop [cfg-node-addr $it]; return }
         coll  { cfg-delete-family [dict get $d coll]; return }
         shadow {
-            if {[dict get $d owner] ne "custom"} {
+            if {[dict get $d owner] eq "config"} {
                 cfg-status "that is the config's own word, kept here\
  because yours stands over it — the file that says it is yours to\
  edit, not this applet's"
+                return
+            }
+            if {[dict get $d owner] ne "custom"} {
+                cfg-status "that is the desk's own word — it stands\
+ back up by itself when the word over it goes"
                 return
             }
             set e [cfg-elem-rec bindings [dict get $d key]]

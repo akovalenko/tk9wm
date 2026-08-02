@@ -3073,6 +3073,15 @@ proc tray-stop {why} {
 
 keep keymap {}       ;# nested dict: "mods,keysym" -> {action script} | {map submap}
 keep grabbed_top {}  ;# top chords held by XGrabKey — the MappingNotify re-grab list
+# WHAT THE CODE SIDE WOULD SAY, chord by chord — the desk's own binds
+# and the bundles', remembered PAST being buried. The keymap keeps one
+# word per chord, the last one, so it cannot answer «what did my word
+# take the chord from» or «what did my silence silence» — and both are
+# questions the configurator has to answer (the owner, 2026-08-02:
+# a bundle bind overridden or unbound vanished without a trace). Keyed
+# by the parsed path, so spelling variants collapse; layers do not
+# record here — their words are in layer_knobs already.
+keep code_binds {}   ;# parsed path -> {script S name N origin O}
 keep keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
 keep keyseq_keys {}  ;# ...and the chords that got us there, for the echo
 keep keyseq_mods 0   ;# ...and the modifiers the prefix was held with
@@ -3370,6 +3379,13 @@ proc wm-unbind-owned {spec origin} {
     set path [lmap c $chords {join $c ,}]
     if {[keymap-origin $::keymap $path] ne $origin} { return 0 }
     set ::keymap [keymap-unset $::keymap $path]
+    # ...and its code-side record goes with it: a bundle leaving takes
+    # its own word out of the «would say» table too, or a silence row
+    # would go on advertising a family that is off.
+    if {[dict exists $::code_binds $path]
+            && [dict get $::code_binds $path origin] eq $origin} {
+        dict unset ::code_binds $path
+    }
     keys-drop-orphan [lindex $chords 0]
     return 1
 }
@@ -3497,6 +3513,10 @@ proc wm-bind {spec script {name ""}} {
     }
     set ::keymap [keymap-set $::keymap $path \
                       [list $script $name $origin [said-where]]]
+    if {$origin ni {custom config}} {
+        dict set ::code_binds $path \
+            [dict create script $script name $name origin $origin]
+    }
     set top [lindex $chords 0]
     if {$top ni $::grabbed_top} {
         lappend ::grabbed_top $top
@@ -3546,6 +3566,7 @@ proc keys-reset {} {
     keyseq-end
     set ::keymap {}
     set ::grabbed_top {}
+    set ::code_binds {}
     set ::help_chord $::HELP_CHORD    ;# a key binding too, and swept with them
     x-sync 0
     puts "WM: key bindings cleared"
