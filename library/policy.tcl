@@ -5690,14 +5690,23 @@ proc action-fire {name} {
         panel-focus-hit $hit
     } elseif {[dict exists $spec launch]} {
         puts "WM: action $name: launch"
-        # WHAT THE DESK ITSELF STARTED, which is a fact and not a
-        # guess. "The last thing that appeared" would be the guess:
-        # windows arrive on their own schedule and the answer would
-        # change under the hand reaching for it (the owner, 2026-08-02
-        # — "appear happens dynamically, you could pin the wrong
-        # thing"). This is set on the LAUNCH branch only: a press that
-        # merely found and raised an existing window started nothing.
-        set ::last_started $name
+        # WHAT THE DESK ITSELF STARTED AND HAS NOWHERE TO SHOW, which
+        # is a fact and not a guess. "The last thing that appeared"
+        # would be the guess: windows arrive on their own schedule and
+        # the answer would change under the hand reaching for it (the
+        # owner, 2026-08-02 — "appear happens dynamically, you could
+        # pin the wrong thing").
+        #
+        # Two things are stepped over, and for one reason: the
+        # question is "what would you like to keep", and neither of
+        # them can answer it. A press that merely FOUND an existing
+        # window started nothing (this branch is the launch one, so
+        # that is already true here). And a deed that ALREADY HAS AN
+        # ICON is not a candidate either — pinning it is a no-op, and
+        # letting it take the slot would bury the thing you actually
+        # started a moment ago behind an ordinary press of a button
+        # that is already there (the owner, same day).
+        if {[llength [action-panels $name]] == 0} { set ::last_started $name }
         action-flash $name firing
         set script [dict get $spec launch]
         if {[dict exists $spec env] || [dict exists $spec env-unset]} {
@@ -5714,7 +5723,17 @@ proc action-fire {name} {
         puts "WM: action $name: nothing matched, nothing to launch"
     }
 }
-keep last_started ""   ;# the last deed this desk fired a launch for
+keep last_started ""   ;# the last unpinned deed this desk launched
+
+# Which panels carry a button for this deed — empty means nowhere, and
+# nowhere is what makes a deed worth pinning.
+proc action-panels {name} {
+    set out {}
+    foreach pn [panel-names] {
+        if {[dict exists $::panels $pn refs $name]} { lappend out $pn }
+    }
+    return $out
+}
 
 # PIN THE LAST THING I STARTED (the owner's own wording). The other
 # half of populating a panel, and the half a keyboard can do: run
@@ -5733,11 +5752,14 @@ proc panel-pin-last {} {
         return
     }
     set name $::last_started
-    foreach pn [panel-names] {
-        if {[dict exists $::panels $pn refs $name]} {
-            policy-key-echo problem "«$name» is already on the «$pn» panel"
-            return
-        }
+    # Still checked here, though the record now skips what was pinned
+    # when it ran: a deed can be pinned BETWEEN starting it and asking
+    # for it, and the second press of this chord is exactly that case.
+    set on [action-panels $name]
+    if {[llength $on]} {
+        policy-key-echo problem "«$name» is already on the «[lindex $on 0]»\
+ panel"
+        return
     }
     # ...onto the panel that holds the furniture, which is the tray's
     # for want of a better answer while the ephemeral area has not
@@ -6584,9 +6606,16 @@ proc panel-measure {name} {
     set bfont [panel-badge-font $name]
     font configure $bfont -family [font actual PanelFont -family] \
         -size -[expr {max(7, $isz * 5 / 8)}]
+    # DEMOTED WHERE THERE IS A CAPTION. With only icons on the strip
+    # a mark has the whole chip to itself; beside a label it is a
+    # guest, and the owner watched it walk into the text (2026-08-02
+    # — "in row preset the badge covers the caption"). Smaller there,
+    # and right-aligned to the icon below rather than started at a
+    # fixed offset into it, which is what let a wider chip cross the
+    # icon's far edge in the first place.
     set mfont [panel-mark-font $name]
     font configure $mfont -family [font actual PanelFont -family] \
-        -size -[expr {max(7, $isz * 2 / 5)}]
+        -size -[expr {$bare ? max(7, $isz / 3) : max(6, $isz * 3 / 10)}]
     # the arrow zone: once ANY button can match, every button
     # reserves an east strip for the multi arrow — the row reads
     # uniformly, an unarmed button just shows calm space there
@@ -6905,9 +6934,16 @@ proc panel-build {name idx} {
         # In a STACK the icon is centred over the label, so the mark
         # rides its lower-right from the top edge down rather than
         # from the bottom up.
+        # In a STACK the icon is centred over the label, so where its
+        # far edge falls depends on which of the two is wider — a
+        # number this layout does not have. Aligned to the icon as if
+        # it started at the face's edge, which is exact whenever the
+        # label is the narrower of the two and near enough otherwise.
+        set mw [expr {[font measure $mfont M] + 4}]
         $T style layout sBtnI eMarkBg -detach yes -union eMark -ipadx 2 -ipady 1
-        $T style layout sBtnI eMark -detach yes -expand sw \
-            -padx [list 0 [expr {max(0, $isz / 4)}]] \
+        $T style layout sBtnI eMark -detach yes -expand se \
+            -minwidth [font measure $mfont M] \
+            -padx [list [expr {max(0, 2 + 8 + $isz - $mw)}] 0] \
             -pady [list [expr {$fgap + 3 + $isz * 3 / 5}] 0]
         $T style layout sBtnI eBTxt -expand we
         $T style create sBtnB -orient vertical
@@ -6944,10 +6980,24 @@ proc panel-build {name idx} {
         # numbers this builder already has: expanding north and east
         # anchors it south-WEST, and the pads walk it back to the
         # icon's own lower-right corner.
-        set mx [expr {2 + [lindex $ipx 0] + $isz * 3 / 5}]
+        # The widest a one-or-two letter mark can be, plus the chip's
+        # own padding: right-aligning to THAT keeps every mark inside
+        # the icon instead of letting the long ones run past it.
+        set mw [expr {[font measure $mfont M] + 4}]
+        set mx [expr {max(0, 2 + [lindex $ipx 0] + $isz - $mw)}]
         set my [expr {max(0, ($itemh - $isz) / 2)}]
         $T style layout sBtnI eMarkBg -detach yes -union eMark -ipadx 2 -ipady 1
+        # A FIXED BOX, not a chip that shrinks to its letter. Right-
+        # aligning a variable width to the icon's edge put the short
+        # marks well inside it and the long ones against it — the same
+        # corner looking like two different places. One box, the
+        # letter centred in it, and every mark sits where the last one
+        # did. Sized for ONE letter, which is what nearly every mark
+        # is: a box built for the rare pair left the common case
+        # swimming in it, and on a small icon ate the picture it is
+        # there to annotate.
         $T style layout sBtnI eMark -detach yes -expand ne \
+            -minwidth [font measure $mfont M] \
             -padx [list $mx 0] -pady [list 0 $my]
         $T style layout sBtnI eBTxt -expand ns
         $T style create sBtnB

@@ -65,9 +65,16 @@ pin
 TWICE=$(refs)
 ALREADY=$(grep -c 'is already on the' "$LOG")
 
-# --- start the OTHER one, and pin that
+# --- start something that is ALREADY on the strip. It launches, so
+#     the launch branch runs — and it still must not become the answer,
+#     because pinning it is a no-op and it would bury the thing one
+#     actually wants kept (the owner, 2026-08-02).
 key super+3
 sleep 2
+BEFOREHERE=$(q 'set ::last_started')
+key super+1
+sleep 2
+AFTERHERE=$(q 'set ::last_started')
 pin
 BOTH=$(refs)
 SAID=$(q 'lsort [dict keys [dict get $::layer_knobs custom]]')
@@ -101,7 +108,11 @@ if [ "$ALREADY" -ge 1 ]; then
 else
     echo "FAIL: the second pin said nothing about it being there"; FAIL=1
 fi
-want "the next thing started is the next thing pinned" "$BOTH" "gimpish here other"
+want "starting an UNPINNED deed makes it the answer" "$BEFOREHERE" "other"
+want "...and starting a deed that already has an icon does NOT" \
+    "$AFTERHERE" "other"
+want "so the pin still lands on the thing worth keeping" \
+    "$BOTH" "gimpish here other"
 case "$SAID" in
     *"panel-button gimpish"*) echo "OK: written as an ordinary panel-button" ;;
     *) echo "FAIL: the custom layer holds «$SAID»"; FAIL=1 ;;
