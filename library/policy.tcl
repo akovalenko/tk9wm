@@ -4607,6 +4607,7 @@ proc pipe-output-close {ch} {
     catch {close $ch}
 }
 
+
 # ---- the emacs layer ----
 # A button that means "the telega frame of the telega daemon" — on the
 # desk the owner actually keeps: dedicated daemons (emacs --daemon=telega
@@ -8432,6 +8433,18 @@ proc custom-homes {} {
         if {![regexp {^(.*):\d+$} $place -> file]} continue
         dict set ::custom_home $key $file
     }
+}
+# WHAT THE CUSTOM FILE ALREADY SAYS about this command's key — «» when
+# it says nothing. The editor asks before it records a change: a line
+# that would write the file exactly as it already stands is not an
+# edit, whatever it does to the desk. Note this is the FILE's word,
+# not the desk's live state: a preview runs in the custom layer's name
+# but is not filed under it (only a layer being loaded records here),
+# which is what makes the comparison honest.
+proc custom-word {command} {
+    if {[catch {knob-key $command} key]} { return "" }
+    if {![dict exists $::layer_knobs custom $key]} { return "" }
+    return [dict get $::layer_knobs custom $key]
 }
 proc custom-write {command {by desk}} {
     if {[catch {knob-key $command} key]} {

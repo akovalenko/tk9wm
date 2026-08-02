@@ -154,7 +154,13 @@ DESKWIN=$(qu 'cfg-set set-desk-window off
               list gone [wm-call {expr {[winfo exists .desk] ? 1 : 0}}] \
                    back [wm-call {set-desk-window on; expr {[winfo exists .desk] ? 1 : 0}}]')
 # ...and SAVED, it must still read as what was said, not as what the
-# desk computed from it
+# desk computed from it.
+# The delta is re-said through the applet first: the scene above poked
+# the title font on the DESK directly, and a Save has nothing to
+# re-apply now that saying our own word again records no edit — which
+# is exactly the rule this suite asks for a few scenes down.
+qu 'cfg-set set-title-font {-weight bold}' >/dev/null
+sleep 0.3
 qu 'cfg-save' >/dev/null
 sleep 0.5
 SAVEDSPEC=$(qu 'cfg-refresh; dict get $::cfg_table set-desk-font value')
@@ -785,6 +791,76 @@ NOTEGROW=$(qu 'set W [winfo toplevel $::cfg_T]
     after 200; update idletasks
     set narrow [$W.b cget -height]
     list grew [expr {$narrow > $wide}] wide $wide narrow $narrow')
+
+# ---- A WORD THAT CHANGES NOTHING IS NOT AN EDIT ----
+# Typing back what our own layer already says left the row wearing
+# «* unsaved» for a save that would rewrite the file identically (the
+# owner, 2026-08-02). Saying our own word over the CODE's is another
+# matter — that is a pin, and it keeps its mark.
+NOOP=$(qu 'set n set-edge-resist
+    cfg-set $n 9
+    cfg-save
+    after 500; update
+    set r [list saved [dict exists $::cfg_pending $n]]
+    cfg-set $n 9
+    after 300; update
+    lappend r same [dict exists $::cfg_pending $n]
+    cfg-set $n 5
+    after 300; update
+    lappend r changed [dict exists $::cfg_pending $n]
+    cfg-set $n 9
+    after 300; update
+    lappend r back [dict exists $::cfg_pending $n]
+    set r')
+# ...and a pin — our word over the code's own default — is still an
+# edit, mark and all
+PIN=$(qu 'set n set-workarea-follow
+    set v [cfg-cur $n]
+    cfg-set $n [expr {$v eq "stick" ? "off" : "stick"}]
+    after 300; update
+    cfg-set $n $v
+    after 300; update
+    set it [dict get $::cfg_item $n]
+    cfg-select $it
+    set m [cfg-row-menu-build]
+    set reset ""
+    for {set i 0} {$i <= [$m index end]} {incr i} {
+        if {[$m type $i] eq "separator"} continue
+        if {[$m entrycget $i -label] eq "Reset to saved"} {
+            set reset [$m entrycget $i -state]
+        }
+    }
+    list pend [dict exists $::cfg_pending $n] reset $reset')
+qu 'cfg-row-do reset [cfg-row-subject [dict get $::cfg_item set-workarea-follow]]
+    list undone' >/dev/null
+sleep 0.5
+# ---- A NEWLINE IS DRAWN, NOT PRINTED ----
+# a three-line script in a one-line cell used to put treectrl's
+# control-character box on the screen — «vt», a thing to decipher
+q 'custom-write {wm-bind {<Super>9} {list one
+list two}}' >/dev/null
+sleep 1
+MULTILINE=$(qu 'set out {}
+    dict for {i d} $::cfg_node {
+        if {[dict get $d what] ne "field"} continue
+        if {[dict get $d coll] ne "bindings"} continue
+        if {[dict get $d key] ne "Super+9"} continue
+        if {[dict get $d field] ne "script"} continue
+        set out [$::cfg_T item element cget $i Cval eVal -text]
+    }
+    list cell [list $out]')
+# ---- THE EDITOR STAYS INSIDE THE TREE ----
+# a cell reaching past the tree's right edge gave the field a width
+# partly outside the window: the text believed it had room it did not
+# have, never scrolled, and the end of a long line was unreachable
+EDGE=$(qu 'set T $::cfg_T
+    set it [dict get $::cfg_item set-fade]
+    cfg-entry $it set-fade
+    after 400; update
+    set r [list inside [expr {[winfo x $T.edit] + [winfo width $T.edit]
+                              <= [winfo width $T]}]]
+    ui-cell-done $T cancel
+    set r')
 
 # ---- THE DESK SAYS A WORD OF ITS OWN, AND THE LIST CATCHES UP ----
 # There is one writer for the custom layer and both sides call it —
@@ -1456,6 +1532,26 @@ if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
     echo "OK: a deed's type shows what it amounts to, and writing it is an edit"
 else
     echo "FAIL: the type row: $TYPEROW then $TYPESET"
+fi
+if [ "$NOOP" = "saved 0 same 0 changed 1 back 0" ]; then
+    echo "OK: typing back our own saved word is no edit, and a real one still is"
+else
+    echo "FAIL: the no-op edit: $NOOP"
+fi
+if [ "$PIN" = "pend 1 reset normal" ]; then
+    echo "OK: our word over the code's default is a pin — marked, and undoable"
+else
+    echo "FAIL: the pin: $PIN"
+fi
+if [ "$MULTILINE" = "cell {{list one ⏎ list two}}" ]; then
+    echo "OK: a newline in a cell is drawn, not printed as a control box"
+else
+    echo "FAIL: the multi-line cell: $MULTILINE"
+fi
+if [ "$EDGE" = "inside 1" ]; then
+    echo "OK: the editor stands inside the tree, so its text can scroll"
+else
+    echo "FAIL: the editor ran past the tree: $EDGE"
 fi
 if [ "$DESKSAID" = "value 0.61 said 1" ] \
         && [ "$OURSSAID" = "said 0" ] && [ "$OURSVAL" = 0.63 ]; then

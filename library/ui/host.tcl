@@ -684,18 +684,46 @@ proc ui-cell-open {T item column addr opts} {
         lassign [$T item bbox $item $column [dict get $o element]] etx ety
     }
     if {$etx eq ""} { set etx $x1 ; set ety $y1 }
-    place $T.edit -x [expr {$etx - [lindex $inner 0]}] \
-        -y [expr {$ety - [lindex $inner 1]}] \
-        -width [expr {$x2 - $x1}] -height $h
+    # ...AND NO WIDER THAN WHAT IS ACTUALLY THERE TO SEE. The field is
+    # placed inside the tree, so a cell reaching past the tree's right
+    # edge gives it a width that is partly outside the window: the
+    # text believes it has room it does not have, so it never scrolls,
+    # and the end of a long line sits in the clipped part where no
+    # amount of scrolling brings it back (the owner, 2026-08-02, on a
+    # long line in a script). Clipped to the visible width, the text
+    # scrolls after the cursor as it should.
+    set px [expr {$etx - [lindex $inner 0]}]
+    set room [expr {[winfo width $T] - $px - 2}]
+    place $T.edit -x $px -y [expr {$ety - [lindex $inner 1]}] \
+        -width [expr {max(60, min($x2 - $x1, $room))}] -height $h
     bind $T.edit.t <Map> {focus %W}
     # RETURN COMMITS, because a field in a tree is answering a
     # question and not writing a paragraph; a newline is Shift+Return,
     # which is the habit every such field has taught.
     bind $T.edit.t <Return>       "[list ui-cell-done $T commit]; break"
-    bind $T.edit.t <Shift-Return> {%W insert insert \n; break}
+    bind $T.edit.t <Shift-Return> \
+        "%W insert insert \\n; [list ui-cell-grow $T $y1 $y2]; break"
+    # ...and anything else that changes how many lines there are —
+    # a line deleted, a paste — moves the wall too
+    bind $T.edit.t <KeyRelease> +[list ui-cell-grow $T $y1 $y2]
     bind $T.edit.t <Escape>       "[list ui-cell-done $T cancel]; break"
     bind $T.edit.t <FocusOut>     [list ui-cell-focusout $T]
     focus $T.edit.t
+}
+# A FIELD THAT GAINS A LINE GAINS THE ROOM FOR IT. Shift+Return put a
+# real newline into a one-line field and left it one line tall, with
+# the new line out of sight below the bottom edge (the owner,
+# 2026-08-02). The height follows what is in there — up to the same
+# six lines a field opens with at most — and the overlay is re-placed
+# around it, never smaller than the cell it stands on.
+proc ui-cell-grow {T y1 y2} {
+    if {![winfo exists $T.edit.t]} return
+    set want [expr {max(1, min(6, [llength [split [ui-field-get $T.edit] \n]]))}]
+    if {[$T.edit.t cget -height] == $want} return
+    $T.edit.t configure -height $want
+    update idletasks
+    place configure $T.edit \
+        -height [expr {max($y2 - $y1, [winfo reqheight $T.edit.t] + 6)}]
 }
 proc ui-cell-commit {T addr value opts} {
     set cmd [ui-cell-cb $opts commit]

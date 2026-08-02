@@ -1232,7 +1232,14 @@ proc cfg-value-text {name value} {
             return "\[[llength $value] $noun\]"
         }
     }
-    return $value
+    # A NEWLINE IS DRAWN, NOT PRINTED. A three-line script in a
+    # one-line cell put treectrl's control-character box on the screen
+    # — «vt», which is a thing to decipher rather than read (the
+    # owner, 2026-08-02). The value itself is untouched: this is the
+    # cell's rendering of it, and the editor still opens on the real
+    # text. (Trimming it first was the other half of his thought, and
+    # the answer there is no: a trailing backslash means something.)
+    return [string map [list \n " ⏎ "] $value]
 }
 # What the EDITOR starts with — the value as one would type it. A
 # font's actual dict is a mouthful of options; its family and size
@@ -1812,7 +1819,19 @@ proc cfg-apply {name value} {
         puts "UI: configurator: preview of «$cmd» refused: $err"
         return [cfg-refuse [cfg-brief $err]]
     }
-    dict set ::cfg_pending $name [dict create cmd $cmd value $value]
+    # A WORD THAT WOULD WRITE THE SAME LINE IS NOT AN EDIT. Typing
+    # back what our own layer already says — Enter, Enter on a value
+    # that is already ours — left the row wearing «* unsaved» for a
+    # save that would rewrite the file identically (the owner,
+    # 2026-08-02: «не приносит ничего полезного»). Saying our own word
+    # over the CODE's or the CONFIG's is a different thing entirely —
+    # that is a pin, it holds what the layers below give, and it keeps
+    # its mark.
+    if {[wm-call [list custom-word $cmd]] eq $cmd} {
+        dict unset ::cfg_pending $name
+    } else {
+        dict set ::cfg_pending $name [dict create cmd $cmd value $value]
+    }
     if {[cfg-field? $name]} {
         cfg-show-field $name
     } else {
