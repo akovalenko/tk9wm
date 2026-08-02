@@ -314,6 +314,15 @@ ELEMFOLD=$(qu 'set i [dict get $::cfg_fitem {@field panel dummy label}]
 BTNPREV=$(qu 'cfg-set {@field panel dummy label} Кнопка')
 sleep 0.5
 BTNLIVE=$(q 'lindex [lindex [panel-cfg default shown] 0] 1')
+# ...and what a widget IS is one of the desk's own types, not free
+# text: a catalogue the FAMILY answers for (choices-from), so the cell
+# gets a menu and «bogusgadget» — a widget that cannot be built — is
+# refused instead of committed (the owner, 2026-08-02)
+WTYPE=$(qu 'set a {@field widgets часы -type}
+    set k [cfg-kind-of $a]
+    list kind [lindex $k 0] offers [expr {"clock" in [lrange $k 1 end]}] \
+         refused [expr {![cfg-set $a bogusgadget]}] \
+         still [cfg-cur $a]')
 WPREV=$(qu 'cfg-set {@field widgets часы -padding} 7')
 sleep 0.3
 WLIVE=$(q 'dict get $::widgets часы -padding')
@@ -1168,6 +1177,11 @@ case "$BTNPREV|$BTNLIVE" in
         echo "OK: a label override previews — the strip re-reads the reference" ;;
     *) echo "FAIL: panel field: rc=$BTNPREV label=«$BTNLIVE»" ;;
 esac
+if [ "$WTYPE" = "kind choice offers 1 refused 1 still clock" ]; then
+    echo "OK: a widget's type is one of the desk's own, and nonsense is refused"
+else
+    echo "FAIL: the widget type catalogue: $WTYPE"
+fi
 case "$WPREV|$WLIVE" in
     "1|7") echo "OK: a widget field previews by re-declaring the widget whole" ;;
     *) echo "FAIL: widget field: rc=$WPREV padding=$WLIVE" ;;
