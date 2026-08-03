@@ -468,6 +468,9 @@ proc x-prop-transient {w}       { tkwmx::prop transient $w }
 proc x-focus-set {w {revert parent} {time 0}} { tkwmx::focus set $w $revert $time }
 # {window revert-to}, or {} when the server would not say
 proc x-focus-get {}             { tkwmx::focus get }
+# Refuse Tk the events it claims the focus by — a WM's decorations must
+# not take the keyboard for themselves (see the focus holder below).
+proc x-focus-tame {on}          { tkwmx::focus tame-implicit $on }
 # {x y width height border-width depth}, or {} — the window is gone
 proc x-geometry {w}             { tkwmx::window geometry $w }
 # Raw monitor layouts, one per source — empty when the server has no
@@ -900,6 +903,20 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
 # A real holder has neither problem and keeps the root key grabs alive
 # (a passive grab fires when the grab window is an ancestor of the
 # focus window — root is an ancestor of this one).
+#
+# ...and the holder cures the RESULT while this cures the CAUSE: the
+# shim refuses Tk the two events it arms that machinery with, so the
+# display never falls to PointerRoot in the first place (see
+# TameImplicitFocus in tkwmx.c). Both are wanted. Without the taming
+# every switch cost three focus transitions — a fall, a park, a re-aim
+# — measured at 3904 PointerRoot falls in one session's log; without
+# the holder there is nowhere honest to park the focus when no client
+# deserves it, and the root key grabs go dead.
+#
+# Ordered BEFORE the holder is built: from here on no crossing of ours
+# can knock the display over, so nothing has to be repaired between
+# these two lines.
+soft "tame Tk's implicit focus" { x-focus-tame 1 }
 keep nofocus 0
 unless-already {$::nofocus != 0} {if {[catch {
     # override-redirect: the holder is nobody's client. On one

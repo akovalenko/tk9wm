@@ -1853,15 +1853,87 @@ ErrorSinkProc(void *clientData, XErrorEvent *ev)
 /* ------------------------------------------------------------------ */
 /* ::tkwmx::focus                                                      */
 
+/*
+ * TAMING TK'S IMPLICIT FOCUS.
+ *
+ * Tk claims the X focus by itself when it thinks nobody is managing it,
+ * and gives it back by setting PointerRoot — which is a fine policy for
+ * an application under a WM and a disaster IN one. Our decorations are
+ * Tk windows, so every time the pointer sits over a frame while the
+ * focus moves, Tk arms that trap, and the next crossing off any Tk
+ * window of ours drops the whole display into focus-follows-pointer
+ * behind the WM's back. The WM notices and repairs (a park on the
+ * holder plus a re-aim), so nothing stays broken — but every switch
+ * costs three focus transitions instead of one, and a client that
+ * tracks focus for itself gets shaken for no reason.
+ *
+ * tkFocus.c arms it in exactly two places, and both are neutralized
+ * here BEFORE Tk sees the event (generic handlers run first in
+ * Tk_HandleEvent):
+ *
+ *   FocusIn/NotifyPointer     "the focus went somewhere else and the
+ *                             pointer is over you" — Tk reads this as
+ *                             "no window manager, take the focus". It
+ *                             is SWALLOWED: for a WM's own furniture
+ *                             the event carries nothing else, and
+ *                             letting it through also makes Tk believe
+ *                             a decoration holds the focus.
+ *   EnterNotify with focus=1  the same claim by the crossing road. The
+ *                             FLAG is cleared and the event passed on,
+ *                             so hover, tracking and every other
+ *                             binding are untouched — only the claim
+ *                             is skipped.
+ *
+ * With neither road armed, tkFocus.c's implicitWinPtr stays NULL, and
+ * the one XSetInputFocus(PointerRoot) in all of Tk (tkFocus.c, the
+ * LeaveNotify branch) can never fire. The WM's focus holder stays as
+ * it is: it answers a different question — where the focus rests when
+ * no client deserves it — and it is what keeps the root key grabs
+ * alive.
+ *
+ * A switch and not a default, because the shim is not only a WM's:
+ * an ordinary Tk app WANTS Tk's implicit focus.
+ */
+static int
+TameProc(
+    void *clientData,
+    XEvent *eventPtr)
+{
+    (void)clientData;
+    if (eventPtr->type == FocusIn
+	    && eventPtr->xfocus.detail == NotifyPointer) {
+	return 1;			/* handled: Tk never sees it */
+    }
+    if (eventPtr->type == EnterNotify && eventPtr->xcrossing.focus) {
+	eventPtr->xcrossing.focus = False;
+    }
+    return 0;				/* on to Tk, as it stands */
+}
+static int TameOn = 0;
+static void
+TameImplicitFocus(
+    int on)
+{
+    if (on == TameOn) {
+	return;
+    }
+    if (on) {
+	Tk_CreateGenericHandler(TameProc, NULL);
+    } else {
+	Tk_DeleteGenericHandler(TameProc, NULL);
+    }
+    TameOn = on;
+}
+
 static int
 FocusObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 	    Tcl_Obj *const objv[])
 {
-    static const char *const subs[] = { "set", "get", NULL };
+    static const char *const subs[] = { "set", "get", "tame-implicit", NULL };
     static const char *const reverts[] = { "none", "pointer-root", "parent", NULL };
     static const int revertCodes[] = { RevertToNone, RevertToPointerRoot,
 				       RevertToParent };
-    enum { F_SET, F_GET };
+    enum { F_SET, F_GET, F_TAME };
     Tk_Window tkMain = (Tk_Window)clientData;
     Display *dpy;
     Window win;
@@ -1876,6 +1948,15 @@ FocusObjCmd(void *clientData, Tcl_Interp *interp, int objc,
     if (Tcl_GetIndexFromObj(interp, objv[1], subs, "subcommand", 0,
 			    &index) != TCL_OK) {
 	return TCL_ERROR;
+    }
+    if (index == F_TAME) {
+	int on;
+	if (objc != 3 || Tcl_GetBooleanFromObj(interp, objv[2], &on) != TCL_OK) {
+	    Tcl_WrongNumArgs(interp, 2, objv, "boolean");
+	    return TCL_ERROR;
+	}
+	TameImplicitFocus(on);
+	return TCL_OK;
     }
     n = objc - 2;
     av = objv + 2;

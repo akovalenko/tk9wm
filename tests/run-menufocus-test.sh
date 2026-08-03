@@ -1,12 +1,17 @@
 #!/bin/sh
 # Regression for the menu-time focus-follows-mouse creep (live report,
 # 2026-07-28): while a popup menu holds the keyboard grab, Tk's
-# implicit-focus release (the step-32 trap) can still park the server
-# focus on PointerRoot — and every focus event arrives with mode
+# implicit-focus release (the step-32 trap) could park the server focus
+# on PointerRoot — and every focus event arrives with mode
 # Grab/WhileGrabbed, which the watchdog used to drop wholesale, so the
 # display silently switched to focus-follows-mouse and STAYED there
-# after the menu closed. The WM must see the PointerRoot fall and
-# repair it even while its own keyboard grab is active.
+# after the menu closed.
+#
+# It is now a test of the CURE at its source: the shim refuses Tk the
+# two events it arms that machinery with (tkwmx.c, TameImplicitFocus),
+# so this scenario — which used to arm the trap on every run — must
+# produce no fall at all. The pointer wandering below is what armed it;
+# keep it exactly as it is, or the test proves nothing.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:89
 rm -f /tmp/.X89-lock /tmp/.X11-unix/X89
@@ -75,11 +80,20 @@ if [ "$AFTER" = "$AID" ]; then
 else
     echo "FAIL: focus after menu is $AFTER, want $AID"; FAIL=1
 fi
+# Since the shim tames Tk's implicit focus at the source, this scenario
+# must not merely SURVIVE the fall — the fall must not happen. The
+# assertion is therefore inverted from what it was: it used to demand
+# the repair line, proving the watchdog caught the trap; now it demands
+# silence, proving the trap was never armed. The repair path itself
+# still has a test — run-gareset-test.sh forces PointerRoot from
+# OUTSIDE (which no taming can prevent, and which is exactly how a
+# stray client causes it) and checks the whole recovery.
 if grep -q 'focus fell to PointerRoot' "$HERE/wm-menufocus.log"; then
-    echo "OK: the watchdog saw the PointerRoot fall (the trap did fire)"
-else
-    echo "FAIL: no PointerRoot repair in the log — the scenario never armed the trap"
+    echo "FAIL: the display still fell to PointerRoot — Tk's implicit focus is not tamed:"
+    grep -c 'focus fell to PointerRoot' "$HERE/wm-menufocus.log" | sed 's/^/    falls: /'
     FAIL=1
+else
+    echo "OK: no PointerRoot fall at all — the trap was never armed"
 fi
 if grep -q 'handler error' "$HERE/wm-menufocus.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-menufocus.log"
