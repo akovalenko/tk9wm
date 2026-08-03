@@ -144,6 +144,15 @@
 #   titlebar-bind title <Double-1> Maximize      ;# the default
 #   titlebar-bind title <3>        winops        ;# the default
 #
+# A gesture that opens a MENU opens it under the hand — the pointer's
+# x, dropping out of the bottom of the strip — and because a strip
+# gesture fires on the press, the menu is up while the button is still
+# down: hold it, drag onto an entry and release, and that entry fires.
+# Release without going into the menu and it stays standing, to be used
+# by hand or by keyboard; go in and come out again and it is dismissed.
+# By key (<Alt>space) there is no hand, and the menu keeps the window's
+# own top-left corner.
+#
 # The sharp one, deliberately NOT a default — a slip of the right
 # button on the close box kills the client without letting it save
 # anything:

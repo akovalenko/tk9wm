@@ -1498,7 +1498,14 @@ runs as a single shell call:
   window whose style refuses; the strip's own gestures, a double click
   maximizing and button 3 opening the ops menu; and a CONFIG saying all
   three kinds of thing — declaring a button with its own glyph, binding
-  it to a window command, and putting Destroy on button 3 of close), `run-restart-test.sh` (restart in place: the
+  it to a window command, and putting Destroy on button 3 of close),
+  `run-winmenu-test.sh` (the ops menu as a MOUSE menu: a gesture on the
+  strip opens it at the pointer's x and under the bar, while
+  `<Alt>space` keeps the window's own corner; then the gesture the
+  events do not reach the menu for on their own — press, drag onto an
+  entry, release, and that entry fires — while a press and release in
+  place picks nothing and leaves the menu standing, hotkey and all, and
+  a drag in and out again dismisses it), `run-restart-test.sh` (restart in place: the
   same pid, the client picked back up), `run-orphan-test.sh` (what a
   restart leaves us holding: a child of the old image dies unwaited-for
   after the exec and the fresh one buries it, while the child it

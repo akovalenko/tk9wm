@@ -2090,9 +2090,15 @@ proc titlebar-build {t w names title} {
     foreach n {1 2 3} {
         bind $t.title <ButtonPress-$n> \
             [list title-press $t $w %x %y %X %Y $n]
-        bind $t.title <ButtonRelease-$n> [list title-release $t $w %x %y $n]
+        bind $t.title <ButtonRelease-$n> \
+            [list title-release $t $w %x %y %X %Y $n]
     }
     bind $t.title <B1-Motion> [list title-motion $t $w %x %y %X %Y]
+    # Buttons 2 and 3 fire on the PRESS, so a menu they open stands
+    # under a hand that is still holding the button: their drag belongs
+    # to that menu, not to the frame, and the strip passes it on.
+    bind $t.title <B2-Motion> [list popup-drag-motion %X %Y]
+    bind $t.title <B3-Motion> [list popup-drag-motion %X %Y]
     bind $t.title <Double-ButtonPress-1> [list title-double $t $w %x %y]
 }
 
@@ -2122,7 +2128,7 @@ proc title-press {t w x y X Y n} {
         if {$n == 1} {
             drag-start $t $w $X $Y
         } else {
-            titlebar-do $t $w title <$n>
+            gesture-at $X $Y $n { titlebar-do $t $w title <$n> }
         }
         return
     }
@@ -2137,13 +2143,19 @@ proc title-motion {t w x y X Y} {
     $t.title item state forcolumn 1 C$b \
         [expr {[title-button $t $x $y] eq $b ? "pressed" : "!pressed"}]
 }
-proc title-release {t w x y n} {
+proc title-release {t w x y X Y n} {
+    # First the menu this press may have posted, because a gesture on
+    # the STRIP arms no button and the check below is the way it
+    # leaves: the release that ends such a gesture is the menu's.
+    popup-drag-release $X $Y
     if {![info exists ::btn($t)]} return
     lassign $::btn($t) b bn
     if {$n != $bn} return
     unset ::btn($t)
     $t.title item state forcolumn 1 C$b !pressed
-    if {[title-button $t $x $y] eq $b} { titlebar-do $t $w $b <$n> }
+    if {[title-button $t $x $y] eq $b} {
+        gesture-at $X $Y 0 { titlebar-do $t $w $b <$n> }
+    }
 }
 # The second click of a pair. Tk gives it to the Double binding INSTEAD
 # of the plain press, so no carry is started by it — and the first
@@ -2479,7 +2491,7 @@ unless-already {[dict exists $::font_kin HoverFont]} {
     wm-font HoverFont -from TitleFont -underline 1
 }
 proc popup-hover-font {} { list HoverFont hover TitleFont {} }
-proc popup-shell {m ih} {
+proc popup-shell {m ih pick} {
     popups-close
     toplevel $m -background $::OUTLINE
     wm overrideredirect $m 1
@@ -2493,6 +2505,12 @@ proc popup-shell {m ih} {
         -font [popup-hover-font]
     bind $m.t <Motion> [list popup-hover $m.t %x %y]
     bind $m.t <Leave>  [list popup-hover $m.t -1 -1]
+    # PICK is what a row-and-a-point means for this menu, and the shell
+    # holds it because there are two ways in: the plain click, and the
+    # release that ends a drag begun outside this window
+    # (popup-drag-release). Bound in one place, they cannot come apart.
+    set ::popup_pick($m) $pick
+    bind $m.t <ButtonPress-1> [list $pick %x %y]
     return $m.t
 }
 # Which row the pointer is over, marked and unmarked. Off the widget
@@ -2519,6 +2537,96 @@ proc popup-show {m W H X Y} {
     wm geometry $m ${W}x${H}+$X+$Y
     raise $m
     update idletasks
+    # Posted with the button still down — the drag that follows is the
+    # same gesture and has to reach this menu (popup-drag-* below).
+    # Nothing else arms it: a menu opened by a key, or by a press whose
+    # path does not hand its events over, simply never sees a drag.
+    if {[gesture-held]} { set ::popup_drag [list $m 0] }
+    return [list $X $Y]
+}
+
+# ---- the point a gesture happened at ----
+# A window command does not take a place to happen at — the seam hands
+# it a window and nothing else, and that is what lets a config put any
+# command on any part. But a command that puts a MENU on the screen
+# does want one: a menu called up by the hand belongs under the hand,
+# while the same menu called up by <Alt>space has no hand to belong to
+# and belongs to the window (the owner, 2026-08-03).
+#
+# So the point rides BESIDE the call instead of in it: a mouse path
+# wraps its dispatch in `gesture-at`, and whatever runs inside can ask
+# where the hand was and whether it is still holding the button down.
+# The command vocabulary keeps its single argument, and everything that
+# does not care never mentions any of this.
+keep gesture {}   ;# {X Y button} while a mouse gesture's command runs
+proc gesture-at {X Y n script} {
+    set save $::gesture
+    set ::gesture [list $X $Y $n]
+    try {
+        uplevel 1 $script
+    } finally {
+        set ::gesture $save
+    }
+}
+# Where the hand is, in root coordinates — {} when the command came
+# from a key; and which button is HELD, 0 for none. A titlebar button
+# fires on its release, so by then nothing is down and no drag can
+# follow; the strip's own gestures fire on the press, and one can.
+proc gesture-point {} { lrange $::gesture 0 1 }
+proc gesture-held {} {
+    expr {[llength $::gesture] ? [lindex $::gesture 2] : 0}
+}
+
+# ---- a menu posted with the button still down ----
+# Press, drag onto the entry, release on it — how fvwm and twm were
+# driven, and the gesture every toolkit's menus kept. Its events do not
+# arrive at the menu on their own: for as long as any button is down Tk
+# sends every motion and the release to the widget the press happened
+# on (its own button grab, over the X implicit one underneath), and
+# that widget is the TITLEBAR, not the popup now standing over it.
+# Measured rather than assumed — the popup gets one <Enter>, and only
+# after the release.
+#
+# So the presser hands the events over: root coordinates in, and the
+# menu does with them what it would have done with its own <Motion> and
+# its own click. Two rules make the gesture read right:
+#
+#   - the release PICKS only over the menu. Press-and-release in place
+#     is the other way to open one — the click that leaves it standing
+#     — and its release lands where the press did, off the menu;
+#   - having been inside the menu and released outside it is "never
+#     mind", and dismisses. A menu the pointer never entered stays.
+keep popup_drag {}   ;# {popup entered?} while the posting button is held
+proc popup-drag-point {m X Y} {
+    set T $m.t
+    set x [expr {$X - [winfo rootx $T]}]
+    set y [expr {$Y - [winfo rooty $T]}]
+    list [expr {$x >= 0 && $y >= 0
+                && $x < [winfo width $T] && $y < [winfo height $T]}] $x $y
+}
+proc popup-drag-motion {X Y} {
+    if {![llength $::popup_drag]} return
+    lassign $::popup_drag m -
+    if {![winfo exists $m]} { set ::popup_drag {}; return }
+    lassign [popup-drag-point $m $X $Y] in x y
+    if {$in} {
+        set ::popup_drag [list $m 1]
+        popup-hover $m.t $x $y
+    } else {
+        popup-hover $m.t -1 -1
+    }
+}
+proc popup-drag-release {X Y} {
+    if {![llength $::popup_drag]} return
+    lassign $::popup_drag m entered
+    set ::popup_drag {}
+    if {![winfo exists $m]} return
+    lassign [popup-drag-point $m $X $Y] in x y
+    if {$in} {
+        {*}$::popup_pick($m) $x $y
+    } elseif {$entered} {
+        popups-close
+    }
 }
 # ---- the WM's own windows -------------------------------------------
 #
@@ -2701,7 +2809,12 @@ proc popups-close {{except ""}} {
             # A dismissed wm-window leaves no bookkeeping behind. Its
             # close SCRIPT is deliberately not run: dismissing IS the
             # cancel, and cancel does nothing by definition.
-            unset -nocomplain ::closeof($m) ::btncols($m) ::drag($m) ::btn($m)
+            unset -nocomplain ::closeof($m) ::btncols($m) ::drag($m) \
+                ::btn($m) ::popup_pick($m)
+            # ...and a hand-over armed for it dies with it: the button
+            # may well still be down, and the release that ends the
+            # gesture must not go looking for a menu that is gone.
+            if {[lindex $::popup_drag 0] eq $m} { set ::popup_drag {} }
             destroy $m
         }
     }
@@ -2778,6 +2891,13 @@ proc wm-invariants {} {
         if {[winfo exists $m] && !$modal} {
             lappend bad "$m is up with no router"
         }
+    }
+    # A hand-over is armed for a LIVE menu or not at all: the popup it
+    # names went away without clearing it, and the release still to
+    # come would look for rows in a destroyed window.
+    if {[llength $::popup_drag] && ![winfo exists [lindex $::popup_drag 0]]} {
+        lappend bad "a menu hand-over armed for [lindex $::popup_drag 0],\
+                     which is gone"
     }
     # ...and the grab is held for a router or for a chord in progress,
     # never for its own sake: a keyboard nobody is listening on is a
@@ -3089,7 +3209,7 @@ proc winlist-open {wins anchor} {
     font configure IconFont -family [font actual TitleFont -family] \
         -size -[expr {max(7, $sq * 5 / 8)}]
     set iconw [expr {$ih + 6}]
-    set T [popup-shell .winlist $ih]
+    set T [popup-shell .winlist $ih winlist-click]
     $T column create -width $numw -tags Cnum
     $T column create -width $iconw -tags Cicon
     $T column create -squeeze yes -expand yes -tags C0
@@ -3138,7 +3258,6 @@ proc winlist-open {wins anchor} {
         $T item lastchild root $item
     }
     $T selection add [expr {$anchor eq "center" && [llength $wins] > 1 ? 2 : 1}]
-    bind $T <ButtonPress-1> {winlist-click %x %y}
     lassign [screen-size] sw sh
     set W [expr {min(max($maxw + $numw + $iconw + 28, 200), $sw * 3 / 5)}]
     set H [expr {[llength $wins] * $ih + 2}]
@@ -3515,7 +3634,7 @@ proc winops {{w 0}} {
     set ::winops_win $w
     set n [expr {[llength $::winops_actions] / 2}]
     set ih [expr {[font metrics TitleFont -linespace] + 6}]
-    set T [popup-shell .winops $ih]
+    set T [popup-shell .winops $ih winops-click]
     $T column create -squeeze yes -expand yes -tags C0
     $T column create -width [expr {$ih + 4}] -tags Ckey
     $T configure -treecolumn C0
@@ -3539,17 +3658,42 @@ proc winops {{w 0}} {
         $T item lastchild root $item
     }
     $T selection add 1
-    bind $T <ButtonPress-1> {winops-click %x %y}
     set t $::frameof($w)
     lassign [frame-chrome $t] B top
-    popup-show .winops [expr {max($maxw + $ih + 40, 160)}] \
-        [expr {$n * $ih + 2}] \
-        [expr {[winfo rootx $t] + $B}] \
-        [expr {[winfo rooty $t] + $top}]
+    set X [expr {[winfo rootx $t] + $B}]
+    set Y [expr {[winfo rooty $t] + $top}]
+    # THE MENU GOES WHERE THE HAND IS. Called up by a key it has no
+    # hand and stays at the window's own corner, which is where it
+    # always was; called up by the mouse it follows the pointer's x
+    # (the owner, 2026-08-03) — the eye is there, and the drag that may
+    # still be in progress has the shortest way into the first row.
+    #
+    # The y is the strip's bottom edge as long as the gesture was ON
+    # the strip: the menu drops out of the bar the way a menubar's
+    # does, the title and its buttons stay readable above it, and the
+    # release of a press that meant to leave the menu STANDING lands
+    # clear of it. A gesture from anywhere else has no bar over it to
+    # hang from, and opens the menu at the point itself.
+    set at [gesture-point]
+    if {[llength $at]} {
+        lassign $at hx hy
+        set onbar [expr {[winfo exists $t.title]
+                         && $hy >= [winfo rooty $t.title]
+                         && $hy < [winfo rooty $t.title]
+                                  + [winfo height $t.title]}]
+        set X $hx
+        if {!$onbar} { set Y $hy }
+    }
+    set W [expr {max($maxw + $ih + 40, 160)}]
+    set H [expr {$n * $ih + 2}]
+    lassign [popup-show .winops $W $H $X $Y] X Y
     if {![grab-keys-to winops-key]} {
         puts "WM: winops: keyboard not grabbed — mouse only"
     }
-    puts "WM: winops open 0x[format %x $w]"
+    # Where it LANDED, clamping and all — the menu is an
+    # override-redirect window of our own and nothing else on the
+    # display reports its geometry.
+    puts "WM: winops open 0x[format %x $w] ${W}x${H}+$X+$Y"
 }
 proc winops-key {kind name mods} {
     if {$kind eq "release"} return
