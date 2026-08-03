@@ -70,7 +70,12 @@ proc live-two {} {
     # click the inner edge of the reserved strip — the whole zone is
     # the target, not the glyph
     lassign [[panel-tree default] item bbox 1] bx1 by1 bx2 by2
-    panel-click default [expr {$bx2 - 4}] [expr {($by1 + $by2) / 2}]
+    # ON ITS OWN, as a real click is: a click arrives from a Tk binding,
+    # while this battery is itself a chord's script — that is, already a
+    # coroutine. The arrow WAITS for a row now, so calling it inline
+    # would park the battery on an answer the battery was about to give.
+    run-script "test click" [list panel-click default \
+        [expr {$bx2 - 4}] [expr {($by1 + $by2) / 2}]]
     lchk {a zone-edge click opens the filtered list} 1 [winfo exists .winlist]
     lchk {the list holds exactly the matches} 2 [llength $::winlist_wins]
     lchk {MRU: the fresh window leads} [by-title жилец-B] \
@@ -191,7 +196,8 @@ if [ "$DONE" = 7 ]; then
 else
     echo "FAIL: $DONE battery-done lines, want 7"
 fi
-if grep -q 'panel жилец: arrow — 2 matches' "$HERE/wm-panellive.log"; then
+if grep -q 'panel default: arrow on жилец' "$HERE/wm-panellive.log" \
+   && grep -q 'action жилец: choose among 2 matches' "$HERE/wm-panellive.log"; then
     echo "OK: the arrow logged its two matches"
 else
     echo "FAIL: no arrow log line"

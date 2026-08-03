@@ -3282,8 +3282,13 @@ proc winlist {} {
 # weld: with chord-hold on, the invoking Super is still down when the
 # list appears, so a chooser inheriting cycle mode would commit to the
 # previous window the moment the hand relaxed, having asked nothing.
-proc winlist-open {wins where kind} {
+proc winlist-open {wins where kind {more ""}} {
     set ::winlist_wins $wins
+    # WHAT EACH ROW ANSWERS, which is not the same list as the windows
+    # once a chooser can end in a row that is not one: `more` is the
+    # deed's own «run another», and it answers with the word `more`
+    # rather than with a window id nobody could tell apart from one.
+    set ::winlist_rows $wins
     set ::winlist_prev $::focused
     set ::winlist_cycle 0
     if {$kind eq "toggle" && $::winlist_cycle_opt && $::key_invoke_mods != 0
@@ -3365,12 +3370,34 @@ proc winlist-open {wins where kind} {
         }
         $T item lastchild root $item
     }
+    # THE DEED'S OWN LAST ROW. It carries no hotkey — the digits and
+    # letters are window numbers, and one of them meaning something
+    # else would make the whole column a thing to read twice — and it
+    # is not preselected: a list of windows opens ON a window. A rule
+    # above it says it is not one of them; the dim ink says the same
+    # thing again, because a rule is easy to miss on a busy desk.
+    if {$more ne ""} {
+        set maxw [expr {max($maxw, [font measure TitleFont $more])}]
+        $T element create eRule rect -fill [themed dim]
+        $T element create eMore text -fill [themed dim] -lines 1 \
+            -font [popup-hover-font]
+        $T style create sMore
+        $T style elements sMore {eSel eRule eMore}
+        $T style layout sMore eSel -detach yes -iexpand xy
+        $T style layout sMore eRule -detach yes -iexpand x -height 1
+        $T style layout sMore eMore -expand ns -padx 4 -squeeze x
+        set item [$T item create]
+        $T item style set $item C0 sMore
+        $T item element configure $item C0 eMore -text $more
+        $T item lastchild root $item
+        lappend ::winlist_rows more
+    }
     # The toggle starts on the row it would switch to; a chooser starts
     # on the most recent, because it is not switching anywhere yet.
     $T selection add [expr {$kind eq "toggle" && [llength $wins] > 1 ? 2 : 1}]
     lassign [screen-size] sw sh
     set W [expr {min(max($maxw + $numw + $iconw + 28, 200), $sw * 3 / 5)}]
-    set H [expr {[llength $wins] * $ih + 2}]
+    set H [expr {[llength $::winlist_rows] * $ih + 2}]
     if {$where eq "center"} {
         set X [expr {($sw - $W) / 2}]
         set Y [expr {($sh - $H) / 3}]
@@ -3421,8 +3448,8 @@ proc winlist-open {wins where kind} {
 # out from under the wait throws FUT CANCELLED instead: «nobody
 # answered» and «nobody is going to» are different facts, and only the
 # second belongs in the log.
-proc winlist-choose {wins where} {
-    winlist-open $wins $where chooser
+proc winlist-choose {wins where {more ""}} {
+    winlist-open $wins $where chooser $more
     return [popup-await .winlist]
 }
 proc winlist-key {kind name mods} {
@@ -3459,11 +3486,11 @@ proc winlist-key {kind name mods} {
     }
 }
 proc winlist-move {d} {
-    popup-move .winlist.t [llength $::winlist_wins] $d
+    popup-move .winlist.t [llength $::winlist_rows] $d
 }
 proc winlist-pick {} {
     set cur [lindex [.winlist.t selection get] 0]
-    set w [lindex $::winlist_wins [expr {$cur - 1}]]
+    set row [lindex $::winlist_rows [expr {$cur - 1}]]
     # A LIST THAT ANSWERS DOES NOT ACT. With somebody parked on it, the
     # row IS the answer and what it means belongs to whoever asked —
     # raise this window, run another one, edit it: the list cannot know,
@@ -3475,14 +3502,19 @@ proc winlist-pick {} {
         # the branch it takes looks like one, so «0x400016» came out of
         # the ternary as 4194326 — measured, and the sort of thing that
         # only ever bites in a log line.
-        if {$w eq ""} {
+        if {$row eq ""} {
             puts "WM: winlist answers nothing"
+        } elseif {$row eq "more"} {
+            puts "WM: winlist answers more"
         } else {
-            puts "WM: winlist answers 0x[format %x $w]"
+            puts "WM: winlist answers 0x[format %x $row]"
         }
-        popup-answer .winlist $w
+        popup-answer .winlist $row
         return
     }
+    # The plain list carries windows and nothing else — a `more` row is
+    # a deed's, and a deed's list always has somebody waiting on it.
+    set w $row
     popups-close
     if {$w ne "" && [info exists ::frameof($w)]} {
         puts "WM: winlist pick 0x[format %x $w]"
@@ -6164,7 +6196,26 @@ proc Run {args} {
 # otherwise the launch runs under the action's env. Any panel that
 # carries the action flashes its button, found by name. A waiting
 # action says so instead of guessing.
-proc action-fire {name} {
+#
+# MODE IS THE CALLER'S, NOT THE DEED'S — and that is the whole reason
+# it is an argument:
+#
+#   auto    consult the deed's `many` (this is what a CHORD does)
+#   mru     the most recent window, whatever `many` says
+#   choose  ask, when there is more than one
+#   run     start another one, found window or not
+#
+# A button offers TWO of these on its own face — its main area is mru,
+# its arrow is choose — so a knob read from inside the fire would take
+# away the choice the mouse already has under its finger (the owner,
+# 2026-08-03, correcting the first reading of `many`). The keyboard has
+# no such face: it presses one chord and gets one answer, and `many` is
+# the word that says which.
+#
+# PREFER names the panel the gesture came from, so an arrow opens its
+# list off the button that was clicked rather than off whichever panel
+# would have been picked for a chord.
+proc action-fire {name {mode auto} {prefer ""}} {
     if {![dict exists $::action_spec $name]} {
         puts "WM: action $name: unknown — nothing to fire"
         return
@@ -6175,45 +6226,145 @@ proc action-fire {name} {
  not firing"
         return
     }
-    set hit [lindex [panel-matches $name $spec] 0]
+    if {$mode eq "auto"} {
+        set mode [expr {[dict exists $spec many] ? [dict get $spec many] : "mru"}]
+    }
+    # FORCE runs whatever it finds, so it asks nothing about windows.
+    if {$mode eq "run"} {
+        if {![dict exists $spec launch]} {
+            puts "WM: action $name: nothing to run"
+            policy-key-echo problem "«$name» has nothing to run"
+            return
+        }
+        action-launch $name $spec
+        return
+    }
+    set wins [panel-matches $name $spec]
+    # Asking is only a question when there is something to ask about:
+    # one window is reached, none is launched, exactly as ever. This is
+    # also where the arrow's stale-zone case lands (the debounce window
+    # between the strip's state and the living windows).
+    if {$mode eq "choose" && [llength $wins] > 1} {
+        action-choose $name $wins $prefer
+        return
+    }
+    set hit [lindex $wins 0]
     if {$hit ne ""} {
         action-reach $name $spec $hit
     } elseif {[dict exists $spec launch]} {
-        puts "WM: action $name: launch"
-        # WHAT THE DESK ITSELF STARTED AND HAS NOWHERE TO SHOW, which
-        # is a fact and not a guess. "The last thing that appeared"
-        # would be the guess: windows arrive on their own schedule and
-        # the answer would change under the hand reaching for it (the
-        # owner, 2026-08-02 — "appear happens dynamically, you could
-        # pin the wrong thing").
-        #
-        # Two things are stepped over, and for one reason: the
-        # question is "what would you like to keep", and neither of
-        # them can answer it. A press that merely FOUND an existing
-        # window started nothing (this branch is the launch one, so
-        # that is already true here). And a deed that ALREADY HAS AN
-        # ICON is not a candidate either — pinning it is a no-op, and
-        # letting it take the slot would bury the thing you actually
-        # started a moment ago behind an ordinary press of a button
-        # that is already there (the owner, same day).
-        if {[llength [action-panels $name]] == 0} { set ::last_started $name }
-        action-flash $name firing
-        set script [dict get $spec launch]
-        if {[dict exists $spec env] || [dict exists $spec env-unset]} {
-            set script [list with-env \
-                [expr {[dict exists $spec env] ? [dict get $spec env] : {}}] \
-                $script \
-                [expr {[dict exists $spec env-unset]
-                       ? [dict get $spec env-unset] : {}}]]
-        }
-        set via ""
-        if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
-        run-script "action $name" [list run-via $via $script]
+        action-launch $name $spec
     } else {
         puts "WM: action $name: nothing matched, nothing to launch"
     }
 }
+# The launch half, lifted out so the forced run and the list's own «run
+# another» row start a deed exactly the way an ordinary fire does —
+# same env, same runvia, same flash, same memory of what was started.
+proc action-launch {name spec} {
+    puts "WM: action $name: launch"
+    # WHAT THE DESK ITSELF STARTED AND HAS NOWHERE TO SHOW, which is a
+    # fact and not a guess. "The last thing that appeared" would be the
+    # guess: windows arrive on their own schedule and the answer would
+    # change under the hand reaching for it (the owner, 2026-08-02 —
+    # "appear happens dynamically, you could pin the wrong thing").
+    #
+    # Two things are stepped over, and for one reason: the question is
+    # "what would you like to keep", and neither of them can answer it.
+    # A press that merely FOUND an existing window started nothing —
+    # which is why this lives in the launch word and not in the fire,
+    # and why a FORCED run of a deed that has a window is still a
+    # launch and still counts. And a deed that ALREADY HAS AN ICON is
+    # not a candidate either: pinning it is a no-op, and letting it take
+    # the slot would bury the thing you actually started a moment ago
+    # behind an ordinary press of a button that is already there (the
+    # owner, same day).
+    if {[llength [action-panels $name]] == 0} { set ::last_started $name }
+    action-flash $name firing
+    set script [dict get $spec launch]
+    if {[dict exists $spec env] || [dict exists $spec env-unset]} {
+        set script [list with-env \
+            [expr {[dict exists $spec env] ? [dict get $spec env] : {}}] \
+            $script \
+            [expr {[dict exists $spec env-unset]
+                   ? [dict get $spec env-unset] : {}}]]
+    }
+    set via ""
+    if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
+    run-script "action $name" [list run-via $via $script]
+}
 keep last_started ""   ;# the last unpinned deed this desk launched
+
+# ASK WHICH ONE — the filtered list of a deed's own windows, and the
+# answer decided by whoever asked rather than by the list.
+#
+# WHERE it opens is a question only the KEYBOARD has: a click already
+# said where it happened, and its arrow passes that panel as `prefer`.
+# A chord has to be given a place, and the button is the one the eye
+# already ties to the deed — so the list hangs off it when there is one
+# to hang off, and stands in the middle of the screen when the deed has
+# no face anywhere (the owner's rule, 2026-08-03).
+#
+# SHOWING, not merely referencing: a panel that names the deed in its
+# config but has not built the button (the deed is waiting on its
+# software, or resolve skipped it) would anchor the list against a
+# button that is not on the screen. So the live item map answers, not
+# the reference list.
+proc action-shown-panels {name} {
+    set out {}
+    foreach pn [panel-names] {
+        if {[info exists ::panel_items($pn)]
+                && [dict exists $::panel_items($pn) $name]} { lappend out $pn }
+    }
+    return $out
+}
+proc action-where {name prefer} {
+    set on [action-shown-panels $name]
+    if {![llength $on]} { return center }
+    if {$prefer ne "" && $prefer in $on} { return [list panel $prefer $name] }
+    return [list panel [expr {"default" in $on ? "default" : [lindex $on 0]}] $name]
+}
+proc action-choose {name wins prefer} {
+    # A WAIT NEEDS A COROUTINE, and a caller that is not one gets an
+    # errand instead of an error: a chord already runs in one (run-script
+    # wraps every key's payload), a panel click is a plain Tk binding.
+    # Sending it round this way keeps `action-fire NAME choose` a thing
+    # anybody may call from anywhere, which is what a verb in this
+    # vocabulary has to be.
+    if {[info coroutine] eq ""} {
+        run-script "action $name" [list action-choose $name $wins $prefer]
+        return
+    }
+    puts "WM: action $name: choose among [llength $wins] matches"
+    set spec [dict get $::action_spec $name]
+    # «Run another» is the visible door to what Ctrl does on a button,
+    # and it is offered only where it is true: a deed with nothing to
+    # launch cannot run another of anything.
+    set more ""
+    if {[dict exists $spec launch]} { set more "Run another $name" }
+    set ans [winlist-choose $wins [action-where $name $prefer] $more]
+    if {$ans eq ""} return
+    # NOTHING TAKEN BEFORE THE WAIT IS TRUSTED AFTER IT. The list stood
+    # open for as long as the person liked: the window can die, a reload
+    # can take the deed out of the registry, the strip can be rebuilt.
+    if {![dict exists $::action_spec $name]} {
+        puts "WM: action $name: went away while the list was open"
+        return
+    }
+    set spec [dict get $::action_spec $name]
+    if {$ans eq "more"} {
+        if {![dict exists $spec launch]} {
+            puts "WM: action $name: nothing to run any more"
+            return
+        }
+        action-launch $name $spec
+        return
+    }
+    if {![info exists ::frameof($ans)]} {
+        puts "WM: action $name: the picked window is gone"
+        return
+    }
+    action-reach $name $spec $ans
+}
 
 # REACHING THE DEED'S WINDOW, in one place. The plain fire calls it
 # with the most recent match; a filtered list calls it with the row the
@@ -6522,6 +6673,8 @@ spec-keys action {
               doc {a Tcl script, run when the deed fires}}
     match    {kind predicate doc {which window counts as already-running}}
     activate {kind script    doc {what a found window gets instead of the focus}}
+    many     {kind {choice mru choose}
+              doc {what the CHORD does with several windows — the button has both}}
     icon     {kind icon      doc {a face, for whatever panel carries it}}
     badge    {kind text
               doc {a letter or two laid over the icon — one picture, many deeds}}
@@ -7763,39 +7916,17 @@ proc panel-index {name aname} {
     }
     return -1
 }
-# The arrow zone: the winlist filtered to this button's matches,
-# anchored by the button, and the pick reaches that window THROUGH THE
-# DEED (action-reach) — the same door an ordinary press goes through.
-# Fewer than two matches means the arrow is stale (the debounce
-# window): degrade to the plain fire. A button press itself IS the
-# action's fire — run-or-raise, the activate hook, the env, the flash on
-# every panel carrying the name are action-fire's one story, and
-# the button adds nothing of its own (see panel-click).
-#
-# RUNS AS AN ERRAND, because it waits: the list stays open for as long
-# as the person likes and the desk goes on managing windows meanwhile.
+# The arrow zone: the deed's own fire, asked to CHOOSE and told which
+# panel the hand was on. It has no code of its own any more — the
+# filtered list, the anchoring, the pick going through the deed's door,
+# the stale-zone case where fewer than two windows are left by the time
+# the click lands: all of that is one story in action-fire, and the
+# arrow is the gesture that says `choose` out loud. A button press
+# itself is the same word saying `mru`, and the difference between the
+# two halves of a button is exactly that one argument (see panel-click).
 proc panel-arrow {name aname} {
-    set i [panel-index $name $aname]
-    if {$i < 0} return
-    lassign [lindex [panel-cfg $name shown] $i] - label settings
-    set wins [panel-matches $label $settings]
-    if {[llength $wins] < 2} { action-fire $aname; return }
-    puts "WM: panel $label: arrow — [llength $wins] matches"
-    set w [winlist-choose $wins [list panel $name $aname]]
-    if {$w eq ""} return
-    # NOTHING TAKEN BEFORE THE WAIT IS TRUSTED AFTER IT. The list stood
-    # open for an unbounded time, and in it the window can die, a reload
-    # can take the deed out of the registry, the strip can be rebuilt.
-    # So both are asked for again rather than carried across the wait.
-    if {![info exists ::frameof($w)]} {
-        puts "WM: panel $label: the picked window is gone"
-        return
-    }
-    if {![dict exists $::action_spec $aname]} {
-        puts "WM: panel $label: action $aname went away while the list was open"
-        return
-    }
-    action-reach $aname [dict get $::action_spec $aname] $w
+    puts "WM: panel $name: arrow on $aname"
+    action-fire $aname choose $name
 }
 # BY NAME, through the build's item map — a strip that does not carry
 # the name simply does not flash, which is what lets action-flash ask
@@ -7833,16 +7964,14 @@ proc panel-click {name x y} {
     set zone [expr {[info exists ::panel_zone($name)] ? $::panel_zone($name) : 0}]
     if {$zone > 0 && "multi" in [$T item state get $A(item)]} {
         lassign [$T item bbox $A(item)] _x _y x2 _y2
-        if {$x >= $x2 - 2 - $zone} {
-            # AS AN ERRAND: the arrow waits for a row to be picked, and
-            # a Tk binding is no place to wait — a handler that parks
-            # parks the desk. The body is baked word by word, as every
-            # errand's is: it outlives the frame that started it.
-            run-script "panel $name arrow" [list panel-arrow $name $aname]
-            return
-        }
+        if {$x >= $x2 - 2 - $zone} { panel-arrow $name $aname; return }
     }
-    action-fire $aname
+    # The MAIN AREA is the most recent window, always — a button wears
+    # both answers on its face, and the deed's `many` is the word for
+    # the keyboard, which has no face to wear them on (the owner,
+    # 2026-08-03). Asking for `mru` outright, rather than letting the
+    # press mean «auto», is what keeps that true.
+    action-fire $aname mru
 }
 proc panel-on-top {} {
     foreach name [panel-names] {

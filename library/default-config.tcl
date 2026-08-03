@@ -351,6 +351,17 @@
 #   activate — the other escape, for the found half: a command prefix
 #            the found window is appended to, instead of plain focus
 #            (the emacs adapter derives one; say your own and it wins)
+#   many   — what the CHORD does when the match finds SEVERAL windows:
+#            `mru` (the default, and what the desk has always done —
+#            the most recently used one) or `choose`, which opens the
+#            window list filtered to this deed and asks. The list hangs
+#            off the deed's panel button when it has one and stands in
+#            the middle of the screen when it has none; it ends in a
+#            «run another» row whenever the deed has something to
+#            launch. THE CHORD ONLY: a panel button already wears both
+#            answers on its face — its body is the most recent window,
+#            its arrow is the same chooser — and this word does not
+#            take that choice away from the hand on the mouse
 #
 # A key nobody knows is REFUSED where it is written. There is a table
 # of what an action and its adapter words may carry (spec-keys), and
