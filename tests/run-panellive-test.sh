@@ -78,6 +78,12 @@ proc live-two {} {
     .winlist.t selection clear
     .winlist.t selection add 2
     winlist-pick
+    # THE PICK IS AN ANSWER NOW, not a deed: the list hands the window
+    # back to whoever opened it (the arrow errand), and the substrate
+    # wakes that waiter through the event loop — so the focus lands one
+    # turn later, and a test that looks without turning sees the world
+    # before the answer arrived.
+    update; update idletasks
     lchk {picking the second entry focused the older one} \
         [by-title жилец-A] $::focused
     puts "LIVE BATTERY two done"

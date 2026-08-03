@@ -103,7 +103,7 @@ proc panels-battery {} {
         # A list anchored by a button opens off the strip's INNER face,
         # whichever edge that strip is on — beside a vertical dock, not
         # off the screen edge it is glued to.
-        winlist-open [list $tk] [list panel dock 0]
+        winlist-open [list $tk] [list panel dock 0] chooser
         update; update idletasks
         pchk {a list anchored by the left dock opens beside it} 1 \
             [expr {[winfo exists .winlist] && [winfo x .winlist] >= $dth}]

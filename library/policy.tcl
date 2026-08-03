@@ -2491,6 +2491,82 @@ unless-already {[dict exists $::font_kin HoverFont]} {
     wm-font HoverFont -from TitleFont -underline 1
 }
 proc popup-hover-font {} { list HoverFont hover TitleFont {} }
+
+# ---- a popup that ANSWERS ----
+# The desk already waits on the world outside without standing still —
+# a process, a round trip to a daemon — by running the errand in a
+# coroutine over the future substrate (wm-errand, fut.tcl vendored).
+# Waiting on the PERSON in front of the desk is the same shape, and it
+# used to be written inside out: the menu did the deed itself, so what
+# a pick MEANT lived in the list instead of in whoever opened it. A
+# menu that answers lets its caller read top to bottom —
+#
+#   set w [winlist-choose $wins $where]
+#
+# — and that is what lets one list carry two meanings (raise this
+# window / run another one) without the list knowing either of them.
+#
+# ARMED BY THE OPENER, and only by it: a popup nobody waits on keeps
+# the old callback behaviour exactly, which is what makes the
+# conversion piecemeal — winops and the confirmation are untouched
+# until they have a reason of their own.
+array set popup_fut {}   ;# popup window -> the future its opener parks on
+
+# Arm and park in one word. The future is created before the event
+# loop can deliver anything (building and showing a popup dispatches no
+# user event — popup-show's update idletasks drains idle work only), so
+# there is no gap in which an answer could be lost.
+proc popup-await {m} {
+    set ::popup_fut($m) [fut::new]
+    return [fut::take $::popup_fut($m)]
+}
+# DISARMED BY WHOEVER SETTLES, not by the waiter waking up. The slot
+# means «this menu owes somebody an answer», and it stops being true
+# the moment the answer is given — a waiter resumes through the event
+# loop (the substrate trampolines every wakeup), so clearing it on the
+# far side would leave the slot standing over the whole gap between the
+# menu going and the caller noticing. That gap is normal, but a slot
+# that survives it is not, and it is what the invariant below reads.
+# Taking the token out first also makes the second settler on the same
+# path (popup-answer closes, and closing hands out an empty answer) find
+# nothing rather than talk about a wait that is already over.
+proc popup-disarm {m} {
+    if {![info exists ::popup_fut($m)]} { return "" }
+    set f $::popup_fut($m)
+    unset ::popup_fut($m)
+    return $f
+}
+# The answer: settle, then close.
+proc popup-answer {m value} {
+    set f [popup-disarm $m]
+    if {$f ne ""} { fut::fulfill $f $value }
+    popups-close
+}
+# Two ways of NOT getting an answer, and they are different facts.
+#
+# Dismissed — Escape, a click on a client, another menu over this one —
+# is the person doing something else, which is an answer: the empty
+# one. Quiet, and the caller quietly does nothing.
+#
+# YANKED — a reload replaying the layers, a keyboard mode taking the
+# router out from under the menu — is nobody answering and nobody going
+# to: the waiter is woken with FUT CANCELLED so its failure lands in
+# the log under ITS name rather than looking like a decision the person
+# made. Collapsing the two into an empty string would make the caller
+# who forgets to check quietly do the wrong thing.
+proc popup-dismissed {m} {
+    set f [popup-disarm $m]
+    if {$f eq ""} return
+    puts "WM: popup $m: dismissed, nothing picked"
+    fut::fulfill $f {}
+}
+proc popup-yank {why} {
+    foreach m [array names ::popup_fut] {
+        puts "WM: popup $m: $why — the wait is cancelled"
+        fut::cancel [popup-disarm $m] $why
+    }
+    popups-close
+}
 proc popup-shell {m ih pick} {
     popups-close
     toplevel $m -background $::OUTLINE
@@ -2805,6 +2881,12 @@ proc popups-close {{except ""}} {
     foreach m {.winlist .winops .confirm} {
         if {$m eq $except} continue
         if {[winfo exists $m]} {
+            # Somebody may be parked on this menu's answer, and going
+            # away IS an answer — the empty one. Settled BEFORE the
+            # window goes, so a waiter never wakes into a half-torn-down
+            # menu. (Already answered — popup-answer settles and then
+            # calls us — makes this a no-op.)
+            popup-dismissed $m
             grab-keys-to {}
             # A dismissed wm-window leaves no bookkeeping behind. Its
             # close SCRIPT is deliberately not run: dismissing IS the
@@ -2898,6 +2980,17 @@ proc wm-invariants {} {
     if {[llength $::popup_drag] && ![winfo exists [lindex $::popup_drag 0]]} {
         lappend bad "a menu hand-over armed for [lindex $::popup_drag 0],\
                      which is gone"
+    }
+    # A WAIT OUTLIVING ITS MENU is the same class of bug one storey up:
+    # not a mode left standing, but a coroutine left PARKED — holding
+    # whatever it was in the middle of, answering nothing, invisible.
+    # Every way out of a popup settles its future (popup-answer,
+    # popup-dismissed, popup-yank); a slot still armed with the window
+    # gone means one of them was missed.
+    foreach m [array names ::popup_fut] {
+        if {![winfo exists $m]} {
+            lappend bad "somebody still waits on $m, which is gone"
+        }
     }
     # ...and the grab is held for a router or for a chord in progress,
     # never for its own sake: a keyboard nobody is listening on is a
@@ -3169,21 +3262,31 @@ proc winlist {} {
         if {$w ni $wins} { lappend wins $w }
     }
     if {![llength $wins]} { puts "WM: winlist: no windows"; return }
-    winlist-open $wins center
+    winlist-open $wins center toggle
 }
-# The list itself, reusable: winlist passes every window and centers;
-# a panel button's arrow zone passes its matches and anchors the
-# popup by the button. The anchor is "center" or {panel NAME ACTION} — the
-# panel's name, because which strip the button is on decides which way
-# the list opens off it (see below); only the
-# centered full list may enter cycle mode and preselects the SECOND
-# entry (the toggle) — an anchored filtered list is a plain chooser,
-# most recent first.
-proc winlist-open {wins anchor} {
+# The list itself, reusable — and it answers TWO questions that were
+# one argument for as long as only two combinations of them existed:
+#
+#   WHERE it opens — `center`, or {panel NAME ACTION} to hang off a
+#     button (the panel's name, because which strip the button is on
+#     decides which way the list opens off it, see below);
+#   WHAT KIND of list it is — `toggle` (the desk's whole window list,
+#     the thing a chord flips through) or `chooser` (pick one of
+#     these), which is what decides cycle mode and where the selection
+#     starts.
+#
+# They were welded together because the only centred list was the
+# toggle: `center` meant «may enter cycle mode, and preselect the
+# SECOND row» — Alt+Tab's two habits, neither of them anything to do
+# with being in the middle of the screen. A CENTRED CHOOSER breaks the
+# weld: with chord-hold on, the invoking Super is still down when the
+# list appears, so a chooser inheriting cycle mode would commit to the
+# previous window the moment the hand relaxed, having asked nothing.
+proc winlist-open {wins where kind} {
     set ::winlist_wins $wins
     set ::winlist_prev $::focused
     set ::winlist_cycle 0
-    if {$anchor eq "center" && $::winlist_cycle_opt && $::key_invoke_mods != 0
+    if {$kind eq "toggle" && $::winlist_cycle_opt && $::key_invoke_mods != 0
             && [modifier-held $::key_invoke_mods]} {
         set ::winlist_cycle $::key_invoke_mods
     }
@@ -3244,8 +3347,13 @@ proc winlist-open {wins anchor} {
         $T item style set $item Cnum sNum C0 sWin
         $T item element configure $item Cnum eNum -text $key
         $T item element configure $item C0 eTxt -text $title
-        lassign [winlist-icon $w $sq] kind a b
-        if {$kind eq "image"} {
+        # `face`, and not the `kind` this used to be called: the
+        # argument that says what KIND OF LIST this is has that name
+        # now, and a row's picture quietly overwriting it left the
+        # toggle preselecting the wrong row — silently, since both
+        # readings are ordinary words.
+        lassign [winlist-icon $w $sq] face a b
+        if {$face eq "image"} {
             $T item style set $item Cicon sIcon
             $T item element configure $item Cicon eIcon -image $a
             puts "WM: winlist icon 0x[format %x $w]: image $a"
@@ -3257,11 +3365,13 @@ proc winlist-open {wins anchor} {
         }
         $T item lastchild root $item
     }
-    $T selection add [expr {$anchor eq "center" && [llength $wins] > 1 ? 2 : 1}]
+    # The toggle starts on the row it would switch to; a chooser starts
+    # on the most recent, because it is not switching anywhere yet.
+    $T selection add [expr {$kind eq "toggle" && [llength $wins] > 1 ? 2 : 1}]
     lassign [screen-size] sw sh
     set W [expr {min(max($maxw + $numw + $iconw + 28, 200), $sw * 3 / 5)}]
     set H [expr {[llength $wins] * $ih + 2}]
-    if {$anchor eq "center"} {
+    if {$where eq "center"} {
         set X [expr {($sw - $W) / 2}]
         set Y [expr {($sh - $H) / 3}]
     } else {
@@ -3271,7 +3381,7 @@ proc winlist-open {wins anchor} {
         # vertical one. (popup-show clamps to the screen either way.)
         # The button is named by its ACTION and found through the item
         # map — an item number is not a position promise (panel_items).
-        lassign $anchor - pname aname
+        lassign $where - pname aname
         set P [panel-window $pname]
         set T [panel-tree $pname]
         set bitem [expr {[info exists ::panel_items($pname)]
@@ -3290,11 +3400,30 @@ proc winlist-open {wins anchor} {
         }
     }
     popup-show .winlist $W $H $X $Y
-    if {![grab-keys-to winlist-key]} {
+    # The hand-over notice is where a WAIT finds out it is over: another
+    # modal thing taking the router is not the person answering, so the
+    # list goes and its waiter is cancelled rather than left parked
+    # under a menu nobody can reach any more.
+    if {![grab-keys-to winlist-key \
+              [list popup-yank "the keyboard went to another mode"]]} {
         puts "WM: winlist: keyboard not grabbed — mouse only"
     }
+    # The toggle is the unmarked case, so the line reads as it always
+    # did and every log-reading regression goes on reading it; what is
+    # NEW says so.
     puts "WM: winlist open ([llength $wins] windows[expr {
-        $::winlist_cycle ? ", cycle" : ""}])"
+        $::winlist_cycle ? ", cycle" : ""}][expr {
+        $kind eq "chooser" ? ", chooser" : ""}])"
+}
+# Open a chooser and WAIT for the row — the caller's own line, not a
+# callback. Answers the picked window, or empty when nothing was picked
+# (Escape, a click elsewhere, another menu over this one). A list yanked
+# out from under the wait throws FUT CANCELLED instead: «nobody
+# answered» and «nobody is going to» are different facts, and only the
+# second belongs in the log.
+proc winlist-choose {wins where} {
+    winlist-open $wins $where chooser
+    return [popup-await .winlist]
 }
 proc winlist-key {kind name mods} {
     if {$kind eq "release"} {
@@ -3335,6 +3464,25 @@ proc winlist-move {d} {
 proc winlist-pick {} {
     set cur [lindex [.winlist.t selection get] 0]
     set w [lindex $::winlist_wins [expr {$cur - 1}]]
+    # A LIST THAT ANSWERS DOES NOT ACT. With somebody parked on it, the
+    # row IS the answer and what it means belongs to whoever asked —
+    # raise this window, run another one, edit it: the list cannot know,
+    # and the deed's own door (an activate hook, say) is not the list's
+    # to skip. With nobody waiting this is the plain window list of old,
+    # where a pick has always meant «go there».
+    if {[info exists ::popup_fut(.winlist)]} {
+        # Spelled outside expr on purpose: expr hands back a NUMBER when
+        # the branch it takes looks like one, so «0x400016» came out of
+        # the ternary as 4194326 — measured, and the sort of thing that
+        # only ever bites in a log line.
+        if {$w eq ""} {
+            puts "WM: winlist answers nothing"
+        } else {
+            puts "WM: winlist answers 0x[format %x $w]"
+        }
+        popup-answer .winlist $w
+        return
+    }
     popups-close
     if {$w ne "" && [info exists ::frameof($w)]} {
         puts "WM: winlist pick 0x[format %x $w]"
@@ -6029,17 +6177,7 @@ proc action-fire {name} {
     }
     set hit [lindex [panel-matches $name $spec] 0]
     if {$hit ne ""} {
-        puts "WM: action $name: found 0x[format %x $hit]"
-        action-flash $name found
-        if {[dict exists $spec activate]} {
-            # in a coroutine, like every script that runs on a
-            # live desk: an activate hook that waits (emacsclient,
-            # say) must not stop the desk while it does
-            run-script "action $name" \
-                [list {*}[dict get $spec activate] $hit]
-            return
-        }
-        panel-focus-hit $hit
+        action-reach $name $spec $hit
     } elseif {[dict exists $spec launch]} {
         puts "WM: action $name: launch"
         # WHAT THE DESK ITSELF STARTED AND HAS NOWHERE TO SHOW, which
@@ -6076,6 +6214,33 @@ proc action-fire {name} {
     }
 }
 keep last_started ""   ;# the last unpinned deed this desk launched
+
+# REACHING THE DEED'S WINDOW, in one place. The plain fire calls it
+# with the most recent match; a filtered list calls it with the row the
+# person picked — and that is why it had to become a word of its own.
+# What «reach» means is the DEED's to say: an activate hook replaces
+# the plain focus (the emacs door), and a list picking a window has no
+# business skipping it. It used to be inlined in the fire, so the pick
+# path went straight to the focus and the door was simply not opened.
+#
+# The hook is handed the window it is to act on. What it can do with
+# that window is its own affair and not always much: the emacs door
+# raises exactly this frame, but addresses its eval BY THE FRAME'S
+# NAME, so two frames of one deed share an eval that lands on whichever
+# the daemon picks. Naming the frame by its X window is possible
+# (`outer-window-id`) and is a separate piece of work — see the plan.
+proc action-reach {name spec w} {
+    puts "WM: action $name: found 0x[format %x $w]"
+    action-flash $name found
+    if {[dict exists $spec activate]} {
+        # in a coroutine, like every script that runs on a live desk: an
+        # activate hook that waits (emacsclient, say) must not stop the
+        # desk while it does
+        run-script "action $name" [list {*}[dict get $spec activate] $w]
+        return
+    }
+    panel-focus-hit $w
+}
 
 # Which panels carry a button for this deed — empty means nowhere, and
 # nowhere is what makes a deed worth pinning.
@@ -7599,12 +7764,16 @@ proc panel-index {name aname} {
     return -1
 }
 # The arrow zone: the winlist filtered to this button's matches,
-# anchored by the button — picking focuses (winlist-pick). Fewer
-# than two matches means the arrow is stale (the debounce window):
-# degrade to the plain fire. A button press itself IS the action's
-# fire — run-or-raise, the activate hook, the env, the flash on
+# anchored by the button, and the pick reaches that window THROUGH THE
+# DEED (action-reach) — the same door an ordinary press goes through.
+# Fewer than two matches means the arrow is stale (the debounce
+# window): degrade to the plain fire. A button press itself IS the
+# action's fire — run-or-raise, the activate hook, the env, the flash on
 # every panel carrying the name are action-fire's one story, and
 # the button adds nothing of its own (see panel-click).
+#
+# RUNS AS AN ERRAND, because it waits: the list stays open for as long
+# as the person likes and the desk goes on managing windows meanwhile.
 proc panel-arrow {name aname} {
     set i [panel-index $name $aname]
     if {$i < 0} return
@@ -7612,7 +7781,21 @@ proc panel-arrow {name aname} {
     set wins [panel-matches $label $settings]
     if {[llength $wins] < 2} { action-fire $aname; return }
     puts "WM: panel $label: arrow — [llength $wins] matches"
-    winlist-open $wins [list panel $name $aname]
+    set w [winlist-choose $wins [list panel $name $aname]]
+    if {$w eq ""} return
+    # NOTHING TAKEN BEFORE THE WAIT IS TRUSTED AFTER IT. The list stood
+    # open for an unbounded time, and in it the window can die, a reload
+    # can take the deed out of the registry, the strip can be rebuilt.
+    # So both are asked for again rather than carried across the wait.
+    if {![info exists ::frameof($w)]} {
+        puts "WM: panel $label: the picked window is gone"
+        return
+    }
+    if {![dict exists $::action_spec $aname]} {
+        puts "WM: panel $label: action $aname went away while the list was open"
+        return
+    }
+    action-reach $aname [dict get $::action_spec $aname] $w
 }
 # BY NAME, through the build's item map — a strip that does not carry
 # the name simply does not flash, which is what lets action-flash ask
@@ -7650,7 +7833,14 @@ proc panel-click {name x y} {
     set zone [expr {[info exists ::panel_zone($name)] ? $::panel_zone($name) : 0}]
     if {$zone > 0 && "multi" in [$T item state get $A(item)]} {
         lassign [$T item bbox $A(item)] _x _y x2 _y2
-        if {$x >= $x2 - 2 - $zone} { panel-arrow $name $aname; return }
+        if {$x >= $x2 - 2 - $zone} {
+            # AS AN ERRAND: the arrow waits for a row to be picked, and
+            # a Tk binding is no place to wait — a handler that parks
+            # parks the desk. The body is baked word by word, as every
+            # errand's is: it outlives the frame that started it.
+            run-script "panel $name arrow" [list panel-arrow $name $aname]
+            return
+        }
     }
     action-fire $aname
 }
