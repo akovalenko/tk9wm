@@ -32,6 +32,8 @@
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
 #include <X11/XKBlib.h>
+#include <X11/extensions/Xrandr.h>
+#include <X11/extensions/Xinerama.h>
 
 /* ------------------------------------------------------------------ */
 /* the per-request error trap                                          */
@@ -2478,10 +2480,10 @@ ServerObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 {
     static const char *const subs[] = {
 	"sync", "flush", "display", "close-down-mode", "error-text",
-	"error-handler", "time", NULL
+	"error-handler", "time", "monitors", "xinerama", NULL
     };
     enum { S_SYNC, S_FLUSH, S_DISPLAY, S_CLOSEDOWN, S_ERRTEXT, S_ERRHANDLER,
-	   S_TIME };
+	   S_TIME, S_MONITORS, S_XINERAMA };
     Tk_Window tkMain = (Tk_Window)clientData;
     Display *dpy;
     int index, n, discard = 0;
@@ -2635,6 +2637,74 @@ ServerObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 	}
 	Tcl_SetObjResult(interp,
 			 Tcl_NewWideIntObj((Tcl_WideInt)ev.xproperty.time));
+	break;
+    }
+    case S_MONITORS: {
+	/* RandR 1.5 monitors: {name primary x y w h} per entry, in the
+	 * server's order. Empty when the server has no RandR 1.5 — the
+	 * SCRIPT decides what that means (Xinerama below, or one screen).
+	 * Raw query only, no policy here: which source to TRUST is a
+	 * decision, and decisions live in Tcl. (A nested Xephyr answers
+	 * this with one bogus monitor while its Xinerama tells the
+	 * truth, so even "prefer RandR" would be policy.) */
+	int maj = 0, min = 0, evb, errb, nmon = 0, i;
+	XRRMonitorInfo *mi;
+	Tcl_Obj *res = Tcl_NewListObj(0, NULL);
+	if (XRRQueryExtension(dpy, &evb, &errb)
+		&& XRRQueryVersion(dpy, &maj, &min)
+		&& (maj > 1 || (maj == 1 && min >= 5))
+		&& (mi = XRRGetMonitors(dpy, DefaultRootWindow(dpy), True,
+					&nmon)) != NULL) {
+	    for (i = 0; i < nmon; i++) {
+		Tcl_Obj *m = Tcl_NewListObj(0, NULL);
+		char *name = mi[i].name != None
+		    ? XGetAtomName(dpy, mi[i].name) : NULL;
+		Tcl_ListObjAppendElement(interp, m,
+		    Tcl_NewStringObj(name != NULL ? name : "monitor", -1));
+		if (name != NULL) {
+		    XFree(name);
+		}
+		Tcl_ListObjAppendElement(interp, m,
+		    Tcl_NewIntObj(mi[i].primary ? 1 : 0));
+		Tcl_ListObjAppendElement(interp, m, Tcl_NewIntObj(mi[i].x));
+		Tcl_ListObjAppendElement(interp, m, Tcl_NewIntObj(mi[i].y));
+		Tcl_ListObjAppendElement(interp, m,
+		    Tcl_NewIntObj((int)mi[i].width));
+		Tcl_ListObjAppendElement(interp, m,
+		    Tcl_NewIntObj((int)mi[i].height));
+		Tcl_ListObjAppendElement(interp, res, m);
+	    }
+	    XRRFreeMonitors(mi);
+	}
+	Tcl_SetObjResult(interp, res);
+	break;
+    }
+    case S_XINERAMA: {
+	/* Xinerama heads: {x y w h} per entry — no names, no primary,
+	 * that protocol never had them. Empty when inactive. This is
+	 * the query that tells the truth inside a nested test server
+	 * (Xephyr +xinerama), which is the whole reason to carry both. */
+	int nsc = 0, i, evb, errb;
+	XineramaScreenInfo *si;
+	Tcl_Obj *res = Tcl_NewListObj(0, NULL);
+	if (XineramaQueryExtension(dpy, &evb, &errb)
+		&& XineramaIsActive(dpy)
+		&& (si = XineramaQueryScreens(dpy, &nsc)) != NULL) {
+	    for (i = 0; i < nsc; i++) {
+		Tcl_Obj *m = Tcl_NewListObj(0, NULL);
+		Tcl_ListObjAppendElement(interp, m,
+		    Tcl_NewIntObj(si[i].x_org));
+		Tcl_ListObjAppendElement(interp, m,
+		    Tcl_NewIntObj(si[i].y_org));
+		Tcl_ListObjAppendElement(interp, m,
+		    Tcl_NewIntObj(si[i].width));
+		Tcl_ListObjAppendElement(interp, m,
+		    Tcl_NewIntObj(si[i].height));
+		Tcl_ListObjAppendElement(interp, res, m);
+	    }
+	    XFree(si);
+	}
+	Tcl_SetObjResult(interp, res);
 	break;
     }
     }
