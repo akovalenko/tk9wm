@@ -173,6 +173,11 @@ PRESET=$(qf 'list type [action-type [dict get $::action_raw terminal]] \
                    && [dict exists $::action_raw emacs]
                    && [dict exists $::action_raw tmux]}]')
 PRESETFILE=$(grep -c '^action ' "$HERE/custom-fresh/tk9wm.custom.tcl")
+# A PANEL WITH ITS FURNITURE IN IT: the offer is a strip, and a strip
+# with nothing on it is not what was offered — so the tray is on and
+# the clock rides THAT panel, not the workarea a widget defaults to.
+FURNITURE=$(qf 'list tray $::tray_on clock [expr {
+    [dict exists $::widgets clock] ? [dict get $::widgets clock -on] : "none"}]')
 qf welcome-hide >/dev/null
 sleep 0.5
 AFTERHIDE=$(qf 'list $::welcome [dict exists $::widgets __welcome]')
@@ -233,6 +238,11 @@ if [ "$PRESET" = "type terminal title tmux actions 1" ] && [ "$PRESETFILE" = 3 ]
     echo "OK: the starter set applied whole, and says its type and title outright"
 else
     echo "FAIL: the starter set: {$PRESET}, action lines written: $PRESETFILE"
+fi
+if [ "$FURNITURE" = "tray 1 clock {panel default}" ]; then
+    echo "OK: the offered panel comes furnished — tray and clock, in the strip"
+else
+    echo "FAIL: the starter set's furniture is {$FURNITURE}"
 fi
 if [ "$AFTERHIDE" = "off 0" ] \
         && grep -q 'set-welcome off' "$HERE/custom-fresh/tk9wm.custom.tcl"; then

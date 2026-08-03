@@ -489,6 +489,14 @@
 # fire on the most recent match. The judgement follows windows
 # coming, going and renaming themselves.
 #
+# CTRL AND A CLICK — anywhere on the button, body or arrow — starts
+# another one instead: the launch half of run-or-raise, whether or not
+# a window is already there. It is one gesture for the whole button
+# because a modifier answers a different question than a sub-target
+# does (which BRANCH, not which half of the picture). The same door
+# with a face on it is the «run another» row at the foot of the deed's
+# own chooser (see `many` above).
+#
 # ---- the terminal layer ----
 #
 # An action that means "the named terminal running mutt" can SAY

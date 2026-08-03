@@ -40,6 +40,7 @@ action мру   {match {filter -title {клиент*}} many mru
               run {sh -c {sleep 30}}}
 panel-button альфа
 panel-button мру
+panel-button гамма
 
 proc mchk {desc want got} {
     if {$got eq $want} {
@@ -67,11 +68,11 @@ proc btn-item {aname} { dict get $::panel_items(default) $aname }
 # The chord's payload, word for word — in its own coroutine, so the
 # battery goes on running while the deed waits for an answer.
 proc fire-aside {name} { run-script "test chord" [list action-fire $name] }
-proc click-btn {aname where} {
+proc click-btn {aname where {state 0}} {
     lassign [[panel-tree default] item bbox [btn-item $aname]] bx1 by1 bx2 by2
     set x [expr {$where eq "arrow" ? $bx2 - 4 : $bx1 + 3}]
     run-script "test click" \
-        [list panel-click default $x [expr {($by1 + $by2) / 2}]]
+        [list panel-click default $x [expr {($by1 + $by2) / 2}] $state]
 }
 
 # --- 1. a shown deed's chord: anchored, offers the row, and the row runs
@@ -148,12 +149,27 @@ proc many-arrow {} {
     update; update idletasks
     puts "MANY BATTERY arrow done"
 }
+# --- 7. Ctrl over the whole button: start another, wherever it is hit
+proc many-force {} {
+    click-btn альфа body 4
+    update; update idletasks
+    mchk {Ctrl on the body asks nothing} 0 [winfo exists .winlist]
+    click-btn мру arrow 4
+    update; update idletasks
+    mchk {Ctrl beats the arrow zone as well} 0 [winfo exists .winlist]
+    click-btn гамма body 4
+    update; update idletasks
+    mchk {a deed with nothing to run opens nothing either} 0 \
+        [winfo exists .winlist]
+    puts "MANY BATTERY force done"
+}
 wm-bind {<Super>1} many-anchored
 wm-bind {<Super>2} many-centred
 wm-bind {<Super>3} many-norun
 wm-bind {<Super>4} many-mru
 wm-bind {<Super>5} many-body
 wm-bind {<Super>6} many-arrow
+wm-bind {<Super>7} many-force
 EOF
 
 XDG_CONFIG_HOME="$HERE/many-config" \
@@ -176,6 +192,7 @@ key super+3            # nothing to launch: no extra row
 key super+4            # many mru: straight to the most recent
 key super+5            # the button's body, on a `choose` deed
 key super+6            # the arrow, on an `mru` deed
+key super+7            # Ctrl over body, arrow, and a deed with no launch
 
 import -display :95 -window root "$HERE/many-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/many-test.png"
@@ -195,22 +212,37 @@ else
     echo "OK: no battery failures"
 fi
 PASS=$(grep -c 'MANY PASS' "$HERE/wm-many.log")
-if [ "$PASS" = 21 ]; then
-    echo "OK: all 21 checks passed"
+if [ "$PASS" = 24 ]; then
+    echo "OK: all 24 checks passed"
 else
-    echo "FAIL: $PASS PASS lines, want 21"
+    echo "FAIL: $PASS PASS lines, want 24"
 fi
 DONE=$(grep -c 'MANY BATTERY .* done' "$HERE/wm-many.log")
-if [ "$DONE" = 6 ]; then
-    echo "OK: all six batteries ran to completion"
+if [ "$DONE" = 7 ]; then
+    echo "OK: all seven batteries ran to completion"
 else
-    echo "FAIL: $DONE battery-done lines, want 6"
+    echo "FAIL: $DONE battery-done lines, want 7"
 fi
-# The row is not decoration: picking it must actually start the deed.
-if grep -q 'action альфа: launch' "$HERE/wm-many.log"; then
-    echo "OK: the «run another» row launched the deed"
+# Neither door is decoration: both must actually start the deed. Two
+# launches of альфа — one from the chooser's row, one from Ctrl.
+if [ "$(grep -c 'action альфа: launch' "$HERE/wm-many.log")" = 2 ]; then
+    echo "OK: the row and the modifier each started one"
 else
-    echo "FAIL: the extra row started nothing"
+    echo "FAIL: альфа launched\
+ $(grep -c 'action альфа: launch' "$HERE/wm-many.log") times, want 2"
+fi
+# Ctrl reached all three buttons, arrow zone included...
+if [ "$(grep -c 'forced run of' "$HERE/wm-many.log")" = 3 ]; then
+    echo "OK: Ctrl was read on every part of a button"
+else
+    echo "FAIL: forced runs unaccounted for:\
+ $(grep -c 'forced run of' "$HERE/wm-many.log")"
+fi
+# ...and a deed with nothing to launch says so instead of doing nothing.
+if grep -q 'action гамма: nothing to run' "$HERE/wm-many.log"; then
+    echo "OK: a deed with nothing to run answers out loud"
+else
+    echo "FAIL: the forced run of a launchless deed said nothing"
 fi
 # Four choosers opened, and not one of them by a deed declared mru
 # through the path that is supposed to ignore the knob.

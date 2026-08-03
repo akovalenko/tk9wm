@@ -7782,7 +7782,7 @@ proc panel-build {name idx} {
         }
     }
     panel-items-sync $T $name $buttons $faces $iconic $bare
-    bind $T <ButtonPress-1> [list panel-click $name %x %y]
+    bind $T <ButtonPress-1> [list panel-click $name %x %y %s]
     panel-place $name $P $T $g $side [llength $buttons]
 }
 # The items, reconciled through treesync — the same call dresses a
@@ -7945,7 +7945,7 @@ proc panel-flash {name aname state} {
             [list $T item state set $item !$state]]
     }
 }
-proc panel-click {name x y} {
+proc panel-click {name x y {state 0}} {
     set T [panel-tree $name]
     if {$T eq ""} return
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
@@ -7959,6 +7959,18 @@ proc panel-click {name x y} {
         }
     }
     if {$aname eq ""} return
+    # CTRL SAYS «START ANOTHER», and it says it about the whole button.
+    # A modifier answers a different question than a sub-target does —
+    # which BRANCH of run-or-raise, not which half of the picture — so
+    # it is read before the zone and wins over it. Leaving the arrow to
+    # mean something else under Ctrl would split the button's east edge
+    # off from the rest of it under one and the same key, and there is
+    # nothing on the face to say so.
+    if {$state & 4} {
+        puts "WM: panel $name: forced run of $aname"
+        action-fire $aname run
+        return
+    }
     # the whole reserved east strip is the arrow's click target, not
     # the glyph — but only while the arrow is armed (multi)
     set zone [expr {[info exists ::panel_zone($name)] ? $::panel_zone($name) : 0}]
@@ -10200,10 +10212,20 @@ proc welcome-font-bump {dir} {
 # the same desk rather than six buttons, and the ownership rule is the
 # custom layer's own — the whole set or nothing, no deltas over a
 # config's line-up.
+#
+# A PANEL MEANS A PANEL WITH ITS FURNITURE IN IT — the tray AND a clock
+# (the owner, 2026-08-03). The clock names its panel outright because a
+# widget's default place is the workarea, which is the desk and not the
+# strip, and what is being offered here is a strip with something on
+# it. It costs the band very little now that a widget is told which way
+# its strip runs and how much thickness the buttons already paid for
+# (widget-band-opts): the clock lays itself out in one line or two and
+# does not push the bar deeper on its own account.
 keep welcome_presets {
     minimal {
         {panel-buttons-own default}
         {set-tray on}
+        {wm-widget clock -type clock -on {panel default} -place {right vcenter}}
         {action terminal {type terminal key {<Super>t t}}}
         {action emacs {emacs {frame tk9wm-frame} needs emacs key {<Super>t e}}}
         {action tmux {terminal {name tmux title tmux}
