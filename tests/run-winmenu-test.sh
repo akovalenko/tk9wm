@@ -121,6 +121,23 @@ xdotool key r
 sleep 0.5
 AFTER5K=$(fires)
 
+# --- 6: the MENU BUTTON on the strip, clicked twice at DIFFERENT
+#        pixels of it. A button is a place of its own: the menu must
+#        hang from the button, so both presses put it in the same spot
+#        (the owner, 2026-08-04 — it used to follow the pointer and
+#        wander by a few pixels per press).
+BTNMID=$((FY + BORDER + TH / 2))
+xdotool mousemove $((FX + BORDER + 3)) $BTNMID click 1
+sleep 0.6
+GEOM6a=$(menu_geom)
+xdotool key Escape
+sleep 0.4
+xdotool mousemove $((FX + BORDER + 14)) $((BTNMID + 3)) click 1
+sleep 0.6
+GEOM6b=$(menu_geom)
+xdotool key Escape
+sleep 0.4
+
 kill $WM $CA 2>/dev/null
 
 echo "--- verdict"
@@ -161,6 +178,20 @@ else
     echo "FAIL: the in-and-out drag left something behind\
  ($AFTER4 -> $AFTER5 -> $AFTER5K)"; FAIL=1
 fi
+# The button's menu: same spot both presses, and that spot is the
+# button's own left edge — the frame's corner, since the menu button is
+# the first column — under the bar, exactly where <Alt>space puts it.
+if [ "$GEOM6a" = "$GEOM6b" ]; then
+    echo "OK: the button's menu lands in the same place however it is hit ($GEOM6a)"
+else
+    echo "FAIL: the button's menu followed the pointer ($GEOM6a vs $GEOM6b)"
+    FAIL=1
+fi
+case "$GEOM6a" in
+    *+$WANT2x+$WANT1y) echo "OK: ...aligned under the button, like <Alt>space" ;;
+    *) echo "FAIL: the button's menu is at «$GEOM6a», want +$WANT2x+$WANT1y"
+       FAIL=1 ;;
+esac
 check_invariants "$LOG" || FAIL=1
 if grep -q 'handler error' "$LOG"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$LOG"

@@ -2176,8 +2176,30 @@ proc title-release {t w x y X Y n} {
     unset ::btn($t)
     $t.title item state forcolumn 1 C$b !pressed
     if {[title-button $t $x $y] eq $b} {
-        gesture-at $X $Y 0 { titlebar-do $t $w $b <$n> }
+        # A BUTTON is a place of its own, and a menu it puts up hangs
+        # from THE BUTTON — not from the pixel the finger happened to
+        # land on (the owner, 2026-08-04). Pressing the same button
+        # twice must put the menu in the same spot both times, the way
+        # <Alt>space does; the pointer's x makes it wander by a few
+        # pixels each press, which reads as the menu being unmoored.
+        # The strip's own gestures (a right-click on the title) keep
+        # the hand's point — there the hand IS the place.
+        set at [title-button-point $t $b]
+        if {![llength $at]} { set at [list $X $Y] }
+        gesture-at {*}$at 0 { titlebar-do $t $w $b <$n> }
     }
+}
+# Root coordinates a button's menu should hang from: the button's own
+# left edge, and a y INSIDE the strip — which is what makes the menu
+# drop out of the bar's bottom edge rather than out of the pointer
+# (see winops). {} when the strip cannot be measured, and the caller
+# falls back to the hand.
+proc title-button-point {t b} {
+    set T $t.title
+    if {![winfo exists $T]} { return {} }
+    lassign [$T item bbox 1 C$b] bx
+    if {$bx eq ""} { return {} }
+    list [expr {[winfo rootx $T] + $bx}] [winfo rooty $T]
 }
 # The second click of a pair. Tk gives it to the Double binding INSTEAD
 # of the plain press, so no carry is started by it — and the first
