@@ -151,7 +151,7 @@ proc widget-host-rect {name opts} {
     set on [dict get $opts -on]
     switch -- [lindex $on 0] {
         workarea { return [workarea] }
-        screen   { lassign [screen-size] sw sh; return [list 0 0 $sw $sh] }
+        screen   { return [primary-monitor] }
         panel {
             set p [lindex $on 1]
             if {$p eq ""} { set p default }
@@ -541,11 +541,14 @@ proc area-build {area place idx} {
         if {[dict exists $spec every]} { widget-tick $name }
     }
 }
-# What a desk-hosted corner is measured against.
+# What a desk-hosted corner is measured against. Both rects are the
+# PRIMARY monitor's — widgets are furniture, and furniture goes where
+# everything unanchored goes; `screen` keeps meaning "panel ignored",
+# it stopped meaning "the bounding box of a multihead desk".
 proc widget-host-rect-for {what} {
     switch -- $what {
         workarea { return [workarea] }
-        default  { lassign [screen-size] sw sh; return [list 0 0 $sw $sh] }
+        default  { return [primary-monitor] }
     }
 }
 

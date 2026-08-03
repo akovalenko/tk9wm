@@ -595,7 +595,8 @@ proc retitle-frames {} {
         if {!$::wa_hold && ![info exists ::fullscreen($w)]
                 && [regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
                         [wm geometry $t] -> fw fh fx fy]} {
-            lassign [clamp-to-workarea $fx $fy $fw $fh] nx ny
+            lassign [clamp-to-rect [workarea-at [list $fx $fy $fw $fh]] \
+                         $fx $fy $fw $fh] nx ny
             if {$nx != $fx || $ny != $fy} { wm geometry $t +$nx+$ny }
         }
         send-synthetic-configure $w
@@ -1188,7 +1189,10 @@ proc place-frame {w fw fh} {
         }
         if {$X != 0 || $Y != 0} {
             lassign [gravity-frame-xy $w $X $Y $grav] X Y
-            return [clamp-to-workarea $X $Y $fw $fh]
+            # the claim names a monitor too: clamp into the workarea
+            # of the glass the claimed rect lands on
+            return [clamp-to-rect [workarea-at [list $X $Y $fw $fh]] \
+                        $X $Y $fw $fh]
         }
     }
     # The leader is READ at attach, and this proc now runs before that
@@ -1201,7 +1205,10 @@ proc place-frame {w fw fh} {
         if {[regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $pt] -> pw ph px py]} {
             set X [expr {$px + ($pw - $fw) / 2}]
             set Y [expr {$py + ($ph - $fh) / 2}]
-            return [clamp-to-workarea $X $Y $fw $fh]
+            # the parent's monitor: a dialog for a window on the second
+            # monitor must not be yanked across the desk by the clamp
+            return [clamp-to-rect [workarea-at [list $X $Y $fw $fh]] \
+                        $X $Y $fw $fh]
         }
     }
     return [cascade-slot $fw $fh]
@@ -1252,6 +1259,8 @@ proc clamp-to-screen {X Y fw fh} {
 # so no edge starts out unreachable. Window-specific because the
 # decoration is: an undecorated frame has the whole workarea to give.
 proc policy-max-client-size {w} {
+    # the primary's workarea: a newcomer has no monitor until it is
+    # placed, and placement deals to the primary (see workarea above)
     lassign [workarea] wax way sw sh
     lassign [chrome-of $w] B top
     list [expr {$sw - 2*$B}] [expr {$sh - $top - $B}]
@@ -1406,7 +1415,11 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
         place forget $t.title
         $t.slot configure -width $cw -height $ch
         place $t.slot -x 0 -y 0
-        wm geometry $t ${cw}x${ch}+0+0
+        # at the MONITOR's origin, not the screen's: the callers that
+        # know the monitor pass it, and everyone else (a font change,
+        # a reload re-laying the frame) keeps the origin it stands at
+        if {$X eq ""} { regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y }
+        wm geometry $t ${cw}x${ch}+${X}+${Y}
         return
     }
     if {$X eq ""} { regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y }
@@ -1447,7 +1460,8 @@ proc policy-resize {w cw ch} {
     if {[info exists ::fullscreen($w)]} return
     if {![regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $t] \
             -> fw fh fx fy]} return
-    lassign [clamp-to-workarea $fx $fy $fw $fh] nx ny
+    lassign [clamp-to-rect [workarea-at [list $fx $fy $fw $fh]] \
+                 $fx $fy $fw $fh] nx ny
     if {$nx != $fx || $ny != $fy} {
         wm geometry $t +$nx+$ny
         update idletasks
@@ -2191,15 +2205,139 @@ proc titlebar-do {t w part gesture} {
 }
 
 # ---- strips: the furniture glued to the screen's edges ----
+# ---- monitors: the rectangles the screen is made of ----
+#
+# One X screen, one root — that much stays true on a multihead desk.
+# What multihead adds is STRUCTURE INSIDE the root: each monitor is a
+# rectangle within it (RandR 1.5 names them, Xinerama only numbers
+# them), the root is their bounding box, and where the monitors do not
+# tile the box exactly it has DEAD ZONES — coordinates that exist and
+# show on no glass. So everything that carves, places, snaps or
+# maximizes thinks in a MONITOR's rectangle below; `screen-size` keeps
+# meaning the whole box, which is what root properties and honored
+# user claims are about.
+#
+# The fact is read FRESH at each decision, like screen-size and for
+# the same reason: the layout changes under us (xrandr, a dock, a
+# projector) and a cached answer would place windows on monitors that
+# are no longer there. Sources, most trusted first:
+#
+#   1. set-monitors — the config/test override. Not a debug backdoor:
+#      it is the one way to hand a headless test (or a desk whose
+#      driver lies) a layout, and it resets with the config like any
+#      other knob.
+#   2. RandR 1.5 GetMonitors — when it reports more than one. Real
+#      desks live here, and `xrandr --setmonitor` splits count.
+#   3. Xinerama — when IT reports more than one. Not a legacy custom:
+#      a nested Xephyr +xinerama (the fake multihead a test can
+#      raise) answers GetMonitors with one bogus monitor while its
+#      Xinerama tells the truth (measured, 2026-08-04).
+#   4. the whole screen as one monitor — every single-headed desk,
+#      and every desk that was one a moment ago.
+#
+# An entry is {name primary x y w h}. Exactly one entry is primary —
+# the flagged one, else the first — and `primary-monitor` is where
+# everything with no better anchor goes: the panels (this round all
+# of them — see panel-monitor), the cascade, the furniture.
+keep monitors_override {}
+proc set-monitors {spec} {
+    foreach m $spec {
+        if {[llength $m] != 6} {
+            error "set-monitors: an entry is {name primary x y w h}"
+        }
+        foreach v [lrange $m 2 5] {
+            if {![string is integer -strict $v]} {
+                error "set-monitors: geometry must be integers, got «$v»"
+            }
+        }
+        if {[lindex $m 4] <= 0 || [lindex $m 5] <= 0} {
+            error "set-monitors: a monitor has area"
+        }
+    }
+    set ::monitors_override $spec
+    # the ground moved the same way a RandR resize moves it: the
+    # strips re-place (debounced there) and the workarea answer flips
+    policy-screen-changed
+    publish-workarea
+}
+proc monitors {} {
+    if {[llength $::monitors_override]} {
+        return [monitors-normalized $::monitors_override]
+    }
+    set l [soft "monitors (randr)" { x-monitors-randr } {}]
+    if {[llength $l] <= 1} {
+        set xi {}
+        set i 0
+        foreach h [soft "monitors (xinerama)" { x-monitors-xinerama } {}] {
+            lappend xi [list xinerama$i 0 {*}$h]
+            incr i
+        }
+        if {[llength $xi] > 1} { set l $xi }
+    }
+    if {[llength $l] <= 1} {
+        # one monitor or no answer at all: the whole screen, which is
+        # exactly what every decision below used before monitors were
+        # a fact — the single-head desk goes through here unchanged
+        return [list [list screen 1 0 0 {*}[screen-size]]]
+    }
+    monitors-normalized $l
+}
+proc monitors-normalized {l} {
+    foreach m $l { if {[lindex $m 1]} { return $l } }
+    lset l 0 1 1     ;# nobody claimed primary: the first one is
+    return $l
+}
+proc primary-monitor {} {
+    foreach m [monitors] {
+        if {[lindex $m 1]} { return [lrange $m 2 5] }
+    }
+}
+# The monitor a rectangle belongs to: the one it overlaps most, ties
+# to the earlier in the list. A rect on no monitor at all — parked in
+# a dead zone, dragged past every edge — belongs to the primary, the
+# same "no better anchor" answer as everywhere else.
+proc monitor-of-rect {rect} {
+    lassign $rect x y w h
+    set best {}
+    set besta 0
+    foreach m [monitors] {
+        lassign [lrange $m 2 5] mx my mw mh
+        set a [expr {max(0, min($x + $w, $mx + $mw) - max($x, $mx))
+                   * max(0, min($y + $h, $my + $mh) - max($y, $my))}]
+        if {$a > $besta} { set besta $a; set best [lrange $m 2 5] }
+    }
+    if {$besta > 0} { return $best }
+    primary-monitor
+}
+proc monitor-of-frame {t} {
+    if {[regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $t] \
+            -> fw fh fx fy]} {
+        return [monitor-of-rect [list $fx $fy $fw $fh]]
+    }
+    primary-monitor
+}
+proc pointer-monitor {} {
+    lassign [winfo pointerxy .] px py
+    monitor-of-rect [list $px $py 1 1]
+}
+# ...and the workarea each of them keeps: the monitor's rectangle
+# minus the strips of ITS panels. The per-window callers below ask
+# through these, so a window maximizes, clamps and snaps on the
+# monitor it stands on and never against the far side of the desk.
+proc monitor-workarea {mrect} { lindex [strip-bands-for $mrect] 1 }
+proc workarea-at {rect} { monitor-workarea [monitor-of-rect $rect] }
+proc workarea-of-frame {t} { monitor-workarea [monitor-of-frame $t] }
+
 # A STRIP is anything the WM glues to a screen edge and reserves room
 # for: a button panel, the tray riding on one. Each claims a BAND
-# across one edge, and the bands are carved IN DECLARATION ORDER out of
-# what is left of the screen — the first panel declared spans its whole
-# edge, the next spans what that one left of its own. So the corner
-# between two edges belongs to whichever strip was declared first,
-# which is a rule the config steers by writing its panels in an order
-# and nothing has to negotiate at run time. What survives the last
-# carve is the WORKAREA: where maximize expands to and where new frames
+# across one edge of ITS MONITOR, and the bands are carved IN
+# DECLARATION ORDER out of what is left of that monitor — the first
+# panel declared spans its whole edge, the next spans what that one
+# left of its own. So the corner between two edges belongs to
+# whichever strip was declared first, which is a rule the config
+# steers by writing its panels in an order and nothing has to
+# negotiate at run time. What survives the last carve is that
+# monitor's WORKAREA: where maximize expands to and where new frames
 # are placed.
 #
 # The tray is NOT a strip of its own. It rides on the panel it is bound
@@ -2229,10 +2367,10 @@ proc carve-band {rect edge thick} {
 # workarea is that rectangle at the end. Returns {bands-dict workarea} —
 # a pair and not one dict, so that a panel NAMED workarea could not
 # shadow the answer.
-proc strip-bands {} {
-    set free [list 0 0 {*}[screen-size]]
+proc strip-carve {rect names} {
+    set free $rect
     set bands {}
-    foreach name [strip-order] {
+    foreach name $names {
         set thick [panel-thickness $name]
         if {[tray-panel] eq $name} {
             set thick [expr {max($thick, [tray-thickness])}]
@@ -2247,6 +2385,24 @@ proc strip-bands {} {
     }
     list $bands $free
 }
+# The carve on ONE monitor: the strips that live there, out of its
+# rectangle. Declaration order still decides the corners — among the
+# panels of that monitor, which is the only place a corner is shared.
+proc strip-bands-for {mrect} {
+    set names {}
+    foreach name [strip-order] {
+        if {[panel-monitor $name] eq $mrect} { lappend names $name }
+    }
+    strip-carve $mrect $names
+}
+proc strip-bands {} { strip-bands-for [primary-monitor] }
+# Which monitor a panel lives on. THIS round the answer is a constant
+# — every strip goes to the primary — and this proc is the seam a
+# future config verb widens: store a name per panel here, resolve it
+# against [monitors], and nothing downstream changes. (Deliberately
+# not grown now: the grammar for "panel on the second monitor" is a
+# decision of its own.)
+proc panel-monitor {name} { primary-monitor }
 # Who gets to carve, in order. The declared panels — and the tray's own
 # panel even when nothing declared it: a config that asks for a tray
 # and no buttons at all still gets a bar, which is what it got when the
@@ -2259,7 +2415,7 @@ proc strip-order {} {
 # The band a named panel holds, {} when it reserves nothing (no
 # buttons, no tray of its own) — the callers that place furniture.
 proc strip-band {name} {
-    lassign [strip-bands] bands -
+    lassign [strip-bands-for [panel-monitor $name]] bands -
     if {[dict exists $bands $name]} { return [dict get $bands $name] }
     return {}
 }
@@ -2270,11 +2426,34 @@ proc band-strip {band edge thick} {
     lassign [carve-band $band $edge $thick] strip -
     return $strip
 }
+# The no-argument spelling is the PRIMARY monitor's workarea — where
+# everything that has no window to anchor by (the cascade, the
+# furniture, a place rule sizing a newcomer) happens. A caller with a
+# window in hand asks workarea-of-frame / workarea-at instead.
 proc workarea {} { lindex [strip-bands] 1 }
-# ...and the same answer for the world: EWMH's _NET_WORKAREA. What we
-# keep for ourselves (maximize, placement) is exactly what a pager or a
-# popup-placing toolkit needs, so the hook is a rename and nothing else.
-proc policy-workarea {} { workarea }
+# The answer for the world: EWMH's _NET_WORKAREA. The property is ONE
+# rect per desktop — it predates multihead and cannot say "a workarea
+# per monitor" (the GTKs of the world invented private properties for
+# that). Publishing the primary's rect would invite a toolkit to clamp
+# a popup from another monitor across the desk, so the property keeps
+# the OLD arithmetic: the whole screen, carved by every strip — exact
+# on one monitor, conventional on many.
+proc policy-workarea {} {
+    lindex [strip-carve [list 0 0 {*}[screen-size]] [strip-order]] 1
+}
+# ...and the full per-monitor picture, which is what the substrate
+# WATCHES for change: a monitor resized under an unchanged primary
+# must still reflow its windows. name -> {primary 0|1 mon RECT wa
+# RECT}, and policy-workarea-changed receives two of these.
+proc policy-workareas {} {
+    set d {}
+    foreach m [monitors] {
+        set mrect [lrange $m 2 5]
+        dict set d [lindex $m 0] [dict create primary [lindex $m 1] \
+            mon $mrect wa [monitor-workarea $mrect]]
+    }
+    return $d
+}
 
 # ---- maximize, fvwm semantics ----
 
@@ -2354,7 +2533,9 @@ proc maximize-client {w} {
         set ::maxsaved($w) \
             [list [$t.slot cget -width] [$t.slot cget -height] $X $Y]
     }
-    set wa [workarea]
+    # the workarea of the monitor the window STANDS ON: maximize fills
+    # the glass under the window, never the bounding box of the desk
+    set wa [workarea-of-frame $t]
     wm geometry $t +[lindex $wa 0]+[lindex $wa 1]
     wm-resize-client $w {*}[maximize-fit $w $wa]
     maximize-settle $w
@@ -2403,8 +2584,8 @@ proc maximize-settle {w} {
 
 # ---- fullscreen, the substrate's policy-fullscreen hook ----
 # Maximize's stronger cousin, and the differences are all deliberate.
-# It takes the SCREEN and not the workarea (a fullscreen window that
-# stopped at the panel would be no such thing); the decoration goes
+# It takes its MONITOR whole and not the workarea (a fullscreen window
+# that stopped at the panel would be no such thing); the decoration goes
 # away with the strips rather than staying around the edge; and the
 # size hints do NOT bind it — EWMH says a fullscreen window fills the
 # screen, so a terminal shows a few pixels of slack at one edge
@@ -2419,8 +2600,12 @@ proc policy-fullscreen {w on} {
         regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
         set ::fssaved($w) \
             [list [$t.slot cget -width] [$t.slot cget -height] $X $Y]
+        # ITS monitor, read before the mark changes the layout: a
+        # fullscreen window covers the glass it stood on, and the
+        # bounding box of a multihead desk is not a screen anyone sees
+        lassign [monitor-of-frame $t] mX mY cw ch
         set ::fullframe($t) 1
-        lassign [screen-size] cw ch
+        set X $mX; set Y $mY
     } else {
         if {![info exists ::fssaved($w)]} return
         lassign $::fssaved($w) cw ch X Y
@@ -2606,9 +2791,12 @@ proc popup-hover {T x y} {
     set ::popup_hovered($T) $item
 }
 proc popup-show {m W H X Y} {
-    lassign [screen-size] sw sh
-    set X [expr {max(0, min($X, $sw - $W))}]
-    set Y [expr {max(0, min($Y, $sh - $H))}]
+    # clamped into the monitor the ANCHOR POINT is on: a menu asked
+    # for near the right edge of the left monitor slides left, it does
+    # not walk over onto the neighbour
+    lassign [monitor-of-rect [list $X $Y 1 1]] mx my mw mh
+    set X [expr {max($mx, min($X, $mx + $mw - $W))}]
+    set Y [expr {max($my, min($Y, $my + $mh - $H))}]
     place $m.t -x 1 -y 1 -width [expr {$W - 2}] -height [expr {$H - 2}]
     wm geometry $m ${W}x${H}+$X+$Y
     raise $m
@@ -2769,14 +2957,18 @@ proc wm-window {t title cw ch closescript} {
     # dragged by its titlebar like anything else on this desk.
     titlebar-build $t 0 {close} $title
     frame $t.slot -width $cw -height $ch -background [themed slot]
-    lassign [screen-size] sw sh
+    # on the monitor under the hand: the WM asks its questions where
+    # the user is looking, which the pointer approximates better than
+    # any fixed corner of a multihead desk
+    lassign [pointer-monitor] mx my sw sh
     set W [expr {$cw + 2*$B}]
     set H [expr {$ch + $top + $B}]
     # Centred, but never off the left or top edge: a question long
     # enough to outgrow the screen would otherwise start off-screen,
     # taking its buttons with it.
     frame-layout $t $cw $ch \
-        [expr {max(0, ($sw - $W) / 2)}] [expr {max(0, ($sh - $H) / 3)}]
+        [expr {max($mx, $mx + ($sw - $W) / 2)}] \
+        [expr {max($my, $my + ($sh - $H) / 3)}]
     raise $t
     update idletasks
     # Geometry in the log, because a window of ours is the one thing on
@@ -3395,12 +3587,14 @@ proc winlist-open {wins where kind {more ""}} {
     # The toggle starts on the row it would switch to; a chooser starts
     # on the most recent, because it is not switching anywhere yet.
     $T selection add [expr {$kind eq "toggle" && [llength $wins] > 1 ? 2 : 1}]
-    lassign [screen-size] sw sh
+    # measured against the monitor under the hand — the same glass the
+    # popup clamp (popup-show) will hold it to
+    lassign [pointer-monitor] mx my sw sh
     set W [expr {min(max($maxw + $numw + $iconw + 28, 200), $sw * 3 / 5)}]
     set H [expr {[llength $::winlist_rows] * $ih + 2}]
     if {$where eq "center"} {
-        set X [expr {($sw - $W) / 2}]
-        set Y [expr {($sh - $H) / 3}]
+        set X [expr {$mx + ($sw - $W) / 2}]
+        set Y [expr {$my + ($sh - $H) / 3}]
     } else {
         # By the button, and always on the strip's INNER face — the list
         # opens over the desk, never off the screen edge the strip is
@@ -4133,14 +4327,14 @@ proc compass-show {rect cells {active {}}} {
 # where nobody can read them.
 proc compass-place {rect} {
     lassign $rect rx ry rw rh
-    lassign [screen-size] sw sh
+    lassign [monitor-of-rect $rect] mx my mw mh
     set s $::compass_s
     foreach cell $::compass {
         lassign $::compass_cells($cell) halign valign
         set X [place-axis $rx $rw $s $halign]
         set Y [place-axis $ry $rh $s $valign]
-        set X [expr {max(0, min($X, $sw - $s))}]
-        set Y [expr {max(0, min($Y, $sh - $s))}]
+        set X [expr {max($mx, min($X, $mx + $mw - $s))}]
+        set Y [expr {max($my, min($Y, $my + $mh - $s))}]
         wm geometry .compass$cell ${s}x${s}+$X+$Y
         raise .compass$cell
     }
@@ -4174,7 +4368,7 @@ proc frame-rect {w} {
 proc compass-for-move {w} {
     set fr [frame-rect $w]
     if {![llength $fr]} return
-    set wa [workarea]
+    set wa [workarea-at $fr]
     set cells [compass-offer $wa [lindex $fr 2] [lindex $fr 3]]
     # A compass short of its nine cells reads as a bug unless it says
     # why, so the short answers are the ones worth a line.
@@ -4326,7 +4520,7 @@ proc kbmr-handle {w cell} {
 # position that cell names within the workarea.
 proc kbmr-jump {w cell} {
     if {![regexp {^(\d+)x(\d+)} [wm geometry $::frameof($w)] -> fw fh]} return
-    lassign [workarea] wax way ww wh
+    lassign [workarea-of-frame $::frameof($w)] wax way ww wh
     lassign $::compass_cells($cell) halign valign
     frame-moveto $w [place-axis $wax $ww $fw $halign] \
                     [place-axis $way $wh $fh $valign]
@@ -7860,7 +8054,7 @@ proc panel-place {name P T g side n} {
     set thick [dict get $g thick]
     set vert [dict get $g vert]
     set band [strip-band $name]
-    if {$band eq ""} { set band [list 0 0 {*}[screen-size]] }
+    if {$band eq ""} { set band [panel-monitor $name] }
     # THE WINDOW COVERS ITS PASSENGERS. A widget riding this panel is a
     # child of this window, so the window has to be as deep as the band
     # it made deeper — otherwise the strip grows, the window does not,
@@ -8349,7 +8543,7 @@ proc tray-layout {} {
     # band and not from the screen, so a tray on the second panel
     # declared lands inside what the first one left.
     set band [strip-band [tray-panel]]
-    if {$band eq ""} { set band [list 0 0 {*}[screen-size]] }
+    if {$band eq ""} { set band [panel-monitor [tray-panel]] }
     lassign [band-strip $band $side $thick] bx by bw bh
     if {$vert} {
         set geo ${thick}x${len}+${bx}+[expr {$by + $bh - $len}]
@@ -8400,11 +8594,15 @@ proc policy-screen-changed {} {
 # band of desk around it, and one that shrank would leave it hanging
 # off the edge.
 proc fullscreen-refit {} {
-    lassign [screen-size] sw sh
     foreach w [array names ::fullscreen] {
         if {![info exists ::frameof($w)]} continue
-        frame-layout $::frameof($w) $sw $sh
-        wm-resize-client $w $sw $sh
+        set t $::frameof($w)
+        # per window, because each covers ITS monitor — and re-judged
+        # by overlap, so a window whose monitor left the layout lands
+        # on whatever glass owns that ground now
+        lassign [monitor-of-frame $t] mx my mw mh
+        frame-layout $t $mw $mh $mx $my
+        wm-resize-client $w $mw $mh
         send-synthetic-configure $w
     }
 }
@@ -8464,6 +8662,14 @@ proc fullscreen-refit {} {
 #          where they were, which is what every version before this did.
 #   max    only what looks maximized (spanning BOTH axes) follows.
 #   stick  the whole rule above. The default.
+#
+# With monitors in the picture the rule runs PER MONITOR: the change
+# arrives as two per-monitor pictures (policy-workareas), each window
+# is judged against the workarea of the monitor it stood on in the OLD
+# layout, and reflows to that monitor's new workarea. A monitor that
+# left the layout takes its windows to the primary by the same axis
+# rule — their workarea "moved" there, which is the honest reading of
+# a projector unplugged.
 keep workarea_follow stick
 proc set-workarea-follow {mode} {
     if {$mode ni {off max stick}} {
@@ -8471,13 +8677,44 @@ proc set-workarea-follow {mode} {
     }
     set ::workarea_follow $mode
 }
+# Whose ground a rect stood on, among the monitors of ONE picture:
+# largest overlap with the MONITOR rects (not the workareas — a window
+# under the panel still belongs to that monitor), falling back to the
+# picture's primary for a rect that touched none.
+proc workarea-owner {d rect} {
+    lassign $rect x y w h
+    set best {}
+    set besta 0
+    dict for {key m} $d {
+        lassign [dict get $m mon] mx my mw mh
+        set a [expr {max(0, min($x + $w, $mx + $mw) - max($x, $mx))
+                   * max(0, min($y + $h, $my + $mh) - max($y, $my))}]
+        if {$a > $besta} { set besta $a; set best $key }
+    }
+    if {$besta > 0} { return $best }
+    workarea-primary-key $d
+}
+proc workarea-primary-key {d} {
+    dict for {key m} $d {
+        if {[dict get $m primary]} { return $key }
+    }
+    lindex [dict keys $d] 0
+}
 proc policy-workarea-changed {old new} {
     if {$::workarea_follow eq "off"} return
     foreach w [array names ::frameof] {
         # Fullscreen is the screen's business and has its own refit; a
         # window under a gesture is somebody's business right now.
         if {[info exists ::fullscreen($w)] || [geometry-held-p $w]} continue
-        reflow-client $w $old $new
+        set t $::frameof($w)
+        if {![regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $t] \
+                -> fw fh fx fy]} continue
+        set key [workarea-owner $old [list $fx $fy $fw $fh]]
+        set owa [dict get $old $key wa]
+        set nwa [dict get $new [expr {[dict exists $new $key]
+                                      ? $key : [workarea-primary-key $new]}] wa]
+        if {$owa eq $nwa} continue
+        reflow-client $w $owa $nwa
     }
 }
 # A hand is on this window's geometry at this moment: a title carry, a
@@ -10365,6 +10602,7 @@ proc applet {name} {
 set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
+    monitors_override
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
     key_echo key_echo_place key_hold_warn KEY_ECHO_BAD KBMR_BG chord_hold
     last_started
@@ -10521,7 +10759,11 @@ proc resist-axis {pos size start extent} {
 # too big to fit, the same way the clamps decide it.
 proc carry-to {t X Y} {
     if {$::edge_resist <= 0} { return [list $X $Y] }
-    lassign [workarea] wax way ww wh
+    # the edges of the monitor UNDER THE DRAG — which makes the seam
+    # between two monitors an edge too, and flush against it is a
+    # position worth aiming for exactly like flush against a strip
+    lassign [workarea-at [list $X $Y [winfo width $t] [winfo height $t]]] \
+        wax way ww wh
     list [resist-axis $X [winfo width $t]  $wax $ww] \
          [resist-axis $Y [winfo height $t] $way $wh]
 }

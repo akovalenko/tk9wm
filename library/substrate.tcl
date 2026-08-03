@@ -91,10 +91,11 @@
 #   policy-fullscreen w on  w entered (1) or left (0) EWMH fullscreen:
 #                           on the way in, remember the geometry, drop
 #                           the decoration and give the client the whole
-#                           SCREEN — not the workarea, fullscreen covers
-#                           the panel by definition — and let nothing of
-#                           the policy's own stay stacked above it; on
-#                           the way out, put back what was remembered
+#                           of ITS MONITOR — not the workarea, fullscreen
+#                           covers the panel by definition — and let
+#                           nothing of the policy's own stay stacked
+#                           above it; on the way out, put back what was
+#                           remembered
 #   policy-screen-changed   the root changed size under us (RandR);
 #                           anything glued to a screen edge re-places
 #   policy-tray-attach w    build a slot for tray icon w and return
@@ -105,12 +106,19 @@
 #                           ConfigureNotify an icon's resize request gets)
 #   policy-workarea         {x y w h} of the screen minus whatever the
 #                           policy reserves (panel, tray) — published as
-#                           EWMH _NET_WORKAREA
-#   policy-workarea-changed old new  that answer is not what it was:
-#                           the two rects, before and after. Whatever
-#                           the policy glued to a workarea edge re-glues
-#                           — its own furniture is placed by then, so
-#                           this is about the CLIENTS
+#                           EWMH _NET_WORKAREA (one rect: the protocol
+#                           predates multihead)
+#   policy-workareas        the full per-monitor picture: name ->
+#                           {primary 0|1 mon RECT wa RECT}. THIS is
+#                           what the substrate watches for change — a
+#                           monitor can move under an unchanged
+#                           _NET_WORKAREA
+#   policy-workarea-changed old new  that picture is not what it was:
+#                           both per-monitor dicts, before and after.
+#                           Whatever the policy glued to a workarea
+#                           edge re-glues — its own furniture is
+#                           placed by then, so this is about the
+#                           CLIENTS
 #   policy-key-echo kind text  a chord sequence has something to say
 #                           about itself: `keys` + the chords typed so
 #                           far (a sequence is running and the keyboard
@@ -462,6 +470,10 @@ proc x-focus-set {w {revert parent} {time 0}} { tkwmx::focus set $w $revert $tim
 proc x-focus-get {}             { tkwmx::focus get }
 # {x y width height border-width depth}, or {} — the window is gone
 proc x-geometry {w}             { tkwmx::window geometry $w }
+# Raw monitor layouts, one per source — empty when the server has no
+# such answer. Merging them (and trusting one) is the policy's call.
+proc x-monitors-randr {}        { tkwmx::server monitors }
+proc x-monitors-xinerama {}     { tkwmx::server xinerama }
 # {root parent {children...}}, or {} — the window is gone
 proc x-query-tree {w}           { tkwmx::window tree $w }
 proc x-grab-key {keycode mods w}   { tkwmx::grab key $keycode $mods $w }
@@ -1914,14 +1926,32 @@ proc publish-workarea {} {
     soft "publish _NET_DESKTOP_GEOMETRY" \
         [list set-prop-longs $::root $::NET_DESKTOP_GEOMETRY 6 [screen-size]]
     if {$::wa_hold} return
-    if {$a eq $::wa_published} return
+    # The change is judged on the PER-MONITOR picture, not on the one
+    # published rect: a monitor resized or moved under an unchanged
+    # _NET_WORKAREA still moved somebody's workarea, and the windows
+    # standing on it have edges to re-glue to.
+    set all [soft "workareas" { policy-workareas } {}]
+    if {![dict size $all]} return
+    if {$all eq $::wa_published} return
     set was $::wa_published
-    set ::wa_published $a
+    set ::wa_published $all
     # The FIRST publication is not a change: there was no workarea
     # before it, and there are no windows either.
     if {$was eq ""} return
-    puts "WM: workarea $was -> $a"
-    soft "workarea changed" [list policy-workarea-changed $was $a]
+    # A line PER MONITOR whose workarea moved — the raw dicts are for
+    # the policy, not for a log a human greps.
+    dict for {key m} $all {
+        set nw [dict get $m wa]
+        set ow [expr {[dict exists $was $key]
+                      ? [dict get $was $key wa] : "—"}]
+        if {$ow ne $nw} { puts "WM: workarea ($key) $ow -> $nw" }
+    }
+    dict for {key m} $was {
+        if {![dict exists $all $key]} {
+            puts "WM: workarea ($key) [dict get $m wa] -> gone"
+        }
+    }
+    soft "workarea changed" [list policy-workarea-changed $was $all]
 }
 
 # _NET_WM_STATE — the EWMH state LIST. Two members are ours:

@@ -238,7 +238,7 @@ expect "the gridded window, six short of the bottom, is six short of the new one
 expect "...and its right edge, whose far edge did not move, is unchanged" \
     "$A_SETKA_SHORT_R" "$B_SETKA_SHORT_R"
 expect "the window flush with nothing does not move" "$A_SEREDINA" "$B_SEREDINA"
-has "the substrate said the workarea changed" 'WM: workarea 0 0 800'
+has "the substrate said the workarea changed" 'WM: workarea (screen) 0 0 800'
 has "and the reflow named the case it found: span/near for the column" \
     "WM: reflow $STOLB span/near"
 has "...far/far for the corner window" "WM: reflow $UGOL far/far"

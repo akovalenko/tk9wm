@@ -312,8 +312,10 @@
 #
 # Size increments bind a placement the way they bind maximize: an xterm
 # placed 50%right keeps its right edge flush and eats the leftover on
-# the left. Percentages are of the whole X screen's workarea — on two
-# monitors, 50%right is half of the JOINED desktop.
+# the left. Percentages are of ONE monitor's workarea — the primary,
+# where placement rules deal their windows; never of the joined
+# bounding box of a multihead desk. Maximize later, on whatever
+# monitor the window has been carried to, fills THAT monitor.
 #
 # A `place` beats every position the client claims for itself, its own
 # -geometry included: the config is the same user saying it once and
