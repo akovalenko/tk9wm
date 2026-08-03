@@ -9344,13 +9344,27 @@ proc knob-touched {cmd op} {
     # whoever called it.
     dict set ::layer_where $::knob_layer $key [said-where]
 }
-# Where a knob was set, as a chain of file:line — the CONFIG's word by
-# default, since the custom file is written by click and nobody edits
-# it by hand (the owner, 2026-08-02). Empty when the layer never said
-# it, or when the word came from a place provenance skips (the desk's
-# own library, the entry script).
-proc knob-where {name {layer config}} {
+# Where a knob was set, as a chain of file:line — by default the word
+# IN FORCE, which is what a row is asking when it asks where its value
+# comes from. It used to answer for the CONFIG whatever the row's own
+# word was, on the reasoning that the custom file is written by click
+# and nobody edits it by hand (2026-08-02) — and that made two rows of
+# one tree answer differently: a BINDING of yours named the custom file
+# it was written in (its chain is recorded where the bind happened,
+# whatever layer that was), while a KNOB of yours said the config does
+# not mention it, which is true and useless (the owner, 2026-08-03).
+# Naming the file is not an invitation to edit it — that file says what
+# it is in its own first line — and it is the honest answer to where
+# the value is written down. Ask for a layer by name to see what a
+# word STANDS ON.
+#
+# Empty when that layer never said it, or when the word came from
+# somewhere provenance skips: the desk's own library (so the default
+# config, which lives there, has no line to point at), the entry
+# script, or a click that no file has caught up with yet.
+proc knob-where {name {layer ""}} {
     if {![info exists ::layer_where]} { return "" }
+    if {$layer eq ""} { set layer [knob-owner $name] }
     if {![dict exists $::layer_where $layer $name]} { return "" }
     return [dict get $::layer_where $layer $name]
 }

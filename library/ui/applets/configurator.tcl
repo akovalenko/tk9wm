@@ -2273,7 +2273,8 @@ proc cfg-row-subject {it} {
             pretty [cfg-pretty $addr] said 1 means value pending $pend \
             owner [expr {$up eq "" ? "code" : [dict get $up owner]}] \
             parent $up \
-            where [expr {$up eq "" ? "" : [dict get $up where]}]]
+            where [expr {$up eq "" ? "" : [dict get $up where]}] \
+            under [expr {$up eq "" ? "" : [cfg-dict-get $up under]}]]
     }
     # A FIELD IS ITS OWN SUBJECT now: saying a key empty and taking it
     # back are the field's business, and they are the two acts a
@@ -2293,7 +2294,8 @@ proc cfg-row-subject {it} {
             means [cfg-field-empty-means $addr] pending $pend \
             owner [expr {$parent eq "" ? "code" : [dict get $parent owner]}] \
             parent $parent \
-            where [expr {$parent eq "" ? "" : [dict get $parent where]}]]
+            where [expr {$parent eq "" ? "" : [dict get $parent where]}] \
+            under [expr {$parent eq "" ? "" : [cfg-dict-get $parent under]}]]
     }
     while {[dict exists $::cfg_node $it]
            && [dict get $::cfg_node $it what] in {field shadow}} {
@@ -2312,7 +2314,7 @@ proc cfg-row-subject {it} {
         set where {}
         if {[dict exists $rec where]} { set where [dict get $rec where] }
         if {![llength $where]} {
-            set where [wm-call [list knob-where $lkey config]]
+            set where [wm-call [list knob-where $lkey]]
         }
         set pend {}
         dict for {n -} $::cfg_pending {
@@ -2320,7 +2322,8 @@ proc cfg-row-subject {it} {
         }
         return [dict create kind elem item $it coll $coll key $key rec $rec \
             pretty $key owner [dict get $rec owner] lkey $lkey \
-            pending $pend where $where]
+            pending $pend where $where \
+            under [cfg-under [dict get $rec owner] $lkey]]
     }
     set name [cfg-name-of $it]
     if {$name eq ""} { return "" }
@@ -2328,7 +2331,18 @@ proc cfg-row-subject {it} {
     if {[dict exists $::cfg_pending $name]} { lappend pend $name }
     return [dict create kind knob item $it name $name \
         pretty [cfg-pretty $name] owner [cfg-owner $name] lkey $name \
-        pending $pend where [wm-call [list knob-where $name config]]]
+        pending $pend where [wm-call [list knob-where $name]] \
+        under [cfg-under [cfg-owner $name] $name]]
+}
+# What a word of OURS stands on: the config's line for the same key,
+# when there is one. That line is where the value would come from if
+# this word were erased, so it is the one a reader wants next — and
+# a binding has shown its buried claimants in the tree all along
+# (cfg-elem-note), which is the shape this borrows for the rows that
+# have no children to show them in.
+proc cfg-under {owner lkey} {
+    if {$owner ne "custom"} { return "" }
+    return [wm-call [list knob-where $lkey config]]
 }
 proc cfg-row-menu {} {
     set m [cfg-row-menu-build]
@@ -2450,27 +2464,48 @@ proc cfg-del-offer {s} {
 proc cfg-row-menu-where {s} {
     set T $::cfg_T
     $T.rowpop add separator
-    set where [dict get $s where]
-    if {![llength $where]} {
-        $T.rowpop add command -state disabled \
-            -label "the config does not mention it"
-    } else {
-        set i 0
-        foreach place $where {
-            set m $T.rowpop.p[incr i]
-            ui-menu $m
-            $m add command -label "in emacs" \
-                -command [list cfg-open-place emacs $place]
-            $m add command -label "in \$EDITOR, in a terminal" \
-                -command [list cfg-open-place terminal $place]
-            if {$i == 1} {
-                set label "Said at [cfg-place-brief $place]"
-            } else {
-                set label "…called from [cfg-place-brief $place]"
-            }
-            $T.rowpop add cascade -menu $m -label $label
-        }
+    set i 0
+    foreach place [dict get $s where] {
+        incr i
+        cfg-where-item $i $place [expr {$i == 1
+            ? "Said at [cfg-place-brief $place]"
+            : "…called from [cfg-place-brief $place]"}]
     }
+    # ...and the word underneath, if a click of ours covers one: only
+    # its head, because what a reader wants there is the line, not the
+    # buried word's own call chain.
+    foreach place [cfg-dict-get $s under] {
+        incr i
+        cfg-where-item $i $place "…over the config's [cfg-place-brief $place]"
+        break
+    }
+    if {!$i} {
+        $T.rowpop add command -state disabled -label [cfg-where-none $s]
+    }
+}
+proc cfg-where-item {i place label} {
+    set T $::cfg_T
+    set m $T.rowpop.p$i
+    ui-menu $m
+    $m add command -label "in emacs" -command [list cfg-open-place emacs $place]
+    $m add command -label "in \$EDITOR, in a terminal" \
+        -command [list cfg-open-place terminal $place]
+    $T.rowpop add cascade -menu $m -label $label
+}
+# NO FILE POINTS AT IT — and there are three different reasons for
+# that, which "the config does not mention it" said as one. A click
+# that no re-read has caught up with has no line yet; the desk's own
+# default config has none to give (provenance skips our own library);
+# and a value nobody has said at all is the code's.
+proc cfg-where-none {s} {
+    switch -- [cfg-dict-get $s owner] {
+        custom { return "said by a click of yours — no line to open" }
+        config { return "the desk's own default config says it" }
+    }
+    return "nobody has said it — this is the desk's own answer"
+}
+proc cfg-dict-get {d key} {
+    expr {[dict exists $d $key] ? [dict get $d $key] : ""}
 }
 proc cfg-place-brief {place} {
     if {![regexp {^(.*):(\d+)$} $place -> file line]} { return $place }

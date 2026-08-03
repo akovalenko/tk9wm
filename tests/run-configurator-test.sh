@@ -1182,13 +1182,17 @@ q 'custom-erase set-edge-resist' >/dev/null
 qu 'cfg-revert; list clean' >/dev/null
 sleep 1
 KWHERE=$(q 'knob-where set-edge-resist config')
-# ...and only the CONFIG's lines are ever offered: the custom file is
-# written by click and nobody opens it to edit
+# ...and the word IN FORCE is the one a row answers with, whatever
+# layer said it: a knob written by a click names the custom file, the
+# way a binding of yours always did (the owner, 2026-08-03 — the two
+# rows of one tree used to answer differently, and the knob's answer
+# was «the config does not mention it», true and useless).
 qu 'cfg-set set-drag-slop 11; cfg-save; list saved' >/dev/null
 sleep 1
 qu 'cfg-revert; list reread' >/dev/null    ;# the layer must be SOURCED to
 sleep 1                                    ;# have lines at all
-CUSTWHERE=$(q 'list config [llength [knob-where set-drag-slop config]] \
+CUSTWHERE=$(q 'list inforce [file tail [lindex [knob-where set-drag-slop] 0]] \
+    config [llength [knob-where set-drag-slop config]] \
     custom [expr {[llength [knob-where set-drag-slop custom]] > 0}]')
 # the badge is a link and says so: a cell with something in it wears
 # the underlined font, an empty one does not
@@ -1248,6 +1252,19 @@ ROWPIN=$(qu 't-knob set-edge-resist
 qu 'cfg-save; list saved' >/dev/null
 sleep 1
 PINFILE=$(grep -c 'set-edge-resist 3' "$HERE/cfg-config/tk9wm.custom.tcl")
+# ...and now that a click of ours COVERS the config's own word, the
+# menu says both: the line we wrote, and the one it stands on — the
+# value this row would fall back to if the word were erased.
+qu 'cfg-revert; list reread' >/dev/null   ;# sourced, so both have lines
+sleep 1
+OVERMENU=$(qu 't-knob set-edge-resist
+    set m [cfg-row-menu-build]
+    set labels {}
+    for {set i 0} {$i <= [$m index end]} {incr i} {
+        if {[$m type $i] eq "separator"} continue
+        lappend labels [$m entrycget $i -label]
+    }
+    set labels')
 # now it IS ours, and the menu says so
 MENU2=$(qu 't-knob set-edge-resist
     set m [cfg-row-menu-build]
@@ -1500,6 +1517,7 @@ echo "--- rows=$ROWS hostfont=$HOSTFONT wmfont=$WMFONT badge=$CFGBADGE"
 echo "--- preview=$PREVIEW save=$SAVED0->$SAVED1 reverted=$REVERTED bad=$BAD"
 echo "--- bumped=$BUMPED bumpfile=$BUMPFILE"
 echo "--- where={$KWHERE} custwhere={$CUSTWHERE} menu={$MENU}"
+echo "--- overmenu={$OVERMENU}"
 echo "--- verdict"
 if [ "${ROWS:-0}" -ge 25 ]; then
     echo "OK: the configurator renders the live registry ($ROWS rows)"
@@ -2038,11 +2056,18 @@ case "$KWHERE" in
     *"tk9wm.tcl:1") echo "OK: a knob remembers the config line that set it" ;;
     *) echo "FAIL: knob provenance: «$KWHERE»" ;;
 esac
-if [ "$CUSTWHERE" = "config 0 custom 1" ]; then  # ...and only config is offered
-    echo "OK: the custom file's own line is known but never offered as config"
-else
-    echo "FAIL: layers of provenance: $CUSTWHERE"
-fi
+case "$CUSTWHERE" in
+    "inforce tk9wm.custom.tcl:"*" config 0 custom 1")
+        echo "OK: a knob written by a click answers with the file it was\
+ written in" ;;
+    *) echo "FAIL: layers of provenance: $CUSTWHERE" ;;
+esac
+case "$OVERMENU" in
+    *"Said at tk9wm.custom.tcl:"*"over the config's tk9wm.tcl:1"*)
+        echo "OK: ...and when it covers a config word, the menu offers that\
+ line too — what the value would fall back to" ;;
+    *) echo "FAIL: the menu over a covered config word: $OVERMENU" ;;
+esac
 case "$LINKFONT" in
     "said {LinkFont 0} default {LinkFont 1} none DeskFont")
         echo "OK: every knob row wears a handle — loud when it has news,\
