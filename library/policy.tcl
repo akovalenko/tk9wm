@@ -1699,6 +1699,14 @@ proc policy-paint-focus {w} {
     foreach {ww tt} [array get ::frameof] {
         frame-recolor $tt [frame-focus-color $ww]
     }
+    # The top layer belongs to the ACTIVE fullscreen window, so it has
+    # to be re-judged whenever the focus moves — and the focus moves
+    # without any raise of ours often enough to matter: a window
+    # closing hands it on, and a globally-active client answers its
+    # invitation a beat after the raise that invited it. On a desk with
+    # nothing fullscreen the question does not arise, so it costs
+    # nothing to ask.
+    if {[array size ::fullscreen]} { panel-on-top }
 }
 
 # ---- fade: how solid a window is ----
@@ -1903,7 +1911,7 @@ proc raise-group {w} {
         lower $::frameof([lindex $order $i]) \
               $::frameof([lindex $order [expr {$i - 1}]])
     }
-    panel-on-top
+    panel-on-top $w   ;# the strips, judged by who is being raised HERE
     publish-client-list   ;# the stacking order just changed (coalesced)
 }
 
@@ -2619,18 +2627,74 @@ proc policy-fullscreen {w on} {
     # decoration standing around a window that has none.
     frame-layout $t $cw $ch $X $Y
     wm-resize-client $w $cw $ch
-    if {$on} { raise $t } else { panel-on-top }
+    # Both directions ask the same question — who owns the top layer
+    # now — and the answer comes from the FOCUS, with no hint from
+    # here. That is what tells apart the two ways a window becomes
+    # fullscreen: the user toggling the window in front of him (it is
+    # focused, so it goes over the strips) and a background client
+    # doing it to itself (it is not, so it does not — it becomes a
+    # fullscreen-sized window sitting where it sat, which is the same
+    # rule as everywhere else and no special case at all).
+    panel-on-top
     update idletasks
     send-synthetic-configure $w
 }
-# Nothing of ours stays above a fullscreen window — that is what the
-# state MEANS, and the panel and the tray are the two that would. Both
-# strips lift themselves for their own reasons (a rebuild, an icon
-# docking), so the rule cannot live at the moment of going fullscreen:
-# it has to run after every one of those lifts.
-proc fullscreen-on-top {} {
-    foreach w [array names ::fullscreen] {
-        if {[info exists ::frameof($w)]} { raise $::frameof($w) }
+# Nothing of ours stays above THE ACTIVE fullscreen window — that is
+# what the state means, and the panel and the tray are the two that
+# would. Both strips lift themselves for their own reasons (a rebuild,
+# an icon docking), so the rule cannot live at the moment of going
+# fullscreen: it has to run after every one of those lifts, and after
+# every change of who is active.
+#
+# ACTIVE is the whole of it, and it used to be missing: the rule was
+# "every fullscreen window, always, to the very top", which made a
+# fullscreen window a thing you could not get out from under. Alt-Tab
+# away and it came straight back over the window you had just picked —
+# because the raise that picked it ended in panel-on-top, which ended
+# here (owner's report, 2026-08-04). And it swallowed its OWN dialogs
+# for the same reason: raise-group seats a transient above its leader,
+# then this ran and put the leader back on top.
+#
+# The reading every other desk uses, and the owner's own words for it:
+# a fullscreen window that lost the focus is JUST A WINDOW — it lies
+# where the stacking left it, under the panel, undecorated, and it does
+# not come back up until you switch to it. The top layer is a property
+# of being ACTIVE, not of the state.
+#
+# The group, not the window: the focus may sit on a DIALOG of the
+# fullscreen window, and then the fullscreen window is still what the
+# user is looking at. Its transients are re-seated above it afterwards,
+# which is the whole of bug two.
+# WHO is active takes an argument, because a raise runs BEFORE the
+# focus it is about to cause: `raise-group` restacks and only then does
+# the focus land — and for a globally-active client it lands a beat
+# later still, when the invitation is answered. Asked with no argument
+# (the focus moved, no raise involved) it reads ::focused; asked by a
+# raise it takes the window being raised, which is the honest answer to
+# "who will be active when this settles".
+proc fullscreen-active {{who ""}} {
+    if {$who eq ""} { set who $::focused }
+    if {$who == 0} { return 0 }
+    if {[info exists ::fullscreen($who)]} { return $who }
+    set leader [group-leader $who]
+    if {$leader != $who && [info exists ::fullscreen($leader)]} {
+        return $leader
+    }
+    return 0
+}
+proc fullscreen-on-top {{who ""}} {
+    set w [fullscreen-active $who]
+    if {$w == 0 || ![info exists ::frameof($w)]} return
+    set t $::frameof($w)
+    raise $t
+    # ...and its own transients ride ABOVE it — over the panel with it,
+    # rather than the window dropping below the panel to let a dialog
+    # show (the owner's call, 2026-08-04: the group goes up, nothing
+    # goes down). A dialog swallowed by the window that put it up is
+    # unreachable: fullscreen took its leader's decoration, so there is
+    # no titlebar to grab and no pixel showing.
+    foreach c [group-members $w] {
+        if {[info exists ::frameof($c)]} { raise $::frameof($c) $t }
     }
 }
 # The user's own toggle (the ops menu, or a config's chord), as opposed
@@ -8179,14 +8243,19 @@ proc panel-click {name x y {state 0}} {
     # press mean «auto», is what keeps that true.
     action-fire $aname mru
 }
-proc panel-on-top {} {
+proc panel-on-top {{who ""}} {
     foreach name [panel-names] {
         set P [panel-window $name]
         if {$P ne ""} { raise $P }
     }
     if {[winfo exists .traybg]} { raise .traybg }   ;# under the strip...
     if {[winfo exists .tray]} { raise .tray }       ;# ...and over the desk
-    fullscreen-on-top   ;# ...and under a fullscreen window, always
+    # ...and under the ACTIVE fullscreen group, which is the one thing
+    # that outranks the strips. WHO is being raised travels with the
+    # call: a raise happens before the focus it causes, so without it
+    # this would judge by the OLD focus and lift the fullscreen window
+    # back over the window just picked (see fullscreen-on-top).
+    fullscreen-on-top $who
 }
 
 # ---- the system tray strip ----
