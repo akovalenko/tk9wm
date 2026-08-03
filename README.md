@@ -1541,6 +1541,11 @@ runs as a single shell call:
   type: the same clock declaration comes out a row on a horizontal bar
   and a stack on the desk, and on a vertical strip it takes the row
   only when the buttons have already paid for the width),
+  `run-welcome-test.sh` (the one widget whose depth nobody declares —
+  it is however deep the text wraps to, and the desk has to reserve
+  that before it knows it: the reserved size and the built size must
+  agree and the whole mat lie inside the workarea, in the desk window
+  and in the toplevel it falls back to without one),
   `run-theme-test.sh` (one word repaints the strip and the desktop and
   takes them back; an override stands where it was spoken and NOWHERE
   else, the strip beside it still following the theme; and an unsaid

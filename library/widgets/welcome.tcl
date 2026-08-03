@@ -27,12 +27,27 @@ proc welcome-widget-build {w opts} {
         -cursor left_ptr -width 52 -height 14 -spacing3 4
     # The height in CHARACTER LINES is a guess the wrap makes wrong
     # (the owner's mat scrolled by a couple of lines); the truth —
-    # display lines after wrapping — exists once the widget is mapped,
-    # so the first Map re-fits the height to it. The area's layout
-    # follows the new request on its own.
-    bind $w.t <Map> {
-        %W configure -height [expr {[%W count -displaylines 1.0 end] + 1}]
-        bind %W <Map> {}
+    # display lines after wrapping — is knowable once the widget has
+    # its WIDTH, and that arrives as a <Configure>.
+    #
+    # Not as a <Map>, which was the first answer and only half of one:
+    # the desk MEASURES a widget in a window nobody maps (see
+    # widget-measure), so a re-fit waiting on a mapping never ran for
+    # the measurement. The desk then reserved the guess, the mat built
+    # for real re-fit itself deeper than that, and the extra ran off
+    # the bottom — behind the panel with the desk window on, and
+    # clipped by a toplevel pinned to the guess with it off (the owner,
+    # 2026-08-03). A <Configure> arrives in both places, so the two
+    # readings agree.
+    #
+    # The guard is for the width the widget has before it is laid out:
+    # a count taken at one pixel wide answers in the hundreds, and this
+    # binding fires once and then retires.
+    bind $w.t <Configure> {
+        if {%w > 1} {
+            %W configure -height [expr {[%W count -displaylines 1.0 end] + 1}]
+            bind %W <Configure> {}
+        }
     }
     $w.t tag configure h -font TitleFont
     $w.t tag configure link -foreground $link -underline 1

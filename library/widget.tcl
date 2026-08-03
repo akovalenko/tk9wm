@@ -305,6 +305,23 @@ proc widget-measure {name} {
     wm withdraw .wgmeasure
     set c [widget-content .wgmeasure.c $name $opts]
     if {$c eq ""} { destroy .wgmeasure; return 0 }
+    # MANAGED, so that the size below is a size it really has and not
+    # just one it asked for: an unmanaged child stays one pixel square
+    # however big the window around it is, and a widget that lays
+    # itself out by its own width (below) would measure that pixel.
+    pack $c
+    update idletasks
+    # A WIDGET MAY NOT KNOW ITS OWN HEIGHT UNTIL IT HAS ITS WIDTH.
+    # Wrapped text is that case, and the welcome mat is one: how deep
+    # it is depends on where the lines break, which depends on how wide
+    # it turned out. A scratch toplevel that was never given a size
+    # leaves its content one pixel wide, and every answer measured
+    # there is nonsense — the mat counts 929 display lines at a width
+    # of 1. So the window is given exactly the size just asked for, and
+    # the content hears about it as a <Configure>, the same way it
+    # would anywhere else; what it requests AFTER that is the honest
+    # figure, and the second reading is the one kept.
+    wm geometry .wgmeasure [winfo reqwidth $c]x[winfo reqheight $c]
     update idletasks
     set ::widget_size($name) [list [winfo reqwidth $c] [winfo reqheight $c]]
     destroy .wgmeasure
@@ -495,6 +512,13 @@ proc area-build {area place idx} {
         lassign [anchor-of $place] halign valign
         set ax [place-axis $hx $hw $aw $halign]
         set ay [place-axis $hy $hh $ah $valign]
+        # ...and inside the rectangle it was measured against, even
+        # when it does not fit in it. Centring something taller than
+        # the workarea hangs it off BOTH ends, which loses the first
+        # line as well as the last; against the near edge, what is
+        # there to read at least starts at the beginning.
+        set ax [expr {max($hx, min($ax, $hx + $hw - $aw))}]
+        set ay [expr {max($hy, min($ay, $hy + $hh - $ah))}]
         if {$own ne ""} {
             # ...in a window of its own, which then has to be placed
             # and kept on its layer.
