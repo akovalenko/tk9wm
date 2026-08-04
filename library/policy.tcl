@@ -9500,6 +9500,8 @@ knob set-root-cursor {group desk kind text get {set ::root_cursor}
 knob set-desk-window {group desk kind bool
                       get {expr {$::desk_window ? "on" : "off"}}
                       doc {the desk as one window of ours, or hands off the root}}
+knob set-desks       {group desk kind int get {set ::ndesks}
+                      doc {how many virtual desks; 1 switches them off}}
 knob set-theme       {group desk kind {choice dark light} get {set ::theme}
                       doc {the desk's colours in one word; every colour derives from it}}
 knob set-desk-background {group desk kind color get {set ::desk_background_said}
