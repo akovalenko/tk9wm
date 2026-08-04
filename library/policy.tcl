@@ -2070,8 +2070,15 @@ proc stack-desired {} {
     foreach {path pair} [array get ::wm_layer] {
         if {[winfo exists $path]} { lappend furn [list {*}$pair $path] }
     }
-    foreach e [lsort -index 2 [lsort -integer -index 1 \
-                                   [lsort -integer -index 0 $furn]]] {
+    # Stable sorts CHAIN IN REVERSE ORDER OF SIGNIFICANCE: the last one
+    # applied is the one that wins. Written the intuitive way round —
+    # layer, then rank, then name — the NAME decided everything, so
+    # .tray came out under .traybg and the opaque backdrop covered the
+    # icons: the very bug the ranks were added to fix, still there and
+    # now wearing a fix (the owner's live desk, 2026-08-04, after the
+    # first cure).
+    foreach e [lsort -integer -index 0 [lsort -integer -index 1 \
+                                            [lsort -index 2 $furn]]] {
         dict lappend byl [lindex $e 0] [lindex $e 2]
     }
     foreach w [client-stacking] {
