@@ -36,6 +36,12 @@ q()  { printf '%s\n' "$1" > "$HERE/cfg-config/q.tcl"
        "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/cfg-config/q.tcl"; }
 qu() { printf '%s\n' "$1" > "$HERE/cfg-config/qu.tcl"
        "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm-ui "$HERE/cfg-config/qu.tcl"; }
+# A FAIL that leaves the exit code at zero is a suite that cannot
+# fail: five verdicts rotted here unseen because every runner read
+# the tail, saw the last scenes pass, and believed it. Every verdict
+# says FAIL through this, and the exit says it again.
+BAD=0
+fail() { echo "$@"; BAD=1; }
 
 q 'applet configurator' >/dev/null
 sleep 3
@@ -148,11 +154,16 @@ SPECDELTA=$(q 'set-title-font {Liberation Serif}
                     [expr {[font actual TitleFont -size]
                            eq [font actual DeskFont -size]}]')
 SPECBAD=$(q 'catch {set-desk-font { }} e; set e')
-# every knob that touches something VISIBLE must act at once, not at
-# the next apply — the desk window was the last one that did not
+# a knob's word writes a WISH and the settler does the deed one idle
+# tick later (the lifecycle refactor) — so the scene drains that tick
+# and the desk window must be there; reading in the same breath as
+# the word is reading the wish, which is what this used to assert
+# back when the word still acted on the spot
 DESKWIN=$(qu 'cfg-set set-desk-window off
-              list gone [wm-call {expr {[winfo exists .desk] ? 1 : 0}}] \
-                   back [wm-call {set-desk-window on; expr {[winfo exists .desk] ? 1 : 0}}]')
+              list gone [wm-call {update idletasks
+                                  expr {[winfo exists .desk] ? 1 : 0}}] \
+                   back [wm-call {set-desk-window on; update idletasks
+                                  expr {[winfo exists .desk] ? 1 : 0}}]')
 # ...and SAVED, it must still read as what was said, not as what the
 # desk computed from it.
 # The delta is re-said through the applet first: the scene above poked
@@ -937,8 +948,9 @@ MARKS=$(qu 'set T $::cfg_T
     set r')
 
 # ---- WHAT IS NOT WRITTEN IS STILL AN ANSWER ----
-# A widget that never said where it goes is not «nowhere» — it is at
-# the workarea's right, which is what the merged options hold; and the
+# A widget that never said where it goes is not «nowhere» — it is
+# where its TYPE prefers (widget-preferred-host: a clock rides the
+# default panel), which is what the merged options hold; and the
 # terminal the desk worked out for itself was known and not shown (the
 # owner, 2026-08-02). Both are derived values, marked as not written.
 qu 'cfg-insert-widget пробка clock; list made' >/dev/null
@@ -1494,20 +1506,20 @@ echo "--- style before: $BEFORE  after set-theme light: $AFTER"
 if [ "$BEFORE" != "$AFTER" ]; then
     echo "OK: the open applet repainted where it stood ($BEFORE -> $AFTER)"
 else
-    echo "FAIL: the applet kept the theme it was born in ($BEFORE)"
+    fail "FAIL: the applet kept the theme it was born in ($BEFORE)"
 fi
 # treectrl answers -background as a state list, so the braces it puts
 # round the plain colour are its own and not part of the answer.
 AFTERN=$(echo "$AFTER" | tr -d '{}')
 case "$AFTERN" in
     "#ffffff "*) echo "OK: ...and it is the LIGHT ground it took, not any change" ;;
-    *) echo "FAIL: the tree's ground after going light: $AFTER" ;;
+    *) fail "FAIL: the tree's ground after going light: $AFTER" ;;
 esac
 if [ -n "$SELINK" ] && [ "$SELINK" = "$(echo "$AFTERN" | awk '{print $2}')" ]; then
     echo "OK: a selected row is drawn in the selection's own ink, so the band\
  cannot swallow it"
 else
-    echo "FAIL: selected text is «$SELINK», the selection ink is\
+    fail "FAIL: selected text is «$SELINK», the selection ink is\
  «$(echo "$AFTER" | awk '{print $2}')»"
 fi
 
@@ -1523,108 +1535,108 @@ echo "--- verdict"
 if [ "${ROWS:-0}" -ge 25 ]; then
     echo "OK: the configurator renders the live registry ($ROWS rows)"
 else
-    echo "FAIL: rows=$ROWS"
+    fail "FAIL: rows=$ROWS"
 fi
 if [ -n "$HOSTFONT" ] && [ "$HOSTFONT" = "$WMFONT" ]; then
     echo "OK: the style bridge carried the desk font to the host"
 else
-    echo "FAIL: host font $HOSTFONT vs wm font $WMFONT"
+    fail "FAIL: host font $HOSTFONT vs wm font $WMFONT"
 fi
 if [ "$CFGBADGE" = config ]; then
     echo "OK: the owner column knows set-edge-resist came from the config"
 else
-    echo "FAIL: owner of set-edge-resist = $CFGBADGE"
+    fail "FAIL: owner of set-edge-resist = $CFGBADGE"
 fi
 if [ "$PREVIEW" = 0.42 ]; then
     echo "OK: an edit previews on the live desk at once"
 else
-    echo "FAIL: fade after preview = $PREVIEW"
+    fail "FAIL: fade after preview = $PREVIEW"
 fi
 if [ "${SAVED0:-0}" = 0 ] && [ "$SAVED1" = 1 ]; then
     echo "OK: preview did not persist, Save did — through custom-write"
 else
-    echo "FAIL: custom file set-fade lines: before=$SAVED0 after=$SAVED1"
+    fail "FAIL: custom file set-fade lines: before=$SAVED0 after=$SAVED1"
 fi
 if [ "$REVERTED" = 4 ]; then
     echo "OK: Revert reloaded the desk's own layers (slop back to default 4)"
 else
-    echo "FAIL: drag_slop after revert = $REVERTED"
+    fail "FAIL: drag_slop after revert = $REVERTED"
 fi
 if [ "$BAD" = 0 ]; then
     echo "OK: a value the kind refuses is refused (fade 7)"
 else
-    echo "FAIL: cfg-set accepted fade 7"
+    fail "FAIL: cfg-set accepted fade 7"
 fi
 if [ "$BUMPED" = 12 ] && [ "$BUMPFILE" = 1 ]; then
     echo "OK: the mat's font button turned the desk font and persisted"
 else
-    echo "FAIL: bumped=$BUMPED (want 12), file lines=$BUMPFILE"
+    fail "FAIL: bumped=$BUMPED (want 12), file lines=$BUMPFILE"
 fi
 if [ "$KEPTFAM" = 1 ]; then
     echo "OK: the bump kept the family standing beside the size"
 else
-    echo "FAIL: the record after a bump: $(grep set-desk-font "$HERE/cfg-config/tk9wm.custom.tcl")"
+    fail "FAIL: the record after a bump: $(grep set-desk-font "$HERE/cfg-config/tk9wm.custom.tcl")"
 fi
 if [ "$LISTCELL" = "[2 directories]" ] && [ "$LISTLIVE" = 3 ]; then
     echo "OK: a list summarizes in its cell and edits whole"
 else
-    echo "FAIL: list cell «$LISTCELL», live length $LISTLIVE"
+    fail "FAIL: list cell «$LISTCELL», live length $LISTLIVE"
 fi
 if [ "$KEPT" = "set-tray-icon-size" ] && [ "$FOLD" = 1 ]; then
     echo "OK: a refresh kept the selection and the folded group"
 else
-    echo "FAIL: after refresh selection=$KEPT folded=$FOLD"
+    fail "FAIL: after refresh selection=$KEPT folded=$FOLD"
 fi
 case $SAMEID in
     "knob 1 field 1")
         echo "OK: a refresh reconciles — the items themselves survive" ;;
-    *) echo "FAIL: item survival: $SAMEID" ;;
+    *) fail "FAIL: item survival: $SAMEID" ;;
 esac
 case $THEME in
     awdark|awlight) echo "OK: ttk wears the matching aw theme ($THEME)" ;;
     clam) echo "OK: ttk fell back to clam (awthemes absent)" ;;
-    *) echo "FAIL: ttk theme is $THEME" ;;
+    *) fail "FAIL: ttk theme is $THEME" ;;
 esac
 if [ "$SBFOCUS" = 0 ]; then
     echo "OK: the scrollbar is out of the focus cycle"
 else
-    echo "FAIL: scrollbar takefocus = $SBFOCUS"
+    fail "FAIL: scrollbar takefocus = $SBFOCUS"
 fi
 if [ "$BOXFOCUS" = "takefocus 0 stops {.tk9wm-configurator.b.save\
  .tk9wm-configurator.b.revert}" ]; then
     echo "OK: the ring box decorates without being a Tab stop of its own"
 else
-    echo "FAIL: ring box focus: $BOXFOCUS"
+    fail "FAIL: ring box focus: $BOXFOCUS"
 fi
 if [ "$EMPTYCELL" = "empty 1 dx 0 dy 0" ]; then
     echo "OK: the editor opens ON an empty cell, not below it"
 else
-    echo "FAIL: empty-cell overlay: $EMPTYCELL"
+    fail "FAIL: empty-cell overlay: $EMPTYCELL"
 fi
 if [ "$COLORSEED" = "nonempty 1 true 1" ]; then
     echo "OK: the color chooser has a true seed on an unsaid knob"
 else
-    echo "FAIL: color seed: $COLORSEED"
+    fail "FAIL: color seed: $COLORSEED"
 fi
 case "$BADCHORD" in
     "open 1 say "*"unknown keysym"*)
         echo "OK: a bad chord keeps the dialog open and says so in it" ;;
-    *) echo "FAIL: bad chord in the dialog: $BADCHORD" ;;
+    *) fail "FAIL: bad chord in the dialog: $BADCHORD" ;;
 esac
 if [ "$FORGIVEN" = "closed 1 same 1 held 1" ]; then
     echo "OK: a loose-case keysym is taken, and the bind stands"
 else
-    echo "FAIL: forgiving chord: $FORGIVEN"
+    fail "FAIL: forgiving chord: $FORGIVEN"
 fi
 if [ "$FIELDSB" = "sb 1 h 6 sb2 0 h2 2" ]; then
     echo "OK: past six lines the field scrolls, and the bar leaves with the lines"
 else
-    echo "FAIL: field scrollbar: $FIELDSB"
+    fail "FAIL: field scrollbar: $FIELDSB"
 fi
 if [ "$NLGROW" = "h 2 row 2 value один" ]; then
     echo "OK: a newline at the end grows the field the cursor moved into"
 else
-    echo "FAIL: trailing newline growth: $NLGROW"
+    fail "FAIL: trailing newline growth: $NLGROW"
 fi
 if [ "$PICKCHECK" = "open 1 nameless {name the widget first}\
  typeless {pick a type from the list} closed 1\
@@ -1632,324 +1644,324 @@ if [ "$PICKCHECK" = "open 1 nameless {name the widget first}\
         && [ "$PICKMADE" = 1 ]; then
     echo "OK: the picker refuses bad words in the dialog and lets good ones through"
 else
-    echo "FAIL: pick check: $PICKCHECK made=$PICKMADE"
+    fail "FAIL: pick check: $PICKCHECK made=$PICKMADE"
 fi
 if [ "$DELOFFER" = 1 ]; then
     echo "OK: the row menu offers Del's act under its own name"
 else
-    echo "FAIL: del offer: $DELOFFER"
+    fail "FAIL: del offer: $DELOFFER"
 fi
 if [ "$SILENCE" = "over 1 mine custom silence 1 covered 1 back {code 0}" ]; then
     echo "OK: a word or a silence over the desk's own shows what it covers,\
  and erasing it brings the chord back"
 else
-    echo "FAIL: silence/instead-of: $SILENCE"
+    fail "FAIL: silence/instead-of: $SILENCE"
 fi
 if [ "$MENUPAL" = "bg 1 active 1 marker 1" ]; then
     echo "OK: a menu built after the flip wears the palette as it stands"
 else
-    echo "FAIL: menu palette: $MENUPAL"
+    fail "FAIL: menu palette: $MENUPAL"
 fi
 if [ "$BADPARAM" = "rc 1 alive 1 said 1 none 1" ]; then
     echo "OK: a refused bundle word leaves the standing instance alone"
 else
-    echo "FAIL: bad param: $BADPARAM"
+    fail "FAIL: bad param: $BADPARAM"
 fi
 if [ "$STOMP" = "holds custom" ]; then
     echo "OK: a bundle re-declared live leaves the custom word standing"
 else
-    echo "FAIL: stomp: $STOMP"
+    fail "FAIL: stomp: $STOMP"
 fi
 if [ "$BUNDLEMEMBER" = "opened 1 live <Super>u" ]; then
     echo "OK: a dict member edits from the tree, and the parent's word carries it"
 else
-    echo "FAIL: bundle member edit: $BUNDLEMEMBER"
+    fail "FAIL: bundle member edit: $BUNDLEMEMBER"
 fi
 case "$BADLIST|$BADLISTMSG" in
     "0|"*unmatched*) echo "OK: an unmatched quote is refused with a sentence, not a stack" ;;
-    *) echo "FAIL: bad list gave rc=$BADLIST msg «$BADLISTMSG»" ;;
+    *) fail "FAIL: bad list gave rc=$BADLIST msg «$BADLISTMSG»" ;;
 esac
 case "$BADPLACE|$BADPLACEMSG" in
     "0|"*bla*|"0|"*place*|"0|"*keyecho*) echo "OK: the desk's own refusal reaches the status line" ;;
-    *) echo "FAIL: bad place gave rc=$BADPLACE msg «$BADPLACEMSG»" ;;
+    *) fail "FAIL: bad place gave rc=$BADPLACE msg «$BADPLACEMSG»" ;;
 esac
 case "$FONTCELL|$FONTOWNER|$FONTLIVE|$FONTFAM" in
     "-weight bold|custom|bold|1")
         echo "OK: a derived font shows its delta, and inherits the family" ;;
-    *) echo "FAIL: font cell «$FONTCELL» owner=$FONTOWNER live=$FONTLIVE family-inherited=$FONTFAM" ;;
+    *) fail "FAIL: font cell «$FONTCELL» owner=$FONTOWNER live=$FONTLIVE family-inherited=$FONTFAM" ;;
 esac
 if [ "$SAVEDSPEC" = "-family {DejaVu Sans}" ]; then
     echo "OK: a saved knob reads back as what was said, not as computed"
 else
-    echo "FAIL: after save the knob reads «$SAVEDSPEC»"
+    fail "FAIL: after save the knob reads «$SAVEDSPEC»"
 fi
 case "$PARTIAL|$PARTIALCELL|$PARTIALLIVE" in
     "1|-family {DejaVu Sans}|DejaVu Sans")
         echo "OK: a partial font spec renders as itself and applies" ;;
-    *) echo "FAIL: partial font: rc=$PARTIAL cell «$PARTIALCELL» live «$PARTIALLIVE»" ;;
+    *) fail "FAIL: partial font: rc=$PARTIAL cell «$PARTIALCELL» live «$PARTIALLIVE»" ;;
 esac
 case "$SPECFORM|$SPECWORDS|$SPECDELTA" in
     "{DejaVu Sans} 13 bold|{DejaVu Sans} 11|{Liberation Serif} 1")
         echo "OK: a Tk font spec is legal, in one word or several, whole or partial" ;;
-    *) echo "FAIL: font specs: {$SPECFORM} {$SPECWORDS} {$SPECDELTA}" ;;
+    *) fail "FAIL: font specs: {$SPECFORM} {$SPECWORDS} {$SPECDELTA}" ;;
 esac
 # ...and once the USER has sized it, the fit steps aside entirely
 if [ "$STABLE" = stable ]; then
     echo "OK: refreshing does not grow the window"
 else
-    echo "FAIL: widths across three refreshes: $STABLE"
+    fail "FAIL: widths across three refreshes: $STABLE"
 fi
 case $REENTER in
     "rc 0 log {fit after-nested fit} sel 1")
         echo "OK: a nested refresh defers into one re-run after the pass" ;;
-    *) echo "FAIL: re-entry: $REENTER" ;;
+    *) fail "FAIL: re-entry: $REENTER" ;;
 esac
 case $DEADSEL in
     "rc 0 kept 1") echo "OK: selecting a dead item is a quiet no-op" ;;
-    *) echo "FAIL: dead select: $DEADSEL" ;;
+    *) fail "FAIL: dead select: $DEADSEL" ;;
 esac
 case $HANDSIZED in
     "sized 1 geom 700x400"*)
         echo "OK: a window sized by hand keeps its size through a refresh" ;;
-    *) echo "FAIL: hand-sized: $HANDSIZED" ;;
+    *) fail "FAIL: hand-sized: $HANDSIZED" ;;
 esac
 case $FOLLOW in
     "host 14 seed 14") echo "OK: the applet followed the desk font, live" ;;
-    *) echo "FAIL: font follow: $FOLLOW" ;;
+    *) fail "FAIL: font follow: $FOLLOW" ;;
 esac
 case $ENDS in
-    "desk {Add a widget…} 1")
+    "desk {Add a menu…} 1")
         echo "OK: Home/End and Alt+< / Alt+> reach the same two ends of the TREE" ;;
-    *) echo "FAIL: ends: $ENDS" ;;
+    *) fail "FAIL: ends: $ENDS" ;;
 esac
 case $MODS in
     "shown <Super> round 64 same 1 refused 1")
         echo "OK: the drag modifier shows as <Super> and takes it back" ;;
-    *) echo "FAIL: modifier: $MODS" ;;
+    *) fail "FAIL: modifier: $MODS" ;;
 esac
 case $HEAD in
     "text {Knobs — everything this desk can be told} under 0 focus "*.t)
         echo "OK: the heading underlines its letter and Alt+k lands on the tree" ;;
-    *) echo "FAIL: heading: $HEAD" ;;
+    *) fail "FAIL: heading: $HEAD" ;;
 esac
 case $DESKWIN in
     "gone 0 back 1") echo "OK: the desk window comes and goes on the spot" ;;
-    *) echo "FAIL: desk window: $DESKWIN" ;;
+    *) fail "FAIL: desk window: $DESKWIN" ;;
 esac
 case $SPECBAD in
     *"names no family"*) echo "OK: an empty font spec is refused by name" ;;
-    *) echo "FAIL: empty spec said «$SPECBAD»" ;;
+    *) fail "FAIL: empty spec said «$SPECBAD»" ;;
 esac
 if [ "$PENDBACK" = "-weight bold" ]; then
     echo "OK: a pending multi-word value comes back whole"
 else
-    echo "FAIL: pending value came back as «$PENDBACK»"
+    fail "FAIL: pending value came back as «$PENDBACK»"
 fi
 case "$ERASEDOWNER|$ERASEDLIVE|$ERASEDFILE" in
     "code|normal|0") echo "OK: Erase took the click back — knob, file and desk" ;;
-    *) echo "FAIL: after erase owner=$ERASEDOWNER live=$ERASEDLIVE file lines=$ERASEDFILE" ;;
+    *) fail "FAIL: after erase owner=$ERASEDOWNER live=$ERASEDLIVE file lines=$ERASEDFILE" ;;
 esac
 case "$BADCURSOR|$BADCURSORMSG|$GOODCURSOR|$CURSORLIVE" in
     "0|"*"no cursor named"*"|1|watch")
         echo "OK: a bad cursor name is refused by name, a good one applies" ;;
-    *) echo "FAIL: cursor: bad=$BADCURSOR msg «$BADCURSORMSG» good=$GOODCURSOR live=$CURSORLIVE" ;;
+    *) fail "FAIL: cursor: bad=$BADCURSOR msg «$BADCURSORMSG» good=$GOODCURSOR live=$CURSORLIVE" ;;
 esac
 case $BOOM in
     "rc 0 mine 0 others 1 resist 3 msg "*"back on its saved value"*)
         echo "OK: an error put THAT knob back and left the rest pending" ;;
-    *) echo "FAIL: narrow recovery: $BOOM" ;;
+    *) fail "FAIL: narrow recovery: $BOOM" ;;
 esac
 case $SURRENDER in
     "broken 1 refused 0 grim "*"stopped touching"*)
         echo "OK: a failed undo makes it give up, loudly and completely" ;;
-    *) echo "FAIL: surrender: $SURRENDER" ;;
+    *) fail "FAIL: surrender: $SURRENDER" ;;
 esac
 case $RESCUED in
     "broken 0 msg "*"working again"*)
         echo "OK: Revert is the way back out of the give-up state" ;;
-    *) echo "FAIL: rescue: $RESCUED" ;;
+    *) fail "FAIL: rescue: $RESCUED" ;;
 esac
 case $GOODMSG in
     *"Save makes it stick"*) echo "OK: a good value clears the error line" ;;
-    *) echo "FAIL: after a good value the line says «$GOODMSG»" ;;
+    *) fail "FAIL: after a good value the line says «$GOODMSG»" ;;
 esac
 case $COLLNODES in
-    "actions bindings keys panel widgets")
-        echo "OK: the five families stand in the tree" ;;
-    *) echo "FAIL: collection nodes: $COLLNODES" ;;
+    "actions bindings keys menus panel widgets")
+        echo "OK: the six families stand in the tree" ;;
+    *) fail "FAIL: collection nodes: $COLLNODES" ;;
 esac
 if [ "$ELEMFOLD" = folded ]; then
     echo "OK: an element is born folded — the tree is an overview first"
 else
-    echo "FAIL: element state: $ELEMFOLD"
+    fail "FAIL: element state: $ELEMFOLD"
 fi
 case "$BTNPREV|$BTNLIVE" in
     "1|Кнопка")
         echo "OK: a label override previews — the strip re-reads the reference" ;;
-    *) echo "FAIL: panel field: rc=$BTNPREV label=«$BTNLIVE»" ;;
+    *) fail "FAIL: panel field: rc=$BTNPREV label=«$BTNLIVE»" ;;
 esac
 if [ "$WTYPE" = "kind choice offers 1 refused 1 still clock" ]; then
     echo "OK: a widget's type is one of the desk's own, and nonsense is refused"
 else
-    echo "FAIL: the widget type catalogue: $WTYPE"
+    fail "FAIL: the widget type catalogue: $WTYPE"
 fi
 case "$WPREV|$WLIVE" in
     "1|7") echo "OK: a widget field previews by re-declaring the widget whole" ;;
-    *) echo "FAIL: widget field: rc=$WPREV padding=$WLIVE" ;;
+    *) fail "FAIL: widget field: rc=$WPREV padding=$WLIVE" ;;
 esac
 case "$BPREV|$BLIVE" in
     "1|list custom-five")
         echo "OK: a binding's script previews, its other half riding along" ;;
-    *) echo "FAIL: binding field: rc=$BPREV script=«$BLIVE»" ;;
+    *) fail "FAIL: binding field: rc=$BPREV script=«$BLIVE»" ;;
 esac
 case "$KOFFPREV|$KLIVE|$KPARREFUSED" in
     "1|0|0") echo "OK: a bundle turns off, and params on an off bundle are refused" ;;
-    *) echo "FAIL: keys: off=$KOFFPREV live=$KLIVE params-rc=$KPARREFUSED" ;;
+    *) fail "FAIL: keys: off=$KOFFPREV live=$KLIVE params-rc=$KPARREFUSED" ;;
 esac
 case "$OWNSAVED|$BTNSAVED" in
     "1|1") echo "OK: Save adopted the panel — own above the touched button's delta" ;;
-    *) echo "FAIL: adoption: own=$OWNSAVED button=$BTNSAVED:\
+    *) fail "FAIL: adoption: own=$OWNSAVED button=$BTNSAVED:\
  $(grep panel "$HERE/cfg-config/tk9wm.custom.tcl")" ;;
 esac
 case "$BINDSAVED|$WSAVED|$KSAVED" in
     "1|1|1") echo "OK: bind, widget and bundle wrote their whole element each" ;;
-    *) echo "FAIL: saved: bind=$BINDSAVED widget=$WSAVED keys=$KSAVED" ;;
+    *) fail "FAIL: saved: bind=$BINDSAVED widget=$WSAVED keys=$KSAVED" ;;
 esac
 case $AFTERSAVE in
     "owned yes owner custom label Кнопка")
         echo "OK: after Save the set is owned and the reference custom's" ;;
-    *) echo "FAIL: after save: $AFTERSAVE" ;;
+    *) fail "FAIL: after save: $AFTERSAVE" ;;
 esac
 case $BINDROWS in
     "rows custom under {{config {✗ cfg}}}")
         echo "OK: one row per chord, and the config's word hangs under it" ;;
-    *) echo "FAIL: bind rows: $BINDROWS" ;;
+    *) fail "FAIL: bind rows: $BINDROWS" ;;
 esac
 case $BINDNOTE in
     "live {in force — yours, over the config's} dead {the config's word, not in force}")
         echo "OK: a bind row says whose word it is, and the buried one where" ;;
-    *) echo "FAIL: bind notes: $BINDNOTE" ;;
+    *) fail "FAIL: bind notes: $BINDNOTE" ;;
 esac
 case "$CONFLICT|$CHORDKEPT" in
     *"chords family (prefix <Super>t"*"|winops")
         echo "OK: taking a family's chord asks first, naming it and its parameters" ;;
-    *) echo "FAIL: conflict ask «$CONFLICT», chord now «$CHORDKEPT»" ;;
+    *) fail "FAIL: conflict ask «$CONFLICT», chord now «$CHORDKEPT»" ;;
 esac
 case "$NEEDSRC|$NEEDSMSG" in
     "1|"*"stand by"*)
         echo "OK: a needs not yet met is accepted with a sentence, not refused" ;;
-    *) echo "FAIL: needs edit: rc=$NEEDSRC msg «$NEEDSMSG»" ;;
+    *) fail "FAIL: needs edit: rc=$NEEDSRC msg «$NEEDSMSG»" ;;
 esac
 case "$STANDBY|$WAITCARD|$KEPTWORD" in
     "probe|yes|1")
         echo "OK: the needs rode the action; its reference stands by, flagged" ;;
-    *) echo "FAIL: standby: panel=«$STANDBY» waiting=$WAITCARD word=$KEPTWORD" ;;
+    *) fail "FAIL: standby: panel=«$STANDBY» waiting=$WAITCARD word=$KEPTWORD" ;;
 esac
 case "$DELMINE|$DELBTN" in
     "0|0") echo "OK: on a button we had dressed, Delete took our word back" ;;
-    *) echo "FAIL: after taking our word back: word=$DELMINE shown=$DELBTN" ;;
+    *) fail "FAIL: after taking our word back: word=$DELMINE shown=$DELBTN" ;;
 esac
 case "$FAMBACK|$NOTMINE" in
     "owned no shown 1|owned yes shown 0")
         echo "OK: Delete on the family took back all of ours; on the\
  config's own button it asked and took the set over" ;;
-    *) echo "FAIL: family={$FAMBACK} then not-ours={$NOTMINE}" ;;
+    *) fail "FAIL: family={$FAMBACK} then not-ours={$NOTMINE}" ;;
 esac
 case $CARD in
     1) echo "OK: the deed stayed a card, ready for Insert to bring back" ;;
-    *) echo "FAIL: dummy is not a card after the delete: $CARD" ;;
+    *) fail "FAIL: dummy is not a card after the delete: $CARD" ;;
 esac
 case $BACK in
     "dummy 1") echo "OK: Insert brought the reference back, deed and all" ;;
-    *) echo "FAIL: resurrection: $BACK" ;;
+    *) fail "FAIL: resurrection: $BACK" ;;
 esac
 case "$ORDER0|$ORDER1|$FILEORD" in
     "dummy probe|probe dummy|probe dummy ")
         echo "OK: Alt moved the button — the file order IS the panel order" ;;
-    *) echo "FAIL: move: $ORDER0 -> $ORDER1, file: $FILEORD" ;;
+    *) fail "FAIL: move: $ORDER0 -> $ORDER1, file: $FILEORD" ;;
 esac
 case $TAKEN in
     "chords 0 quit {Super+t q} winops {} help Super+h")
         echo "OK: the taken binds live on their own, the bundle fell silent" ;;
-    *) echo "FAIL: take: $TAKEN" ;;
+    *) fail "FAIL: take: $TAKEN" ;;
 esac
 case $REPLAY in
     "quit {Super+t q} chords 0")
         echo "OK: the taken binds survive the replay — off speaks before them" ;;
-    *) echo "FAIL: replay: $REPLAY" ;;
+    *) fail "FAIL: replay: $REPLAY" ;;
 esac
 case "$NEWWIDGET|$NEWBIND" in
     "clock|list niner")
         echo "OK: Insert made a widget from its type and a bind from a chord" ;;
-    *) echo "FAIL: inserts: widget=«$NEWWIDGET» bind=«$NEWBIND»" ;;
+    *) fail "FAIL: inserts: widget=«$NEWWIDGET» bind=«$NEWBIND»" ;;
 esac
 case $FIVEBACK in
     "list config-five")
         echo "OK: deleting the custom bind stood the config's word back up" ;;
-    *) echo "FAIL: after bind delete: «$FIVEBACK»" ;;
+    *) fail "FAIL: after bind delete: «$FIVEBACK»" ;;
 esac
 case "$WPARAMS|$WPREFUSE|$WGONE" in
     "|1|0")
         echo "OK: windows has no per-member params, and the widget dropped" ;;
-    *) echo "FAIL: wparams=«$WPARAMS» refuse=$WPREFUSE widget-gone=$WGONE" ;;
+    *) fail "FAIL: wparams=«$WPARAMS» refuse=$WPREFUSE widget-gone=$WGONE" ;;
 esac
 case $WMINE in
     "1 0") echo "OK: the first Delete took back our word, the config's stood up" ;;
-    *) echo "FAIL: after taking our word back: widget/custom = $WMINE" ;;
+    *) fail "FAIL: after taking our word back: widget/custom = $WMINE" ;;
 esac
 case $NOTEFIT in
     "wrapped 1 lines 1 anchor nw")
         echo "OK: three lines' room for the hint, anchored at its top-left" ;;
-    *) echo "FAIL: note fit: $NOTEFIT" ;;
+    *) fail "FAIL: note fit: $NOTEFIT" ;;
 esac
 case $NOTEGROW in
     "grew 1 "*)
         echo "OK: a narrowed window gives the hint the lines it needs" ;;
-    *) echo "FAIL: note growth: $NOTEGROW" ;;
+    *) fail "FAIL: note growth: $NOTEGROW" ;;
 esac
 case "$LANDPARENT|$LANDPREV" in
     "what coll coll widgets|what elem coll panel key probe")
         echo "OK: a delete lands on the neighbour above, else the family node" ;;
-    *) echo "FAIL: landing after a delete: parent=«$LANDPARENT» prev=«$LANDPREV»" ;;
+    *) fail "FAIL: landing after a delete: parent=«$LANDPARENT» prev=«$LANDPREV»" ;;
 esac
 case $COLDRAG in
     "w 400 user 1 name {}")
         echo "OK: a hand-dragged column keeps its width through the fit" ;;
-    *) echo "FAIL: column drag: $COLDRAG" ;;
+    *) fail "FAIL: column drag: $COLDRAG" ;;
 esac
 case "$AFIELD|$ALIVE2|$ASAVED1|$ASAVED2" in
     "1|Q|1|1")
         echo "OK: an action field merges by name and the saves accumulate" ;;
-    *) echo "FAIL: action edit: rc=$AFIELD live=$ALIVE2 saved=$ASAVED1/$ASAVED2" ;;
+    *) fail "FAIL: action edit: rc=$AFIELD live=$ALIVE2 saved=$ASAVED1/$ASAVED2" ;;
 esac
 case $AWAITFLAG in
     "waiting cfg") echo "OK: a waiting action wears its flag in the tree" ;;
-    *) echo "FAIL: waiting flag: «$AWAITFLAG»" ;;
+    *) fail "FAIL: waiting flag: «$AWAITFLAG»" ;;
 esac
 case "$LINTFLAG|$LINTDOC" in
     *"note"*"|"*"said the long way"*)
         echo "OK: a remark wears a mark on its element and speaks on its row" ;;
-    *) echo "FAIL: lint in the tree: flag «$LINTFLAG» doc «$LINTDOC»" ;;
+    *) fail "FAIL: lint in the tree: flag «$LINTFLAG» doc «$LINTDOC»" ;;
 esac
 case "$LINTNOTMOD" in
     "flag note unsaved 0")
         echo "OK: a remark wears its own word and says nothing about saving" ;;
-    *) echo "FAIL: the linter's mark: $LINTNOTMOD" ;;
+    *) fail "FAIL: the linter's mark: $LINTNOTMOD" ;;
 esac
 if [ "$EAGER" = "bad {} clashes 0" ]; then
     echo "OK: everything built on first use builds now, and promises nothing twice"
 else
-    echo "FAIL: the eager build: $EAGER"
+    fail "FAIL: the eager build: $EAGER"
 fi
 if [ "$ACCEL" = 0 ]; then
     echo "OK: no two buttons in this applet promise the same Alt-letter"
 else
-    echo "FAIL: accelerator clashes: $ACCEL"
+    fail "FAIL: accelerator clashes: $ACCEL"
 fi
 if [ "$CLASH" = "held 0 demoted -1 seen 1" ]; then
     echo "OK: a clash leaves the first answering and the second silent about it"
 else
-    echo "FAIL: the clash guard: $CLASH"
+    fail "FAIL: the clash guard: $CLASH"
 fi
 echo "--- keeps={$KEEPS} pixel={$PIXEL} tab={$TABOUT}"
 echo "--- boxfocus={$BOXFOCUS} emptycell={$EMPTYCELL} colorseed={$COLORSEED}"
@@ -1962,214 +1974,214 @@ if [ "$SCRIPTLINT" = "warn warn note clean restart-wm" ] \
         && [ "$BADPARSE" = "level warn parse 1" ]; then
     echo "OK: a script is judged where it is written, and the near miss is named"
 else
-    echo "FAIL: script-lint: $SCRIPTLINT parse=$BADPARSE"
+    fail "FAIL: script-lint: $SCRIPTLINT parse=$BADPARSE"
 fi
 if [ "$EDITLINT" = "ok 1 said 1" ]; then
     echo "OK: the editor takes the value and passes the linter's word along"
 else
-    echo "FAIL: the editor's lint: $EDITLINT"
+    fail "FAIL: the editor's lint: $EDITLINT"
 fi
 if [ "$TYPEROW" = "value terminal flag derived said 0" ] \
         && [ "$TYPESET" = "value generic said 1" ]; then
     echo "OK: a deed's type shows what it amounts to, and writing it is an edit"
 else
-    echo "FAIL: the type row: $TYPEROW then $TYPESET"
+    fail "FAIL: the type row: $TYPEROW then $TYPESET"
 fi
 if [ "$MARKS" = "marked0 1 grew 3 says 1 unmarked 2 remarked 3" ]; then
     echo "OK: Shift+arrow marks as it walks, Ctrl+space toggles, the menu says whose"
 else
-    echo "FAIL: the marks: $MARKS"
+    fail "FAIL: the marks: $MARKS"
 fi
 case "$DERIVED" in
-    "widget-on workarea widget-flag derived terminal-shown 1 terminal-flag derived")
+    "widget-on {panel default} widget-flag derived terminal-shown 1 terminal-flag derived")
         echo "OK: an unsaid field and an unsaid knob show what they amount to" ;;
-    *) echo "FAIL: derived values: $DERIVED" ;;
+    *) fail "FAIL: derived values: $DERIVED" ;;
 esac
 if [ "$NOOP" = "saved 0 same 0 changed 1 back 0" ]; then
     echo "OK: typing back our own saved word is no edit, and a real one still is"
 else
-    echo "FAIL: the no-op edit: $NOOP"
+    fail "FAIL: the no-op edit: $NOOP"
 fi
 if [ "$PIN" = "pend 1 reset normal" ]; then
     echo "OK: our word over the code's default is a pin — marked, and undoable"
 else
-    echo "FAIL: the pin: $PIN"
+    fail "FAIL: the pin: $PIN"
 fi
 if [ "$MULTILINE" = "cell {{list one ⏎ list two}} head {{list one ⏎ list two}}" ]; then
     echo "OK: a newline in a cell is drawn, not printed as a control box"
 else
-    echo "FAIL: the multi-line cell: $MULTILINE"
+    fail "FAIL: the multi-line cell: $MULTILINE"
 fi
 if [ "$EDGE" = "inside 1" ]; then
     echo "OK: the editor stands inside the tree, so its text can scroll"
 else
-    echo "FAIL: the editor ran past the tree: $EDGE"
+    fail "FAIL: the editor ran past the tree: $EDGE"
 fi
 if [ "$DESKSAID" = "value 0.61 said 1" ] \
         && [ "$OURSSAID" = "said 0" ] && [ "$OURSVAL" = 0.63 ]; then
     echo "OK: a word the desk said itself reached the open editor, and only that word"
 else
-    echo "FAIL: the layer push: $DESKSAID / $OURSSAID"
+    fail "FAIL: the layer push: $DESKSAID / $OURSSAID"
 fi
 if [ "$TOPICS" = "panel 1 keys 1 under {bindings bundles buttons}" ]; then
     echo "OK: one heading per subject — the families hang under theirs"
 else
-    echo "FAIL: the topics: $TOPICS"
+    fail "FAIL: the topics: $TOPICS"
 fi
-if [ "$ADDROWS" = "families {actions bindings panel widgets} dicts 1 keysadd 0" ]; then
+if [ "$ADDROWS" = "families {actions bindings menus panel widgets} dicts 1 keysadd 0" ]; then
     echo "OK: every family one may add to ends in a row that makes one"
 else
-    echo "FAIL: the add rows: $ADDROWS"
+    fail "FAIL: the add rows: $ADDROWS"
 fi
 if [ "$ADDINLINE" = "opened 1 keys {GTK_IM_MODULE LANG}" ]; then
     echo "OK: a name typed into the add row of a dict is a new key"
 else
-    echo "FAIL: the inline add: $ADDINLINE"
+    fail "FAIL: the inline add: $ADDINLINE"
 fi
 if [ "$MEMBERS" = "kids {GTK_IM_MODULE FOO {Add a key…}} value xim empty {{}}" ] \
         && [ "$MEMBEREDIT" = "dict {GTK_IM_MODULE fcitx FOO {}} pend 1 mpend 0" ] \
         && [ "$MEMBERDROP" = "GTK_IM_MODULE fcitx" ]; then
     echo "OK: a dict is a subtree — a member edits as itself and is said as its parent"
 else
-    echo "FAIL: dict members: $MEMBERS | $MEMBEREDIT | $MEMBERDROP"
+    fail "FAIL: dict members: $MEMBERS | $MEMBEREDIT | $MEMBERDROP"
 fi
 case "$SAIDEMPTY" in
     "terminal {{said empty note}} icon {{}} said 1 means value plain unsay")
         echo "OK: a key said with nothing in it reads differently from one never said" ;;
-    *) echo "FAIL: said-empty: $SAIDEMPTY" ;;
+    *) fail "FAIL: said-empty: $SAIDEMPTY" ;;
 esac
 case "$TERMMENU" in
     *"{Say it empty} disabled"*"{Unsay this key} disabled"*)
         echo "OK: where empty is a word, the menu says so and offers no taking back" ;;
-    *) echo "FAIL: the terminal field's menu: $TERMMENU" ;;
+    *) fail "FAIL: the terminal field's menu: $TERMMENU" ;;
 esac
 if [ "$ICONMENU" = "normal" ] && [ "$UNSAID" = "said 0 terminal 1" ]; then
     echo "OK: an ordinary key can be unsaid by name, and its neighbour stands"
 else
-    echo "FAIL: unsaying a key: menu=$ICONMENU after=$UNSAID"
+    fail "FAIL: unsaying a key: menu=$ICONMENU after=$UNSAID"
 fi
 case "$ONEREG" in
     "gone 1 knob leaf family family field leaf spec envdict served 1")
         echo "OK: one node store answers for knobs, families and the action language" ;;
-    *) echo "FAIL: the one registry: $ONEREG" ;;
+    *) fail "FAIL: the one registry: $ONEREG" ;;
 esac
 case "$KWHERE" in
     *"tk9wm.tcl:1") echo "OK: a knob remembers the config line that set it" ;;
-    *) echo "FAIL: knob provenance: «$KWHERE»" ;;
+    *) fail "FAIL: knob provenance: «$KWHERE»" ;;
 esac
 case "$CUSTWHERE" in
     "inforce tk9wm.custom.tcl:"*" config 0 custom 1")
         echo "OK: a knob written by a click answers with the file it was\
  written in" ;;
-    *) echo "FAIL: layers of provenance: $CUSTWHERE" ;;
+    *) fail "FAIL: layers of provenance: $CUSTWHERE" ;;
 esac
 case "$OVERMENU" in
     *"Said at tk9wm.custom.tcl:"*"over the config's tk9wm.tcl:1"*)
         echo "OK: ...and when it covers a config word, the menu offers that\
  line too — what the value would fall back to" ;;
-    *) echo "FAIL: the menu over a covered config word: $OVERMENU" ;;
+    *) fail "FAIL: the menu over a covered config word: $OVERMENU" ;;
 esac
 case "$LINKFONT" in
     "said {LinkFont 0} default {LinkFont 1} none DeskFont")
         echo "OK: every knob row wears a handle — loud when it has news,\
  quiet on a default, and an empty badge stays plain" ;;
-    *) echo "FAIL: the badge's font: $LINKFONT" ;;
+    *) fail "FAIL: the badge's font: $LINKFONT" ;;
 esac
 case "$MENU" in
     *"{Erase my word} disabled"*"{Reset to saved} disabled"*"{Pin this value as mine} normal"*"Said at tk9wm.tcl:1"*)
         echo "OK: the row menu offers what the row can do, and the line that says it" ;;
-    *) echo "FAIL: the row menu: $MENU" ;;
+    *) fail "FAIL: the row menu: $MENU" ;;
 esac
 if [ "$ROWRESET" = "pend 0 kept 1" ] && [ "$ROWDESK" = "resist 3 fade 0.55" ]; then
     echo "OK: Reset to saved is about one row and leaves the other preview standing"
 else
-    echo "FAIL: row reset: $ROWRESET desk=$ROWDESK"
+    fail "FAIL: row reset: $ROWRESET desk=$ROWDESK"
 fi
 if [ "$ROWPIN" = "pend 1 value 3" ] && [ "$PINFILE" -ge 1 ] \
         && [ "$MENU2" = "normal" ]; then
     echo "OK: pinning writes our own word for a value we already had"
 else
-    echo "FAIL: row pin: $ROWPIN file=$PINFILE erase=$MENU2"
+    fail "FAIL: row pin: $ROWPIN file=$PINFILE erase=$MENU2"
 fi
 if [ "$TABOUT" = "open 0 value 66 focus 1 untouched-open 0 untouched-pending 1" ]; then
     echo "OK: Tab commits what was touched and lets a glance go untouched"
 else
-    echo "FAIL: tab out of the editor: $TABOUT"
+    fail "FAIL: tab out of the editor: $TABOUT"
 fi
 if [ "$WALLS" = "steady 1" ]; then
     echo "OK: neither a refresh nor an erase moved the window's walls"
 else
-    echo "FAIL: the walls moved: $WALLS"
+    fail "FAIL: the walls moved: $WALLS"
 fi
 if [ "$NOROOT" = "picked 1 root 0 cursor 1" ]; then
     echo "OK: «select none» lands on a row one can navigate from"
 else
-    echo "FAIL: after select-none: $NOROOT"
+    fail "FAIL: after select-none: $NOROOT"
 fi
 if [ "$PLAINKEY" = "plain 1 shifted 1 alted 0 ctrled 0 supered 0" ]; then
     echo "OK: the tree claims a letter only when no modifier is on it"
 else
-    echo "FAIL: plain-key rule: $PLAINKEY"
+    fail "FAIL: plain-key rule: $PLAINKEY"
 fi
 case $KEEPS in
     "fade 0.31"*)
-        echo "FAIL: the erase did not take its own word back: $KEEPS" ;;
+        fail "FAIL: the erase did not take its own word back: $KEEPS" ;;
     *"still-pending 1 desk 4")
         echo "OK: an erase took back its own word and left the other preview standing" ;;
-    *) echo "FAIL: after the erase: $KEEPS" ;;
+    *) fail "FAIL: after the erase: $KEEPS" ;;
 esac
 case $PIXEL in
     "dx 0 dy 0") echo "OK: the editor's text lands exactly on the cell's" ;;
-    *) echo "FAIL: the editor's text is off by $PIXEL" ;;
+    *) fail "FAIL: the editor's text is off by $PIXEL" ;;
 esac
 if [ "$BLINK" = "during 1 after 0 fired 1" ]; then
     echo "OK: a button struck by its letter blinks while it works"
 else
-    echo "FAIL: the accelerator blink: $BLINK"
+    fail "FAIL: the accelerator blink: $BLINK"
 fi
 case $RING in
     "box-style-focused UiRingOn.TFrame while-editing UiRingOn.TFrame editor Text")
         echo "OK: the ring is the box's, and an editor inside it does not put it out" ;;
-    *) echo "FAIL: ring: $RING" ;;
+    *) fail "FAIL: ring: $RING" ;;
 esac
 if [ "$GUARD" = "clean 1 gone 1 dirty 0 kept 1" ]; then
     echo "OK: an untouched field goes on a scroll; a typed one holds the tree still"
 else
-    echo "FAIL: editing guard: $GUARD"
+    fail "FAIL: editing guard: $GUARD"
 fi
 case "$PROBVIEW|$PROBGONE" in
     "up 1 rows 1 first {key Super+9 — the script says no} detail {the script says no||said at /home/x/tk9wm.tcl:3 ← /home/x/tk9wm.tcl:5}|0")
         echo "OK: a failure is listed whole, with the lines that led to it" ;;
-    *) echo "FAIL: problems view: {$PROBVIEW} left=$PROBGONE" ;;
+    *) fail "FAIL: problems view: {$PROBVIEW} left=$PROBGONE" ;;
 esac
 case "$SLOTROWS|$SLOTROWS2" in
     "p-run 1 p-launch 0 d-run 0 d-launch 1|p-run 0 p-launch 1")
         echo "OK: the slot shows the spelling in effect, and flips with it" ;;
-    *) echo "FAIL: slot rows: «$SLOTROWS» then «$SLOTROWS2»" ;;
+    *) fail "FAIL: slot rows: «$SLOTROWS» then «$SLOTROWS2»" ;;
 esac
 case $CROSS in
     "plain {xclock -update 1} subst {} other {} two {}")
         echo "OK: only one Run of literal words may cross to a command" ;;
-    *) echo "FAIL: crossing: $CROSS" ;;
+    *) fail "FAIL: crossing: $CROSS" ;;
 esac
 case $SWITCHED in
     "said {icon Q launch {Run xclock}} fires Run")
         echo "OK: the switch un-said one spelling and said the other" ;;
-    *) echo "FAIL: after the switch: $SWITCHED" ;;
+    *) fail "FAIL: after the switch: $SWITCHED" ;;
 esac
 case "$AREMOVED|$AGHOST" in
     "gone 1 word 1|removed by you"*)
         echo "OK: the config's deed can be removed, and the removal says so" ;;
-    *) echo "FAIL: removal: {$AREMOVED} ghost «$AGHOST»" ;;
+    *) fail "FAIL: removal: {$AREMOVED} ghost «$AGHOST»" ;;
 esac
 case $ABACK in
     "back 1 word 0")
         echo "OK: Delete on the removal took it back and the deed returned" ;;
-    *) echo "FAIL: after undoing the removal: $ABACK" ;;
+    *) fail "FAIL: after undoing the removal: $ABACK" ;;
 esac
 case "$AINS|$ADEL" in
     "1|0") echo "OK: Insert declares a fresh action, Delete takes it back" ;;
-    *) echo "FAIL: action insert/delete: ins=$AINS del=$ADEL" ;;
+    *) fail "FAIL: action insert/delete: ins=$AINS del=$ADEL" ;;
 esac
 echo "--- openfit: $OPENFIT"
 OFROWS=$(echo "$OPENFIT" | awk '{print $2}')
@@ -2180,12 +2192,14 @@ if [ "$OFROWS" -ge 10 ] && [ "$OFDONE" = 1 ] && [ "$OFMAP" = 1 ] \
         && [ "$OFHAND" = 0 ]; then
     echo "OK: it opens with room to read, and the walls were closed on screen"
 else
-    echo "FAIL: the first fit: $OPENFIT"
+    fail "FAIL: the first fit: $OPENFIT"
 fi
 echo "--- geometry: $GEO"
 case $GEO in
     *"fits 1") echo "OK: the applet window sits inside the workarea" ;;
-    *) echo "FAIL: window vs workarea: $GEO" ;;
+    *) fail "FAIL: window vs workarea: $GEO" ;;
 esac
 
 check_invariants "$HERE/wm-cfg.log"
+if grep -q 'WM: INVARIANT' "$HERE/wm-cfg.log"; then BAD=1; fi
+exit $BAD
