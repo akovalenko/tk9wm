@@ -9636,101 +9636,177 @@ unless-already {[info exists ::policy_bindings_up]} {
 # loud.
 # A KNOB IS A LEAF, one storey under `knobs` — the plainest node
 # there is, and the declaration says so exactly as it always did.
+#
+# `var` — WHERE THE WISH LIVES, and the first of the facets the
+# lifecycle plan asks for (plans/tk9wm-config-lifecycle.md). It is not
+# decoration: today the list a reload restores (config_vars) is kept by
+# hand beside these declarations, so a knob whose variable is missing
+# from it quietly survives a reload against the config's word, and
+# nobody finds out until they do. Declared here, the list is DERIVABLE
+# and the two can be compared — which is what knob-var-audit does at
+# startup, once, out loud.
+#
+# Empty where the wish is not a plain global: a font object
+# (set-desk-font), a font-kin entry (the two derived fonts), a key
+# inside a collection (the panel trio lives in ::panels, per panel).
+# Those need the collection half of the model — see the config-tree
+# plan — and saying "" here is the honest statement of that, not a
+# gap.
 proc knob {name meta} {
     config-node [list knobs $name] [dict merge {node leaf} $meta]
 }
 proc knob-registry {} { config-nodes-under knobs }
-knob set-desk-font   {group fonts kind {font DeskFont}  get {font actual DeskFont}
+# Every wish a knob declares — the derived form of what config_vars
+# keeps by hand.
+proc knob-vars {} {
+    set out {}
+    dict for {name meta} [knob-registry] {
+        if {[dict exists $meta var] && [dict get $meta var] ne ""} {
+            lappend out [dict get $meta var]
+        }
+    }
+    return [lsort -unique $out]
+}
+# ...and the comparison, said once at startup. A knob whose variable a
+# reload does not restore is a knob that outlives the config that set
+# it; a name in the hand-kept list that no knob claims is either
+# collection state (which is fine and expected) or a leftover. Both are
+# worth one line rather than a surprise.
+proc knob-var-audit {} {
+    set declared [knob-vars]
+    set kept $::config_vars
+    set unrestored {}
+    foreach v $declared {
+        if {[lsearch -exact $kept $v] < 0} { lappend unrestored $v }
+    }
+    if {[llength $unrestored]} {
+        puts "WM: knobs whose wish a reload does NOT restore:\
+ [join $unrestored { }]"
+    }
+    set unclaimed 0
+    foreach v $kept {
+        if {[lsearch -exact $declared $v] < 0} { incr unclaimed }
+    }
+    # The rest of what a reload restores is collection state (panels,
+    # widgets, actions, bindings) and derived memo — the config-tree
+    # plan's half, and expected. Counted, not listed: a list of
+    # twenty-seven names at every start is noise nobody reads twice.
+    puts "WM: config wishes: [llength $declared] declared by knobs,\
+ [llength $kept] restored on reload ($unclaimed of them collections and memo)"
+    vocabulary-audit
+}
+# WORDS OUTSIDE THE REGISTRY, which is the other gap the lifecycle plan
+# names: instrumenting walks the registry, so a `set-*` that never got
+# a descriptor is a word that kills the whole config file on a typo
+# instead of recording a problem. It is also a word the configurator
+# cannot show and nothing can type-check.
+#
+# The list is not automatically a complaint: this layer's own
+# primitives are spelled the same way (set-prop-longs, set-wm-state),
+# and telling a primitive from a vocabulary word is exactly what a
+# descriptor would settle. So it is said once, plainly, for a human to
+# triage.
+proc vocabulary-audit {} {
+    set loose {}
+    foreach name [lsort [info commands set-*]] {
+        if {![dict exists $::verb_registry $name]} { lappend loose $name }
+    }
+    if {[llength $loose]} {
+        puts "WM: `set-*` outside the vocabulary registry\
+ ([llength $loose]): [join $loose { }]"
+    }
+}
+knob set-desk-font   {var {} group fonts kind {font DeskFont}  get {font actual DeskFont}
                       doc {the font this desk is set in; everything derives from it}}
-knob set-title-font  {group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
+knob set-title-font  {var {} group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
                       doc {the titlebar font, as a delta from the desk font}}
-knob set-panel-font  {group fonts kind {font PanelFont} get {font-kin-opts PanelFont}
+knob set-panel-font  {var {} group fonts kind {font PanelFont} get {font-kin-opts PanelFont}
                       doc {the panel buttons' font, as a delta from the desk font}}
-knob set-title-justify {group fonts kind {choice left center right}
+knob set-title-justify {var {titlejust} group fonts kind {choice left center right}
                       get {set ::titlejust} doc {where the title sits in its bar}}
-knob set-minimize    {group windows kind {choice iconify refuse}
+knob set-minimize    {var {minimize} group windows kind {choice iconify refuse}
                       get {set ::minimize} doc {what an iconify request gets}}
-knob set-maximize    {group windows kind {choice drop keep}
+knob set-maximize    {var {maximize} group windows kind {choice drop keep}
                       get {set ::maximize}
                       doc {what a hand resize does to the maximized mark}}
-knob set-workarea-follow {group windows kind {choice stick max off}
+knob set-workarea-follow {var {workarea_follow} group windows kind {choice stick max off}
                       get {set ::workarea_follow}
                       doc {which windows follow a moving workarea}}
-knob set-drag-modifier {group windows kind text get {mods-name $::drag_mods}
+knob set-drag-modifier {var {drag_mods} group windows kind text get {mods-name $::drag_mods}
                       doc {the modifier that carries a window from anywhere}}
-knob set-drag-slop   {group windows kind int get {set ::drag_slop}
+knob set-drag-slop   {var {drag_slop} group windows kind int get {set ::drag_slop}
                       doc {pixels a title press may travel and still be a click}}
-knob set-edge-resist {group windows kind int get {set ::edge_resist}
+knob set-edge-resist {var {edge_resist} group windows kind int get {set ::edge_resist}
                       doc {pixels a carried window sticks to a workarea edge}}
-knob set-fade        {group windows kind {float 0 1} get {set ::fade}
+knob set-fade        {var {fade} group windows kind {float 0 1} get {set ::fade}
                       doc {how solid a faded window stays}}
-knob set-root-cursor {group desk kind text get {set ::root_cursor}
+knob set-root-cursor {var {root_cursor} group desk kind text get {set ::root_cursor}
                       doc {the cursor over the bare desk}}
-knob set-desk-window {group desk kind bool
+knob set-desk-window {var {desk_window} group desk kind bool
                       get {expr {$::desk_window ? "on" : "off"}}
                       doc {the desk as one window of ours, or hands off the root}}
-knob set-desks       {group desk kind int get {set ::ndesks}
+knob set-desks       {var {ndesks} group desk kind int get {set ::ndesks}
                       doc {how many virtual desks; 1 switches them off}}
-knob set-theme       {group desk kind {choice dark light} get {set ::theme}
+knob set-theme       {var {theme} group desk kind {choice dark light} get {set ::theme}
                       doc {the desk's colours in one word; every colour derives from it}}
-knob set-desk-background {group desk kind color get {set ::desk_background_said}
+knob set-desk-background {var {desk_background_said} group desk kind color get {set ::desk_background_said}
                       derived {themed desk}
                       doc {the desk window's color}}
-knob set-welcome     {group desk kind bool get {set ::welcome}
+knob set-welcome     {var {welcome} group desk kind bool get {set ::welcome}
                       doc {the welcome note on the desk}}
-knob set-panel-side  {group panel kind {choice bottom top left right}
+knob set-panel-side  {var {} group panel kind {choice bottom top left right}
                       get {panel-cfg default side}
                       doc {which screen edge the default panel rides}}
-knob set-panel-preset {group panel kind {choice row stack icons}
+knob set-panel-preset {var {} group panel kind {choice row stack icons}
                       get {panel-cfg default preset}
                       doc {buttons as a row, label-under-icon, or icons alone}}
-knob set-panel-icon-size {group panel kind int
+knob set-panel-icon-size {var {} group panel kind int
                       get {panel-cfg default icon_size}
                       doc {the button face size when any face is iconic}}
-knob set-icon-path   {group panel kind {list directories} get {set ::icon_path}
+knob set-icon-path   {var {icon_path} group panel kind {list directories} get {set ::icon_path}
                       doc {directories bare icon names are searched in}}
-knob set-chord-hold  {group keys kind bool
+knob set-chord-hold  {var {chord_hold} group keys kind bool
                       get {expr {$::chord_hold ? "on" : "off"}}
                       doc {a chord answers with the modifier held down too}}
-knob set-winlist-cycle {group keys kind bool
+knob set-winlist-cycle {var {winlist_cycle_opt} group keys kind bool
                       get {expr {$::winlist_cycle_opt ? "on" : "off"}}
                       doc {alt-tab as the fvwm cycle, or a static menu}}
-knob set-key-hold-warn {group keys kind int get {set ::key_hold_warn}
+knob set-key-hold-warn {var {key_hold_warn} group keys kind int get {set ::key_hold_warn}
     doc {ms a binding may hold the desk before it is reported}}
-knob set-key-echo    {group keys kind text get {set ::key_echo}
+knob set-key-echo    {var {key_echo} group keys kind text get {set ::key_echo}
                       doc {ms of hesitation before a chord shows itself; off = never}}
-knob set-key-echo-place {group keys kind text get {set ::key_echo_place}
+knob set-key-echo-place {var {key_echo_place} group keys kind text get {set ::key_echo_place}
                       doc {where the chord echo sits, in place words}}
-knob set-tray        {group tray kind bool
+knob set-tray        {var {tray_on} group tray kind bool
                       get {expr {$::tray_on ? "on" : "off"}}
                       doc {be the display's system tray}}
-knob set-tray-panel  {group tray kind text get {set ::tray_panel}
+knob set-tray-panel  {var {tray_panel} group tray kind text get {set ::tray_panel}
                       doc {whose strip the tray is part of}}
-knob set-tray-background {group tray kind color get {set ::tray_bg_said}
+knob set-tray-background {var {tray_bg_said} group tray kind color get {set ::tray_bg_said}
                       derived {themed ground}
                       doc {what shows through a transparent icon}}
-knob set-tray-icon-size {group tray kind int get {set ::tray_icon_size}
+knob set-tray-icon-size {var {tray_icon_size} group tray kind int get {set ::tray_icon_size}
                       doc {the tray cell's side, in pixels}}
-knob set-tray-argb   {group tray kind bool
+knob set-tray-argb   {var {tray_argb} group tray kind bool
                       get {expr {$::tray_argb ? "on" : "off"}}
                       doc {offer an ARGB visual (needs a compositor)}}
-knob set-terminal    {group terminal kind terminal get {set ::terminal_choice}
+knob set-terminal    {var {terminal_choice} group terminal kind terminal get {set ::terminal_choice}
                       derived {terminal-derived}
                       doc {which terminal emulator this desk favors}}
-knob set-emacs-frames {group emacs kind {choice gui terminal}
+knob set-emacs-frames {var {emacs_frames} group emacs kind {choice gui terminal}
                       get {set ::emacs_frames}
                       doc {what kind of frame an emacs button makes}}
-knob set-emacs-daemons {group emacs kind bool get {set ::emacs_daemons}
+knob set-emacs-daemons {var {emacs_daemons} group emacs kind bool get {set ::emacs_daemons}
                       doc {daemons at all, or the plain lookup-or-run life}}
-knob set-emacs-autodaemon {group emacs kind bool get {set ::emacs_autodaemon}
+knob set-emacs-autodaemon {var {emacs_autodaemon} group emacs kind bool get {set ::emacs_autodaemon}
                       doc {start a missing daemon, or treat it as an error}}
-knob set-emacs-keep-frame-name {group emacs kind bool
+knob set-emacs-keep-frame-name {var {emacs_keep_frame_name} group emacs kind bool
                       get {set ::emacs_keep_frame_name}
                       doc {leave the button's name in the frame's title}}
-knob set-emacs-edit {group emacs kind {choice reuse create}
+knob set-emacs-edit {var {emacs_edit} group emacs kind {choice reuse create}
                       get {set ::emacs_edit}
                       doc {where an edit lands — a frame one has, or a fresh one}}
-knob set-emacs-edit-daemon {group emacs kind text
+knob set-emacs-edit-daemon {var {emacs_edit_daemon} group emacs kind text
                       get {set ::emacs_edit_daemon}
                       doc {which daemon opens an edit — unsaid is the default one}}
 # knob-table — the send-facing answer: the registry plus each knob's

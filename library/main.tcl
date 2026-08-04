@@ -233,6 +233,9 @@ proc tk9wm-main {args} {
     # every verb puts its guard on before a layer is read: a word that
     # throws is recorded and the file goes on (config-instrument)
     puts "WM: config vocabulary: [config-instrument-vocabulary] words guarded"
+    # ...and the wishes those words write: declared against restored,
+    # said once and out loud (see knob-var-audit).
+    knob-var-audit
     # ...and the loader directive itself: a bad include must cost its
     # own line, not the rest of the file (the badword lesson)
     config-instrument custom-include
