@@ -146,6 +146,7 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 | chords, prefixes, the echo | `wm-bind`, `wm-keys`, `grab-keys-to`, `policy-key-echo` | `policy.tcl`, `substrate.tcl` |
 | a menu or any transient popup | `popup-shell`, `grab-keys-to` | `policy.tcl` |
 | the window list | `winlist-open` | `policy.tcl` |
+| a menu of the config's own | `wm-menu`, `menu-open`, `Choose` | `policy.tcl` |
 | what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy.tcl` |
 | the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy.tcl` |
 | the applet host and the door to it | `ui-open`, `ui-style`, `ui-restyle` | `ui/host.tcl` |
@@ -615,6 +616,25 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   the topmost is taken; if there is nobody at all, focus stays where it
   was. The menu drops from the top-left corner, and the titlebar has a
   menu button of its own on the left.
+
+  **A config gets menus of its own** (`wm-menu NAME {key … items …}`)
+  — another surface for actions, the way the panel is: a row is a
+  reference to an action (a bare name, or `{action NAME key w}` with a
+  mnemonic and a label of its own) or a `{label … do SCRIPT}` pair.
+  Rows without a key are numbered the winlist way, 1-9 then A-Z,
+  stepping over the letters explicit mnemonics claimed; a reference to
+  a waiting action is not shown (the panel's rule), an unknown one is
+  skipped with a log line. `body` instead of `items` is the dynamic
+  half — a script asked for the rows at open time, for the lists that
+  are stale the moment they are written down; the two cannot both be
+  said (the run ⊕ launch rule). A second declaration refines by name,
+  `wm-menu-remove` is the negative word, and the family is a
+  collection (`menus`) the configurator sees like the rest. On the
+  same machinery `Choose rows…` is the list as a QUESTION for the
+  config's own scripts: post these rows, wait without freezing the
+  desk (the popup-await future the window list already answers
+  through), return the picked row's value or empty — so a binding's
+  payload can read top to bottom, ask, and act on the answer.
 
   **Fade** (`set-fade`, default 0.8; the `opacity` style key; the
   `Fade`/`Unfade` command pair) — a frame made translucent, frame and

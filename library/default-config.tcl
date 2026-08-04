@@ -459,6 +459,58 @@
 # reload after the software lands brings it — and every button
 # referencing it — alive by itself.
 #
+# ---- menus ----
+#
+# A menu is another surface for actions, the way the panel is: the
+# panel lays references out in a strip, `wm-menu NAME {…}` lays them
+# out in a transient list under a chord. A row is a reference to an
+# action — a bare name, or `{action NAME …}` when it wants a key or a
+# label of its own — or a label+do pair for the piece that is
+# genuinely this config's:
+#
+#   wm-menu ssh {
+#       key   {<Super>t s}
+#       items {
+#           {action ssh_web key w}
+#           ssh_db
+#           {label "log here" do {Run xterm -e tail -f /var/log/syslog}}
+#       }
+#   }
+#
+# A row without a key is numbered the winlist way, 1-9 then A-Z, and
+# the numbering steps over the letters explicit keys claimed. A row
+# referencing a WAITING action is not shown (the panel's rule); one
+# referencing a deed nobody declared is skipped with a log line. The
+# menu navigates, picks and dismisses exactly as the window list does.
+#
+# `body` is the dynamic half — a script asked for the rows AT OPEN
+# TIME, answering the same grammar; `items` and `body` cannot both be
+# said (the run ⊕ launch rule). A list of recent anythings is stale
+# the moment it is written down, which is what the body is for:
+#
+#   wm-menu recent {
+#       key  {<Super>t r}
+#       body {my-recent-rows}
+#   }
+#
+# ...where my-recent-rows is the config's own proc answering rows like
+# {label /home/me/proj do {Run …}}. The name is the primary key and a
+# second wm-menu about it REFINES, as an action does; wm-menu-remove
+# NAME is the negative word.
+#
+# `Choose rows…` is the same list as a QUESTION — for the config's own
+# scripts: it puts the rows up, waits without freezing the desk, and
+# answers the picked row's `value` (its label when no value is said),
+# or empty when the person did something else. A row is a bare word or
+# `{label L ?value V? ?key K?}`. It waits, so it belongs in a script
+# the desk runs — a binding's payload, a launch — not at the top level
+# of this file:
+#
+#   wm-bind {<Super>o} {
+#       set which [Choose {alpha {label beta value B key b}}]
+#       if {$which ne ""} { Run xmessage $which }
+#   }
+#
 # ---- the panel ----
 #
 # panel-button NAME declares a button on the WM's own panel — a

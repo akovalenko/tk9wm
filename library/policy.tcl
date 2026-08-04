@@ -3543,7 +3543,7 @@ proc wm-window-close {t} {
 # said it means, and popups-close is deliberately the path that means
 # nothing.
 proc popups-close {{except ""}} {
-    foreach m {.winlist .winops .confirm} {
+    foreach m {.winlist .winops .confirm .menu} {
         if {$m eq $except} continue
         if {[winfo exists $m]} {
             # Somebody may be parked on this menu's answer, and going
@@ -3634,7 +3634,7 @@ proc wm-invariants {} {
     }
     # A popup is keyboard-modal by construction: it took the router
     # when it opened, and closing is what gives it back.
-    foreach m {.winlist .winops .confirm} {
+    foreach m {.winlist .winops .confirm .menu} {
         if {[winfo exists $m] && !$modal} {
             lappend bad "$m is up with no router"
         }
@@ -4599,6 +4599,330 @@ proc winops-click {x y} {
     set T .winops.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     winops-fire $A(item)
+}
+
+# ---- the config's own menus ----
+# A menu is another SURFACE for actions, the way the panel is: the
+# panel lays references out in a strip, a menu lays them out in a
+# transient list under a chord. The word is declarative, and a row is
+# a reference to an action — or a bare label+do pair, for the piece
+# that is genuinely the config's own:
+#
+#     wm-menu ssh {
+#         key   {<Super>t s}
+#         items {
+#             {action ssh_web key w}
+#             ssh_db
+#             {label "log here" do {Run xterm -e tail -f /var/log/syslog}}
+#         }
+#     }
+#
+# `items` is the static half; `body` is the dynamic one — a script
+# ASKED FOR THE ROWS AT OPEN TIME (a list of recent projects is stale
+# the moment it is written down), answering the same grammar. One of
+# the two, never both: the run ⊕ launch rule, for the same reason —
+# one slot, two spellings.
+#
+# A row without a key is numbered the winlist way — 1-9, then A-Z —
+# and the numbering STEPS OVER what explicit keys have claimed, so a
+# mnemonic never collides with a number handed out by position. A
+# reference to a waiting action is not shown (the panel's rule), and
+# one to a deed nobody declared is skipped with a log line: a menu is
+# a view, and a view does not refuse to open over one bad row.
+#
+# What a pick MEANS follows the winlist's rule exactly: nobody
+# waiting — the row fires (an action by name, a do-script in its own
+# coroutine); a waiter parked on the popup (Choose below) — the row
+# is the answer and the caller decides.
+keep menus {}   ;# NAME -> the merged raw words (what the layers SAID)
+
+proc wm-menu {name settings} {
+    set raw $settings
+    if {[dict exists $::menus $name]} {
+        set raw [dict merge [dict get $::menus $name] $settings]
+    }
+    foreach k [dict keys $raw] {
+        if {[dict get $raw $k] eq ""
+                && [node-empty-means [list @spec menu $k]] eq "unsay"} {
+            dict unset raw $k
+        }
+    }
+    spec-check "wm-menu $name" menu $raw
+    if {[dict exists $raw items]} {
+        foreach item [dict get $raw items] {
+            menu-item-check "wm-menu $name" $item
+        }
+    }
+    # checked first, changed second: a word that is refused above must
+    # leave the standing menu — chord and all — exactly as it was
+    if {[dict exists $::menus $name key]} {
+        catch {wm-unbind [dict get $::menus $name key]}
+    }
+    dict set ::menus $name $raw
+    if {[dict exists $raw key]} {
+        wm-bind [dict get $raw key] [list menu-open $name] $name
+    }
+}
+proc wm-menu-remove {name} {
+    if {[dict exists $::menus $name key]} {
+        catch {wm-unbind [dict get $::menus $name key]}
+    }
+    dict unset ::menus $name
+    puts "WM: menu $name: removed"
+}
+# One row's grammar, shared by the declaration (checked when said) and
+# the body (checked when it answers): a bare word is an action's name,
+# anything longer says what it is.
+proc menu-item-check {who item} {
+    if {[llength $item] == 1} return   ;# a bare action name
+    if {[llength $item] % 2} {
+        error "$who: an item is a bare action name or key-value words,\
+ not «$item»"
+    }
+    foreach k [dict keys $item] {
+        if {$k ni {action label do key}} {
+            error "$who: unknown item word «$k» (action label do key)"
+        }
+    }
+    if {[dict exists $item action] && [dict exists $item do]} {
+        error "$who: an item is an action reference or a do-script, not both"
+    }
+    if {![dict exists $item action] && ![dict exists $item do]} {
+        error "$who: an item names an action or carries a do-script"
+    }
+    if {[dict exists $item do] && ![dict exists $item label]} {
+        error "$who: a do item needs a label"
+    }
+    if {[dict exists $item key]
+            && [string length [dict get $item key]] != 1} {
+        error "$who: an item key is one character,\
+ not «[dict get $item key]»"
+    }
+}
+# Open by name — what the menu's chord is bound to. The optional
+# trailing argument is the window a titlebar or winops gesture appends;
+# a menu is not about a window, so it is accepted and ignored, and the
+# gesture's POINT is what such a caller contributes (gesture-point).
+proc menu-open {name {w 0}} {
+    if {![dict exists $::menus $name]} {
+        puts "WM: menu $name: unknown — nothing to open"
+        return
+    }
+    set raw [dict get $::menus $name]
+    set items {}
+    if {[dict exists $raw body]} {
+        if {[catch {uplevel #0 [dict get $raw body]} items]} {
+            problem-record "menu $name" $items
+            return
+        }
+        # the body's rows are checked as the config's were — at the
+        # moment they exist, which for a body is now
+        foreach item $items {
+            if {[catch {menu-item-check "menu $name" $item} err]} {
+                problem-record "menu $name" $err
+                return
+            }
+        }
+    } elseif {[dict exists $raw items]} {
+        set items [dict get $raw items]
+    }
+    set rows {}
+    foreach item $items {
+        if {[llength $item] == 1} { set item [list action [lindex $item 0]] }
+        if {[dict exists $item action]} {
+            set a [dict get $item action]
+            if {![dict exists $::action_spec $a]} {
+                puts "WM: menu $name: «$a» is not a deed this desk knows\
+ — skipped"
+                continue
+            }
+            if {[dict get $::action_spec $a state] ne "active"} {
+                puts "WM: menu $name: «$a» is waiting — not shown"
+                continue
+            }
+            set label [expr {[dict exists $item label]
+                             ? [dict get $item label] : $a}]
+            set fire [list action-fire $a]
+        } else {
+            set label [dict get $item label]
+            set fire [list run-script "menu $name «$label»" \
+                          [dict get $item do]]
+        }
+        lappend rows [dict create label $label fire $fire key \
+            [expr {[dict exists $item key] ? [dict get $item key] : ""}]]
+    }
+    if {![llength $rows]} {
+        puts "WM: menu $name: nothing to show"
+        return
+    }
+    set ::menu_name $name
+    menu-post $rows
+    puts "WM: menu $name open ([llength $rows] items)"
+}
+
+# ---- Choose: the list that answers, as a word --------------------
+# The functional half, factored from what winlist-choose proved out:
+# put THESE rows up, wait, answer the picked row's value — its label
+# when no value is said — or empty when the person did something
+# else. A row is a bare word (label and value both) or `{label L
+# ?value V? ?key K?}`. It WAITS, so it wants the coroutine every
+# script the desk runs already has (run-script wraps a binding's
+# payload and a launch alike); called bare it says so instead of
+# wedging the caller.
+proc Choose {items} {
+    if {[info coroutine] eq ""} {
+        error "Choose waits for an answer — call it from a script the\
+ desk runs (a binding, a launch), not bare"
+    }
+    set rows {}
+    foreach item $items {
+        if {[llength $item] == 1} {
+            set item [list label [lindex $item 0]]
+        }
+        if {[llength $item] % 2} {
+            error "Choose: a row is a bare word or key-value words,\
+ not «$item»"
+        }
+        foreach k [dict keys $item] {
+            if {$k ni {label value key}} {
+                error "Choose: unknown row word «$k» (label value key)"
+            }
+        }
+        if {![dict exists $item label]} {
+            error "Choose: a row needs a label"
+        }
+        if {[dict exists $item key]
+                && [string length [dict get $item key]] != 1} {
+            error "Choose: a row key is one character,\
+ not «[dict get $item key]»"
+        }
+        lappend rows [dict create \
+            label [dict get $item label] \
+            value [expr {[dict exists $item value]
+                         ? [dict get $item value]
+                         : [dict get $item label]}] \
+            key [expr {[dict exists $item key]
+                       ? [dict get $item key] : ""}]]
+    }
+    if {![llength $rows]} { return "" }
+    menu-post $rows
+    puts "WM: menu chooser open ([llength $rows] items)"
+    return [popup-await .menu]
+}
+
+# The builder both doors share: hand out the hotkeys, build the
+# winops-shaped two columns, post, take the keyboard. The rows land in
+# ::menu_rows with their keys resolved; what a row CARRIES (fire or
+# value) is the door's business, read back in menu-pick.
+proc menu-post {rows} {
+    set claimed {}
+    foreach row $rows {
+        if {[dict get $row key] ne ""} {
+            lappend claimed [string toupper [dict get $row key]]
+        }
+    }
+    set auto {}
+    for {set i 1} {$i <= 9} {incr i} { lappend auto $i }
+    for {set c 65} {$c <= 90} {incr c} { lappend auto [format %c $c] }
+    set out {}
+    foreach row $rows {
+        if {[dict get $row key] eq ""} {
+            while {[llength $auto] && [lindex $auto 0] in $claimed} {
+                set auto [lrange $auto 1 end]
+            }
+            if {[llength $auto]} {
+                dict set row key [lindex $auto 0]
+                set auto [lrange $auto 1 end]
+            }
+        }
+        lappend out $row
+    }
+    set ::menu_rows $out
+    set n [llength $out]
+    set ih [expr {[font metrics TitleFont -linespace] + 6}]
+    set T [popup-shell .menu $ih menu-click]
+    $T column create -squeeze yes -expand yes -tags C0
+    $T column create -width [expr {$ih + 4}] -tags Ckey
+    $T configure -treecolumn C0
+    $T element create eKey text -fill [themed dim] -lines 1 \
+        -font [popup-hover-font]
+    $T style create sAct
+    $T style elements sAct {eSel eTxt}
+    $T style layout sAct eSel -detach yes -iexpand xy
+    $T style layout sAct eTxt -expand ns -padx 8 -squeeze x
+    $T style create sKey
+    $T style elements sKey {eSel eKey}
+    $T style layout sKey eSel -detach yes -iexpand xy
+    $T style layout sKey eKey -expand wns -padx 6
+    set maxw 0
+    foreach row $out {
+        set maxw [expr {max($maxw, [font measure TitleFont \
+                                        [dict get $row label]])}]
+        set item [$T item create]
+        $T item style set $item C0 sAct Ckey sKey
+        $T item element configure $item C0 eTxt -text [dict get $row label]
+        $T item element configure $item Ckey eKey -text [dict get $row key]
+        $T item lastchild root $item
+    }
+    $T selection add 1
+    # under the hand when a gesture brought it up, the winlist's spot
+    # when a chord did — and clamped to the glass either way
+    lassign [pointer-monitor] mx my sw sh
+    set W [expr {min(max($maxw + $ih + 40, 160), $sw * 3 / 5)}]
+    set H [expr {$n * $ih + 2}]
+    set at [gesture-point]
+    if {[llength $at]} {
+        lassign $at X Y
+    } else {
+        set X [expr {$mx + ($sw - $W) / 2}]
+        set Y [expr {$my + ($sh - $H) / 3}]
+    }
+    popup-show .menu $W $H $X $Y
+    if {![grab-keys-to menu-key \
+              [list popup-yank "the keyboard went to another mode"]]} {
+        puts "WM: menu: keyboard not grabbed — mouse only"
+    }
+}
+proc menu-key {kind name mods} {
+    if {$kind eq "release"} return
+    if {$mods == 0 && [string length $name] == 1} {
+        set i 0
+        foreach row $::menu_rows {
+            incr i
+            set k [dict get $row key]
+            if {$k ne "" && [string equal -nocase $k $name]} {
+                menu-pick $i
+                return
+            }
+        }
+    }
+    set d [popup-nav $name $mods]
+    if {$d != 0} {
+        popup-move .menu.t [llength $::menu_rows] $d
+        return
+    }
+    switch -- $name {
+        Return - KP_Enter { menu-pick [lindex [.menu.t selection get] 0] }
+        Escape            { popups-close }
+    }
+}
+proc menu-pick {i} {
+    if {$i eq "" || $i < 1} { popups-close; return }
+    set row [lindex $::menu_rows [expr {$i - 1}]]
+    # a list that answers does not act — the winlist's rule, verbatim
+    if {[info exists ::popup_fut(.menu)]} {
+        puts "WM: menu answers «[dict get $row value]»"
+        popup-answer .menu [dict get $row value]
+        return
+    }
+    popups-close
+    puts "WM: menu $::menu_name pick «[dict get $row label]»"
+    uplevel #0 [dict get $row fire]
+}
+proc menu-click {x y} {
+    set T .menu.t
+    if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
+    menu-pick $A(item)
 }
 
 # ---- keyboard move / resize ----
@@ -7395,6 +7719,16 @@ spec-keys emacs {
     env        {kind envdict doc {environment for the daemon it may start}}
     env-unset  {kind words doc {variables it must NOT have — absent, not empty}}
 }
+# A MENU'S WORDS MERGE, as an action's do: refine by name, un-say a
+# key with an empty value.
+config-node {@spec menu} {node dict merge merges}
+spec-keys menu {
+    key   {kind chord doc {the chord that opens it}}
+    items {kind rows  xor body
+           doc {the rows — action references, or label+do pairs}}
+    body  {kind script xor items
+           doc {a script asked for the rows at open time}}
+}
 
 # What a declaration is CHECKED against, and deliberately only the
 # shallow half of the table: a key nobody registered is a typo, an
@@ -7453,7 +7787,7 @@ proc spec-check {who name settings} {
 proc spec-fields {name} {
     set editor {words list  commands list  envdict dict  beastdict dict
                 subspec dict  chord chord  script text  predicate text
-                icon text  text text}
+                icon text  text text  rows list}
     set out {}
     dict for {k meta} [spec-table $name] {
         set kind [dict get $meta kind]
@@ -10234,6 +10568,13 @@ collection keys {
                 doc {the bundle's own parameters (prefix, help, …)}}
     }
 }
+# The menus' fields are the spec registry's, exactly as the actions':
+# one language, one table, two readers.
+collection menus [list \
+    key name ordered no insert {a menu} \
+    doc {the config's own menus — rows of deeds under a chord} \
+    list collection-menus \
+    fields [spec-fields menu]]
 
 # A list script answers a DICT — elements, plus whatever meta only
 # the live state knows: the panel says whether the custom layer OWNS
@@ -10368,6 +10709,33 @@ proc collection-keys {} {
             values [dict create state [expr {$on ? "on" : "off"}] \
                         params $params] \
             owner [knob-owner "wm-keys $name"]]
+    }
+    dict create elements $out
+}
+proc collection-menus {} {
+    set out {}
+    # a removal is a word too — the actions' rule, verbatim
+    foreach layer {custom config} {
+        if {![dict exists $::layer_knobs $layer]} continue
+        dict for {k cmd} [dict get $::layer_knobs $layer] {
+            if {[lindex $cmd 0] ne "wm-menu-remove"} continue
+            set name [lindex $cmd 1]
+            if {[dict exists $::menus $name]} continue
+            lappend out [dict create key $name values {} owner $layer \
+                lkey $k ineffectual 1 \
+                why "removed by you — Delete takes the removal back"]
+        }
+    }
+    dict for {name raw} $::menus {
+        set e [dict create key $name values $raw \
+                   owner [knob-owner "wm-menu $name"]]
+        if {[dict exists $::layer_knobs custom "wm-menu $name"]} {
+            set cmd [dict get $::layer_knobs custom "wm-menu $name"]
+            if {[lindex $cmd 0] eq "wm-menu"} {
+                dict set e said [lindex $cmd 2]
+            }
+        }
+        lappend out $e
     }
     dict create elements $out
 }
@@ -10662,6 +11030,8 @@ config-verb panel-button      {at {panel @1}    key panel-button value overrides
 config-verb panel-buttons-own {at {panel @1}    key panel-buttons-own sweep 1 section 3}
 config-verb wm-font           {at {fonts @1}    key wm-font      value options section 1}
 config-verb wm-keys           {at {keys @1}     key wm-keys      value params}
+config-verb wm-menu           {at {menus @1}    key wm-menu      spec menu}
+config-verb wm-menu-remove    {at {menus @1}    key wm-menu      denies 1}
 # A word without a knob: sayable, and therefore guarded, but with no
 # row in the configurator — its value is a list of six-word monitor
 # rectangles, which is a repair tool and a test seam rather than
@@ -11507,7 +11877,7 @@ set config_vars {
     tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
     emacs_edit emacs_edit_daemon emacs_keep_frame_name
-    welcome key_bundles action_raw action_spec action_lint
+    welcome key_bundles action_raw action_spec action_lint menus
 }
 proc policy-snapshot-defaults {} {
     # Incremental on purpose: a Reread may bring NEW config_vars into
