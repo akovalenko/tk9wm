@@ -9967,7 +9967,7 @@ knob set-desk-window {var {desk_window} settle {desk-window} group desk kind boo
                       doc {the desk as one window of ours, or hands off the root}}
 knob set-desks       {var {ndesks} settle {desks} group desk kind {int 1} get {set ::ndesks}
                       doc {how many virtual desks; 1 switches them off}}
-knob set-theme       {var {theme} settle {titles} group desk kind {choice dark light} get {set ::theme}
+knob set-theme       {var {theme} settle {theme} group desk kind {choice dark light} get {set ::theme}
                       doc {the desk's colours in one word; every colour derives from it}}
 knob set-desk-background {var {desk_background_said} settle {desk-window} group desk kind color get {set ::desk_background_said}
                       derived {themed desk}
@@ -10000,7 +10000,7 @@ knob set-key-echo-place {var {key_echo_place} settle {} group keys kind text get
 knob set-tray        {var {tray_on} settle {tray} group tray kind bool
                       get {expr {$::tray_on ? "on" : "off"}}
                       doc {be the display's system tray}}
-knob set-tray-panel  {var {tray_panel} settle {tray} group tray kind text get {set ::tray_panel}
+knob set-tray-panel  {var {tray_panel} settle {panels} group tray kind text get {set ::tray_panel}
                       doc {whose strip the tray is part of}}
 knob set-tray-background {var {tray_bg_said} settle {tray} group tray kind color get {set ::tray_bg_said}
                       derived {themed ground}
@@ -11677,6 +11677,36 @@ proc settle-pending {} {
         soft "settle $n" [dict get $::settlers $n]
     }
 }
+# WHAT LAST SETTLED, which is a different question from what the code
+# defaults to. config_default answers «what does a reload reset the
+# wishes to»; this answers «what did the desk last actually become»,
+# and the difference between the two is the only way to say «this
+# reload changed nothing» honestly (lifecycle plan, the last open
+# question — the owner: "идея мне нравится, если для этого нужен
+# второй снимок, то ok").
+#
+# It remembers the WHOLE config-produced state and not just the knobs'
+# wishes, because most settlers are driven by collections — the panels'
+# buttons, the widgets, the style rules — and a snapshot that watched
+# only scalars would happily skip a reload that added a button.
+array set settled_state {}
+proc settle-remember {} {
+    array unset ::settled_state
+    foreach v $::config_vars {
+        set ::settled_state($v) [expr {[info exists ::$v] ? [set ::$v] : ""}]
+    }
+}
+# The first thing that differs, or "" when nothing does. The name is
+# for the log: «nothing changed» is a claim worth being able to check,
+# and «tray_on changed» says which word to look at.
+proc settle-changed {} {
+    foreach v $::config_vars {
+        set now [expr {[info exists ::$v] ? [set ::$v] : ""}]
+        if {![info exists ::settled_state($v)]} { return $v }
+        if {$::settled_state($v) ne $now} { return $v }
+    }
+    return ""
+}
 proc settle-all {} {
     foreach name $::settle_order {
         if {![dict exists $::settlers $name]} {
@@ -11691,6 +11721,27 @@ proc settle-all {} {
 }
 
 proc policy-apply {} {
+    # NOTHING TO DO IS A THING TO SAY. A reload of an unchanged config
+    # used to rebuild the panels, the widgets, the tray and every
+    # titlebar to arrive exactly where it started — visible as a blink
+    # and paid for in full. The snapshot makes the answer cheap, and
+    # the FIRST apply has no snapshot, so a fresh desk always settles.
+    # The FIRST apply has nothing to compare against, and saying that a
+    # variable «moved» when nothing was ever remembered would be a lie
+    # with a name in it.
+    set first [expr {[array size ::settled_state] == 0}]
+    set why [expr {$first ? "" : [settle-changed]}]
+    if {!$first && $why eq ""} {
+        puts "WM: config applied — nothing the layers say has changed"
+        return
+    }
+    # REMEMBERED BEFORE, not after: a settler may add to the very state
+    # this compares — welcome-inject writes the mat into ::widgets —
+    # and a snapshot taken afterwards never matches what the layers say
+    # next time, so the early-out could never fire (measured: the
+    # widgets «moved» on every reload). What is compared is what the
+    # LAYERS SAID, which is the question being asked.
+    settle-remember
     settle-all
     # DECLARED buttons, not shown ones: under panels-held the strips
     # have not rebuilt yet and the shown lists are stale — the summary
@@ -11698,9 +11749,12 @@ proc policy-apply {} {
     # is its declarations; the per-panel «up» lines say what shows.
     set nrefs 0
     foreach p [panel-names] { incr nrefs [dict size [panel-cfg $p refs]] }
+    # ...and WHAT MOVED, which is the snapshot's other use: a reload
+    # that settles says which wish it settled for, so «why did my desk
+    # blink» has an answer in the log rather than in a bisect.
     puts "WM: config applied ($nrefs buttons on\
  [llength [panel-names]] panel(s), [llength $::style_rules] style rules,\
- tray [expr {$::tray_on ? {on} : {off}}])"
+ tray [expr {$::tray_on ? {on} : {off}}])[expr {$why eq {} ? {} : " — «$why» moved"}]"
 }
 
 # ---- carrying a window: the slop and the edges ----
