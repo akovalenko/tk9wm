@@ -630,7 +630,7 @@ proc ui-place-axis {origin extent size align} {
 }
 proc ui-ask {wmapp id prompt initial anchor warect} {
     catch {destroy .ask}
-    toplevel .ask -class Tk9wmAsk -background [ui-color rule]
+    toplevel .ask -class Tk9wmAsk -background [ui-color edge]
     # A CLIENT, not an override-redirect: splash is one of the types
     # the WM's own hinted-decor reads as «no frame at all», so the box
     # is undecorated AND managed — focus arrives through the front
@@ -642,17 +642,29 @@ proc ui-ask {wmapp id prompt initial anchor warect} {
     # held the real focus (measured on the stand).
     wm attributes .ask -type splash
     wm withdraw .ask
-    frame .ask.b -background [ui-color bg]
+    # dressed as the KEY ECHO, which is the modal box this desk
+    # already speaks through — the amber ground, white ink, the edge
+    # outline — with only the field keeping its editor dress; and
+    # with room to breathe (the owner, 2026-08-05). A prompt longer
+    # than a word or two goes ABOVE the field, so a long question and
+    # a long answer each get the full width.
+    frame .ask.b -background [ui-color modal]
     pack .ask.b -padx 1 -pady 1 -fill both -expand 1
     label .ask.b.p -text $prompt -font DeskFont -anchor w \
-        -background [ui-color bg] -foreground [ui-color fg]
+        -background [ui-color modal] -foreground white
     ui-field .ask.b.f
-    .ask.b.f.t configure -width 32
+    set long [expr {[string length $prompt] > 20}]
+    .ask.b.f.t configure -width [expr {$long ? 44 : 32}]
     ui-field-set .ask.b.f $initial
-    grid .ask.b.p .ask.b.f -padx 4 -pady 5
-    grid configure .ask.b.p -padx {8 2}
-    grid configure .ask.b.f -padx {0 8} -sticky ew
-    grid columnconfigure .ask.b 1 -weight 1
+    if {$long} {
+        grid .ask.b.p -row 0 -column 0 -sticky w  -padx 12 -pady {10 4}
+        grid .ask.b.f -row 1 -column 0 -sticky ew -padx 12 -pady {0 12}
+        grid columnconfigure .ask.b 0 -weight 1
+    } else {
+        grid .ask.b.p -row 0 -column 0 -sticky w  -padx {12 6} -pady 12
+        grid .ask.b.f -row 0 -column 1 -sticky ew -padx {0 12} -pady 12
+        grid columnconfigure .ask.b 1 -weight 1
+    }
     bind .ask.b.f.t <Return>   "ui-ask-commit [list $wmapp] $id; break"
     bind .ask.b.f.t <KP_Enter> "ui-ask-commit [list $wmapp] $id; break"
     bind .ask.b.f.t <Escape>   "ui-ask-cancel [list $wmapp] $id; break"

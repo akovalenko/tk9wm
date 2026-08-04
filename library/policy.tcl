@@ -12273,7 +12273,8 @@ proc ui-freshen-push {} {
 proc ui-style {} {
     set palette {}
     foreach {key role} {bg ground fg ink field field link link
-                        select select trough trough} {
+                        select select trough trough
+                        modal modal edge edge} {
         lappend palette $key [themed $role]
     }
     dict create \
