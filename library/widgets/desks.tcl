@@ -92,10 +92,12 @@ proc desks-widget-tick {w opts} {
     set vert [desks-widget-vertical $opts $r $gap]
     set len [expr {$n * (2 * $r) + ($n - 1) * $gap}]
     set thick [expr {2 * $r}]
-    # ONE PIXEL MORE THAN THE MARKS NEED, and the marks half a pixel
-    # in: a canvas outline straddles the line it is drawn on, so a
-    # circle that ends exactly at the edge loses its last column to
-    # the clip (measured — every dot came out a «C»).
+    # THE OUTLINE LIVES INSIDE THE BOX. A canvas outline straddles the
+    # line it is drawn on, so both ends of a mark have to be half a
+    # pixel IN — not the whole shape shifted half a pixel over, which
+    # only moves the problem to the far side and clips there instead
+    # (measured twice, the second time on the owner's own desk: "левый
+    # обрезается снизу, второй и снизу и справа").
     $c configure -width [expr {($vert ? $thick : $len) + 1}] \
                  -height [expr {($vert ? $len : $thick) + 1}]
     $c delete all
@@ -106,7 +108,7 @@ proc desks-widget-tick {w opts} {
         # The one you are on is filled; the others are its outline, so
         # the row reads as one thing with a place in it rather than as
         # a filled mark and some unrelated rings.
-        $c create oval $x $y [expr {$x + 2 * $r}] [expr {$y + 2 * $r}] \
+        $c create oval $x $y [expr {$x + 2 * $r - 1}] [expr {$y + 2 * $r - 1}] \
             -outline $fg -width 1 \
             -fill [expr {$i == $::desk ? $fg : ""}] \
             -tags mark$i
