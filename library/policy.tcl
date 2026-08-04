@@ -131,6 +131,19 @@ proc font-spec-opts {spec} {
 # because both are how one naturally types it.
 proc font-args {who args} {
     if {![llength $args]} { return {} }
+    # ONE WORD MAY BE THE WHOLE THING, either shape. The spec form
+    # already worked that way (`set-desk-font {DejaVu Sans 13}`), and
+    # the option form did not: braced into a single word it was read as
+    # one odd option and refused, so a script holding its options in a
+    # variable had to remember to expand them and nothing said why (the
+    # owner, 2026-08-04: "font-args для скриптера неинтуитивно
+    # устроен"). A lone word that looks like options and pairs up IS
+    # the options.
+    if {[llength $args] == 1 && [llength [lindex $args 0]] > 1
+            && [string index [lindex [lindex $args 0] 0] 0] eq "-"
+            && [llength [lindex $args 0]] % 2 == 0} {
+        set args [lindex $args 0]
+    }
     if {[string index [lindex $args 0] 0] eq "-"} {
         if {[llength $args] % 2} { error "$who: options come in pairs" }
         return $args
@@ -6436,7 +6449,6 @@ proc emacs-eval-bg {spec expr} {
 # except when the desk starts talking about the wait, and a dial for
 # that is noise in the configurator (the owner, 2026-08-02).
 keep emacs_wait 60000
-proc set-emacs-timeout {ms} { set ::emacs_wait $ms }
 proc emacs-eval-run {cmd} {
     set f [pipe-run $cmd -stderr merge -patience $::emacs_wait \
                -say [list emacs-taking-forever]]
@@ -9656,6 +9668,155 @@ proc knob {name meta} {
     config-node [list knobs $name] [dict merge {node leaf} $meta]
 }
 proc knob-registry {} { config-nodes-under knobs }
+
+# ---- the kind, as a CHECK — one implementation, both inputs -------
+#
+# A value arrives two ways: typed into the configurator, or written in
+# a file. They were checked by two different pieces of code — the
+# applet's own switch and whatever `if … error` the setter's author
+# wrote — which is two answers to one question, drifting apart by
+# construction (the lifecycle plan, step 2).
+#
+# It is one proc now, it lives here because the WM is what the value is
+# FOR, and it asks the world rather than a rule of thumb (the owner,
+# 2026-08-04: "она должна быть максимально по живому"). The display
+# knows its colours; the keymap knows its keysyms; Tk knows what it
+# will take for -cursor. A rule of thumb knows what somebody once
+# believed.
+#
+# TWO KINDS OF ANSWER, and the difference is the plan's:
+#   knob-check   ADMISSION — "" when the value may be said at all, a
+#                complaint when the consumer could not use it ever;
+#   knob-warn    WARNING — "" or a note about a value that is legal and
+#                whose world is not ready (a directory that is not
+#                there yet, a font family this display substitutes).
+#                Never a refusal: the mount may appear, the font may be
+#                installed, and dropping the value would change what
+#                the config says behind the user's back.
+proc knob-probe {} {
+    if {![winfo exists .knobprobe]} {
+        # never mapped, never packed, never read: a place to ask Tk
+        # whether it would take a value, and nothing else
+        label .knobprobe
+    }
+    return .knobprobe
+}
+proc knob-kind {name} {
+    set r [knob-registry]
+    if {![dict exists $r $name kind]} { return text }
+    dict get $r $name kind
+}
+# THE KIND is what is checked, not the name — because names live in
+# more places than the knob registry: a widget's type, a field of a
+# collection, a member row in the tree. Delegating by NAME quietly lost
+# every one of those (caught by the configurator suite the moment it
+# was tried), so the pair travels instead and the caller supplies the
+# kind it already knows.
+proc knob-check {name value} { kind-check [knob-kind $name] $value $name }
+proc kind-check {kind value {who ""}} {
+    if {$who eq ""} { set who "this" }
+    set name $who
+    switch -- [lindex $kind 0] {
+        int {
+            if {![string is integer -strict $value]} {
+                return "$name wants a whole number, not «$value»"
+            }
+        }
+        float {
+            lassign $kind - lo hi
+            if {![string is double -strict $value]} {
+                return "$name wants a number, not «$value»"
+            }
+            if {$value < $lo || $value > $hi} {
+                return "$name wants a number between $lo and $hi"
+            }
+        }
+        bool {
+            if {![string is boolean -strict $value]} {
+                return "$name is on or off, not «$value»"
+            }
+        }
+        choice {
+            if {$value ni [lrange $kind 1 end]} {
+                return "$name is one of: [lrange $kind 1 end]"
+            }
+        }
+        color {
+            # THE DISPLAY's own answer, names from rgb.txt included
+            if {[catch {winfo rgb . $value}]} {
+                return "«$value» is not a colour this display knows"
+            }
+        }
+        font {
+            # THE CONSUMER, and not Tk. Our font grammar is WIDER than
+            # Tk's -font: `DejaVu Sans 13 bold` with an unbraced
+            # multi-word family is ours to parse and Tk's to refuse, so
+            # asking Tk here rejected a spec the desk accepts (caught
+            # by the configurator suite the moment this was written).
+            # font-args is the code that will do the parsing, so it is
+            # the code that answers.
+            #
+            # What it does NOT answer is whether the family exists: Tk
+            # takes any family and substitutes silently (measured —
+            # «!!!» resolves to the default). That is knob-warn's half.
+            if {[catch {llength $value}]} {
+                return "$name wants a list, and «$value» is not one"
+            }
+            if {[catch {font-args $name {*}$value} e]} { return $e }
+        }
+        list {
+            if {[catch {llength $value}]} {
+                return "$name wants a list, and «$value» is not one"
+            }
+        }
+    }
+    return ""
+}
+proc knob-warn {name value} { kind-warn [knob-kind $name] $value $name }
+proc kind-warn {kind value {who ""}} {
+    if {$who eq ""} { set who "this" }
+    set name $who
+    switch -- [lindex $kind 0] {
+        list {
+            # PATH SEMANTICS, and the owner said it in those words: a
+            # directory that is not there is a note, never a reason to
+            # drop the component. It may be mounted tomorrow, and a
+            # config quietly shortened behind one's back is worse than
+            # a line in the log.
+            if {[lindex $kind 1] ne "directories"} { return "" }
+            set gone {}
+            foreach d $value {
+                if {![file isdirectory $d]} { lappend gone $d }
+            }
+            if {[llength $gone]} {
+                return "$name: not there (kept anyway, like PATH): [join $gone { }]"
+            }
+        }
+        font {
+            if {![llength $value]} { return "" }
+            # ...through the same parser, so the family is the one the
+            # desk will really ask for
+            if {[catch {font-args $name {*}$value} opts]} { return "" }
+            set want ""
+            if {[dict exists $opts -family]} { set want [dict get $opts -family] }
+            if {$want eq ""} { return "" }
+            set got [font actual [list $want 10] -family]
+            if {[string tolower $got] ne [string tolower $want]} {
+                return "$name: no «$want» on this display — «$got» instead"
+            }
+        }
+    }
+    return ""
+}
+# The config word's own gate: refuse loudly, warn quietly, and let the
+# word through in every other case. Called from the guard wrapper, so
+# no setter has to remember it and none can forget.
+proc knob-precheck {name value} {
+    set bad [knob-check $name $value]
+    if {$bad ne ""} { error $bad }
+    set note [knob-warn $name $value]
+    if {$note ne ""} { puts "WM: $note" }
+}
 # Every wish a knob declares — the derived form of what config_vars
 # keeps by hand.
 proc knob-vars {} {
@@ -9701,15 +9862,15 @@ proc knob-var-audit {} {
 # instead of recording a problem. It is also a word the configurator
 # cannot show and nothing can type-check.
 #
-# The list is not automatically a complaint: this layer's own
-# primitives are spelled the same way (set-prop-longs, set-wm-state),
-# and telling a primitive from a vocabulary word is exactly what a
-# descriptor would settle. So it is said once, plainly, for a human to
-# triage.
+# What is DECLARED internal (config-internal) is not counted: that
+# declaration is the descriptor settling the question. What is left is
+# a real gap — a word one can say and nothing guards.
 proc vocabulary-audit {} {
     set loose {}
     foreach name [lsort [info commands set-*]] {
-        if {![dict exists $::verb_registry $name]} { lappend loose $name }
+        if {[dict exists $::verb_registry $name]} continue
+        if {[dict exists $::config_internal $name]} continue
+        lappend loose $name
     }
     if {[llength $loose]} {
         puts "WM: `set-*` outside the vocabulary registry\
@@ -10418,6 +10579,20 @@ proc collection-verb {name} {
 # is FOR is the tree — see plans/tk9wm-config-tree.md.
 proc config-verb {name meta} { dict set ::verb_registry $name $meta }
 set verb_registry {}
+# NOT VOCABULARY, and said so. This layer's own primitives are spelled
+# `set-*` like the words a config uses (set-prop-longs, set-wm-state),
+# and so are one or two words that exist but are nobody's business to
+# say out loud yet. Without a declaration the audit below cannot tell
+# them apart from a word somebody forgot to register — and telling them
+# apart is exactly what a descriptor is for (the lifecycle plan's step
+# two; the owner, 2026-08-04: "panel live colors на данный момент
+# внутрянка").
+set config_internal {}
+proc config-internal {args} {
+    foreach name $args { dict set ::config_internal $name 1 }
+}
+config-internal set-prop-longs set-prop-utf8 set-wm-state set-net-wm-state
+config-internal set-key-help set-panel-live-colors
 config-verb wm-bind           {at {bindings @1} key wm-bind      value pair}
 config-verb wm-unbind         {at {bindings @1} key wm-bind      denies 1}
 config-verb action            {at {actions @1}  key action       spec action}
@@ -10428,6 +10603,11 @@ config-verb panel-button      {at {panel @1}    key panel-button value overrides
 config-verb panel-buttons-own {at {panel @1}    key panel-buttons-own sweep 1 section 3}
 config-verb wm-font           {at {fonts @1}    key wm-font      value options section 1}
 config-verb wm-keys           {at {keys @1}     key wm-keys      value params}
+# A word without a knob: sayable, and therefore guarded, but with no
+# row in the configurator — its value is a list of six-word monitor
+# rectangles, which is a repair tool and a test seam rather than
+# something to turn.
+config-verb set-monitors {at {knobs set-monitors} key set-monitors value word}
 # ...and every knob, which is the plain case: no address of its own
 # beyond its name, one value, and the type the knob registry states.
 dict for {name meta} [knob-registry] {
@@ -10469,10 +10649,22 @@ proc config-word-failed {verb err opts} {
     problem-record "config word $verb" $err [said-where]
     return ""
 }
-proc config-guarded-body {verb body} {
+proc config-guarded-body {verb body {arg ""}} {
     # the body starts on the SAME LINE as the opening of try, so a
-    # body that still has line information keeps its numbering
-    return "try {$body} on error {e o} {config-word-failed [list $verb] \$e \$o}"
+    # body that still has line information keeps its numbering — and
+    # the precheck rides on that same line for the same reason
+    set gate ""
+    if {$arg ne ""} { set gate "knob-precheck [list $verb] \$$arg; " }
+    return "try {$gate$body} on error {e o} {config-word-failed [list $verb] \$e \$o}"
+}
+# WHICH WORDS THE GATE FITS: a knob whose word takes exactly one
+# argument, which is the plain scalar case. The rest — option lists,
+# collections, words with a path of their own — are the config-tree
+# plan's half and check themselves for now.
+proc config-gate-arg {name} {
+    if {![dict exists [knob-registry] $name]} { return "" }
+    if {[catch {info args $name} as] || [llength $as] != 1} { return "" }
+    return [lindex $as 0]
 }
 proc config-proc {name spec body} {
     proc $name $spec [config-guarded-body $name $body]
@@ -10496,7 +10688,7 @@ proc config-instrument {name} {
             lappend spec $a
         }
     }
-    proc $name $spec [config-guarded-body $name $body]
+    proc $name $spec [config-guarded-body $name $body [config-gate-arg $name]]
     return 1
 }
 proc config-instrument-vocabulary {} {
@@ -11249,7 +11441,7 @@ set config_vars {
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_bg_said tray_argb
     tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
-    emacs_wait emacs_edit emacs_edit_daemon emacs_keep_frame_name
+    emacs_edit emacs_edit_daemon emacs_keep_frame_name
     welcome key_bundles action_raw action_spec action_lint
 }
 proc policy-snapshot-defaults {} {

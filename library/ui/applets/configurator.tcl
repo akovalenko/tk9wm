@@ -1925,29 +1925,44 @@ proc cfg-apply {name value} {
     }
     set kind [cfg-kind-of $name]
     set who [cfg-pretty $name]
-    switch -- [lindex $kind 0] {
-        int {
-            if {![string is integer -strict $value]} {
-                return [cfg-refuse "$who wants a whole number, not «$value»"]
+    # THE DESK'S OWN CHECK, not a second one of ours. A value typed
+    # here and a value written in a config file are the same value, and
+    # they used to meet two different judges — this switch, and
+    # whatever the setter's author wrote. One judge now, living where
+    # the value is FOR (knob-check in policy.tcl), asked over the same
+    # wire everything else here is asked over.
+    #
+    # Standalone — no desk to ask — keeps a thin local copy: better a
+    # second implementation in the one mode that cannot consult the
+    # first than an applet that accepts anything when run alone.
+    if {![ui-standalone?]} {
+        set bad [wm-call [list kind-check $kind $value $who]]
+        if {$bad ne ""} { return [cfg-refuse $bad] }
+    } else {
+        switch -- [lindex $kind 0] {
+            int {
+                if {![string is integer -strict $value]} {
+                    return [cfg-refuse "$who wants a whole number, not «$value»"]
+                }
             }
-        }
-        float {
-            lassign $kind - lo hi
-            if {![string is double -strict $value]} {
-                return [cfg-refuse "$who wants a number, not «$value»"]
+            float {
+                lassign $kind - lo hi
+                if {![string is double -strict $value]} {
+                    return [cfg-refuse "$who wants a number, not «$value»"]
+                }
+                if {$value < $lo || $value > $hi} {
+                    return [cfg-refuse "$who wants a number between $lo and $hi"]
+                }
             }
-            if {$value < $lo || $value > $hi} {
-                return [cfg-refuse "$who wants a number between $lo and $hi"]
+            color {
+                if {[catch {winfo rgb . $value}]} {
+                    return [cfg-refuse "«$value» is not a color this display knows"]
+                }
             }
-        }
-        color {
-            if {[catch {winfo rgb . $value}]} {
-                return [cfg-refuse "«$value» is not a color this display knows"]
-            }
-        }
-        choice {
-            if {$value ni [lrange $kind 1 end]} {
-                return [cfg-refuse "$who is one of: [lrange $kind 1 end]"]
+            choice {
+                if {$value ni [lrange $kind 1 end]} {
+                    return [cfg-refuse "$who is one of: [lrange $kind 1 end]"]
+                }
             }
         }
     }

@@ -90,7 +90,60 @@ GEOM_RESTART=$(xwininfo -id "$AID" \
     | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
 kill $WM $CL 2>/dev/null
 
+# --- a bad value is a problem, not a dead config -------------------
+# The kind is the check now, on BOTH inputs (lifecycle plan, step 2):
+# what the configurator refuses when typed, the desk refuses when
+# written — and refusing one word must not cost the rest of the file.
+# The last line is the proof: it is applied even though four words
+# above it were rejected.
+BADCONF=$(mktemp -d)
+cat > "$BADCONF/tk9wm.tcl" <<'EOF'
+set-edge-resist двенадцать
+set-workarea-follow куда-нибудь
+set-desk-background "не цвет"
+set-fade 7
+set-icon-path {/nowhere/at/all /usr/share/icons}
+set-title-justify center
+EOF
+BADLOG="$HERE/wm-config-bad.log"
+XDG_CONFIG_HOME="$BADCONF" "$LINUX/whale" "$WMTCL" > "$BADLOG" 2>&1 &
+BADWM=$!
+sleep 2
+BADSTATE=$("$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl /dev/stdin <<'EOF'
+list just $::titlejust resist $::edge_resist follow $::workarea_follow \
+     fade $::fade path [llength $::icon_path]
+EOF
+)
+kill $BADWM 2>/dev/null
+rm -rf "$BADCONF"
+REFUSED=$(grep -ac 'PROBLEM config word' "$BADLOG")
+KEPTPATH=$(grep -ac 'kept anyway, like PATH' "$BADLOG")
+echo "--- bad config: $REFUSED refusals, path note $KEPTPATH, state: $BADSTATE"
+
 echo "--- verdict"
+if [ "$REFUSED" = 4 ]; then
+    echo "OK: four bad values were refused one by one"
+else
+    echo "FAIL: $REFUSED refusals in the bad config, want 4"; FAIL=1
+fi
+case "$BADSTATE" in
+    *"just center"*) echo "OK: ...and the line after them still applied" ;;
+    *) echo "FAIL: the config died on a bad word: «$BADSTATE»"; FAIL=1 ;;
+esac
+case "$BADSTATE" in
+    *"resist 12"*"follow stick"*"fade 0.8"*)
+        echo "OK: ...while the refused values kept their defaults" ;;
+    *) echo "FAIL: a refused value got through: «$BADSTATE»"; FAIL=1 ;;
+esac
+if [ "$KEPTPATH" -ge 1 ]; then
+    echo "OK: a missing icon directory is a note, and the path keeps it (PATH semantics)"
+else
+    echo "FAIL: the missing directory was not reported as kept"; FAIL=1
+fi
+case "$BADSTATE" in
+    *"path 2"*) echo "OK: ...both components are still in the path" ;;
+    *) echo "FAIL: the path was shortened behind the config's back"; FAIL=1 ;;
+esac
 if grep -q 'WM: config .*default-config\.tcl$' "$HERE/wm-config-A.log"; then
     echo "OK: phase A fell back to the project default-config"
 else
