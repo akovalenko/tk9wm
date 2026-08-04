@@ -1819,12 +1819,6 @@ proc policy-paint-focus {w} {
 # everybody: nothing breaks, nothing fades. That is the compositor's
 # half of the bargain, not ours.
 keep fade 0.8
-proc set-fade {a} {
-    if {![string is double -strict $a] || $a <= 0.0 || $a > 1.0} {
-        error "set-fade: how solid a faded window is, above 0 and up to 1"
-    }
-    set ::fade $a
-}
 # The value a client rests at when nothing has faded it — its style's,
 # and solid unless a rule says otherwise.
 proc rest-opacity {w} {
@@ -1888,10 +1882,6 @@ proc apply-opacity {w} {
 # hand back a half-dead window:
 #   wm-style {filter -class {*.exe *.exe}} {minimize refuse}
 keep minimize iconify
-proc set-minimize {mode} {
-    if {$mode ni {iconify refuse}} { error "set-minimize: iconify|refuse" }
-    set ::minimize $mode
-}
 proc minimize-mode {w} {
     set st [style-of $w]
     if {[dict exists $st minimize]} { return [dict get $st minimize] }
@@ -2952,10 +2942,6 @@ proc policy-workareas {} {
 # entirely (they resize it to the saved size under the pointer, which
 # nobody has asked for here).
 keep maximize drop
-proc set-maximize {mode} {
-    if {$mode ni {keep drop}} { error "set-maximize: keep|drop" }
-    set ::maximize $mode
-}
 proc maximize-guard {w} {
     if {![info exists ::frameof($w)]} { return 0 }
     # Fullscreen already owns this window's geometry, and the two would
@@ -3731,9 +3717,6 @@ proc popup-move {T n d} {
 # nothing held (the Super-sequence ends fully released) the list is a
 # static menu. set-winlist-cycle off disables the mode entirely.
 keep winlist_cycle_opt 1
-proc set-winlist-cycle {onoff} {
-    set ::winlist_cycle_opt [expr {$onoff in {on 1 yes true}}]
-}
 
 # ---- config-facing icon resolution ----
 # The `icon` value (a panel-button key, a wm-style icon key) is
@@ -6050,20 +6033,12 @@ proc coop-exec-close {ch} {
 keep emacs_frames gui
 keep emacs_daemons on      ;# off = every emacs button is plain lookup-or-run
 keep emacs_autodaemon on   ;# off = a dead socket is an error, never a spawn
-proc set-emacs-frames {mode} {
-    if {$mode ni {gui terminal}} { error "set-emacs-frames: gui or terminal" }
-    set ::emacs_frames $mode
-}
 # Whether a missing daemon is STARTED (-a '') or is an error. Default
 # on — the one-command ensure is half the layer's point — but some
 # desks have systemd (or a session script) owning the daemons, and an
 # accidentally auto-started one lives in whatever environment the WM
 # happened to have: the owner's case for the off switch. Per button:
 # the `autodaemon` spec key.
-proc set-emacs-autodaemon {mode} {
-    if {$mode ni {on off}} { error "set-emacs-autodaemon: on or off" }
-    set ::emacs_autodaemon $mode
-}
 # ...and whether there are daemons AT ALL. Off = every emacs button
 # degrades to the simple life: lookup by the same match, run
 # `emacs --name FRAME --eval ...` when nothing lives (emacs puts
@@ -6071,10 +6046,6 @@ proc set-emacs-autodaemon {mode} {
 # match never changes). No server means no eval-on-hit and no tty
 # repair — the hit is the whole story; that is the price and it is
 # stated here rather than discovered. Per button: `daemon none`.
-proc set-emacs-daemons {mode} {
-    if {$mode ni {on off}} { error "set-emacs-daemons: on or off" }
-    set ::emacs_daemons $mode
-}
 # ...and WHETHER THE FRAME KEEPS THE NAME IT WAS BORN WITH. It is born
 # with one because the name is how the desk finds the window: a
 # frame's name parameter is the instance half of its WM_CLASS. But
@@ -6091,10 +6062,6 @@ proc set-emacs-daemons {mode} {
 # something. `keep-frame-name on` — desk-wide here, per button in the
 # spec — is for whoever wants the button's word standing in the title.
 keep emacs_keep_frame_name off
-proc set-emacs-keep-frame-name {mode} {
-    if {$mode ni {on off}} { error "set-emacs-keep-frame-name: on or off" }
-    set ::emacs_keep_frame_name $mode
-}
 # All these knobs are consulted AT FIRE TIME, never baked in at the
 # button's declaration — a knob set later in the config must win
 # (the styleof lesson, again).
@@ -6365,10 +6332,6 @@ proc edit-place {how file line} {
 # person who asks to see a config line means «show me», not «give me
 # another window».
 keep emacs_edit reuse
-proc set-emacs-edit {mode} {
-    if {$mode ni {reuse create}} { error "set-emacs-edit: reuse or create" }
-    set ::emacs_edit $mode
-}
 # WHICH EMACS EDITS. The server is the whole of the addressing here —
 # emacsclient -s NAME -r picks a frame of THAT server and no other —
 # which is why the door needs no frame name while the buttons want
@@ -8772,24 +8735,10 @@ keep tray_geo ""          ;# the strip geometry we last asked for
 # of forbidding — a slow `send`, a long `after` and a loop hang the
 # desk exactly as well, and no linter can see them).
 keep key_hold_warn 1000   ;# ms — over this, the desk says it was held
-proc set-key-hold-warn {ms} {
-    if {![string is integer -strict $ms] || $ms < 1} {
-        error "set-key-hold-warn: milliseconds, please"
-    }
-    set ::key_hold_warn $ms
-}
 keep tray_argb 0          ;# the default follows the compositor, see below
 keep tray_strip_argb 0    ;# ...and what the LIVE strip was built with
 keep tray_laid_size 0     ;# the cell size the live cells were laid out at
 keep tray_panel default   ;# whose bar the tray is part of
-proc set-tray {on} {
-    set ::tray_on [expr {$on ? 1 : 0}]
-    settle-soon tray
-}
-proc set-tray-panel {name} {
-    set ::tray_panel $name
-    settle-soon panels   ;# both bands moved: the old owner's and the new
-}
 # The panel the tray rides on. Not resolved against the declared ones:
 # a name nobody declared is still a band of its own here (that is the
 # tray-and-no-buttons case, and panel-cfg answers for the edge), so the
@@ -9735,6 +9684,18 @@ proc kind-check {kind value {who ""}} {
             if {![string is integer -strict $value]} {
                 return "$name wants a whole number, not «$value»"
             }
+            # ...and the bounds the setters used to check by hand:
+            # `int` alone is any whole number, `int 0` is «not
+            # negative», `int 1 9` is a range. Written in the kind, the
+            # rule is one place and both inputs get it.
+            lassign [lrange $kind 1 2] lo hi
+            if {$lo ne "" && $value < $lo} {
+                return "$name wants [expr {$hi eq {} ? "at least $lo" \
+                                           : "a number from $lo to $hi"}]"
+            }
+            if {$hi ne "" && $value > $hi} {
+                return "$name wants a number from $lo to $hi"
+            }
         }
         float {
             lassign $kind - lo hi
@@ -9842,6 +9803,39 @@ proc knob-vars {} {
     }
     return [lsort -unique $out]
 }
+# A SETTER ONE NEED NOT WRITE. With `var`, `settle` and `kind` all
+# declared, a scalar knob's word is exactly: check (the gate does it),
+# write the wish, ask for the deed. That is what this generates —
+# which is the point of the facets, and the answer to «why declare
+# them» (lifecycle plan, step 5).
+#
+# A hand-written word is never replaced: several are hand-written for
+# real reasons (a font object rather than a variable, a value that
+# normalizes, a wish spread over two variables), and the generator
+# stepping over one would be the worst kind of clever.
+proc knob-define {name} {
+    set meta [dict get [knob-registry] $name]
+    if {![dict exists $meta var] || [dict get $meta var] eq ""} { return 0 }
+    if {[llength [info commands $name]]} { return 0 }
+    set var [dict get $meta var]
+    set kind [dict get $meta kind]
+    set settle [expr {[dict exists $meta settle] ? [dict get $meta settle] : ""}]
+    # BOOLEANS NORMALIZE. The wish is 0 or 1 whatever the config wrote
+    # («on», «yes», «true»), because everything that reads it expects a
+    # number — this is the one shape difference between the hand-written
+    # words and the generated ones, and it is the kind that decides it.
+    set write [expr {[lindex $kind 0] eq "bool"
+                     ? "set ::$var \[expr {\$value ? 1 : 0}\]"
+                     : "set ::$var \$value"}]
+    set ask [expr {$settle eq "" ? "" : "; settle-soon $settle"}]
+    proc $name {value} "$write$ask"
+    return 1
+}
+proc knobs-define {} {
+    set n 0
+    dict for {name -} [knob-registry] { incr n [knob-define $name] }
+    return $n
+}
 proc knob-settler {name} {
     set r [knob-registry]
     if {[dict exists $r $name settle]} { return [dict get $r $name settle] }
@@ -9905,7 +9899,10 @@ proc deed-audit {} {
             # careless word boundary, since a dash is not a word
             # character. Asking that the next character is not one of
             # ours is what tells the two apart.
-            if {[regexp "\\y$cmd(?:\[^-a-zA-Z0-9\]|\$)" $body]} {
+            # ${cmd} braced, and it matters: `$cmd(` reads as an ARRAY
+            # reference to Tcl, so the pattern threw instead of matching
+            # (measured — the whole audit died on it).
+            if {[regexp "\\y${cmd}(?:\[^-a-zA-Z0-9\]|\$)" $body]} {
                 lappend deeds $name
                 break
             }
@@ -9957,9 +9954,9 @@ knob set-workarea-follow {var {workarea_follow} settle {} group windows kind {ch
                       doc {which windows follow a moving workarea}}
 knob set-drag-modifier {var {drag_mods} settle {} group windows kind text get {mods-name $::drag_mods}
                       doc {the modifier that carries a window from anywhere}}
-knob set-drag-slop   {var {drag_slop} settle {} group windows kind int get {set ::drag_slop}
+knob set-drag-slop   {var {drag_slop} settle {} group windows kind {int 0} get {set ::drag_slop}
                       doc {pixels a title press may travel and still be a click}}
-knob set-edge-resist {var {edge_resist} settle {} group windows kind int get {set ::edge_resist}
+knob set-edge-resist {var {edge_resist} settle {} group windows kind {int 0} get {set ::edge_resist}
                       doc {pixels a carried window sticks to a workarea edge}}
 knob set-fade        {var {fade} settle {} group windows kind {float 0 1} get {set ::fade}
                       doc {how solid a faded window stays}}
@@ -9968,7 +9965,7 @@ knob set-root-cursor {var {root_cursor} settle {cursor} group desk kind text get
 knob set-desk-window {var {desk_window} settle {desk-window} group desk kind bool
                       get {expr {$::desk_window ? "on" : "off"}}
                       doc {the desk as one window of ours, or hands off the root}}
-knob set-desks       {var {ndesks} settle {desks} group desk kind int get {set ::ndesks}
+knob set-desks       {var {ndesks} settle {desks} group desk kind {int 1} get {set ::ndesks}
                       doc {how many virtual desks; 1 switches them off}}
 knob set-theme       {var {theme} settle {titles} group desk kind {choice dark light} get {set ::theme}
                       doc {the desk's colours in one word; every colour derives from it}}
@@ -9983,7 +9980,7 @@ knob set-panel-side  {var {} settle {panels} group panel kind {choice bottom top
 knob set-panel-preset {var {} settle {panels} group panel kind {choice row stack icons}
                       get {panel-cfg default preset}
                       doc {buttons as a row, label-under-icon, or icons alone}}
-knob set-panel-icon-size {var {} settle {panels} group panel kind int
+knob set-panel-icon-size {var {} settle {panels} group panel kind {int 1}
                       get {panel-cfg default icon_size}
                       doc {the button face size when any face is iconic}}
 knob set-icon-path   {var {icon_path} settle {} group panel kind {list directories} get {set ::icon_path}
@@ -9994,7 +9991,7 @@ knob set-chord-hold  {var {chord_hold} settle {keys} group keys kind bool
 knob set-winlist-cycle {var {winlist_cycle_opt} settle {} group keys kind bool
                       get {expr {$::winlist_cycle_opt ? "on" : "off"}}
                       doc {alt-tab as the fvwm cycle, or a static menu}}
-knob set-key-hold-warn {var {key_hold_warn} settle {} group keys kind int get {set ::key_hold_warn}
+knob set-key-hold-warn {var {key_hold_warn} settle {} group keys kind {int 0} get {set ::key_hold_warn}
     doc {ms a binding may hold the desk before it is reported}}
 knob set-key-echo    {var {key_echo} settle {} group keys kind text get {set ::key_echo}
                       doc {ms of hesitation before a chord shows itself; off = never}}
@@ -10008,7 +10005,7 @@ knob set-tray-panel  {var {tray_panel} settle {tray} group tray kind text get {s
 knob set-tray-background {var {tray_bg_said} settle {tray} group tray kind color get {set ::tray_bg_said}
                       derived {themed ground}
                       doc {what shows through a transparent icon}}
-knob set-tray-icon-size {var {tray_icon_size} settle {tray} group tray kind int get {set ::tray_icon_size}
+knob set-tray-icon-size {var {tray_icon_size} settle {tray} group tray kind {int 1} get {set ::tray_icon_size}
                       doc {the tray cell's side, in pixels}}
 knob set-tray-argb   {var {tray_argb} settle {tray} group tray kind bool
                       get {expr {$::tray_argb ? "on" : "off"}}
@@ -10676,6 +10673,13 @@ dict for {name meta} [knob-registry] {
     config-verb $name [list at [list knobs $name] key $name value word \
         kind [dict get $meta kind]]
 }
+# GENERATED HERE, where the registry is finally complete and before
+# anything can be said: sixteen words that were sixteen bodies saying
+# the same three things (check, write the wish, ask for the deed).
+# What is left hand-written is hand-written for a reason, and each
+# reason is now visible instead of buried in a body that looked like
+# all the others.
+puts "WM: knob words generated: [knobs-define]"
 set knob_vocab [dict keys $verb_registry]
 set knob_layer ""
 keep layer_knobs {}    ;# layer -> key -> the full command, per load cycle
@@ -11714,12 +11718,6 @@ proc policy-apply {} {
 # The MODIFIER drag has no slop and wants none: holding a modifier
 # before pressing is not something one does by accident.
 keep drag_slop 4
-proc set-drag-slop {px} {
-    if {![string is integer -strict $px] || $px < 0} {
-        error "set-drag-slop: a pixel count, 0 to carry from the first pixel"
-    }
-    set ::drag_slop $px
-}
 
 # Edge resistance: a carried window STICKS to an edge of the workarea —
 # within the resistance the frame sits exactly on it, and it takes that
@@ -11730,12 +11728,6 @@ proc set-drag-slop {px} {
 # WORKAREA's rather than the screen's: the edge worth being flush with
 # is the one the panel leaves free. 0 switches it off.
 keep edge_resist 12
-proc set-edge-resist {px} {
-    if {![string is integer -strict $px] || $px < 0} {
-        error "set-edge-resist: a pixel count, 0 to switch it off"
-    }
-    set ::edge_resist $px
-}
 proc resist-axis {pos size start extent} {
     if {abs($pos - $start) < $::edge_resist} { return $start }
     set far [expr {$start + $extent}]

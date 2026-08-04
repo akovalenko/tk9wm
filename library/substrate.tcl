@@ -2216,13 +2216,6 @@ proc desk-here-p {w} {
 # restore the count over a desk that had already been flattened (the
 # owner, 2026-08-04). So this records the number and the consequences
 # run ONCE, at idle, on whatever the number finally is.
-proc set-desks {n} {
-    if {![string is integer -strict $n] || $n < 1} {
-        error "set-desks: how many desks, 1 or more (1 switches it off)"
-    }
-    set ::ndesks $n
-    desks-apply-soon
-}
 keep desks_pending 0
 proc desks-apply-soon {} {
     if {$::desks_pending} return
@@ -3507,15 +3500,6 @@ keep keyseq_mods 0   ;# ...and the modifiers the prefix was held with
 # is why chord-hold-shadows says so out loud rather than leaving it as
 # advice about which letters to avoid.
 keep chord_hold 0
-proc set-chord-hold {on} {
-    if {![string is boolean -strict $on]} { error "set-chord-hold: on or off" }
-    set ::chord_hold [expr {$on ? 1 : 0}]
-    # ...and the shadow warning is the keys settler's deed, asked for
-    # rather than done: a config states this knob and its binds in
-    # whatever order it likes, and a warning computed halfway through
-    # names half the collisions.
-    if {[llength [info commands settle-soon]]} { settle-soon keys }
-}
 keep kbd_grabbed 0
 keep keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
 keep keyrouter_lost ""   ;# ...and this is its notice, see grab-keys-to
