@@ -7997,12 +7997,21 @@ proc Ask {prompt args} {
     }
     set initial ""
     set place center
+    set width ""
     foreach {k v} $args {
         switch -- $k {
             -initial { set initial $v }
             -place   { set place $v }
-            default  { error "Ask: unknown option «$k» (-initial -place)" }
+            -width   { set width $v }
+            default  { error "Ask: unknown option «$k» (-initial -place -width)" }
         }
+    }
+    # width is characters (the field's own unit) or a percent of the
+    # workarea's width (the place grammar's spirit); unsaid, the box
+    # sizes itself to its layout
+    if {$width ne "" && ![regexp {^[0-9]+%?$} $width]} {
+        error "Ask: -width is characters (48) or a percent of the\
+ workarea (50%), not «$width»"
     }
     set anchor [anchor-of $place]
     if {![ask-host-ready]} {
@@ -8012,7 +8021,7 @@ proc Ask {prompt args} {
     set id [incr ::ask_seq]
     set ::ask_fut($id) [fut::new]
     send -async -- tk9wm-ui [list ui-ask [tk appname] $id \
-        $prompt $initial $anchor [workarea]]
+        $prompt $initial $anchor [workarea] $width]
     puts "WM: Ask $id «$prompt»"
     return [fut::take $::ask_fut($id)]
 }

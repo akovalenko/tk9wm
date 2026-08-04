@@ -607,11 +607,15 @@
 #
 # ---- Ask: a line of text from the person ----
 #
-# `Ask PROMPT ?-initial …? ?-place …?` puts up an undecorated
-# one-line box: the prompt, then a field dressed exactly as the
-# configurator's editors (text-as-entry), no buttons — Enter answers,
-# Escape answers empty. It stands at the place-grammar point over the
-# workarea (unsaid: center), sized to itself. The typing happens in
+# `Ask PROMPT ?-initial …? ?-place …? ?-width …?` puts up an
+# undecorated one-line box dressed as the key echo: the prompt, then
+# a field dressed exactly as the configurator's editors
+# (text-as-entry), no buttons — Enter answers, Escape answers empty.
+# It stands at the place-grammar point over the workarea (unsaid:
+# center); a prompt past twenty characters moves ABOVE the field, so
+# a long question and a long answer each get the full width. -width
+# is characters (48 — the field's own unit) or a percent of the
+# workarea's width (50% — the whole box takes it). The typing happens in
 # the ui host — this process takes no typed text by design — and the
 # word waits on a future, so it belongs in a script the desk runs.
 #

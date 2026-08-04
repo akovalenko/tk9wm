@@ -24,6 +24,7 @@ cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-welcome off
 wm-bind {<Super>1} {puts "TEST: ask <[Ask "спроси:" -place {hcenter bottom}]>"}
 wm-bind {<Super>2} {puts "TEST: ask2 <[Ask "и это очень длинный вопрос юзеру про всё"]>"}
+wm-bind {<Super>3} {puts "TEST: ask3 <[Ask "полширины:" -width 50%]>"}
 wm-bind {<Super>r} Reload
 EOF
 askq() {
@@ -67,6 +68,12 @@ sleep 2
 LAYL=$(askq 'list prow [dict get [grid info .ask.b.p] -row] \
     frow [dict get [grid info .ask.b.f] -row] \
     modal [expr {[.ask.b cget -background] eq [ui-color modal]}]')
+key Escape
+sleep 1
+# ---- a said width, in percent of the workarea ----
+key super+3
+sleep 2
+WIDE=$(askq 'winfo width .ask')
 key Escape
 sleep 1
 # ---- a reload yanks the standing ask, box and all ----
@@ -124,7 +131,12 @@ if [ "$LAYL" = "prow 0 frow 1 modal 1" ]; then
 else
     echo "FAIL: the long layout says: $LAYL"; BAD=1
 fi
-if grep -q 'WM: ask 4: .* — the wait is cancelled' "$LOG"; then
+if [ "$WIDE" = "400" ]; then
+    echo "OK: -width 50% made the box half the workarea wide"
+else
+    echo "FAIL: the 50% box is $WIDE px wide, want 400"; BAD=1
+fi
+if grep -q 'WM: ask 5: .* — the wait is cancelled' "$LOG"; then
     echo "OK: the reload cancelled the standing wait under its own name"
 else
     echo "FAIL: the yank never spoke"; BAD=1

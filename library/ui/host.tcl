@@ -628,7 +628,7 @@ proc ui-place-axis {origin extent size align} {
         center { return [expr {$origin + ($extent - $size) / 2}] }
     }
 }
-proc ui-ask {wmapp id prompt initial anchor warect} {
+proc ui-ask {wmapp id prompt initial anchor warect {width ""}} {
     catch {destroy .ask}
     toplevel .ask -class Tk9wmAsk -background [ui-color edge]
     # A CLIENT, not an override-redirect: splash is one of the types
@@ -654,7 +654,15 @@ proc ui-ask {wmapp id prompt initial anchor warect} {
         -background [ui-color modal] -foreground white
     ui-field .ask.b.f
     set long [expr {[string length $prompt] > 20}]
-    .ask.b.f.t configure -width [expr {$long ? 44 : 32}]
+    # the width the asker said: characters go to the field (its own
+    # unit), a percent is of the workarea and lands on the whole BOX
+    # below, the field stretching into it; unsaid, the layout's own
+    # defaults
+    if {[string is integer -strict $width]} {
+        .ask.b.f.t configure -width $width
+    } else {
+        .ask.b.f.t configure -width [expr {$long ? 56 : 40}]
+    }
     ui-field-set .ask.b.f $initial
     if {$long} {
         grid .ask.b.p -row 0 -column 0 -sticky w  -padx 12 -pady {10 4}
@@ -673,7 +681,10 @@ proc ui-ask {wmapp id prompt initial anchor warect} {
     set H [winfo reqheight .ask]
     lassign $anchor ha va
     lassign $warect wx wy ww wh
-    wm geometry .ask +[ui-place-axis $wx $ww $W $ha]+[ui-place-axis \
+    if {[regexp {^([0-9]+)%$} $width -> pc]} {
+        set W [expr {max($ww * $pc / 100, [winfo reqwidth .ask.b.p] + 40)}]
+    }
+    wm geometry .ask ${W}x${H}+[ui-place-axis $wx $ww $W $ha]+[ui-place-axis \
         $wy $wh $H $va]
     wm deiconify .ask
     # the X focus is the WM's business (it manages this window and

@@ -689,10 +689,15 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   run-script now for exactly that reason (the winops rule).
 
   **A line of text can be asked for** — `Ask PROMPT ?-initial?
-  ?-place?`: an undecorated one-line box at the place-grammar point
-  (unsaid, the workarea's center) — the prompt, a field dressed
-  exactly as the configurator's editors (ui-field, text-as-entry),
-  and no buttons: Enter answers, Escape answers empty. The typing
+  ?-place? ?-width?`: an undecorated one-line box at the place-grammar
+  point (unsaid, the workarea's center), dressed as the key echo — the
+  amber ground, white ink, the edge outline — with the prompt beside
+  the field, or ABOVE it when it runs past twenty characters, so a
+  long question and a long answer each get the full width; the field
+  is dressed exactly as the configurator's editors (ui-field,
+  text-as-entry), there are no buttons — Enter answers, Escape
+  answers empty — and `-width` is characters or a percent of the
+  workarea's width. The typing
   happens in the ui host — the WM process takes no typed text by
   design (the XIM post-mortem) — so the word sends the question over
   the send bridge, parks on a future, and the host's answer wakes it;
