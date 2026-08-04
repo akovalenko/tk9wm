@@ -41,6 +41,7 @@ wm-widget-type clock {
     build clock-widget-build
     tick  clock-widget-tick
     every 1000
+    prefers panel
 }
 
 proc clock-widget-build {w opts} {

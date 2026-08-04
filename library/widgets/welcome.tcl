@@ -11,7 +11,9 @@
 # "Hide this forever" writes the desk's FIRST customization,
 # set-welcome off — the invitation dogfoods the very layer it is
 # inviting you to use.
-wm-widget-type welcome {build welcome-widget-build}
+# A sheet of prose to read once, not a passenger for a strip — which
+# is the whole reason a type gets to say where it belongs.
+wm-widget-type welcome {build welcome-widget-build prefers desktop}
 
 proc welcome-widget-build {w opts} {
     # THE DESK'S COLOUR AS IT IS NOW, not as it was when this widget

@@ -94,16 +94,39 @@ proc wm-widget-type {name spec} {
     if {![dict exists $spec build]} {
         error "wm-widget-type $name: a type must say how to `build`"
     }
+    if {[dict exists $spec prefers]
+            && [dict get $spec prefers] ni {panel desktop}} {
+        error "wm-widget-type $name: prefers is panel or desktop"
+    }
     dict set ::widget_types $name $spec
+}
+# WHERE A TYPE BELONGS BY NATURE, for a declaration that did not say.
+# A clock and a desk indicator are strip furniture; a welcome mat is a
+# sheet of prose one reads once and is nobody's idea of a panel
+# passenger. Saying it in the TYPE is what lets `wm-widget clock -type
+# clock` be a whole declaration (the owner, 2026-08-04) — the
+# alternative, one default for everybody, is right for one of those two
+# and wrong for the other.
+#
+# The fallback is the PANEL, because that is where a widget usually
+# goes and because the desk is the answer one thinks to write down.
+proc widget-preferred-host {type} {
+    set p panel
+    if {[dict exists $::widget_types $type prefers]} {
+        set p [dict get $::widget_types $type prefers]
+    }
+    expr {$p eq "desktop" ? "workarea" : {panel default}}
 }
 
 # wm-widget NAME -type TYPE ?-on HOST? ?-place TERMS? ?-layer L? ?...?
 #
-#   -on      workarea (the default) | screen | {panel NAME} — the
-#            rectangle the placement is measured against. A panel's own
-#            rectangle is what puts a widget ON the panel, and it is
-#            the only thing that makes that different from any other
-#            corner of the desk.
+#   -on      {panel NAME} | workarea | screen — the rectangle the
+#            placement is measured against. A panel's own rectangle is
+#            what puts a widget ON the panel, and it is the only thing
+#            that makes that different from any other corner of the
+#            desk. UNSAID, it is whatever the type prefers (see
+#            widget-preferred-host): the panel for most things, the
+#            desk for the ones that are a sheet of prose.
 #   -place   the `place` grammar's edge words, sizeless (a widget is as
 #            big as its content). Default {right vcenter}.
 #   -layer   top (over the clients, like the panel) or desk (under all
@@ -121,11 +144,20 @@ proc wm-widget {name args} {
     # the welcome mat is written to avoid, and now the reason nothing
     # states a colour in a declaration.
     set opts [dict merge {
-        -type "" -on workarea -place {right vcenter} -layer top
+        -type "" -place {right vcenter} -layer top
         -padding 4 -background {} -foreground {}
     } $args]
     if {[dict get $opts -type] eq ""} {
         error "wm-widget $name: -type is what it IS"
+    }
+    # ...and WHERE, when the declaration did not say: the type's own
+    # answer (widget-preferred-host). Resolved here and stored, so
+    # everything downstream still reads one merged dict — and the
+    # configurator goes on telling a said value from a worked-out one,
+    # since it takes the said set from the layer's own words and only
+    # the DERIVED set from here.
+    if {![dict exists $args -on]} {
+        dict set opts -on [widget-preferred-host [dict get $opts -type]]
     }
     if {[dict get $opts -layer] ni {top desk}} {
         error "wm-widget $name: -layer is top or desk"

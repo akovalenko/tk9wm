@@ -961,8 +961,14 @@
 # same declaration puts it on a panel, in a corner of the workarea, or
 # on the desktop under every window:
 #
+#   wm-widget clock -type clock                    ;# where its TYPE prefers
 #   wm-widget clock -type clock -on {panel default} -place {right vcenter}
 #   wm-widget clock -type clock -on workarea -place {right top}
+#
+# -on left UNSAID is not «nowhere»: each type says where it belongs by
+# nature — the panel for a clock or a desk indicator, the desk for a
+# thing one reads once — so a bare declaration lands where that kind of
+# widget usually goes.
 #   wm-widget clock -type clock -on screen -place center -layer desk
 #
 #   -on       workarea (default) | screen | {panel NAME}

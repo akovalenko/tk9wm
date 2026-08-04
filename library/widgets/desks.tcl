@@ -25,6 +25,7 @@ unless-already {[dict exists $::font_kin DeskNumFont]} {
 wm-widget-type desks {
     build desks-widget-build
     tick  desks-widget-tick
+    prefers panel
 }
 
 proc desks-widget-build {w opts} {
