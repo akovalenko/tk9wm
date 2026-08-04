@@ -2208,11 +2208,31 @@ proc desk-here-p {w} {
 # How many desks there are. One is not a special case anywhere below —
 # it just means every window is here — but it IS the default, so a desk
 # that was never told about desks behaves exactly as it always did.
+# A WISH, NOT A DEED — like every other knob a config turns. A config
+# file and a customization both get to say how many desks there are,
+# and the LAST word is the one that counts; if the first were applied
+# on the spot, `set-desks 1` in the config would collapse every window
+# onto the first desk and the customization's `set-desks 2` would
+# restore the count over a desk that had already been flattened (the
+# owner, 2026-08-04). So this records the number and the consequences
+# run ONCE, at idle, on whatever the number finally is.
 proc set-desks {n} {
     if {![string is integer -strict $n] || $n < 1} {
         error "set-desks: how many desks, 1 or more (1 switches it off)"
     }
     set ::ndesks $n
+    desks-apply-soon
+}
+keep desks_pending 0
+proc desks-apply-soon {} {
+    if {$::desks_pending} return
+    set ::desks_pending 1
+    after idle {set ::desks_pending 0; desks-apply}
+}
+# ...and here is what a count actually costs, once the config has
+# stopped talking.
+proc desks-apply {} {
+    set n $::ndesks
     if {$::desk >= $n} { desk-go [expr {$n - 1}] }
     publish-desk-count
     # A window parked on a desk that no longer exists comes home rather

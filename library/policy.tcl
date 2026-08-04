@@ -11256,6 +11256,11 @@ proc policy-apply {} {
     # panels and widgets in some order, and whichever went up first is
     # under the other until somebody says otherwise.
     panel-on-top
+    # ...and the desk count settles on whatever the layers finally
+    # said — including a config that stopped saying anything, which
+    # resets it to one like every other knob (desks-apply is idle and
+    # coalesced, so several declarations cost one settling).
+    if {[llength [info commands desks-apply-soon]]} { desks-apply-soon }
     # ...and every framed client re-reads its layer, for the same
     # reason the style cache above is dropped: the rules that decide it
     # have just been re-read, and a window keeping the layer an old

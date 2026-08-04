@@ -288,19 +288,27 @@ fi
 # whoever else wants it).
 xdotool key --clearmodifiers super+3
 sleep 0.6
+# ...and the two layers disagree ON PURPOSE. set-desks is a WISH, so
+# the config asking for one desk and the customization for two must
+# settle on two — and nothing may be flattened on the way there, which
+# is what an applied-on-the-spot `set-desks 1` would have done to every
+# window before the second line was even read (the owner, 2026-08-04).
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-set-desks 2
+set-desks 1
 wm-style {filter -title липкий} {desk sticky}
 wm-widget где -type desks -on workarea -place {left top} -style text
+EOF
+cat > "$CONF/tk9wm.custom.tcl" <<'EOF'
+set-desks 2
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :91
 sleep 2
 NOW=$(curdesk); COUNT=$(ndesks); SENT=$(deskof "$AID")
 echo "--- after set-desks 2: on $NOW of $COUNT, «первый» (was on the 3rd) -> $SENT"
 if [ "$COUNT" = "2" ] && [ "$NOW" -lt 2 ] 2>/dev/null; then
-    ok "the count came down and took the current desk with it"
+    ok "the LAST layer's count is the one that counts (config 1, custom 2 -> 2)"
 else
-    bad "after the reload: on $NOW of $COUNT"
+    bad "after the reload: on $NOW of $COUNT, want 2"
 fi
 if [ "$SENT" = "1" ]; then
     ok "...and a window past the end came home to the last desk"
