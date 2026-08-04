@@ -27,6 +27,7 @@ rm -rf "$CONF"; mkdir -p "$CONF"
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-desks 4
 wm-style {filter -title липкий} {desk sticky}
+wm-widget где -type desks -on workarea -place {left top} -style text
 EOF
 
 LOG="$HERE/wm-desk.log"
@@ -128,6 +129,67 @@ else
     bad "the sent window's desk is $(deskof "$AID"), want 2"
 fi
 
+# --- the pile comes back the way it left --------------------------
+# The cure for the switch flicker is an ORDER (topmost first, each next
+# seated under it), so what it must be measured by is the order: two
+# overlapping windows, away and back, and the one that was on top is
+# still on top. The one-batch line beside it says the arrivals were not
+# mapped one at a time with the screen redrawn between them.
+xdotool key --clearmodifiers super+1
+sleep 0.8
+"$LINUX/whale" "$HERE/client.tcl" "нижний" 260x200+100+200 "#3465a4" "" "" 40 \
+    > "$HERE/desk-c.log" 2>&1 &
+CC=$!
+sleep 1.2
+"$LINUX/whale" "$HERE/client.tcl" "верхний" 260x200+160+260 "#ef2929" "" "" 40 \
+    > "$HERE/desk-d.log" 2>&1 &
+CD=$!
+sleep 1.5
+px() { import -window root "$HERE/desk-shot.png" 2>/dev/null
+       convert "$HERE/desk-shot.png" -format "%[pixel:p{$1,$2}]" info:; }
+OVER="200 300"     # where the two of them overlap
+BEFORE=$(px $OVER)
+xdotool key --clearmodifiers super+2
+sleep 1
+xdotool key --clearmodifiers super+1
+sleep 1.5
+AFTER=$(px $OVER)
+BATCH=$(grep -ac "WM: desk 0: 2 shown" "$LOG")
+echo "--- overlap $BEFORE -> away and back -> $AFTER (batches: $BATCH)"
+if [ "$BEFORE" = "srgb(239,41,41)" ]; then
+    ok "the later window is on top to start with"
+else
+    bad "the pile did not start the way it was built ($BEFORE)"
+fi
+if [ "$AFTER" = "$BEFORE" ]; then
+    ok "...and the pile comes back in the same order after a round trip"
+else
+    bad "the round trip reordered the pile ($BEFORE -> $AFTER)"
+fi
+if [ "$BATCH" -ge 1 ]; then
+    ok "...shown in ONE batch, not one window at a time"
+else
+    bad "the arrivals were not batched"
+fi
+
+# --- the indicator answers "where am I" ---------------------------
+# There is no pager and none is wanted, so the standing fact of which
+# desk one is on lives in a widget. It is EVENT-driven (nothing polls
+# for a desk change), which is the thing to prove: switch, and the
+# pixels where it sits are not the pixels they were.
+WID1=$(convert "$HERE/desk-shot.png" -crop 60x30+0+0 -format "%#" info: 2>/dev/null)
+xdotool key --clearmodifiers super+4
+sleep 1.2
+import -window root "$HERE/desk-shot.png" 2>/dev/null
+WID2=$(convert "$HERE/desk-shot.png" -crop 60x30+0+0 -format "%#" info: 2>/dev/null)
+xdotool key --clearmodifiers super+1
+sleep 1.2
+if [ -n "$WID1" ] && [ "$WID1" != "$WID2" ]; then
+    ok "the desk indicator repainted when the desk changed"
+else
+    bad "the indicator did not follow the switch ($WID1 / $WID2)"
+fi
+
 # --- the help says it in ONE line ----------------------------------
 xdotool key --clearmodifiers super+h
 sleep 1
@@ -148,7 +210,7 @@ case "$HELP" in
     *)          bad "the collapsed row lost its wording" ;;
 esac
 
-kill $WM $CA $CB 2>/dev/null
+kill $WM $CA $CB $CC $CD 2>/dev/null
 check_invariants "$LOG" || FAIL=1
 if grep -q 'handler error' "$LOG"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$LOG"

@@ -2223,6 +2223,51 @@ proc desk-visibility {w} {
         x-sync 0
     }
 }
+# EVERY WINDOW AT ONCE, which is not the same as every window one at a
+# time. The leavers go first — the screen empties before it fills, so
+# nothing arrives on top of something that is about to vanish — and the
+# arrivals come back TOPMOST FIRST, each seated under the one before
+# it (policy-desk-under). One flush at the end instead of one per
+# window: `wm deiconify` waits for its own MapNotify, so ten windows
+# used to cost ten round trips with the screen redrawn between them,
+# which is exactly what one could see happening.
+proc desk-apply {} {
+    set hide {}
+    set show {}
+    foreach w [array names ::managed] {
+        if {[info exists ::iconic($w)]} continue    ;# minimized outranks
+        set here [desk-here-p $w]
+        set on [expr {![info exists ::offdesk($w)]}]
+        if {$here && !$on} {
+            lappend show $w
+        } elseif {!$here && $on} {
+            lappend hide $w
+        }
+    }
+    foreach w $hide {
+        set ::offdesk($w) 1
+        incr ::skip_unmap($w)    ;# our own unmap is not the client withdrawing
+        x-unmap $w
+    }
+    if {[llength $hide]} {
+        x-sync 0                 ;# the client unmaps land before the frames go
+        foreach w $hide { policy-desk-hide $w }
+    }
+    set prev ""
+    foreach w [policy-desk-order $show] {
+        unset -nocomplain ::offdesk($w)
+        policy-desk-show $w
+        x-map $w
+        policy-desk-under $w $prev
+        set prev $w
+    }
+    if {[llength $show] || [llength $hide]} {
+        update idletasks
+        x-sync 0
+        puts "WM: desk $::desk: [llength $show] shown, [llength $hide] hidden"
+    }
+}
+
 # Go to desk n. The focus follows: the most recently focused window
 # that is THERE, and the holder when the desk is empty — a desk one
 # switches to with the keyboard still aimed at a window one can no
@@ -2235,7 +2280,7 @@ proc desk-go {n} {
     if {$n == $::desk} return
     set was $::desk
     set ::desk $n
-    foreach w [array names ::managed] { desk-visibility $w }
+    desk-apply
     publish-desk-count
     puts "WM: desk $was -> $n"
     policy-desk-changed $was $n

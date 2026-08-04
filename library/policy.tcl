@@ -1849,6 +1849,47 @@ proc policy-deiconified {w} {
     update idletasks
     panel-match-kick
 }
+# THE DESK SWITCH'S OWN SHOW AND HIDE, and they are not the iconify
+# pair with a different name — the difference is the whole cure for the
+# flicker (the owner, 2026-08-04: "видно как они поочерёдно мапятся
+# одно на другом").
+#
+# What made it visible was three things per window, none of them wrong
+# on its own: Tk's `wm deiconify` WAITS for the MapNotify (tkUnixWm.c,
+# WaitForMapNotify), policy-deiconified raises the window it restores —
+# right when a hand asked for THAT window, wrong for ten of them at
+# once — and the flush that follows lands the restack. Ten windows,
+# ten round trips, ten reorderings, each one on the glass.
+#
+# So the desk switch says only "be on the screen" and orders the
+# arrivals ITSELF: topmost first, each next one seated under the one
+# before it. What the eye gets is the window one is about to use,
+# covering the desk, and the rest sliding in behind it — and the model
+# already knew that order, so nothing is being decided here twice.
+proc policy-desk-hide {w} {
+    if {![info exists ::frameof($w)]} return
+    wm withdraw $::frameof($w)
+}
+proc policy-desk-show {w} {
+    if {![info exists ::frameof($w)]} return
+    wm deiconify $::frameof($w)
+}
+# ...seated under the one that came before — a relative restack, so
+# the arriving window never passes in front of what is already up.
+proc policy-desk-under {w prev} {
+    if {$prev eq "" || ![info exists ::frameof($w)]
+            || ![info exists ::frameof($prev)]} return
+    lower $::frameof($w) $::frameof($prev)
+}
+# The model's own stacking, TOPMOST FIRST, narrowed to these windows.
+proc policy-desk-order {wins} {
+    set order {}
+    foreach w [client-stacking] {
+        if {[lsearch -exact $wins $w] >= 0} { lappend order $w }
+    }
+    return [lreverse $order]
+}
+
 # The window list is the way back, so an iconic window must be
 # recognizable in it. The mark is the title in SQUARE BRACKETS — the
 # way twm and fvwm have shown an iconified entry since the eighties.

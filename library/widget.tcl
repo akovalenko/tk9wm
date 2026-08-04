@@ -552,29 +552,52 @@ proc widget-host-rect-for {what} {
     }
 }
 
+# ONE tick, and nothing about when the next one comes. Two kinds of
+# widget need this and they are not the same kind: a clock has a
+# HEARTBEAT (see widget-tick below) while a desk indicator has an
+# EVENT — the desk changed, and there is nothing to poll for. A widget
+# that polled for an event would be wrong for up to one interval every
+# time it happened, which for a one-second clock is a whole second of
+# lying about where you are.
+proc widget-tick-once {name} {
+    # Braced, and it matters: `if {...} return 0` gives `if` a body of
+    # `return` and an ELSE body of `0`, so the ordinary path — the
+    # widget being alive — runs «0» as a command and throws.
+    if {![info exists ::widget_win($name)]} { return 0 }
+    set c $::widget_win($name)
+    if {![winfo exists $c]} { unset ::widget_win($name); return 0 }
+    set opts [widget-opts $name]
+    set spec [dict get $::widget_types [dict get $opts -type]]
+    if {![dict exists $spec tick]} { return 1 }
+    if {[catch {uplevel #0 [list {*}[dict get $spec tick] $c $opts]} err]} {
+        puts "WM: widget $name: tick failed: $err"
+    }
+    # A clock is wider at 10:00 than at 9:00. Re-place only when the
+    # content really changed size — and through the whole build,
+    # since a wider widget may want a deeper strip.
+    update idletasks
+    if {[list [winfo reqwidth $c] [winfo reqheight $c]] \
+            ne $::widget_size($name)} {
+        widgets-rebuild-soon
+    }
+    return 1
+}
 # The heartbeat. It reschedules itself from the WIDGET's own existence,
 # so a rebuild does not need to chase timers: the tick of a widget that
 # is gone simply stops.
 proc widget-tick {name} {
-    if {![info exists ::widget_win($name)]} return
-    set c $::widget_win($name)
-    if {![winfo exists $c]} { unset ::widget_win($name); return }
-    set opts [widget-opts $name]
-    set spec [dict get $::widget_types [dict get $opts -type]]
-    if {[dict exists $spec tick]} {
-        if {[catch {uplevel #0 [list {*}[dict get $spec tick] $c $opts]} err]} {
-            puts "WM: widget $name: tick failed: $err"
-        }
-        # A clock is wider at 10:00 than at 9:00. Re-place only when the
-        # content really changed size — and through the whole build,
-        # since a wider widget may want a deeper strip.
-        update idletasks
-        if {[list [winfo reqwidth $c] [winfo reqheight $c]] \
-                ne $::widget_size($name)} {
-            widgets-rebuild-soon
-        }
+    if {![widget-tick-once $name]} return
+    set spec [dict get $::widget_types [dict get [widget-opts $name] -type]]
+    if {[dict exists $spec every]} {
+        after [dict get $spec every] [list widget-tick $name]
     }
-    after [dict get $spec every] [list widget-tick $name]
+}
+# Everything that can be told, told now: what the desk uses when a
+# fact a widget shows has just changed under it (a desk switch is the
+# first such fact). Cheap by construction — a tick that finds nothing
+# to change changes nothing.
+proc widgets-tick-all {} {
+    foreach name [array names ::widget_win] { widget-tick-once $name }
 }
 
 # All of them, from nothing — the panels' own pattern, and for the same
