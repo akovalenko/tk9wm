@@ -78,7 +78,7 @@ proc desks-widget-vertical {opts r gap} {
 }
 proc desks-widget-tick {w opts} {
     if {[winfo exists $w.n]} {
-        $w.n configure -text "[expr {$::desk + 1}]/$::ndesks"
+        $w.n configure -text "[desk-name $::desk]/$::ndesks"
         return
     }
     if {![winfo exists $w.d]} return

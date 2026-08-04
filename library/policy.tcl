@@ -1692,11 +1692,55 @@ proc policy-transient {w leader} {
 # Focus highlight: active frame blue, inactive grey. Every honest focus
 # change lands here (server-confirmed focus-to, and focus moved behind
 # our back) — which makes it the one place to keep the focus history.
+# STICKY HAS TO LOOK LIKE SOMETHING. A window on every desk is
+# otherwise indistinguishable from a window on this one, and the state
+# is easy to set by accident. fvwm's answer is a TEXTURE on the title,
+# and treectrl can do it exactly: an image element takes `-tiled yes`
+# and a style is per column, so the title column can carry a pattern
+# under its text and nothing else has to know.
+#
+# The hatch is TRANSLUCENT WHITE, which is what makes one image enough:
+# the titlebar is blue when focused, grey when not and amber under a
+# keyboard mode, and a pattern with alpha rides all three instead of
+# needing a copy per colour. Diagonal, sparse, at a fifth of white —
+# legible as a texture, quiet enough to read a title through.
+proc sticky-hatch {} {
+    if {[lsearch -exact [image names] tk9wm-sticky] >= 0} { return tk9wm-sticky }
+    set n 8
+    image create photo tk9wm-sticky -width $n -height $n
+    # Tk 9 takes an RGBA colour, which is the whole trick: at a fifth of
+    # white the line BLENDS with whatever is under it, so one image
+    # serves the blue strip, the grey one, and the amber of a keyboard
+    # mode. Solid white was tried first and read as a fence across the
+    # title.
+    for {set i 0} {$i < $n} {incr i} {
+        tk9wm-sticky put #ffffff36 -to $i $i [expr {$i + 1}] [expr {$i + 1}]
+    }
+    return tk9wm-sticky
+}
 proc frame-recolor {t bg} {
     $t configure -background $bg
     $t.deco configure -background $bg
     deco-draw $t.deco [winfo width $t.deco] [winfo height $t.deco]
     $t.title configure -background $bg
+    # ...and the ARMED button with it. A pressed button used to fill
+    # with the desk's ground, which on a light theme is nearly white
+    # under a white glyph — the button vanished exactly while the
+    # finger was on it (the owner, 2026-08-04). The titlebar stays dark
+    # in both themes and its glyphs are white, so the honest press is
+    # the strip's own colour PUSHED IN: same hue, darker, white glyph
+    # still legible. Set here because the strip's colour is the frame's
+    # and moves with focus.
+    catch {$t.title element configure eBox \
+        -fill [list [shade $bg 0.65] pressed {} {}]}
+}
+# A colour of the same hue, DARKER — what a pressed thing looks like.
+# f is what survives of it: 0.65 is a press one can see without the
+# glyph losing its ground.
+proc shade {colour f} {
+    lassign [winfo rgb . $colour] r g b
+    format "#%04x%04x%04x" [expr {int($r * $f)}] [expr {int($g * $f)}] \
+        [expr {int($b * $f)}]
 }
 proc frame-focus-color {w} {
     if {[kbmr-owns $w]} { return $::KBMR_BG }   ;# the mode outranks focus
@@ -1706,6 +1750,16 @@ proc frame-focus-color {w} {
 # has a different set to count now, and the strips re-judge their
 # matches. The windows themselves were mapped and unmapped by the
 # substrate — visibility is its half — so nothing here moves anything.
+# The title wears what the window IS: called wherever a window's own
+# desk can change (the substrate's desk-send), and once at framing.
+proc frame-sticky-paint {w} {
+    if {![info exists ::frameof($w)]} return
+    set t $::frameof($w)
+    if {![winfo exists $t.title]} return
+    catch {$t.title item state forcolumn 1 C0 \
+        [expr {[desk-sticky-p $w] ? "sticky" : "!sticky"}]}
+}
+proc policy-window-desk-changed {w} { frame-sticky-paint $w }
 proc policy-desk-changed {was now} {
     panel-match-kick
     restack-soon
@@ -2195,6 +2249,10 @@ proc layer-toggle {w n} {
 # A newcomer's desk: the style's word, else the desk one is on. The
 # style may also say `sticky`, which is the desk answer for a window
 # that belongs to all of them.
+proc client-desk-declare-and-paint {w} {
+    client-desk-declare $w
+    frame-sticky-paint $w
+}
 proc client-desk-declare {w} {
     set st [style-of $w]
     # A window is BORN ON A DESK and stays there. Without this it had
@@ -2321,7 +2379,7 @@ proc policy-client-click {w} {
 proc policy-managed {w} {
     stack-add $w         ;# into the stacking model, at the top of its layer
     client-layer-declare $w
-    client-desk-declare $w
+    client-desk-declare-and-paint $w
     raise-group $w
     focus-to $w
     apply-opacity $w
@@ -2392,11 +2450,17 @@ proc titlebar-build {t w names title} {
         }
     }
     $t.title configure -treecolumn C0
+    $t.title state define sticky    ;# on every desk — worn as a texture
     $t.title element create eTxt text -fill white -lines 1 -font TitleFont
+    $t.title element create eHatch image -tiled yes \
+        -image [list [sticky-hatch] sticky {} {}]
     $t.title element create eBox rect -outline white -outlinewidth 1 \
-        -fill [list [themed ground] pressed {} {}]
+        -fill [list [shade [themed focus] 0.65] pressed {} {}]
     $t.title style create sTitle
-    $t.title style elements sTitle eTxt
+    # the hatch FIRST, so it is under the text; detached and expanded,
+    # so it is the whole cell rather than a thing beside the title
+    $t.title style elements sTitle {eHatch eTxt}
+    $t.title style layout sTitle eHatch -detach yes -iexpand xy
     $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
         -padx 4 -squeeze x
     # the box fills its btnw-wide cell (glyph + ipad == btnw) and is
@@ -3849,7 +3913,7 @@ proc winlist-of {scope} {
 # a title alone leaves a question.
 proc desk-label {w title} {
     if {$::ndesks <= 1 || [desk-here-p $w]} { return $title }
-    return "[desk-of $w]: $title"
+    return "[desk-name [desk-of $w]]: $title"
 }
 # The list itself, reusable — and it answers TWO questions that were
 # one argument for as long as only two combinations of them existed:
@@ -4393,6 +4457,7 @@ set winops_actions {
     Resize     s
     Minimize   i
     Above      a
+    Sticky     y
 }
 proc winops {{w 0}} {
     if {$w == 0} { set w $::focused }

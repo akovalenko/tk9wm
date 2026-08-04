@@ -2124,7 +2124,8 @@ proc deiconify-client {w} {
     # somebody else's eyes.
     if {![desk-here-p $w]} {
         set ::offdesk($w) 1    ;# invisible for a second reason now
-        puts "WM: deiconified 0x[format %x $w] — on desk [desk-of $w], not this one"
+        puts "WM: deiconified 0x[format %x $w] — on desk [desk-name [desk-of $w]],\
+ not this one"
         return
     }
     unset -nocomplain ::offdesk($w)
@@ -2166,6 +2167,14 @@ proc desk-of {w} {
     expr {[info exists ::deskof($w)] ? $::deskof($w) : $::desk}
 }
 proc desk-sticky-p {w} { expr {[desk-of $w] eq "all"} }
+# DESKS ARE COUNTED FROM ONE WHEREVER A HUMAN READS THEM, and from zero
+# everywhere else. The protocol has no choice — EWMH's
+# _NET_CURRENT_DESKTOP and _NET_WM_DESKTOP are zero-based and stay so —
+# and neither has the code, which indexes. But the keys say Super+1 for
+# the first desk, so a list or a log that called it 0 would be the desk
+# contradicting itself (the owner, 2026-08-04). One proc, and every
+# human-facing string goes through it.
+proc desk-name {d} { expr {$d eq "all" ? "all" : $d + 1} }
 proc desk-here-p {w} {
     set d [desk-of $w]
     expr {$d eq "all" || $d == $::desk}
@@ -2294,7 +2303,7 @@ proc desk-apply {} {
 # longer see would be a trap.
 proc desk-go {n} {
     if {![string is integer -strict $n] || $n < 0 || $n >= $::ndesks} {
-        puts "WM: desk $n: there are $::ndesks"
+        puts "WM: no desk [desk-name $n]: there are $::ndesks"
         return
     }
     if {$n == $::desk} return
@@ -2302,7 +2311,7 @@ proc desk-go {n} {
     set ::desk $n
     desk-apply
     publish-desk-count
-    puts "WM: desk $was -> $n"
+    puts "WM: desk [desk-name $was] -> [desk-name $n]"
     policy-desk-changed $was $n
     set want 0
     foreach cand $::focus_hist {
@@ -2322,7 +2331,7 @@ proc desk-send {w n} {
     if {![info exists ::managed($w)]} return
     if {$n ne "all"} {
         if {![string is integer -strict $n] || $n < 0 || $n >= $::ndesks} {
-            puts "WM: desk $n: there are $::ndesks"
+            puts "WM: no desk [desk-name $n]: there are $::ndesks"
             return
         }
     }
@@ -2330,7 +2339,8 @@ proc desk-send {w n} {
     if {$was eq $n} return
     set ::deskof($w) $n
     publish-desk-of $w
-    puts "WM: 0x[format %x $w] desk $was -> $n"
+    puts "WM: 0x[format %x $w] desk [desk-name $was] -> [desk-name $n]"
+    soft "paint the sticky mark" { policy-window-desk-changed $w }
     set was_focused [expr {$::focused == $w}]
     desk-visibility $w
     if {$was_focused && ![desk-here-p $w]} {
