@@ -489,16 +489,24 @@
 # out in a transient list under a chord. A row is a reference to an
 # action — a bare name, or `{action NAME …}` when it wants a key or a
 # label of its own — or a label+do pair for the piece that is
-# genuinely this config's:
+# genuinely this config's. `action` also takes an INLINE spec — one
+# word or a dict, Fire's own rule — for the deed said once, with a
+# label standing in for the name it does not have:
 #
 #   wm-menu ssh {
 #       key   {<Super>t s}
 #       items {
 #           {action ssh_web key w}
 #           ssh_db
+#           {label "bash here" action {type terminal launch {Run bash}}}
 #           {label "log here" do {Run xterm -e tail -f /var/log/syslog}}
 #       }
 #   }
+#
+# A reference nobody declared is a DEFECT and goes to the problems
+# store (once per declaration — a reload re-judges); a WAITING row —
+# a reference to a waiting action, an inline spec whose needs are
+# unmet — is quietly not shown, the panel's rule.
 #
 # A row without a key is numbered the winlist way, 1-9 then A-Z, and
 # the numbering steps over the letters explicit keys claimed. A row

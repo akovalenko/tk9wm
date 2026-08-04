@@ -635,7 +635,12 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   **A config gets menus of its own** (`wm-menu NAME {key … items …}`)
   — another surface for actions, the way the panel is: a row is a
   reference to an action (a bare name, or `{action NAME key w}` with a
-  mnemonic and a label of its own) or a `{label … do SCRIPT}` pair.
+  mnemonic and a label of its own), an INLINE action spec (`{label
+  "bash here" action {type terminal launch {Run bash}}}` — one word or
+  a dict, Fire's rule, gated by Fire's own gate where it is written),
+  or a `{label … do SCRIPT}` pair. A reference nobody declared is a
+  defect and goes to the problems store, once per declaration cycle;
+  a waiting row is quietly not shown.
   Rows without a key are numbered the winlist way, 1-9 then A-Z,
   stepping over the letters explicit mnemonics claimed; a reference to
   a waiting action is not shown (the panel's rule), an unknown one is

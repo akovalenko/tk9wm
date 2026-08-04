@@ -41,6 +41,7 @@ wm-menu m1 {
         {action alpha key 1}
         {label "сказать" do {puts "TEST: do fired"}}
         beta
+        {label "инлайн" action {launch {puts "TEST: inline fired"}}}
         {action ghost}
         nosuch
     }
@@ -80,6 +81,8 @@ key super+m
 key 2                 # the do row — proves the numbering stepped over 1
 key super+m
 key 1                 # the explicit mnemonic
+key super+m
+key 4                 # the inline spec, fired through Fire's door
 key super+m
 key Escape            # dismissal leaves nothing standing
 
@@ -122,11 +125,11 @@ if grep -q 'soft failure\|handler error' "$HERE/wm-menu.log"; then
     grep 'soft failure\|handler error' "$HERE/wm-menu.log"; BAD=1
 fi
 
-OPENS=$(grep -c 'WM: menu m1 open (3 items)' "$HERE/wm-menu.log")
-if [ "$OPENS" = "5" ]; then
-    echo "OK: the static menu opened 5 times, 3 rows of 5 declared each time"
+OPENS=$(grep -c 'WM: menu m1 open (4 items)' "$HERE/wm-menu.log")
+if [ "$OPENS" = "6" ]; then
+    echo "OK: the static menu opened 6 times, 4 rows of 6 declared each time"
 else
-    echo "FAIL: m1 opened with 3 rows $OPENS times, want 5"; BAD=1
+    echo "FAIL: m1 opened with 4 rows $OPENS times, want 6"; BAD=1
 fi
 if grep -q 'WM: menu m1: «ghost» is waiting — not shown' "$HERE/wm-menu.log" \
         && grep -q 'WM: menu m1: «nosuch» is not a deed this desk knows' \
@@ -151,6 +154,17 @@ if grep -q 'WM: menu m1 pick «alpha»' "$HERE/wm-menu.log" \
     echo "OK: the explicit mnemonic 1 reached alpha"
 else
     echo "FAIL: alpha was not picked by its explicit 1"; BAD=1
+fi
+if grep -q 'TEST: inline fired' "$HERE/wm-menu.log"; then
+    echo "OK: an inline action spec fired through Fire's door"
+else
+    echo "FAIL: the inline row never fired"; BAD=1
+fi
+PROBS=$(grep -c 'WM: PROBLEM menu m1: «nosuch»' "$HERE/wm-menu.log")
+if [ "$PROBS" = "2" ]; then
+    echo "OK: the unknown reference is a PROBLEM — once per declaration, re-judged by the reload"
+else
+    echo "FAIL: the nosuch problem was recorded $PROBS times, want 2"; BAD=1
 fi
 
 if grep -q 'TEST: m2 built 1' "$HERE/wm-menu.log" \

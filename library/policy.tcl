@@ -4878,6 +4878,7 @@ proc gesture-menu-at {w} {
 # coroutine); a waiter parked on the popup (Choose below) — the row
 # is the answer and the caller decides.
 keep menus {}   ;# NAME -> the merged raw words (what the layers SAID)
+keep menu_griped {}   ;# {menu action} -> the typo already went to problems
 
 proc wm-menu {name settings} {
     set raw $settings
@@ -4902,6 +4903,11 @@ proc wm-menu {name settings} {
     if {[dict exists $::menus $name key]} {
         catch {wm-unbind [dict get $::menus $name key]}
     }
+    # a fresh word re-judges the gripes: the reference the problems
+    # store named may well be what this declaration just fixed
+    foreach k [dict keys $::menu_griped] {
+        if {[lindex $k 0] eq $name} { dict unset ::menu_griped $k }
+    }
     dict set ::menus $name $raw
     if {[dict exists $raw key]} {
         wm-bind [dict get $raw key] [list menu-open $name] $name
@@ -4916,7 +4922,11 @@ proc wm-menu-remove {name} {
 }
 # One row's grammar, shared by the declaration (checked when said) and
 # the body (checked when it answers): a bare word is an action's name,
-# anything longer says what it is.
+# anything longer says what it is. `action` takes a NAME or an inline
+# SPEC — one word or a dict, Fire's own rule (the owner's ask,
+# 2026-08-05: a menu row should not need a registry entry for a deed
+# said once) — and an inline one is read by Fire's gate where it is
+# written, and needs a label, having no name to read as one.
 proc menu-item-check {who item} {
     if {[llength $item] == 1} return   ;# a bare action name
     if {[llength $item] % 2} {
@@ -4933,6 +4943,14 @@ proc menu-item-check {who item} {
     }
     if {![dict exists $item action] && ![dict exists $item do]} {
         error "$who: an item names an action or carries a do-script"
+    }
+    if {[dict exists $item action]
+            && [llength [dict get $item action]] > 1} {
+        fire-spec-gate "$who: inline action" [dict get $item action]
+        if {![dict exists $item label]} {
+            error "$who: an inline action needs a label —\
+ it has no name to read as one"
+        }
     }
     if {[dict exists $item do] && ![dict exists $item label]} {
         error "$who: a do item needs a label"
@@ -4973,11 +4991,41 @@ proc menu-open {name {w 0}} {
     set rows {}
     foreach item $items {
         if {[llength $item] == 1} { set item [list action [lindex $item 0]] }
-        if {[dict exists $item action]} {
+        if {[dict exists $item action]
+                && [llength [dict get $item action]] > 1} {
+            # an INLINE spec, fired through Fire's own door; hidden
+            # while its needs are unmet or a terminal deed has no
+            # emulator — the same waiting judgement a declared action
+            # gets, made on the spot
+            set a [dict get $item action]
+            if {[dict exists $a needs] && ![needs-met [dict get $a needs]]} {
+                puts "WM: menu $name: «[dict get $item label]» waits on\
+ [dict get $a needs] — not shown"
+                continue
+            }
+            if {[action-type $a] eq "terminal"
+                    && [lindex [terminal-resolve] 0] eq ""} {
+                puts "WM: menu $name: «[dict get $item label]» waits on\
+ a terminal emulator — not shown"
+                continue
+            }
+            set label [dict get $item label]
+            set fire [list Fire $a]
+        } elseif {[dict exists $item action]} {
             set a [dict get $item action]
             if {![dict exists $::action_spec $a]} {
-                puts "WM: menu $name: «$a» is not a deed this desk knows\
- — skipped"
+                # a reference nobody declared is a DEFECT, not a state:
+                # it goes to the problems store — once per declaration
+                # cycle, a reload re-judges — while the log line says
+                # it at every open
+                if {![dict exists $::menu_griped [list $name $a]]} {
+                    dict set ::menu_griped [list $name $a] 1
+                    problem-record "menu $name" \
+                        "«$a» is not a deed this desk knows — skipped"
+                } else {
+                    puts "WM: menu $name: «$a» is not a deed this desk\
+ knows — skipped"
+                }
                 continue
             }
             if {[dict get $::action_spec $a state] ne "active"} {
@@ -7743,14 +7791,25 @@ proc Fire {what {mode auto}} {
         fire-spec $what $mode
     }
 }
-proc fire-spec {raw mode} {
+# The inline-spec gate Fire and the menu rows share — what a spec
+# with no registry entry cannot carry, refused where it is written:
+# the surface words dress a declared deed, and an emacs deed here has
+# no name of its own to lend its frame.
+proc fire-spec-gate {who raw} {
     foreach k {key icon badge style} {
         if {[dict exists $raw $k]} {
-            error "Fire: an inline deed cannot carry $k —\
+            error "$who: an inline deed cannot carry $k —\
  that word is for a declared action"
         }
     }
-    spec-check Fire action $raw
+    spec-check $who action $raw
+    if {[action-type $raw] eq "emacs" && ![dict exists $raw emacs frame]} {
+        error "$who: an inline emacs deed needs a frame name —\
+ it has no name of its own to lend"
+    }
+}
+proc fire-spec {raw mode} {
+    fire-spec-gate Fire $raw
     if {[dict exists $raw needs]} {
         foreach c [dict get $raw needs] {
             array unset ::auto_execs $c
@@ -7766,10 +7825,6 @@ proc fire-spec {raw mode} {
         puts "WM: Fire: no terminal emulator on this machine"
         policy-key-echo problem "no terminal emulator on this machine"
         return
-    }
-    if {[action-type $raw] eq "emacs" && ![dict exists $raw emacs frame]} {
-        error "Fire: an inline emacs deed needs a frame name —\
- it has no name of its own to lend"
     }
     # the same desugar action-derive does, and it was MISSED at first:
     # the terminal leg then spawned its beast bare, the run words
@@ -12464,7 +12519,7 @@ set config_vars {
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
     emacs_edit emacs_edit_daemon emacs_keep_frame_name
     welcome key_bundles action_raw action_spec action_lint menus
-    winops_actions winops_items
+    menu_griped winops_actions winops_items
 }
 proc policy-snapshot-defaults {} {
     # Incremental on purpose: a Reread may bring NEW config_vars into
