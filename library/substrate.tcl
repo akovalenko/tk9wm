@@ -2944,7 +2944,8 @@ proc focus-park {why} {
 # earns a refusal from the server ("not viewable") and leaves the desk
 # with nobody focused at all.
 proc focus-target-ok {w} {
-    expr {$w != 0 && [info exists ::managed($w)] && ![info exists ::iconic($w)]}
+    expr {$w != 0 && [info exists ::managed($w)] && ![info exists ::iconic($w)]
+          && [desk-here-p $w]}
 }
 proc focus-repair {why {prefer 0}} {
     set want 0

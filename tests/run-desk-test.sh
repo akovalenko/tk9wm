@@ -181,6 +181,7 @@ fi
 # the third desk two legs ago, and a leg that assumed otherwise would
 # be measuring its own forgetfulness (it did, on the first run).
 NID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | sed -n 3p)
+CID_LOW=$NID
 xdotool key --clearmodifiers super+1
 sleep 0.8
 xdotool windowminimize "$NID"
@@ -248,6 +249,36 @@ case "$HELP" in
     *"desk N"*) ok "...with the digit standing as N in the words" ;;
     *)          bad "the collapsed row lost its wording" ;;
 esac
+
+# --- sending a window away leaves SOMEBODY focused -----------------
+# The owner's intermittent report, made to order (2026-08-04). What
+# decided it was the focus history: the refocus after a send walked it
+# and took the most recent OTHER window without asking whether that
+# window is on this desk. One elsewhere is not on the screen, the
+# server refuses the focus (BadMatch, unviewable), and the desk is left
+# with nothing active until something is clicked.
+#
+# So the history is arranged to hold the trap: липкий is sticky and
+# always here, нижний and верхний are here, and первый — the one that
+# will be sent — sits on top of a history whose next entry is a window
+# on ANOTHER desk.
+xdotool key --clearmodifiers super+1
+sleep 0.6
+xdotool windowactivate "$AID" 2>/dev/null   ;# первый lives on desk 3 by now
+sleep 0.8
+xdotool key --clearmodifiers super+1
+sleep 0.8
+xdotool windowactivate "$CID_LOW" 2>/dev/null
+sleep 0.8
+xdotool key --clearmodifiers super+shift+2  ;# ...and away it goes
+sleep 1.2
+ACTIVE=$(xprop -root _NET_ACTIVE_WINDOW | sed 's/.*# //')
+echo "--- after sending the focused window away, active = $ACTIVE"
+if [ "$ACTIVE" != "0x0" ] && [ -n "$ACTIVE" ]; then
+    ok "a send leaves somebody focused on this desk"
+else
+    bad "the send left the desk with nothing active ($ACTIVE)"
+fi
 
 # --- the count changes under everything ---------------------------
 # Two ways a config turns the mechanism down, and both have to be

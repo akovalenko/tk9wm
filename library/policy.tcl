@@ -2422,19 +2422,28 @@ proc policy-managed {w} {
 #    glanced at in between;
 #  - the most recently focused window still alive (focus history);
 #  - any managed window at all.
+# ...and ON THIS DESK, which is the other half of "not iconic" and was
+# missing. A window elsewhere is not on the screen, so the server
+# refuses the focus (BadMatch on an unviewable window), the focus stays
+# parked on the holder, and the desk is left with nothing active — for
+# as long as it takes to click something. Whether it happened depended
+# on what the focus history held, which is why it came and went
+# (the owner, 2026-08-04: "убрать окно на другой стол => остаёшься без
+# активного окна... повторить на заказ не получается").
+proc refocus-ok {cand w} {
+    expr {$cand != $w && [info exists ::frameof($cand)]
+          && ![info exists ::iconic($cand)] && [desk-here-p $cand]}
+}
 proc policy-pick-refocus {w} {
     if {[info exists ::leaderof($w)]} {
         set leader $::leaderof($w)
-        if {$leader != 0 && $leader != $w && [info exists ::frameof($leader)]} {
-            return $leader
-        }
+        if {$leader != 0 && [refocus-ok $leader $w]} { return $leader }
     }
     foreach cand $::focus_hist {
-        if {$cand != $w && [info exists ::frameof($cand)]
-                && ![info exists ::iconic($cand)]} { return $cand }
+        if {[refocus-ok $cand $w]} { return $cand }
     }
     foreach cand [array names ::frameof] {
-        if {$cand != $w && ![info exists ::iconic($cand)]} { return $cand }
+        if {[refocus-ok $cand $w]} { return $cand }
     }
     return 0
 }
