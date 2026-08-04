@@ -7440,6 +7440,141 @@ proc action-panels {name} {
     return $out
 }
 
+# ---- Fire: run-or-raise as a word ------------------------------
+# `Fire NAME ?mode?` is action-fire said out loud — the fire a chord
+# or a button does, callable from any script. `Fire SPEC ?mode?` is
+# the same fire over an INLINE spec, the action vocabulary without
+# the registry: the whole derivation works — the terminal adapter,
+# the match derived from the terminal's name — and nothing lands in
+# the registry, the configurator or the bindings. It exists for the
+# deed that is DATA rather than a declaration: a menu body listing
+# twenty ssh targets or last week's projects would otherwise register
+# twenty throwaway names for the configurator to show forever.
+#
+#     Fire mutt
+#     Fire {terminal {name ssh_web} run {ssh web}}
+#
+# One word or a dict tells the two apart, the menu rows' own rule.
+# The surface words — key, icon, badge, style — are refused on an
+# inline spec: they dress a declared deed, and carrying them here
+# would silently do nothing. An unmet `needs` is refused ALOUD rather
+# than left waiting: there is no registry entry to wait in, and a
+# fire that silently did nothing is the old mistyped-button bug in a
+# new mouth. An inline emacs deed must say its frame name — it has no
+# name of its own to lend (the rule a declared action's name covers).
+proc Fire {what {mode auto}} {
+    if {$mode ni {auto mru choose run}} {
+        error "Fire: the mode is auto, mru, choose or run — not «$mode»"
+    }
+    if {[llength $what] == 1} {
+        action-fire $what $mode
+    } else {
+        fire-spec $what $mode
+    }
+}
+proc fire-spec {raw mode} {
+    foreach k {key icon badge style} {
+        if {[dict exists $raw $k]} {
+            error "Fire: an inline deed cannot carry $k —\
+ that word is for a declared action"
+        }
+    }
+    spec-check Fire action $raw
+    if {[dict exists $raw needs]} {
+        foreach c [dict get $raw needs] {
+            array unset ::auto_execs $c
+            if {[auto_execok $c] eq ""} {
+                puts "WM: Fire: needs $c — not on this machine"
+                policy-key-echo problem "«$c» is not on this machine"
+                return
+            }
+        }
+    }
+    if {[action-type $raw] eq "terminal"
+            && [lindex [terminal-resolve] 0] eq ""} {
+        puts "WM: Fire: no terminal emulator on this machine"
+        policy-key-echo problem "no terminal emulator on this machine"
+        return
+    }
+    if {[action-type $raw] eq "emacs" && ![dict exists $raw emacs frame]} {
+        error "Fire: an inline emacs deed needs a frame name —\
+ it has no name of its own to lend"
+    }
+    set spec [spec-derive Fire $raw]
+    if {$mode eq "auto"} {
+        set mode [expr {[dict exists $spec many]
+                        ? [dict get $spec many] : "mru"}]
+    }
+    if {$mode eq "run"} {
+        if {![dict exists $spec launch]} {
+            puts "WM: Fire: nothing to run"
+            return
+        }
+        fire-spec-launch $spec
+        return
+    }
+    set wins [panel-matches Fire $spec]
+    if {$mode eq "choose" && [llength $wins] > 1} {
+        fire-spec-choose $spec $wins
+        return
+    }
+    set hit [lindex $wins 0]
+    if {$hit ne ""} {
+        fire-spec-reach $spec $hit
+    } elseif {[dict exists $spec launch]} {
+        fire-spec-launch $spec
+    } else {
+        puts "WM: Fire: nothing matched, nothing to launch"
+    }
+}
+# The three limbs mirror action-launch/-reach/-choose minus what only
+# a registered deed has: no button to flash, no panel to anchor the
+# list to, no last-started slot to fill (pinning an inline deed would
+# pin a name nobody declared), and no registry to re-read after the
+# wait — the spec is in hand and cannot be swept out from under it.
+proc fire-spec-launch {spec} {
+    puts "WM: Fire: launch"
+    set script [dict get $spec launch]
+    if {[dict exists $spec env] || [dict exists $spec env-unset]} {
+        set script [list with-env \
+            [expr {[dict exists $spec env] ? [dict get $spec env] : {}}] \
+            $script \
+            [expr {[dict exists $spec env-unset]
+                   ? [dict get $spec env-unset] : {}}]]
+    }
+    set via ""
+    if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
+    run-script Fire [list run-via $via $script]
+}
+proc fire-spec-reach {spec w} {
+    puts "WM: Fire: found 0x[format %x $w]"
+    if {[dict exists $spec activate]} {
+        run-script Fire [list {*}[dict get $spec activate] $w]
+        return
+    }
+    panel-focus-hit $w
+}
+proc fire-spec-choose {spec wins} {
+    if {[info coroutine] eq ""} {
+        run-script Fire [list fire-spec-choose $spec $wins]
+        return
+    }
+    puts "WM: Fire: choose among [llength $wins] matches"
+    set more ""
+    if {[dict exists $spec launch]} { set more "Run another" }
+    set ans [winlist-choose $wins center $more]
+    if {$ans eq ""} return
+    if {$ans eq "more"} {
+        fire-spec-launch $spec
+        return
+    }
+    if {![info exists ::frameof($ans)]} {
+        puts "WM: Fire: the picked window is gone"
+        return
+    }
+    fire-spec-reach $spec $ans
+}
+
 # PIN THE LAST THING I STARTED (the owner's own wording). The other
 # half of populating a panel, and the half a keyboard can do: run
 # something, decide you want it to stay, say so — without naming it,

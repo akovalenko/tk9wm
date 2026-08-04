@@ -503,9 +503,28 @@
 #   }
 #
 # ...where my-recent-rows is the config's own proc answering rows like
-# {label /home/me/proj do {Run …}}. The name is the primary key and a
+# {label /home/me/proj do {Fire …}}. The name is the primary key and a
 # second wm-menu about it REFINES, as an action does; wm-menu-remove
 # NAME is the negative word.
+#
+# `Fire` is run-or-raise as a word. `Fire NAME ?mode?` fires a
+# declared action — what a chord or a button does, callable from any
+# script (mode: auto, mru, choose, run). `Fire SPEC ?mode?` is the
+# same fire over an INLINE spec — the action vocabulary without the
+# registry: the whole derivation works, terminal adapter included,
+# and nothing lands in the registry or the configurator. It is for
+# the deed that is DATA rather than a declaration — a menu body
+# listing twenty ssh targets would otherwise register twenty
+# throwaway names:
+#
+#   Fire mutt
+#   Fire {terminal {name ssh_web} run {ssh web}}
+#
+# The surface words (key, icon, badge, style) are refused inline —
+# they dress a declared deed. An unmet needs is refused out loud
+# rather than left waiting: there is no registry entry to wait in.
+# An inline emacs deed must say its frame name — it has no name of
+# its own to lend.
 #
 # `Choose rows…` is the same list as a QUESTION — for the config's own
 # scripts: it puts the rows up, waits without freezing the desk, and

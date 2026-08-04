@@ -147,6 +147,7 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 | a menu or any transient popup | `popup-shell`, `grab-keys-to` | `policy.tcl` |
 | the window list | `winlist-open` | `policy.tcl` |
 | a menu of the config's own | `wm-menu`, `menu-open`, `Choose` | `policy.tcl` |
+| run-or-raise as a word | `Fire`, `action-fire`, `fire-spec` | `policy.tcl` |
 | what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy.tcl` |
 | the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy.tcl` |
 | the applet host and the door to it | `ui-open`, `ui-style`, `ui-restyle` | `ui/host.tcl` |
@@ -640,6 +641,21 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   desk (the popup-await future the window list already answers
   through), return the picked row's value or empty — so a binding's
   payload can read top to bottom, ask, and act on the answer.
+
+  **Run-or-raise is a word too** — `Fire NAME ?mode?` is the fire a
+  chord or a button does, callable from any script, and `Fire SPEC
+  ?mode?` is the same fire over an **inline spec**: the action
+  vocabulary without the registry, the whole derivation working —
+  terminal adapter, match derived from the terminal's name — and
+  nothing landing in the registry, the configurator or the bindings.
+  It exists for the deed that is DATA rather than a declaration: a
+  menu body listing twenty ssh targets or last week's projects would
+  otherwise register twenty throwaway names for the configurator to
+  show forever. The surface words (key, icon, badge, style) are
+  refused inline — they dress a declared deed and would silently do
+  nothing here; an unmet `needs` is refused out loud rather than left
+  waiting, there being no registry entry to wait in; an inline emacs
+  deed must say its frame name, having no name of its own to lend.
 
   **Fade** (`set-fade`, default 0.8; the `opacity` style key; the
   `Fade`/`Unfade` command pair) — a frame made translucent, frame and
