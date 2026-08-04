@@ -609,6 +609,77 @@ proc ui-pick-commit {w commit check} {
     # be carrying one applet's habits into the library.
     {*}$commit $choice $typed
 }
+# ---- the ask box: one line of text, dressed as the desk ----------
+# The WM's `Ask` lands here: an UNDECORATED box (override-redirect —
+# the desk must not frame its own question) at the point the WM
+# worked out from the place grammar, no buttons — Enter answers,
+# Escape answers empty — and the field is ui-field, the same
+# text-as-entry every configurator editor is. Deliberately spare: the
+# owner wants a command line grown from this material one day
+# (2026-08-05), and a command line is a prompt, a field and two keys.
+#
+# The answer goes back over the send bridge (ask-answer ID TEXT); a
+# WM that reloaded meanwhile drops it with a line, and tells this box
+# to go through ui-ask-drop.
+proc ui-place-axis {origin extent size align} {
+    switch -- $align {
+        start  { return $origin }
+        end    { return [expr {$origin + $extent - $size}] }
+        center { return [expr {$origin + ($extent - $size) / 2}] }
+    }
+}
+proc ui-ask {wmapp id prompt initial anchor warect} {
+    catch {destroy .ask}
+    toplevel .ask -class Tk9wmAsk -background [ui-color rule]
+    # A CLIENT, not an override-redirect: splash is one of the types
+    # the WM's own hinted-decor reads as «no frame at all», so the box
+    # is undecorated AND managed — focus arrives through the front
+    # door when the WM manages it, the typing follows, and closing it
+    # hands the focus back through the refocus history. The first
+    # version was override-redirect and learned why not: Tk's
+    # focus -force on such a window moves Tk's own notion and never
+    # the SERVER's, so every keystroke went on landing in whatever
+    # held the real focus (measured on the stand).
+    wm attributes .ask -type splash
+    wm withdraw .ask
+    frame .ask.b -background [ui-color bg]
+    pack .ask.b -padx 1 -pady 1 -fill both -expand 1
+    label .ask.b.p -text $prompt -font DeskFont -anchor w \
+        -background [ui-color bg] -foreground [ui-color fg]
+    ui-field .ask.b.f
+    .ask.b.f.t configure -width 32
+    ui-field-set .ask.b.f $initial
+    grid .ask.b.p .ask.b.f -padx 4 -pady 5
+    grid configure .ask.b.p -padx {8 2}
+    grid configure .ask.b.f -padx {0 8} -sticky ew
+    grid columnconfigure .ask.b 1 -weight 1
+    bind .ask.b.f.t <Return>   "ui-ask-commit [list $wmapp] $id; break"
+    bind .ask.b.f.t <KP_Enter> "ui-ask-commit [list $wmapp] $id; break"
+    bind .ask.b.f.t <Escape>   "ui-ask-cancel [list $wmapp] $id; break"
+    update idletasks
+    set W [winfo reqwidth .ask]
+    set H [winfo reqheight .ask]
+    lassign $anchor ha va
+    lassign $warect wx wy ww wh
+    wm geometry .ask +[ui-place-axis $wx $ww $W $ha]+[ui-place-axis \
+        $wy $wh $H $va]
+    wm deiconify .ask
+    # the X focus is the WM's business (it manages this window and
+    # focuses a newcomer); Tk's own focus goes to the field so the
+    # keys the server sends this client land in it
+    focus .ask.b.f.t
+}
+proc ui-ask-commit {wmapp id} {
+    set text [ui-field-get .ask.b.f]
+    destroy .ask
+    catch {send -async -- $wmapp [list ask-answer $id $text]}
+}
+proc ui-ask-cancel {wmapp id} {
+    destroy .ask
+    catch {send -async -- $wmapp [list ask-answer $id ""]}
+}
+proc ui-ask-drop {id} { catch {destroy .ask} }
+
 # ---- WHAT IS BUILT ON FIRST USE, BUILT NOW (the owner's ask) ------
 # Dialogs, menus and popups appear when somebody presses the key that
 # needs them — which is also when a defect in their construction

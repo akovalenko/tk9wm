@@ -152,6 +152,7 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 | where a deed runs | `run-at`, `run_dir`, `env -C` | `policy.tcl` |
 | the window menu's own rows | `winops-item`, `winops-rows` | `policy.tcl` |
 | a screenshot of a window | `Window-Shot`, `x-shot`, `rgba-png` | `policy.tcl`, `substrate.tcl` |
+| a line of text from the person | `Ask`, `ask-answer`, `ui-ask` | `policy.tcl`, `ui/host.tcl` |
 | what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy.tcl` |
 | the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy.tcl` |
 | the applet host and the door to it | `ui-open`, `ui-style`, `ui-restyle` | `ui/host.tcl` |
@@ -681,6 +682,19 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   stays self-contained. It waits, so it lives in the same coroutine
   every fired script has; the titlebar gestures run through
   run-script now for exactly that reason (the winops rule).
+
+  **A line of text can be asked for** — `Ask PROMPT ?-initial?
+  ?-place?`: an undecorated one-line box at the place-grammar point
+  (unsaid, the workarea's center) — the prompt, a field dressed
+  exactly as the configurator's editors (ui-field, text-as-entry),
+  and no buttons: Enter answers, Escape answers empty. The typing
+  happens in the ui host — the WM process takes no typed text by
+  design (the XIM post-mortem) — so the word sends the question over
+  the send bridge, parks on a future, and the host's answer wakes it;
+  the host is spawned if it is not up, and a reload yanks a standing
+  ask exactly as it yanks a menu, box and all. The material is
+  deliberately the desk's own: whatever command line this grows into
+  later is a prompt, a field and two keys.
 
   **A deed knows where it runs and what colour it is.** `dir` on any
   action or inline spec is a working directory, landing as an

@@ -3314,6 +3314,16 @@ proc popup-yank {why} {
         puts "WM: popup $m: $why — the wait is cancelled"
         fut::cancel [popup-disarm $m] $why
     }
+    # ...and the asks parked on the ui host: the same fact one bridge
+    # further out — nobody is going to answer, and the box must not
+    # stand over a desk that has moved on
+    foreach id [array names ::ask_fut] {
+        puts "WM: ask $id: $why — the wait is cancelled"
+        set f $::ask_fut($id)
+        unset ::ask_fut($id)
+        fut::cancel $f $why
+        catch {send -async -- tk9wm-ui [list ui-ask-drop $id]}
+    }
     popups-close
 }
 proc popup-shell {m ih pick} {
@@ -7903,6 +7913,84 @@ proc Window-Shot {{w 0} {dir ""}} {
     close $f
     puts "WM: Window-Shot 0x[format %x $w] -> $path (${W}x${H})"
     return $path
+}
+
+# ---- Ask: a line of text from the person, dressed as the desk ----
+# `Ask PROMPT ?-initial …? ?-place …?` — an undecorated one-line box:
+# the prompt, then a field dressed exactly as the configurator's
+# editors (ui-field, text-as-entry), no buttons — Enter answers,
+# Escape answers the empty answer, and so does dismissal of any kind
+# (the popup convention). It stands at the place-grammar point over
+# the workarea (unsaid: center), sized to itself.
+#
+# The TYPING is the ui host's: this process takes no typed text by
+# design (no input method, ever — the XIM post-mortem), so the word
+# sends the question over the send bridge and parks on a future the
+# host's answer fulfills. The host is spawned when it is not up, the
+# applet door's own way. A reload yanks a standing ask exactly as it
+# yanks a menu: the waiter dies with FUT CANCELLED under its own
+# name, and the box is told to go.
+#
+# The material is deliberately the desk's own — the box for whatever
+# command line this grows into later (the owner, 2026-08-05).
+array set ask_fut {}   ;# id -> the future its asker parks on
+keep ask_seq 0
+proc Ask {prompt args} {
+    if {[info coroutine] eq ""} {
+        error "Ask waits for an answer — call it from a script the\
+ desk runs (a binding, a menu row), not bare"
+    }
+    set initial ""
+    set place center
+    foreach {k v} $args {
+        switch -- $k {
+            -initial { set initial $v }
+            -place   { set place $v }
+            default  { error "Ask: unknown option «$k» (-initial -place)" }
+        }
+    }
+    set anchor [anchor-of $place]
+    if {![ask-host-ready]} {
+        puts "WM: Ask: the ui host would not come up"
+        return ""
+    }
+    set id [incr ::ask_seq]
+    set ::ask_fut($id) [fut::new]
+    send -async -- tk9wm-ui [list ui-ask [tk appname] $id \
+        $prompt $initial $anchor [workarea]]
+    puts "WM: Ask $id «$prompt»"
+    return [fut::take $::ask_fut($id)]
+}
+proc ask-answer {id text} {
+    if {![info exists ::ask_fut($id)]} {
+        puts "WM: ask $id: nobody waits — dropped"
+        return
+    }
+    set f $::ask_fut($id)
+    unset ::ask_fut($id)
+    puts "WM: ask $id: [expr {$text eq "" ? "nothing" : "answered"}]"
+    fut::fulfill $f $text
+}
+# The host, up — found on the registry or spawned the applet door's
+# way and awaited (a fresh host loads a Tk and a theme before it can
+# answer; the wait is a coroutine's, the desk does not stop).
+proc ask-host-ready {} {
+    if {"tk9wm-ui" in [winfo interps]} { return 1 }
+    set head [ui-exec-head]
+    if {![llength $head]} {
+        puts "WM: Ask: no way to exec the ui host —\
+ this image should set ::tk9wm_uiexec"
+        return 0
+    }
+    set script [file join $::tk9wm_library ui host.tcl]
+    puts "WM: Ask: spawning the ui host"
+    policy-key-echo flash "ask: starting…"
+    exec {*}$head $script [tk appname] &
+    for {set i 0} {$i < 40} {incr i} {
+        fut::take [fut::after 100]
+        if {"tk9wm-ui" in [winfo interps]} { return 1 }
+    }
+    return 0
 }
 
 # PIN THE LAST THING I STARTED (the owner's own wording). The other

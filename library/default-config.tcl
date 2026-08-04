@@ -597,6 +597,31 @@
 # ...where Window-Shot-To is your two-line proc reordering the
 # arguments; bare `command Window-Shot` shoots into $HOME.
 #
+# ---- Ask: a line of text from the person ----
+#
+# `Ask PROMPT ?-initial …? ?-place …?` puts up an undecorated
+# one-line box: the prompt, then a field dressed exactly as the
+# configurator's editors (text-as-entry), no buttons — Enter answers,
+# Escape answers empty. It stands at the place-grammar point over the
+# workarea (unsaid: center), sized to itself. The typing happens in
+# the ui host — this process takes no typed text by design — and the
+# word waits on a future, so it belongs in a script the desk runs.
+#
+# The ask-claude model task, whole — every word of it above:
+#
+#   proc Ask-Claude {{w 0}} {
+#       set shot [Window-Shot $w $::env(HOME)/screenshots]
+#       if {$shot eq ""} return
+#       set what [Ask "спросить про это окно:"]
+#       if {$what eq ""} return
+#       Fire [list terminal {name claude_ask} dir [file dirname $shot] \
+#           run [list claude \
+#               "юзер спрашивает про скриншот [file tail $shot]: $what"]]
+#   }
+#   titlebar-button ask -side right -needs claude -glyph ?
+#   titlebar-bind   ask <1> Ask-Claude
+#   winops-item ask {label "ask claude" key a needs claude command Ask-Claude}
+#
 # `Choose rows…` is the same list as a QUESTION — for the config's own
 # scripts: it puts the rows up, waits without freezing the desk, and
 # answers the picked row's `value` (its label when no value is said),
