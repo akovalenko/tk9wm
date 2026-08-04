@@ -209,9 +209,12 @@ proc fonts-derive {} {
 unless-already {[dict exists $::font_kin TitleFont]} { wm-font TitleFont }
 unless-already {[dict exists $::font_kin PanelFont]} { wm-font PanelFont }
 proc set-desk-font {args} {
+    # The font OBJECT is where this wish lives — there is no variable
+    # to write — so configuring it IS the wish, and the deeds it owes
+    # (the derived faces, then every live frame) are asked for.
     font configure DeskFont {*}[font-args set-desk-font {*}$args]
-    fonts-derive
-    retitle-frames
+    settle-soon fonts
+    settle-soon titles
 }
 # The pseudo-icon lettering (see winlist-icon): TitleFont's family, but
 # bold and sized in PIXELS to the badge, not the text line — configured
@@ -327,7 +330,7 @@ proc set-theme {name} {
         error "set-theme: no such theme «$name» — [join [dict keys $::theme_palette] { or }]"
     }
     set ::theme $name
-    theme-apply
+    settle-soon theme
 }
 # LIVE, like every knob that touches something one can see — and here
 # that means nearly everything, so it is nearly everything that gets
@@ -534,7 +537,7 @@ title-metrics
 # the slot moved inside the frame. The knob for a live font change:
 proc set-title-font {args} {
     wm-font TitleFont {*}$args
-    retitle-frames
+    settle-soon titles
 }
 # ...and the same for the strip's lettering, which had the FONT all
 # along (PanelFont is one of the two the WM is written in) and no way
@@ -8781,11 +8784,11 @@ keep tray_laid_size 0     ;# the cell size the live cells were laid out at
 keep tray_panel default   ;# whose bar the tray is part of
 proc set-tray {on} {
     set ::tray_on [expr {$on ? 1 : 0}]
-    tray-reconcile-soon
+    settle-soon tray
 }
 proc set-tray-panel {name} {
     set ::tray_panel $name
-    panel-rebuild-soon   ;# both bands moved: the old owner's and the new
+    settle-soon panels   ;# both bands moved: the old owner's and the new
 }
 # The panel the tray rides on. Not resolved against the declared ones:
 # a name nobody declared is still a band of its own here (that is the
@@ -8914,7 +8917,7 @@ proc set-tray-argb {on} {
         return
     }
     set ::tray_argb $want
-    tray-reconcile-soon   ;# a live strip is rebuilt only if the visual moved
+    settle-soon tray      ;# a live strip is rebuilt only if the visual moved
 }
 # "truecolor 32" as [winfo visualsavailable] spells it, or "" when the
 # screen has none (a plain 24-bit server: then there is no ARGB to be
@@ -8976,7 +8979,7 @@ proc tray-refit-cells {} {
 proc set-tray-background {color} {
     set ::tray_bg_said $color
     set ::tray_bg $color
-    tray-recolor
+    settle-soon tray
 }
 # APPLYING A COLOUR IS NOT THE SETTER'S PRIVATE BUSINESS. It was, and
 # so a RESET — which puts the variable back and calls nobody — left
@@ -9871,7 +9874,50 @@ proc knob-var-audit {} {
     puts "WM: config wishes: [llength $declared] declared by knobs,\
  [llength $kept] restored on reload ($unclaimed of them collections and memo)"
     vocabulary-audit
+    deed-audit
 }
+# THE INVARIANT, MADE ASKABLE: a config word only writes a wish, and
+# nothing visible happens until a settler runs (lifecycle plan, step
+# 4). A word that calls the desk directly is a DEED, and a deed cannot
+# be said twice by two layers without the first one costing something —
+# which is exactly how `set-desks 1` in a config flattened every window
+# before the customization's `set-desks 2` was read.
+#
+# The check is a heuristic and says so: it looks for the settlers' own
+# commands in a word's body. That catches the real cases (a setter
+# calling panels-build, theme-apply, tray-recolor) and cannot catch a
+# deed done through some name nobody thought of — which is fine. It is
+# a hint that names names, not a proof.
+set live_commands {
+    panels-build tray-reconcile tray-recolor desk-window-build
+    welcome-inject widgets-build retitle-frames root-cursor-apply
+    publish-workarea panel-on-top theme-apply fonts-derive title-metrics
+    restack-soon chord-hold-shadows panel-match-kick ui-restyle
+}
+proc deed-audit {} {
+    set deeds {}
+    dict for {name meta} [knob-registry] {
+        if {![llength [info commands $name]]} continue
+        if {[catch {info body $name} body]} continue
+        foreach cmd $::live_commands {
+            # NOT inside a longer name: `tray-reconcile-soon` is a
+            # REQUEST and reads as the deed `tray-reconcile` to a
+            # careless word boundary, since a dash is not a word
+            # character. Asking that the next character is not one of
+            # ours is what tells the two apart.
+            if {[regexp "\\y$cmd(?:\[^-a-zA-Z0-9\]|\$)" $body]} {
+                lappend deeds $name
+                break
+            }
+        }
+    }
+    if {[llength $deeds]} {
+        puts "WM: words that still ACT rather than wish\
+ ([llength $deeds]): [join [lsort $deeds] { }]"
+    }
+    return $deeds
+}
+
 # WORDS OUTSIDE THE REGISTRY, which is the other gap the lifecycle plan
 # names: instrumenting walks the registry, so a `set-*` that never got
 # a descriptor is a word that kills the whole config file on a typo
@@ -11140,12 +11186,11 @@ keep welcome on
 proc set-welcome {mode} {
     if {$mode ni {on off}} { error "set-welcome: on or off" }
     set ::welcome $mode
-    if {$mode eq "off"} {
-        dict unset ::widgets __welcome
-    } else {
-        welcome-inject      ;# ...and back ON puts the mat back NOW
-    }
-    if {[llength [info commands widgets-build]]} { widgets-build }
+    if {$mode eq "off"} { dict unset ::widgets __welcome }
+    # ...and ON puts the mat back, through the settler that does it —
+    # which also rebuilds the widgets it lives among.
+    settle-soon welcome
+    settle-soon widgets
 }
 proc welcome-inject {} {
     if {$::welcome ne "on"} return
@@ -11545,6 +11590,14 @@ settler styles {
     # is read, which is why he could not pin it on either.
     array unset ::styleof
 }
+settler theme {
+    # FIRST, because it decides the colours everything after it paints
+    # with. Cheap to have here: theme-apply already goes through the
+    # deferred builders rather than the direct ones, for the same
+    # reason this whole mechanism exists.
+    theme-apply
+}
+settler fonts       {fonts-derive}       ;# the derived faces follow the base
 settler panels      {panels-build}       ;# no buttons declared -> the strip goes
 settler tray        {tray-reconcile
                      tray-recolor}       ;# start, stop, or leave it exactly alone
@@ -11553,6 +11606,12 @@ settler welcome     {welcome-inject}     ;# re-decided per load
 settler widgets     {widgets-build}      ;# cheap by construction: all, from nothing
 settler titles      {retitle-frames}     ;# live frames follow metrics and font
 settler cursor      {root-cursor-apply}  ;# the desk stops wearing the server's X
+settler applets {
+    # The APPLETS are not the desk: they live in their own processes
+    # and are TOLD what the desk looks like now (ui-restyle). Same
+    # shape as everything else here — a deed somebody owes, named.
+    if {[llength [info commands ui-restyle]]} { ui-restyle }
+}
 settler workarea    {publish-workarea}
 settler stack       {panel-on-top}
 settler desks {
@@ -11583,8 +11642,36 @@ settler keys {
 
 # THE ORDER, and this list is the only place it lives.
 keep settle_order {
-    styles panels tray desk-window welcome widgets titles cursor
-    workarea stack desks layers matches keys
+    styles theme fonts panels tray desk-window welcome widgets titles
+    cursor applets workarea stack desks layers matches keys
+}
+# ONE settler, ASKED FOR rather than done — the shape the invariant
+# needs: a word writes its wish and says which settler owes it a deed.
+# Coalesced, and run in the DECLARED order rather than the order they
+# were asked in, because three words in one config file must cost one
+# settling and must not reorder the desk between them.
+#
+# Before this there were three deferral mechanisms with three private
+# flags (panel-rebuild-soon, tray-reconcile-soon, widgets-rebuild-soon,
+# desks-apply-soon) and a dozen setters that did their work on the
+# spot. The flags stay where they are — they are each a settler's own
+# business — but a WORD now has one way to ask.
+array set settle_pending {}
+keep settle_scheduled 0
+proc settle-soon {name} {
+    set ::settle_pending($name) 1
+    if {$::settle_scheduled} return
+    set ::settle_scheduled 1
+    after idle settle-pending
+}
+proc settle-pending {} {
+    set ::settle_scheduled 0
+    set want [array names ::settle_pending]
+    array unset ::settle_pending
+    foreach n $::settle_order {
+        if {[lsearch -exact $want $n] < 0} continue
+        soft "settle $n" [dict get $::settlers $n]
+    }
 }
 proc settle-all {} {
     foreach name $::settle_order {
@@ -11763,7 +11850,7 @@ proc set-root-cursor {name} {
         . configure -cursor $prev
     }
     set ::root_cursor $name
-    root-cursor-apply
+    settle-soon cursor
 }
 proc root-cursor-apply {} {
     if {$::root_cursor eq ""} return

@@ -400,8 +400,8 @@ proc set-desk-window {on} {
     # because the desk window is their HOST: switching it off has to
     # give each desk-layer area a toplevel of its own, and switching
     # it on takes them back inside.
-    if {[llength [info commands desk-window-build]]} { desk-window-build }
-    if {[llength [info commands widgets-build]]} { widgets-build }
+    settle-soon desk-window
+    settle-soon widgets
 }
 # Applied ON THE SPOT, like every knob that touches something the
 # user can see: waiting for the next reload made the configurator's
@@ -411,10 +411,11 @@ proc set-desk-background {colour} {
     set ::desk_background_said $colour
     set ::desk_background $colour
     # the applets' light-or-dark follows this colour: tell them
-    if {[llength [info commands ui-restyle]]} { after idle ui-restyle }
-    if {[winfo exists .desk]} { .desk configure -background $colour }
-    # a widget on the desk is dressed from this colour too
-    if {[llength [info commands widgets-build]]} { widgets-build }
+    settle-soon applets   ;# the applets' light-or-dark follows this colour
+    # ...and the desk window and the widgets dressed from this colour,
+    # through the settlers that own them
+    settle-soon desk-window
+    settle-soon widgets
 }
 proc desk-window {} { expr {[winfo exists .desk] ? ".desk" : ""} }
 proc desk-window-build {} {

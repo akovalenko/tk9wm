@@ -3510,7 +3510,11 @@ keep chord_hold 0
 proc set-chord-hold {on} {
     if {![string is boolean -strict $on]} { error "set-chord-hold: on or off" }
     set ::chord_hold [expr {$on ? 1 : 0}]
-    chord-hold-shadows
+    # ...and the shadow warning is the keys settler's deed, asked for
+    # rather than done: a config states this knob and its binds in
+    # whatever order it likes, and a warning computed halfway through
+    # names half the collisions.
+    if {[llength [info commands settle-soon]]} { settle-soon keys }
 }
 keep kbd_grabbed 0
 keep keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
