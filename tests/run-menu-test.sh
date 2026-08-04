@@ -53,6 +53,8 @@ proc m2-items {} {
          {label два do {puts "TEST: dyn two"} key d}
 }
 wm-menu m2 {key {<Super>t s} body {m2-items}}
+wm-menu m3 {key {<Super>b} place {right bottom}
+            items {{label угловой do {puts "TEST: m3 picked"}}}}
 wm-bind {<Super>c} {puts "TEST: chose <[Choose {alpha {label бета value B key b}}]>"}
 wm-bind {<Super>r} Reload
 EOF
@@ -88,6 +90,9 @@ key d                 # the explicit mnemonic of the second row
 key super+t
 key s
 key 1                 # the first row's automatic key
+# ---- a said place overrules the working-out
+key super+b
+key 1
 # ---- Choose, inside a binding
 key super+c
 key b
@@ -159,6 +164,18 @@ if grep -q 'TEST: dyn two' "$HERE/wm-menu.log" \
     echo "OK: the dynamic rows fired by mnemonic and by automatic key"
 else
     echo "FAIL: the dynamic rows did not both fire"; BAD=1
+fi
+
+M3GEO=$(sed -n 's/.*WM: menu m3 open (1 items) \([0-9]*x[0-9]*+[0-9]*+[0-9]*\).*/\1/p' \
+    "$HERE/wm-menu.log" | head -1)
+M3W=${M3GEO%%x*}; rest=${M3GEO#*x}
+M3H=${rest%%+*}; xy=${rest#*+}
+M3X=${xy%%+*}; M3Y=${xy#*+}
+if [ -n "$M3GEO" ] && [ $((M3X + M3W)) -eq 800 ] && [ $((M3Y + M3H)) -eq 600 ] \
+        && grep -q 'TEST: m3 picked' "$HERE/wm-menu.log"; then
+    echo "OK: place {right bottom} put the menu into the corner ($M3GEO)"
+else
+    echo "FAIL: m3 landed at «$M3GEO», want it flush with 800x600"; BAD=1
 fi
 
 if grep -q 'TEST: chose <B>' "$HERE/wm-menu.log"; then

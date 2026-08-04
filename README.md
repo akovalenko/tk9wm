@@ -627,7 +627,12 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   skipped with a log line. `body` instead of `items` is the dynamic
   half — a script asked for the rows at open time, for the lists that
   are stale the moment they are written down; the two cannot both be
-  said (the run ⊕ launch rule). A second declaration refines by name,
+  said (the run ⊕ launch rule). Where it opens is worked out — under
+  the hand for a gesture, hanging from the titlebar's bottom edge when
+  the hand is on the strip (the winops rule, one code path), the
+  winlist's spot for a chord — and a `place` key of edge words (the
+  echo's grammar, sizeless over the workarea) overrules the
+  working-out. A second declaration refines by name,
   `wm-menu-remove` is the negative word, and the family is a
   collection (`menus`) the configurator sees like the rest. On the
   same machinery `Choose rows…` is the list as a QUESTION for the

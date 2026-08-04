@@ -483,6 +483,15 @@
 # referencing a deed nobody declared is skipped with a log line. The
 # menu navigates, picks and dismisses exactly as the window list does.
 #
+# WHERE it opens is worked out: brought up by a mouse gesture it lands
+# under the hand (from a titlebar it hangs off the strip's bottom
+# edge, the way the window menu does); by a chord, in the window
+# list's spot on the monitor under the pointer. `place` overrules the
+# working-out — edge words of the place grammar, sizeless, over the
+# workarea, exactly as set-key-echo-place takes them:
+#
+#   wm-menu ssh {key {<Super>t s} place {right bottom} items {…}}
+#
 # `body` is the dynamic half — a script asked for the rows AT OPEN
 # TIME, answering the same grammar; `items` and `body` cannot both be
 # said (the run ⊕ launch rule). A list of recent anythings is stale

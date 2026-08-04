@@ -4535,26 +4535,11 @@ proc winops {{w 0}} {
     set Y [expr {[winfo rooty $t] + $top}]
     # THE MENU GOES WHERE THE HAND IS. Called up by a key it has no
     # hand and stays at the window's own corner, which is where it
-    # always was; called up by the mouse it follows the pointer's x
-    # (the owner, 2026-08-03) — the eye is there, and the drag that may
-    # still be in progress has the shortest way into the first row.
-    #
-    # The y is the strip's bottom edge as long as the gesture was ON
-    # the strip: the menu drops out of the bar the way a menubar's
-    # does, the title and its buttons stay readable above it, and the
-    # release of a press that meant to leave the menu STANDING lands
-    # clear of it. A gesture from anywhere else has no bar over it to
-    # hang from, and opens the menu at the point itself.
-    set at [gesture-point]
-    if {[llength $at]} {
-        lassign $at hx hy
-        set onbar [expr {[winfo exists $t.title]
-                         && $hy >= [winfo rooty $t.title]
-                         && $hy < [winfo rooty $t.title]
-                                  + [winfo height $t.title]}]
-        set X $hx
-        if {!$onbar} { set Y $hy }
-    }
+    # always was; called up by the mouse it follows the hand —
+    # gesture-menu-at, the rule this menu measured out and the
+    # config's own menus now share.
+    set at [gesture-menu-at $w]
+    if {[llength $at]} { lassign $at X Y }
     set W [expr {max($maxw + $ih + 40, 160)}]
     set H [expr {$n * $ih + 2}]
     lassign [popup-show .winops $W $H $X $Y] X Y
@@ -4599,6 +4584,30 @@ proc winops-click {x y} {
     set T .winops.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     winops-fire $A(item)
+}
+
+# Where a GESTURE wants a menu: the hand's point — except that a hand
+# on the window's own titlebar hangs the menu from the strip's bottom
+# edge instead: it drops out of the bar the way a menubar's does, the
+# title and its buttons stay readable above it, and the release of a
+# press that meant to leave the menu STANDING lands clear of it (the
+# owner, 2026-08-03). The x follows the pointer either way — the eye
+# is there, and a drag still in progress has the shortest way into
+# the first row. Empty when there is no gesture: a key has no hand.
+# One code path, so winops and the config's menus cannot drift.
+proc gesture-menu-at {w} {
+    set at [gesture-point]
+    if {![llength $at]} { return "" }
+    lassign $at hx hy
+    if {$w != 0 && [info exists ::frameof($w)]} {
+        set t $::frameof($w)
+        if {[winfo exists $t.title] && $hy >= [winfo rooty $t.title]
+                && $hy < [winfo rooty $t.title] + [winfo height $t.title]} {
+            lassign [frame-chrome $t] B top
+            set hy [expr {[winfo rooty $t] + $top}]
+        }
+    }
+    list $hx $hy
 }
 
 # ---- the config's own menus ----
@@ -4653,6 +4662,7 @@ proc wm-menu {name settings} {
             menu-item-check "wm-menu $name" $item
         }
     }
+    if {[dict exists $raw place]} { anchor-of [dict get $raw place] }
     # checked first, changed second: a word that is refused above must
     # leave the standing menu — chord and all — exactly as it was
     if {[dict exists $::menus $name key]} {
@@ -4756,8 +4766,9 @@ proc menu-open {name {w 0}} {
         return
     }
     set ::menu_name $name
-    menu-post $rows
-    puts "WM: menu $name open ([llength $rows] items)"
+    set geo [menu-post $rows [expr {[dict exists $raw place]
+                                    ? [dict get $raw place] : ""}] $w]
+    puts "WM: menu $name open ([llength $rows] items) $geo"
 }
 
 # ---- Choose: the list that answers, as a word --------------------
@@ -4769,7 +4780,7 @@ proc menu-open {name {w 0}} {
 # script the desk runs already has (run-script wraps a binding's
 # payload and a launch alike); called bare it says so instead of
 # wedging the caller.
-proc Choose {items} {
+proc Choose {items {place ""}} {
     if {[info coroutine] eq ""} {
         error "Choose waits for an answer — call it from a script the\
  desk runs (a binding, a launch), not bare"
@@ -4805,16 +4816,17 @@ proc Choose {items} {
                        ? [dict get $item key] : ""}]]
     }
     if {![llength $rows]} { return "" }
-    menu-post $rows
-    puts "WM: menu chooser open ([llength $rows] items)"
+    set geo [menu-post $rows $place]
+    puts "WM: menu chooser open ([llength $rows] items) $geo"
     return [popup-await .menu]
 }
 
 # The builder both doors share: hand out the hotkeys, build the
-# winops-shaped two columns, post, take the keyboard. The rows land in
-# ::menu_rows with their keys resolved; what a row CARRIES (fire or
-# value) is the door's business, read back in menu-pick.
-proc menu-post {rows} {
+# winops-shaped two columns, post, take the keyboard, answer the
+# geometry it landed at. The rows land in ::menu_rows with their keys
+# resolved; what a row CARRIES (fire or value) is the door's
+# business, read back in menu-pick.
+proc menu-post {rows {place ""} {w 0}} {
     set claimed {}
     foreach row $rows {
         if {[dict get $row key] ne ""} {
@@ -4865,23 +4877,36 @@ proc menu-post {rows} {
         $T item lastchild root $item
     }
     $T selection add 1
-    # under the hand when a gesture brought it up, the winlist's spot
-    # when a chord did — and clamped to the glass either way
+    # WHERE IT OPENS is worked out, and a said `place` overrules the
+    # working-out: edge words, sizeless, over the workarea — the key
+    # echo's own grammar. Unsaid: a gesture puts it under the hand
+    # (hanging from the titlebar's bottom edge when the hand is on
+    # the strip — gesture-menu-at, the winops rule), and a chord gets
+    # the winlist's spot on the monitor under the pointer. Clamped to
+    # the glass either way (popup-show).
     lassign [pointer-monitor] mx my sw sh
     set W [expr {min(max($maxw + $ih + 40, 160), $sw * 3 / 5)}]
     set H [expr {$n * $ih + 2}]
-    set at [gesture-point]
-    if {[llength $at]} {
-        lassign $at X Y
+    if {$place ne ""} {
+        lassign [anchor-of $place] halign valign
+        lassign [workarea] wax way ww wh
+        set X [place-axis $wax $ww $W $halign]
+        set Y [place-axis $way $wh $H $valign]
     } else {
-        set X [expr {$mx + ($sw - $W) / 2}]
-        set Y [expr {$my + ($sh - $H) / 3}]
+        set at [gesture-menu-at $w]
+        if {[llength $at]} {
+            lassign $at X Y
+        } else {
+            set X [expr {$mx + ($sw - $W) / 2}]
+            set Y [expr {$my + ($sh - $H) / 3}]
+        }
     }
-    popup-show .menu $W $H $X $Y
+    lassign [popup-show .menu $W $H $X $Y] X Y
     if {![grab-keys-to menu-key \
               [list popup-yank "the keyboard went to another mode"]]} {
         puts "WM: menu: keyboard not grabbed — mouse only"
     }
+    return ${W}x${H}+$X+$Y
 }
 proc menu-key {kind name mods} {
     if {$kind eq "release"} return
@@ -7728,6 +7753,8 @@ spec-keys menu {
            doc {the rows — action references, or label+do pairs}}
     body  {kind script xor items
            doc {a script asked for the rows at open time}}
+    place {kind text
+           doc {edge words, sizeless, over the workarea — unsaid, the desk works it out}}
 }
 
 # What a declaration is CHECKED against, and deliberately only the
