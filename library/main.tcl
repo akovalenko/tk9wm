@@ -134,6 +134,7 @@ proc reload-config {} {
     # survive the replay. Cancelled OUT LOUD, not dismissed: nobody
     # declined anything here, the ground moved.
     popup-yank "the config is being reloaded"
+    ask-yank "the config is being reloaded"
     # One transition, not the flapping a rebuild makes on the way — see
     # workarea-held. The clients hear about the workarea once, when the
     # config has finished saying what it is — and the STRIPS rebuild

@@ -3344,9 +3344,19 @@ proc popup-yank {why} {
         puts "WM: popup $m: $why — the wait is cancelled"
         fut::cancel [popup-disarm $m] $why
     }
-    # ...and the asks parked on the ui host: the same fact one bridge
-    # further out — nobody is going to answer, and the box must not
-    # stand over a desk that has moved on
+    popups-close
+}
+# The asks are DELIBERATELY not in popup-yank: it fires on every
+# hand-over of the key router — a menu opening, a menu closing — and
+# an ask is not keyboard-modal in this process at all, it is a client
+# of the ui host, standing while the person thinks. Killing it on
+# «the keyboard went to another mode» killed it every time a menu was
+# so much as glanced at over a standing question (the owner's report,
+# 2026-08-05: a chord after an ask cancelled the ask; the second Ask
+# of a script died the same way). What DOES end an ask early: the
+# reload sweeping the config's world (ask-yank, below), and a newer
+# ask displacing it (in Ask itself — one box, one question).
+proc ask-yank {why} {
     foreach id [array names ::ask_fut] {
         puts "WM: ask $id: $why — the wait is cancelled"
         set f $::ask_fut($id)
@@ -3354,7 +3364,6 @@ proc popup-yank {why} {
         fut::cancel $f $why
         catch {send -async -- tk9wm-ui [list ui-ask-drop $id]}
     }
-    popups-close
 }
 proc popup-shell {m ih pick} {
     popups-close
@@ -8047,6 +8056,16 @@ proc Ask {prompt args} {
     if {![ask-host-ready]} {
         puts "WM: Ask: the ui host would not come up"
         return ""
+    }
+    # one box, one question: a newer ask DISPLACES a standing one —
+    # its waiter is cancelled under its own name rather than left
+    # parked forever behind a box that is no longer on the screen
+    # (the owner's rule, 2026-08-05)
+    foreach old [array names ::ask_fut] {
+        puts "WM: ask $old: displaced by a newer ask — the wait is cancelled"
+        set f $::ask_fut($old)
+        unset ::ask_fut($old)
+        fut::cancel $f "displaced by a newer ask"
     }
     set id [incr ::ask_seq]
     set ::ask_fut($id) [fut::new]

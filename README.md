@@ -701,10 +701,14 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   happens in the ui host — the WM process takes no typed text by
   design (the XIM post-mortem) — so the word sends the question over
   the send bridge, parks on a future, and the host's answer wakes it;
-  the host is spawned if it is not up, and a reload yanks a standing
-  ask exactly as it yanks a menu, box and all. The material is
-  deliberately the desk's own: whatever command line this grows into
-  later is a prompt, a field and two keys.
+  the host is spawned if it is not up. An ask is NOT keyboard-modal in
+  the WM — menus open and close over it and it stands, scripts run
+  beside it in their own coroutines — and only two things end it
+  early: the reload sweeping the config's world (box and all), and a
+  newer ask displacing it, one box being one question — the displaced
+  waiter is cancelled under its own name, never left parked forever.
+  The material is deliberately the desk's own: whatever command line
+  this grows into later is a prompt, a field and two keys.
 
   **A deed knows where it runs and what colour it is.** `dir` on any
   action or inline spec is a working directory, landing as an

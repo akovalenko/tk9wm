@@ -25,6 +25,7 @@ set-welcome off
 wm-bind {<Super>1} {puts "TEST: ask <[Ask "спроси:" -place {hcenter bottom}]>"}
 wm-bind {<Super>2} {puts "TEST: ask2 <[Ask "и это очень длинный вопрос юзеру про всё"]>"}
 wm-bind {<Super>3} {puts "TEST: ask3 <[Ask "полширины:" -width 50%]>"}
+wm-bind {<Super>4} {puts "TEST: chain <[Ask "первый:"]|[Ask "второй:"]>"}
 wm-bind {<Super>r} Reload
 EOF
 askq() {
@@ -75,6 +76,35 @@ key super+3
 sleep 2
 WIDE=$(askq 'winfo width .ask')
 key Escape
+sleep 1
+# ---- two asks in one script: the second must run too ----
+key super+4
+sleep 2
+xdotool type one
+sleep 1
+key Return
+sleep 1
+xdotool type two
+sleep 1
+key Return
+sleep 1
+# ---- a menu over a standing ask must not kill it ----
+key super+1
+sleep 2
+key alt+space
+key Escape
+xdotool type stillhere
+sleep 1
+key Return
+sleep 1
+# ---- a newer ask displaces the older, and says so ----
+key super+1
+sleep 2
+key super+2
+sleep 2
+xdotool type disp
+sleep 1
+key Return
 sleep 1
 # ---- a reload yanks the standing ask, box and all ----
 key super+1
@@ -136,7 +166,23 @@ if [ "$WIDE" = "400" ]; then
 else
     echo "FAIL: the 50% box is $WIDE px wide, want 400"; BAD=1
 fi
-if grep -q 'WM: ask 5: .* — the wait is cancelled' "$LOG"; then
+if grep -q 'TEST: chain <one|two>' "$LOG"; then
+    echo "OK: two asks in one script both ran, in order"
+else
+    echo "FAIL: the chained asks broke"; BAD=1
+fi
+if grep -q 'TEST: ask <stillhere>' "$LOG"; then
+    echo "OK: a menu opened and closed over a standing ask did not kill it"
+else
+    echo "FAIL: the menu hand-over killed the standing ask"; BAD=1
+fi
+if grep -q 'displaced by a newer ask' "$LOG" \
+        && grep -q 'TEST: ask2 <disp>' "$LOG"; then
+    echo "OK: a newer ask displaced the older, said so, and got its answer"
+else
+    echo "FAIL: the displacement is silent or the newer ask broke"; BAD=1
+fi
+if grep -q 'WM: ask [0-9]*: the config is being reloaded — the wait is cancelled' "$LOG"; then
     echo "OK: the reload cancelled the standing wait under its own name"
 else
     echo "FAIL: the yank never spoke"; BAD=1

@@ -615,7 +615,10 @@
 # center); a prompt past twenty characters moves ABOVE the field, so
 # a long question and a long answer each get the full width. -width
 # is characters (48 — the field's own unit) or a percent of the
-# workarea's width (50% — the whole box takes it). The typing happens in
+# workarea's width (50% — the whole box takes it). An ask is not
+# keyboard-modal: menus come and go over it and it stands; only a
+# reload or a NEWER ask ends it early (one box, one question — the
+# displaced waiter is cancelled under its own name). The typing happens in
 # the ui host — this process takes no typed text by design — and the
 # word waits on a future, so it belongs in a script the desk runs.
 #
