@@ -1998,14 +1998,24 @@ keep LAYER_WMWIN 14
 keep LAYER_POPUP 16
 
 array set layerof {}    ;# client -> the layer it DECLARED (style, EWMH)
-array set wm_layer {}   ;# our own top-level -> its layer
+array set wm_layer {}   ;# our own top-level -> {layer rank}
 keep stack_order {}     ;# clients, bottom first: the order WITHIN a layer
 keep restack_pending 0
 
 # Our own furniture announces itself; the registry is read fresh at
 # every restack and a window that died simply is not there.
-proc stack-layer {path n} {
-    set ::wm_layer($path) $n
+#
+# The RANK is the order WITHIN the layer, and it is not decoration: the
+# panel's window spans its whole band, the tray strip sits at the far
+# end of that same band, and both are dock — so a layer that did not
+# order them left the panel painting over the tray, which from the
+# outside looks exactly like a tray that has stopped drawing its icons
+# (the owner's desk, 2026-08-04: "выделяется пространство под
+# nm-applet и fcitx5... там серое поле фоновым цветом"). Clients need
+# no rank: their order within a layer is ::stack_order, which is a
+# history and not a rule.
+proc stack-layer {path n {rank 0}} {
+    set ::wm_layer($path) [list $n $rank]
     restack-soon
 }
 proc layer-declared {w} {
@@ -2052,8 +2062,17 @@ proc client-stacking {} {
 # ...and the whole desk in one order, ours and theirs together.
 proc stack-desired {} {
     set byl {}
-    foreach {path n} [array get ::wm_layer] {
-        if {[winfo exists $path]} { dict lappend byl $n $path }
+    # Ours first and BY RANK, so the order within a layer is a decision
+    # and not whatever an array happened to hand back — a hash order is
+    # stable enough to hide a bug for a day and arbitrary enough to
+    # produce one.
+    set furn {}
+    foreach {path pair} [array get ::wm_layer] {
+        if {[winfo exists $path]} { lappend furn [list {*}$pair $path] }
+    }
+    foreach e [lsort -index 2 [lsort -integer -index 1 \
+                                   [lsort -integer -index 0 $furn]]] {
+        dict lappend byl [lindex $e 0] [lindex $e 2]
     }
     foreach w [client-stacking] {
         dict lappend byl [layer-effective $w] $::frameof($w)
@@ -8483,7 +8502,7 @@ proc panel-place {name P T g side n} {
             -width [expr {$W - 2 - $tray - $wg}] -height [expr {$own - 2}]
     }
     wm geometry $P $geo
-    stack-layer $P $::LAYER_DOCK
+    stack-layer $P $::LAYER_DOCK 0     ;# the band's floor...
     panel-reeval     ;# a build starts stateless — judge the matches now
     puts "WM: panel $name up ($n buttons, $thick px,\
  $side/[dict get $g preset], $geo)"
@@ -8814,7 +8833,7 @@ proc tray-backdrop {geo} {
     if {$geo eq ""} { wm withdraw .traybg; return }
     wm geometry .traybg $geo
     wm deiconify .traybg
-    stack-layer .traybg $::LAYER_DOCK   ;# ...and .tray sits over it
+    stack-layer .traybg $::LAYER_DOCK 1   ;# ...the strip's opaque floor...
 }
 proc set-tray-icon-size {px} {
     set ::tray_icon_size $px
@@ -8953,7 +8972,7 @@ proc tray-layout {} {
     wm geometry .tray $geo
     tray-backdrop $geo       ;# the opaque floor under an ARGB strip
     wm deiconify .tray
-    stack-layer .tray $::LAYER_DOCK
+    stack-layer .tray $::LAYER_DOCK 2   ;# ...and the icons over both
     restack-soon             ;# the strip is a new window; seat it by layer
     # The COMPUTED string, not [wm geometry .tray]: that answers with
     # the geometry Tk has processed so far, which right after the

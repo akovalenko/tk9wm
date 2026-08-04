@@ -39,12 +39,41 @@ proc desks-widget-build {w opts} {
         # and re-drawn as a set, and a set of labels would have to be
         # created and destroyed every time the count changed.
         canvas $w.d -background $bg -highlightthickness 0 -borderwidth 0
-        pack $w.d -expand 1 -fill both
+        # NOT -fill: the canvas is exactly as big as the marks, and
+        # what is left over is the cell's to centre it in. Filled, the
+        # marks would sit against one edge of whatever room the strip
+        # happened to give.
+        pack $w.d -expand 1
     }
     desks-widget-tick $w $opts
 }
 proc desks-widget-style {opts} {
     expr {[dict exists $opts -style] ? [dict get $opts -style] : "dots"}
+}
+# WHICH WAY THE MARKS GO — one rule, both strips, and it is the
+# clock's own reasoning (-band and -across, see widget.tcl): a strip
+# charges for its THICKNESS whether a widget uses it or not, so the
+# marks lie ACROSS the band while they fit in what is already paid
+# for, and along it when they do not.
+#
+# The owner's words for the two halves, a minute apart (2026-08-04):
+# "не лучше ли точки по горизонтали, когда они помещаются в ширину
+# панели" for a vertical strip, and then "а на горизонтальной наверное
+# вертикально если влезает" — which is the same sentence about the
+# other axis, so it is one rule and not two special cases. What it
+# buys is LENGTH: the marks stop eating the bar the buttons live on.
+#
+# On the desk (no band at all) nothing is scarce and a row it is.
+proc desks-widget-vertical {opts r gap} {
+    set band [dict get $opts -band]
+    if {$band ni {horizontal vertical}} { return 0 }
+    set n $::ndesks
+    set need [expr {$n * (2 * $r) + ($n - 1) * $gap + 1
+                    + 2 * [dict get $opts -padding] + 2}]
+    set fits [expr {[dict get $opts -across] >= $need}]
+    # ACROSS a horizontal strip is a column; across a vertical one is
+    # a row. Same wish, opposite words.
+    expr {$band eq "horizontal" ? $fits : !$fits}
 }
 proc desks-widget-tick {w opts} {
     if {[winfo exists $w.n]} {
@@ -60,7 +89,7 @@ proc desks-widget-tick {w opts} {
     # text of the same size, whatever the desk font is set to.
     set r [expr {max(3, [font metrics DeskNumFont -linespace] / 4)}]
     set n $::ndesks
-    set vert [expr {[dict get $opts -band] eq "vertical"}]
+    set vert [desks-widget-vertical $opts $r $gap]
     set len [expr {$n * (2 * $r) + ($n - 1) * $gap}]
     set thick [expr {2 * $r}]
     # ONE PIXEL MORE THAN THE MARKS NEED, and the marks half a pixel

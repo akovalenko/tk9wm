@@ -44,6 +44,21 @@ if [ -n "$ICON_A" ]; then
 fi
 import -display :92 -window root "$HERE/tray-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/tray-test.png"
+# WHAT IS ACTUALLY ON THE GLASS, measured HERE where both icons are up.
+# Everything else in this file is about ids, parents and geometry — and
+# all of it passed on a desk whose tray showed nothing at all: the
+# panel's window spans the whole band including the tray's corner, so a
+# stacking mistake paints the strip over with the panel's own
+# background and leaves every structural fact true (the owner's desk,
+# 2026-08-04, cured by the layer ranks). A pixel of the icon's own
+# colour is the one thing that cannot be true while the tray is blank.
+PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-tray.log" | tail -1)
+SX=$(echo "$STRIP" | sed 's/.*+\([0-9]*\)+[0-9]*$/\1/')
+SY=$(echo "$STRIP" | sed 's/.*+\([0-9]*\)$/\1/')
+# the middle of the FIRST cell: 3px of pad, then a 24px square
+TRAYPX=$(convert "$HERE/tray-test.png" \
+    -format "%[pixel:p{$((SX + 15)),$((SY + PH / 2))}]" info: 2>/dev/null)
+echo "--- tray pixel at $((SX + 15)),$((SY + PH / 2)): $TRAYPX"
 
 sleep 2                # client B destroys its icon on its own
 STRIP1=$(sed -n 's/^WM: tray strip \(.*\) (1 icons)/\1/p' "$HERE/wm-tray.log" | tail -1)
@@ -152,7 +167,7 @@ else
     echo "FAIL: icon A is $GEOM_A, want 24x24"
 fi
 # 2 cells: 2*3 + 2*24 + 4 = 58 wide; thickness follows the panel's strip
-PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-tray.log" | tail -1)
+# (PH is read up where the pixel is taken, which needs it too)
 if [ "$STRIP" = "58x${PH}+742+$((600 - PH))" ]; then
     echo "OK: the strip sits in the corner at the panel's thickness ($STRIP)"
 else
@@ -183,6 +198,11 @@ if [ -n "$DECOY" ] && [ "$DECOY_PARENT" = "$ROOTID" ]; then
 else
     echo "FAIL: the decoy $DECOY was adopted — parent «$DECOY_PARENT», root «$ROOTID»"
 fi
+case "$TRAYPX" in
+    srgb\(138,226,52\)) echo "OK: the icon is ON THE GLASS, not just in the tree ($TRAYPX)" ;;
+    *) echo "FAIL: the tray cell shows «$TRAYPX», not the icon's own green —\
+ docked and invisible"; FAIL=1 ;;
+esac
 if grep -q 'handler error' "$HERE/wm-tray.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-tray.log"
 fi
