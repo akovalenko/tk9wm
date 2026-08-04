@@ -148,6 +148,8 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 | the window list | `winlist-open` | `policy.tcl` |
 | a menu of the config's own | `wm-menu`, `menu-open`, `Choose` | `policy.tcl` |
 | run-or-raise as a word | `Fire`, `action-fire`, `fire-spec` | `policy.tcl` |
+| a colour from a name | `name-tint`, `pseudo-badge`, `color-hex` | `policy.tcl` |
+| where a deed runs | `run-at`, `run_dir`, `env -C` | `policy.tcl` |
 | what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy.tcl` |
 | the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy.tcl` |
 | the applet host and the door to it | `ui-open`, `ui-style`, `ui-restyle` | `ui/host.tcl` |
@@ -656,6 +658,21 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   nothing here; an unmet `needs` is refused out loud rather than left
   waiting, there being no registry entry to wait in; an inline emacs
   deed must say its frame name, having no name of its own to lend.
+
+  **A deed knows where it runs and what colour it is.** `dir` on any
+  action or inline spec is a working directory, landing as an
+  `env -C` prefix on whatever `Run` starts — bare, or inside the
+  terminal's `-e`, the adapter never learning anything (GNU coreutils
+  ≥ 8.28; the value is data, nothing expands in it). A terminal spec
+  says `bg`/`fg` in any Tk colour: normalized to hex once (alacritty
+  knows no X names) and spelled per beast — xterm through `-xrm`
+  aimed at the VT100 widget so its menus stay unpainted, kitty and
+  urxvt their own way, alacritty in its TOML; vanilla st compiles its
+  colours in and spawns unpainted, saying so. And `name-tint`
+  publishes the badge hash as a word — a stable tint from a name, hue
+  from the hash, ground from `-from white|black` (unsaid, the theme's
+  side), `-amount` the lean — so twenty ssh terminals tell apart at a
+  glance with nobody choosing colours.
 
   **Fade** (`set-fade`, default 0.8; the `opacity` style key; the
   `Fade`/`Unfade` command pair) — a frame made translucent, frame and

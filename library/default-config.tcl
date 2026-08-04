@@ -526,6 +526,37 @@
 # An inline emacs deed must say its frame name — it has no name of
 # its own to lend.
 #
+# ---- where a deed runs, and what colour its terminal is ----
+#
+# `dir` is a working directory on any action or Fire spec, beside
+# env: it lands as an `env -C DIR` prefix on whatever Run starts —
+# bare, `env -C … cmd`; through a terminal, `xterm -e env -C … cmd`.
+# The useful process changes directory either way and no adapter
+# learns anything (GNU coreutils >= 8.28). The value is DATA, not a
+# script — nothing expands in it; a dir built from $env(HOME) is a
+# spec built with [list], which is ordinary Tcl at declaration time:
+#
+#   action notes [list dir $env(HOME)/notes terminal {name notes} \
+#       run {vi todo}]
+#
+# A terminal deed says its colours: `bg` and `fg` in the terminal
+# spec, any Tk-legal colour. The adapter normalizes to #rrggbb once
+# (alacritty knows no X colour names) and speaks the beast's own
+# dialect — xterm through -xrm aimed at the VT100 widget, so its
+# menus stay unpainted; kitty, alacritty and urxvt their own; a beast
+# with no way to say it (vanilla st compiles its colours in) spawns
+# unpainted, with a line in the log saying so.
+#
+# `name-tint NAME ?-from white|black? ?-amount 0..1?` answers a
+# stable colour from a name — the badge hash, published: the hue is
+# the name's own, -from picks the ground it leans off (unsaid: the
+# theme's side), -amount how far it leans. The ssh model task, whole:
+#
+#   foreach t {web db backup} {
+#       action ssh_$t [list terminal [list name ssh_$t title "ssh $t" \
+#           bg [name-tint $t -from black]] run [list ssh $t]]
+#   }
+#
 # `Choose rows…` is the same list as a QUESTION — for the config's own
 # scripts: it puts the rows up, waits without freezing the desk, and
 # answers the picked row's `value` (its label when no value is said),

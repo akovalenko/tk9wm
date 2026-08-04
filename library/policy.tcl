@@ -3933,6 +3933,59 @@ proc winlist-icon {w target} {
     list pseudo {*}[pseudo-badge $name]
 }
 
+# ---- name-tint: the badge trick, said as a word ----
+# A stable colour from a name — the hash the pseudo-badges and the
+# panel's auto-badges already lean on, published for the config: tint
+# twenty ssh terminals by their target's name and they tell apart at
+# a glance, nobody choosing anything (the owner's model task,
+# 2026-08-04). Where a badge wants saturation, a background wants a
+# TINT: the hash picks the hue, `-from white|black` picks the ground
+# it leans off (unsaid: the theme's own side), `-amount` how far it
+# leans — 0 is the bare ground, 1 the full hue.
+proc name-tint {name args} {
+    set from ""
+    set amount 0.15
+    foreach {k v} $args {
+        switch -- $k {
+            -from   { set from $v }
+            -amount { set amount $v }
+            default { error "name-tint: unknown option «$k» (-from -amount)" }
+        }
+    }
+    if {$from eq ""} { set from [expr {$::theme eq "light" ? "white" : "black"}] }
+    if {$from ni {white black}} {
+        error "name-tint: -from is white or black, not «$from»"
+    }
+    if {![string is double -strict $amount] || $amount < 0 || $amount > 1} {
+        error "name-tint: -amount is 0..1, not «$amount»"
+    }
+    set h [expr {([zlib crc32 [encoding convertto utf-8 $name]] % 360) / 60.0}]
+    set x [expr {1.0 - abs(fmod($h, 2.0) - 1.0)}]
+    switch [expr {int($h)}] {
+        0 { lassign [list 1.0 $x 0.0] r g b }
+        1 { lassign [list $x 1.0 0.0] r g b }
+        2 { lassign [list 0.0 1.0 $x] r g b }
+        3 { lassign [list 0.0 $x 1.0] r g b }
+        4 { lassign [list $x 0.0 1.0] r g b }
+        5 { lassign [list 1.0 0.0 $x] r g b }
+    }
+    set base [expr {$from eq "white" ? 1.0 : 0.0}]
+    set out "#"
+    foreach c [list $r $g $b] {
+        append out [format %02x \
+            [expr {round(255 * ($base * (1 - $amount) + $c * $amount))}]]
+    }
+    return $out
+}
+# Any Tk-legal colour as #rrggbb — what the terminal adapters spell
+# their dialects with, normalized ONCE for all of them because
+# alacritty knows no X colour names at all. winfo rgb answers 16-bit
+# channels; the high byte is the 8-bit truth.
+proc color-hex {color} {
+    lassign [winfo rgb . $color] r g b
+    format #%02x%02x%02x [expr {$r >> 8}] [expr {$g >> 8}] [expr {$b >> 8}]
+}
+
 # TWO LISTS, and they are TWO COMMANDS — not one that asks who called
 # it (the owner, 2026-08-04). The binding says which list it wants, so
 # nothing ever has to work out whether the hand came from Alt+Tab.
@@ -5764,17 +5817,33 @@ proc keyecho-hide {} {
 # names are the icon themes' own; a miss falls through to the generic
 # one below and, failing that, to the badge, so a theme that carries
 # none of them still gets a button.
+# ...and `bg`/`fg` — background and ink as a GENERALIZABLE property
+# of a normal terminal (the owner, 2026-08-04, the ssh-menu model
+# task: a tint from the target's name tells twenty terminals apart at
+# a glance). The value reaching %s is always #rrggbb — spawn-terminal
+# normalizes through winfo rgb, because alacritty knows no X colour
+# names at all. xterm is told through -xrm aimed at the VT100 widget
+# alone, the right way: a bare -bg would paint its menus too. A beast
+# with no entry (vanilla st compiles its colours in; konsole and
+# gnome-terminal keep theirs in profiles) gets the standing "has no
+# way to say" line and spawns unpainted.
 set terminal_adapters {
     kitty          {name {--name %s}  title {--title %s} cmd {}   class kitty
-                    icon kitty}
+                    icon kitty
+                    bg {-o background=%s} fg {-o foreground=%s}}
     alacritty      {name {--class Alacritty,%s} title {-T %s} cmd {-e} class Alacritty
-                    icon Alacritty}
+                    icon Alacritty
+                    bg {-o {colors.primary.background = "%s"}}
+                    fg {-o {colors.primary.foreground = "%s"}}}
     urxvt          {name {-name %s}   title {-T %s}      cmd {-e} class URxvt
-                    icon urxvt}
+                    icon urxvt
+                    bg {-bg %s} fg {-fg %s}}
     st             {name {-n %s}      title {-T %s}      cmd {-e} class st-256color
                     icon st}
     xterm          {name {-name %s}   title {-T %s}      cmd {-e} class XTerm
-                    icon xterm-color}
+                    icon xterm-color
+                    bg {-xrm {*VT100*background: %s}}
+                    fg {-xrm {*VT100*foreground: %s}}}
     konsole        {name {-name %s}   title {--qwindowtitle %s} cmd {-e} class konsole
                     icon konsole}
     gnome-terminal {name {--class=%s} title {--title %s} cmd {--} class Gnome-terminal
@@ -5923,6 +5992,10 @@ proc terminal-resolve {} {
 #          thing args cannot say: it needs its slot BEFORE the binary.
 #          env {XMODIFIERS {}} is "cut uim-xim off this xterm"; an
 #          empty value means VAR= (set empty), not unset.
+#   bg/fg  the window's background and ink, any Tk-legal colour —
+#          normalized to #rrggbb and spelled in the beast's own
+#          dialect (the adapter table). A beast with no way to say
+#          them spawns unpainted, with a line saying so.
 #   args   beast-keyed extras:
 #          {xterm {-bg darkblue} kitty {-o background=darkblue}}.
 #          A key is a beast name, a LIST of beast names, or *; every
@@ -5933,9 +6006,9 @@ proc terminal-resolve {} {
 #          carrying goodies for some.
 proc spawn-terminal {spec} {
     foreach k [dict keys $spec] {
-        if {$k ni {name run title env args}} {
+        if {$k ni {name run title env args bg fg}} {
             error "spawn-terminal: unknown key \"$k\"\
- (name run title env args)"
+ (name run title env args bg fg)"
         }
     }
     lassign [terminal-resolve] beast path
@@ -5944,16 +6017,18 @@ proc spawn-terminal {spec} {
     }
     set ad [dict get $::terminal_adapters $beast]
     set argv [list $path]
-    foreach key {name title} {
+    foreach key {name title bg fg} {
         if {![dict exists $spec $key] || [dict get $spec $key] eq ""} continue
-        set fmt [dict get $ad $key]
+        set val [dict get $spec $key]
+        if {$key in {bg fg}} { set val [color-hex $val] }
+        set fmt [expr {[dict exists $ad $key] ? [dict get $ad $key] : ""}]
         if {$fmt eq ""} {
             puts "WM: terminal: $beast has no way to say $key —\
  \"[dict get $spec $key]\" dropped"
             continue
         }
         lappend argv {*}[lmap a $fmt {
-            string map [list %s [dict get $spec $key]] $a}]
+            string map [list %s $val] $a}]
     }
     if {[dict exists $spec args]} {
         dict for {beasts extra} [dict get $spec args] {
@@ -7217,7 +7292,25 @@ proc run-via {via script} {
         set ::run_via [lrange $::run_via 0 end-1]
     }
 }
+# WHERE the deed runs — the `dir` spec key, a stack exactly like the
+# via. It lands as an `env -C DIR` prefix on the words BEFORE the via
+# sees them, which is the whole trick (the owner, 2026-08-04): bare,
+# the launch becomes `env -C … cmd`; through a terminal it becomes
+# `xterm -e env -C … cmd` — the useful process changes directory in
+# both cases and no adapter learns anything. GNU coreutils ≥ 8.28,
+# which a desk this X11-bound already stands on.
+keep run_dir {}
+proc run-at {dir script} {
+    lappend ::run_dir $dir
+    try {
+        uplevel #0 $script
+    } finally {
+        set ::run_dir [lrange $::run_dir 0 end-1]
+    }
+}
 proc Run {args} {
+    set dir [lindex $::run_dir end]
+    if {$dir ne ""} { set args [list env -C $dir {*}$args] }
     set via [lindex $::run_via end]
     if {$via eq ""} {
         puts "WM: Run $args"
@@ -7342,6 +7435,9 @@ proc action-launch {name spec} {
             $script \
             [expr {[dict exists $spec env-unset]
                    ? [dict get $spec env-unset] : {}}]]
+    }
+    if {[dict exists $spec dir]} {
+        set script [list run-at [dict get $spec dir] $script]
     }
     set via ""
     if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
@@ -7518,6 +7614,12 @@ proc fire-spec {raw mode} {
         error "Fire: an inline emacs deed needs a frame name —\
  it has no name of its own to lend"
     }
+    # the same desugar action-derive does, and it was MISSED at first:
+    # the terminal leg then spawned its beast bare, the run words
+    # quietly lost — found by the dir work, kept by the regression
+    if {[dict exists $raw run]} {
+        dict set raw launch [list Run {*}[dict get $raw run]]
+    }
     set spec [spec-derive Fire $raw]
     if {$mode eq "auto"} {
         set mode [expr {[dict exists $spec many]
@@ -7559,6 +7661,9 @@ proc fire-spec-launch {spec} {
             $script \
             [expr {[dict exists $spec env-unset]
                    ? [dict get $spec env-unset] : {}}]]
+    }
+    if {[dict exists $spec dir]} {
+        set script [list run-at [dict get $spec dir] $script]
     }
     set via ""
     if {[dict exists $spec runvia]} { set via [dict get $spec runvia] }
@@ -7874,6 +7979,8 @@ spec-keys action {
     env      {kind envdict   doc {environment around the launch}}
     env-unset {kind words
               doc {variables the launch must NOT have — absent, not empty}}
+    dir      {kind text
+              doc {the working directory — env -C around whatever Run starts}}
     terminal {kind subspec of terminal empty value
               doc {settings for a terminal deed — the type may say it alone}}
     emacs    {kind subspec of emacs    doc {do it in emacs}}
@@ -7881,6 +7988,8 @@ spec-keys action {
 spec-keys terminal {
     name  {kind text      doc {the window's name — the WM_CLASS instance}}
     title {kind text      doc {the window title}}
+    bg    {kind text      doc {the background, any Tk colour — the beast's own dialect}}
+    fg    {kind text      doc {the ink, any Tk colour — the beast's own dialect}}
     env   {kind envdict   doc {environment for the terminal process itself}}
     env-unset {kind words doc {variables it must NOT have — absent, not empty}}
     args  {kind beastdict doc {beast-keyed extras, applied verbatim}}

@@ -34,7 +34,11 @@ wm-bind {<Super>6} {Fire {needs no-such-binary-xyzzy run {true}}}
 wm-bind {<Super>7} {Fire {match {filter -title "фаерА*"}
                           launch {puts "TEST: forced run"}} run}
 wm-bind {<Super>8} {Fire {match {filter -title "фаер?*"}} choose}
+wm-bind {<Super>9} {Fire {dir /tmp/tk9wm-fire-dir run {touch fire-dir-mark}}}
+wm-bind {<Super>0} {Fire {terminal {name dirterm} dir /tmp/tk9wm-fire-dir
+                          run {touch fire-term-mark}}}
 EOF
+rm -rf /tmp/tk9wm-fire-dir; mkdir -p /tmp/tk9wm-fire-dir
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$HERE/wm-fire.log" 2>&1 &
 WM=$!
@@ -60,7 +64,9 @@ key super+6           # an unmet needs: refused out loud
 key super+4           # the terminal adapter: derive, spawn
 sleep 3
 key super+4           # ...and find what it spawned
-sleep 1
+key super+9           # dir: the bare launch runs where it said
+key super+0           # dir: ...and so does the one inside a terminal
+sleep 3
 
 import -window root "$HERE/fire-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/fire-test.png"
@@ -118,10 +124,25 @@ if grep -q 'WM: Fire: needs no-such-binary-xyzzy — not on this machine' \
 else
     echo "FAIL: the unmet needs said nothing"; BAD=1
 fi
-if grep -q 'WM: terminal: spawn .* -name fireterm' "$HERE/wm-fire.log"; then
-    echo "OK: the terminal adapter wrapped the inline run, name and all"
+if grep -q 'WM: terminal: spawn .* -name fireterm .*-e sleep 30' \
+        "$HERE/wm-fire.log"; then
+    echo "OK: the terminal adapter wrapped the inline run, name, -e and all"
 else
-    echo "FAIL: the terminal leg never spawned through the adapter"; BAD=1
+    echo "FAIL: the terminal leg lost its name or its command"; BAD=1
+fi
+if [ -f /tmp/tk9wm-fire-dir/fire-dir-mark ] \
+        && grep -q 'WM: Run env -C /tmp/tk9wm-fire-dir touch fire-dir-mark' \
+               "$HERE/wm-fire.log"; then
+    echo "OK: dir put the bare launch where it said (env -C)"
+else
+    echo "FAIL: the bare dir launch left no mark where it said"; BAD=1
+fi
+if [ -f /tmp/tk9wm-fire-dir/fire-term-mark ] \
+        && grep -q -- '-e env -C /tmp/tk9wm-fire-dir touch fire-term-mark' \
+               "$HERE/wm-fire.log"; then
+    echo "OK: dir reached inside the terminal's -e, adapter none the wiser"
+else
+    echo "FAIL: the terminal dir launch left no mark where it said"; BAD=1
 fi
 
 check_invariants "$HERE/wm-fire.log"

@@ -2600,8 +2600,23 @@ proc manage {w {asiconic 0}} {
     set slot [policy-attach $w $cw $ch]
     set ::managed($w) 1
     # StructureNotify (Destroy/Unmap) + FocusChange (honest highlight even
-    # when focus moves behind our back) + PropertyChange (live titles)
-    x-select-input $w {structure-notify focus-change property-change}
+    # when focus moves behind our back) + PropertyChange (live titles).
+    #
+    # A client can DIE between its map and this line — a terminal
+    # around a command that finished at once does it every time
+    # (`Fire {terminal … run {touch x}}`, measured 2026-08-04). This
+    # select is the first call to touch the window after the frame
+    # went up, so the death lands here: say so calmly and stop
+    # framing — the DestroyNotify already delivered to the slot's
+    # SubstructureNotify unmanages what policy-attach built, exactly
+    # as it always did. Before the catch this surfaced as a handler
+    # error wearing the redirect's own message («another window
+    # manager holds it?»), which is two lies about one dead xterm.
+    if {[catch {x-select-input $w \
+                    {structure-notify focus-change property-change}}]} {
+        puts "WM: 0x[format %x $w] died while being framed — released"
+        return
+    }
     # After the reparent the client is no longer a child of root, so root's
     # SubstructureRedirect no longer covers it: keep redirecting its
     # ConfigureRequests by holding the mask on the frame slot as well.
