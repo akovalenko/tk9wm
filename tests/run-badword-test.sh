@@ -13,6 +13,12 @@
 # Now the word is recorded as a problem and the file goes on. What
 # must NOT change: a word said through the applet's door still
 # throws, because whoever asked for it is standing right there.
+#
+# The owner's own typo is no longer one — modifier names read
+# case-insensitively now (the Alt+f4 rule), so `super+t` simply
+# works. The bad word here misspells the modifier itself (`Supr`),
+# which no case rule can save; what is being measured is the guard,
+# not the spelling.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:53
 rm -f /tmp/.X53-lock /tmp/.X11-unix/X53
@@ -26,7 +32,7 @@ mkdir -p "$HERE/badword-config"
 cat > "$HERE/badword-config/tk9wm.tcl" <<'EOF'
 set-desk-background #001100
 action Ok {run {true} icon O}
-wm-bind {super+t r w} restart-wm
+wm-bind {Supr+t r w} restart-wm
 set-fade 0.42
 panel-button Ok
 EOF
@@ -54,8 +60,8 @@ PROB=$(q 'set p ""
     }')
 GUARDED=$(grep -c 'config vocabulary: [0-9]* words guarded' "$HERE/wm-badword.log")
 # the applet's door is NOT the file: a refused word still throws there
-DOOR=$(q 'catch {custom-write {wm-bind {super+t r w} restart-wm}} e
-    list rc [catch {custom-write {wm-bind {super+t r w} restart-wm}}] \
+DOOR=$(q 'catch {custom-write {wm-bind {Supr+t r w} restart-wm}} e
+    list rc [catch {custom-write {wm-bind {Supr+t r w} restart-wm}}] \
          said [string match {*unknown modifier*} $e]')
 
 kill $WM 2>/dev/null
