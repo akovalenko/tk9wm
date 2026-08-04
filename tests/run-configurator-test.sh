@@ -473,12 +473,12 @@ ORDER1=$(q 'lmap b [panel-cfg default shown] {lindex $b 0}')
 FILEORD=$(awk '/^panel-button /{printf "%s ",$2}' "$HERE/cfg-config/tk9wm.custom.tcl")
 # A REFUSED WORD LEAVES THE STANDING INSTANCE ALONE: one bad
 # parameter name used to take the whole family down while the tree
-# went on showing it on (the owner, 2026-08-03). Asked of accords
+# went on showing it on (the owner, 2026-08-03). Asked of chords
 # while it still stands, before the take below dismantles it; the
 # no-parameters family answers with its own sentence.
-BADPARAM=$(q 'set rc [catch {wm-keys accords -bogus 1} e]
+BADPARAM=$(q 'set rc [catch {wm-keys chords -bogus 1} e]
     set rc2 [catch {wm-keys windows -x 1} e2]
-    list rc $rc alive [dict exists $::key_bundles accords] \
+    list rc $rc alive [dict exists $::key_bundles chords] \
         said [string match "*no parameter*" $e] \
         none [string match "*takes no parameters*" $e2]')
 # ---- a dict member edits from the tree, as itself ----
@@ -489,7 +489,7 @@ BADPARAM=$(q 'set rc [catch {wm-keys accords -bogus 1} e]
 BUNDLEMEMBER=$(qu 'set it ""
     dict for {i d} $::cfg_node {
         if {[dict get $d what] eq "member" && [dict get $d coll] eq "keys"
-                && [dict get $d key] eq "accords"
+                && [dict get $d key] eq "chords"
                 && [dict get $d member] eq "prefix"} { set it $i }
     }
     foreach a [$::cfg_T item ancestors $it] {
@@ -504,10 +504,10 @@ BUNDLEMEMBER=$(qu 'set it ""
     ui-field-set $::cfg_T.edit {<Super>u}
     ui-cell-done $::cfg_T commit
     after 400; update
-    lappend r live [wm-call {dict get $::key_bundles accords params prefix}]
-    cfg-set [list @member keys accords params prefix] {<Super>t}
+    lappend r live [wm-call {dict get $::key_bundles chords params prefix}]
+    cfg-set [list @member keys chords params prefix] {<Super>t}
     after 300
-    dict unset ::cfg_pending [list @member keys accords params prefix]
+    dict unset ::cfg_pending [list @member keys chords params prefix]
     set r')
 sleep 1
 qu 'set sel {}
@@ -522,12 +522,12 @@ qu 'set sel {}
     cfg-take
     llength $sel' >/dev/null
 sleep 0.5
-TAKEN=$(q 'list accords [dict exists $::key_bundles accords] \
+TAKEN=$(q 'list chords [dict exists $::key_bundles chords] \
                quit [chord-of Quit] winops [chord-of winops] \
                help [chord-of key-help-open]')
 q reload-config >/dev/null
 sleep 1
-REPLAY=$(q 'list quit [chord-of Quit] accords [dict exists $::key_bundles accords]')
+REPLAY=$(q 'list quit [chord-of Quit] chords [dict exists $::key_bundles chords]')
 qu 'cfg-refresh; cfg-insert-widget пульс clock' >/dev/null
 sleep 0.5
 NEWWIDGET=$(q 'dict get $::widgets пульс -type')
@@ -1411,7 +1411,7 @@ PICKCHECK=$(qu 'cfg-insert-widgets-dialog
 sleep 0.5
 PICKMADE=$(q 'dict exists $::widgets секунды')
 # ---- the menu names what Del would do, on a row that is not ours ----
-# The earlier scenes turned the windows bundle off and took accords
+# The earlier scenes turned the windows bundle off and took chords
 # apart, so no code word is left standing; the windows family comes
 # back on first — a customization like any other, replayed on reload —
 # and Alt+Tab is the code-side word these scenes stand on.
@@ -1830,7 +1830,7 @@ case $BINDNOTE in
     *) echo "FAIL: bind notes: $BINDNOTE" ;;
 esac
 case "$CONFLICT|$CHORDKEPT" in
-    *"accords family (prefix <Super>t"*"|winops")
+    *"chords family (prefix <Super>t"*"|winops")
         echo "OK: taking a family's chord asks first, naming it and its parameters" ;;
     *) echo "FAIL: conflict ask «$CONFLICT», chord now «$CHORDKEPT»" ;;
 esac
@@ -1868,12 +1868,12 @@ case "$ORDER0|$ORDER1|$FILEORD" in
     *) echo "FAIL: move: $ORDER0 -> $ORDER1, file: $FILEORD" ;;
 esac
 case $TAKEN in
-    "accords 0 quit {Super+t q} winops {} help Super+h")
+    "chords 0 quit {Super+t q} winops {} help Super+h")
         echo "OK: the taken binds live on their own, the bundle fell silent" ;;
     *) echo "FAIL: take: $TAKEN" ;;
 esac
 case $REPLAY in
-    "quit {Super+t q} accords 0")
+    "quit {Super+t q} chords 0")
         echo "OK: the taken binds survive the replay — off speaks before them" ;;
     *) echo "FAIL: replay: $REPLAY" ;;
 esac

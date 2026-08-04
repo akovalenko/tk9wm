@@ -646,6 +646,8 @@ proc set-title-justify {j} {
 # chrome-of, and hinted-decor for what the window itself asked for
 # (this key OVERRULES that). place (a term list) — the geometry it is
 # born with; see parse-place.
+# desk (a number, or sticky) — which desk it is born on; sticky means
+# every desk. See the virtual desks block in the substrate.
 # layer (a number 0..12, or below|normal|above|dock|top) — where in the
 # stack it lives; see the LAYERS block. The number is what lets a config
 # say the thing no state can: «over the panel AND over a fullscreen
@@ -1388,6 +1390,7 @@ proc policy-detach {w} {
     unset -nocomplain ::styleof($w) ::opacityof($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
     stack-drop $w        ;# out of the stacking model, layer and all
+    unset -nocomplain ::deskof($w) ::offdesk($w)
     panel-match-kick
 }
 
@@ -1698,6 +1701,15 @@ proc frame-recolor {t bg} {
 proc frame-focus-color {w} {
     if {[kbmr-owns $w]} { return $::KBMR_BG }   ;# the mode outranks focus
     expr {$w == $::focused ? [themed focus] : [themed unfocus]}
+}
+# The desk changed under everything: the furniture that counts windows
+# has a different set to count now, and the strips re-judge their
+# matches. The windows themselves were mapped and unmapped by the
+# substrate — visibility is its half — so nothing here moves anything.
+proc policy-desk-changed {was now} {
+    panel-match-kick
+    restack-soon
+    if {[llength [info commands widgets-tick-all]]} { widgets-tick-all }
 }
 proc policy-paint-focus {w} {
     set ::focus_hist [linsert \
@@ -2113,6 +2125,27 @@ proc layer-toggle {w n} {
     layer-set $w [expr {[layer-declared $w] == $n ? $::LAYER_NORMAL : $n}]
     publish-net-wm-state $w    ;# ABOVE/BELOW are EWMH state; say so
 }
+# A newcomer's desk: the style's word, else the desk one is on. The
+# style may also say `sticky`, which is the desk answer for a window
+# that belongs to all of them.
+proc client-desk-declare {w} {
+    set st [style-of $w]
+    # A window is BORN ON A DESK and stays there. Without this it had
+    # no desk of its own, desk-of answered "wherever you are now", and
+    # the window followed every switch — every desk showed everything
+    # (measured, the first run of the suite).
+    set d [expr {[dict exists $st desk] ? [dict get $st desk] : $::desk}]
+    if {$d eq "sticky" || $d eq "all"} {
+        set ::deskof($w) all
+    } elseif {[string is integer -strict $d] && $d >= 0 && $d < $::ndesks} {
+        set ::deskof($w) $d
+    } else {
+        puts "WM: 0x[format %x $w] desk «$d»: not a desk of the [set ::ndesks]"
+        return
+    }
+    publish-desk-of $w
+    desk-visibility $w
+}
 proc raise-group {w} {
     set leader [group-leader $w]
     # Within the layer: the leader first, then its transients (so they
@@ -2221,6 +2254,7 @@ proc policy-client-click {w} {
 proc policy-managed {w} {
     stack-add $w         ;# into the stacking model, at the top of its layer
     client-layer-declare $w
+    client-desk-declare $w
     raise-group $w
     focus-to $w
     apply-opacity $w
@@ -3714,7 +3748,21 @@ proc winlist-icon {w target} {
     list pseudo {*}[pseudo-badge $name]
 }
 
-proc winlist {} {
+# TWO LISTS, and they are TWO COMMANDS — not one that asks who called
+# it (the owner, 2026-08-04). The binding says which list it wants, so
+# nothing ever has to work out whether the hand came from Alt+Tab.
+#
+#   winlist      what the CYCLE flips through, and it stays on THIS
+#     desk. A cycle that wandered across desks would break the one
+#     promise the gesture makes: that two presses put you back where
+#     you were.
+#   winlist-all  the INVENTORY — every window there is, each foreign
+#     one marked with its desk, and picking one goes there. This is
+#     the list one opens to FIND something, so hiding two thirds of
+#     the desk from it would be the wrong half of the answer.
+proc winlist {} { winlist-of here }
+proc winlist-all {} { winlist-of all }
+proc winlist-of {scope} {
     set wins {}
     foreach w $::focus_hist {
         if {[info exists ::frameof($w)]} { lappend wins $w }
@@ -3722,8 +3770,19 @@ proc winlist {} {
     foreach w [array names ::frameof] {
         if {$w ni $wins} { lappend wins $w }
     }
+    if {$scope ne "all"} {
+        set wins [lmap w $wins {expr {[desk-here-p $w] ? $w : [continue]}}]
+    }
     if {![llength $wins]} { puts "WM: winlist: no windows"; return }
     winlist-open $wins center toggle
+}
+# What a row says about where its window lives. Nothing at all on a
+# desk with one desk, and nothing for a window one is looking at: the
+# mark is for the ones that are NOT here, which is the only case where
+# a title alone leaves a question.
+proc desk-label {w title} {
+    if {$::ndesks <= 1 || [desk-here-p $w]} { return $title }
+    return "[desk-of $w]: $title"
 }
 # The list itself, reusable — and it answers TWO questions that were
 # one argument for as long as only two combinations of them existed:
@@ -3807,7 +3866,8 @@ proc winlist-open {wins where kind {more ""}} {
     $T style layout sWin eTxt -expand ns -padx 4 -squeeze x
     set maxw 0
     foreach w $wins key $::winlist_keys {
-        set title [iconic-label $w [title-or-id $w [client-title $w]]]
+        set title [desk-label $w \
+            [iconic-label $w [title-or-id $w [client-title $w]]]]
         set maxw [expr {max($maxw, [font measure TitleFont $title])}]
         set item [$T item create]
         $T item style set $item Cnum sNum C0 sWin
@@ -3981,12 +4041,7 @@ proc winlist-pick {} {
     popups-close
     if {$w ne "" && [info exists ::frameof($w)]} {
         puts "WM: winlist pick 0x[format %x $w]"
-        if {[info exists ::iconic($w)]} {
-            deiconify-client $w    ;# raises and focuses on its own
-            return
-        }
-        raise-group $w
-        focus-to $w
+        panel-focus-hit $w    ;# the desk, the deiconify and the focus
     }
 }
 proc winlist-click {x y} {
@@ -4100,6 +4155,7 @@ set window_commands {
     Above        layer-above-command
     Below        layer-below-command
     Unlayer      layer-clear-command
+    Sticky       desk-sticky-toggle
     Bury         bury-group
     Move         move-keyboard
     Resize       resize-keyboard
@@ -6682,6 +6738,24 @@ proc Run {args} {
 # PREFER names the panel the gesture came from, so an arrow opens its
 # list off the button that was clicked rather than off whichever panel
 # would have been picked for a chord.
+# Reaching a window takes the desk with it — that IS what reaching
+# means, and it is the same rule whether the window was found by a
+# panel button, the window list or a chord. Sticky windows are here by
+# definition and this never fires for them.
+# The keyboard's own "send it there": the focused window, since the
+# hand is on the keys and not on a titlebar.
+proc desk-send-current {n} {
+    set w [current-window]
+    if {$w == 0} {
+        puts "WM: desk send: no window"
+        return
+    }
+    desk-send $w $n
+}
+proc desk-follow {w} {
+    if {![info exists ::managed($w)] || [desk-here-p $w]} return
+    desk-go [desk-of $w]
+}
 proc action-fire {name {mode auto} {prefer ""}} {
     if {![dict exists $::action_spec $name]} {
         puts "WM: action $name: unknown — nothing to fire"
@@ -7653,13 +7727,24 @@ proc panel-matches {label settings} {
         if {$w ni $cands} { lappend cands $w }
     }
     set hits {}
+    set elsewhere {}
     foreach w $cands {
         if {![info exists ::frameof($w)]} continue
         if {[catch {uplevel #0 [list {*}$pred $w]} m]} {
             puts "WM: panel $label: predicate error on 0x[format %x $w]: $m"
-        } elseif {$m} { lappend hits $w }
+        } elseif {$m} {
+            # THIS DESK FIRST. A button reaches the window it matches
+            # wherever that window is — going to it is what "reach"
+            # means, and the desk follows (action-reach) — but a
+            # candidate one can already see beats one on another desk,
+            # however recently the other was focused. The two answers
+            # to "I want a fresh one instead" already exist and need no
+            # new grammar: Ctrl+click forces a launch, and `many
+            # choose` opens the list, where the desk is a column.
+            if {[desk-here-p $w]} { lappend hits $w } else { lappend elsewhere $w }
+        }
     }
-    return $hits
+    return [concat $hits $elsewhere]
 }
 # Re-judge every button's match against the living windows and set
 # the persistent states. Kicked (debounced — one manage can cascade
@@ -8365,6 +8450,11 @@ proc panel-place {name P T g side n} {
 # What "focus the hit" means, shared by the plain fire and by activate
 # hooks that do more around it (the emacs layer's, so far).
 proc panel-focus-hit {w} {
+    # ...and the DESK first of all: a window one is sent to is a window
+    # one must be able to see, so reaching across desks takes you there
+    # (desk-follow is a no-op on a single-desk desk and for a sticky
+    # window). Before the deiconify, which focuses on its own.
+    desk-follow $w
     if {[info exists ::iconic($w)]} {
         deiconify-client $w   ;# raises and focuses on its own
         return
@@ -9108,7 +9198,7 @@ proc reflow-client {w old new} {
 # parameters, and `wm-keys` is how a config or a click speaks about
 # it:
 #
-#   wm-keys accords -prefix {<Super>x}   ;# the whole tree moves
+#   wm-keys chords -prefix {<Super>x}   ;# the whole tree moves
 #   wm-keys windows off                  ;# the reflexes go away
 #
 # Re-declaring a bundle UNBINDS what its previous instance bound —
@@ -9243,10 +9333,11 @@ proc keymap-find {node script path} {
 # and a key that says what is under the prefix you are standing in.
 # Both are parameters, because a prefix is exactly the thing a user
 # has an opinion about.
-key-bundle accords {prefix {<Super>t} help {<Super>h}} {
+key-bundle chords {prefix {<Super>t} help {<Super>h}} {
     set p [dict get $params prefix]
     bundle-bind [concat $p {w m}] winops
-    bundle-bind [concat $p {w w}] winlist
+    bundle-bind [concat $p {w w}] winlist-all \
+        "every window there is, whatever desk it is on"
     bundle-bind [concat $p {w r}] Reload
     # The configurator is a STOCK chord and not a member of any set
     # (the owner, 2026-08-02, choosing between the two): it is the way
@@ -9273,10 +9364,39 @@ key-bundle accords {prefix {<Super>t} help {<Super>h}} {
 #
 # NO parameters, deliberately (the owner, 2026-07-31): a parameter
 # per member is not a family parameter, it is the member list spelled
-# twice — accords' prefix moves a whole tree, these would each move
+# twice — chords' prefix moves a whole tree, these would each move
 # one key. The way to keep two reflexes and drop the rest is decision
 # 4: take the keepers into the custom layer as plain wm-bind and turn
 # the family off.
+# THE DESKS, on their own modifier. A family of its own because it is
+# neither of the other two: not the stumpwm tree (these are one press,
+# not a sequence) and not the Windows reflexes (Windows has no such
+# key). The modifier is a parameter for the same reason a prefix is —
+# it is the thing one has an opinion about.
+#
+# It binds exactly as many digits as there are desks, and set-desks
+# re-applies it when that number changes: nine bindings on a two-desk
+# machine would take Super+3 away from whoever else wants it. Shift
+# sends the window instead of going there — the convention every desk
+# with desks uses.
+#
+# The help does NOT list these one per desk: a run of digits collapses
+# to «Super+1..4» with the digit standing as N in the words (see
+# help-collapse). That is the whole reason the collapsing exists.
+key-bundle desks {mods {<Super>} send {<Super><Shift>}} {
+    set m [dict get $params mods]
+    set sm [dict get $params send]
+    # ONE DESK BINDS NOTHING. There is nowhere to go, and Super+1 is
+    # somebody else's key until the day a config asks for desks — which
+    # is what lets this bundle be on by default and cost nothing.
+    if {$::ndesks <= 1} return
+    for {set i 0} {$i < $::ndesks} {incr i} {
+        set d [expr {$i + 1}]
+        bundle-bind [list $m$d] [list desk-go $i] "go to desk $d"
+        bundle-bind [list $sm$d] [list desk-send-current $i] \
+            "send this window to desk $d"
+    }
+}
 key-bundle windows {} {
     bundle-bind {<Alt>Tab} winlist
     bundle-bind {<Alt>space} winops
@@ -9286,8 +9406,9 @@ key-bundle windows {} {
 }
 
 proc policy-default-bindings {} {
-    wm-keys accords
+    wm-keys chords
     wm-keys windows
+    wm-keys desks       ;# binds nothing while there is one desk
     # Re-read the config in place. Deliberately a default: the whole
     # point of the reload is to try a config without restarting, and
     # having to configure the way to reload the config first would be a
@@ -9794,7 +9915,7 @@ proc collection-keys {} {
 # to say so to a human before taking it: the deed itself, whose word
 # it is, the file and line it was said on when it came from a file,
 # and — for a family's chord — the parameters that family stands on,
-# which is what tells «accords» from «accords under another prefix»
+# which is what tells «chords» from «chords under another prefix»
 # (the owner's ask, 2026-08-01). Empty when the chord is free, which
 # is the answer that needs no dialog.
 proc chord-holder {spec} {
@@ -10871,7 +10992,7 @@ proc applet {name} {
 set config_vars {
     border gripz OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
-    monitors_override
+    monitors_override ndesks
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
     key_echo key_echo_place key_hold_warn KEY_ECHO_BAD KBMR_BG chord_hold
     last_started

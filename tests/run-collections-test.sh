@@ -20,7 +20,7 @@ action дом {launch {exec true &}}
 panel-button дом
 wm-bind {<Super>5} {list config-five}
 wm-widget часы -type clock
-wm-keys accords -prefix {<Super>x}
+wm-keys chords -prefix {<Super>x}
 EOF
 
 XDG_CONFIG_HOME="$HERE/coll-config" \
@@ -64,7 +64,7 @@ tblq() { q 'set t [collection-table]
     }
     set kb {}
     foreach e [dict get $t keys elements] {
-        if {[dict get $e key] eq "accords"} {
+        if {[dict get $e key] eq "chords"} {
             set kb [list [dict get $e values state] [dict get $e owner] \
                         [dict get [dict get $e values params] prefix]]
         }
@@ -72,7 +72,7 @@ tblq() { q 'set t [collection-table]
     list btn [dict get $b key] [dict get $b owner] \
          label [dict exists [dict get $b values] label] \
          act $a \
-         five $five widget $w accords $kb'; }
+         five $five widget $w chords $kb'; }
 
 T1=$(tblq)
 q reload-config >/dev/null
@@ -95,7 +95,7 @@ kill $WM 2>/dev/null
 echo "--- table: $T1"
 echo "--- after reload: $T2"
 echo "--- verdict"
-WANT='btn дом custom label 1 act {custom launch 1 key 1} five {{list custom-five} custom live} widget {{-type clock} config} accords {on config <Super>x}'
+WANT='btn дом custom label 1 act {custom launch 1 key 1} five {{list custom-five} custom live} widget {{-type clock} config} chords {on config <Super>x}'
 if [ "$T1" = "$WANT" ]; then
     echo "OK: every family serves said values, owners and the buried bind"
 else

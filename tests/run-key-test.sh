@@ -99,7 +99,7 @@ key Escape
 # lives instead of assuming it
 qk() { printf '%s\n' "$1" > "$HERE/qk.tcl"
        "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/qk.tcl"; }
-BUNDLE=$(qk 'wm-keys accords -prefix {<Super>x} -help {<Super>slash}
+BUNDLE=$(qk 'wm-keys chords -prefix {<Super>x} -help {<Super>slash}
              list moved [dict exists $::keymap [join [parse-chord {<Super>x}] ,]] \
                   oldgone [dict exists $::keymap [join [parse-chord {<Super>t}] ,]] \
                   help [chord-of key-help-open]')

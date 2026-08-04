@@ -794,6 +794,14 @@ proc set-prop-longs {win prop type values} {
 proc set-prop-utf8 {win prop str} {
     x-prop-set $win $prop $::UTF8 8 [encoding convertto utf-8 $str]
 }
+# How many desks there are and which one we are on. DECLARED HERE, far
+# above the desk machinery itself, because the EWMH block right below
+# publishes both the moment the redirect is armed — and a property
+# publisher that reads a variable the file has not reached yet fails
+# the whole setup (measured, the first run of this).
+keep ndesks 1                ;# 1 = the mechanism is off
+keep desk 0                  ;# where we are
+
 unless-already {[info exists ::wmcheck]} {if {[catch {
     set NET_CHECK     [x-intern _NET_SUPPORTING_WM_CHECK]
     set NET_SUPPORTED [x-intern _NET_SUPPORTED]
@@ -820,6 +828,7 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     # where the request went unheard).
     # The stacking pair, which we could not honor at all before there
     # were layers and which every panel-ish client sets on itself.
+    set NET_WM_STATE_STICKY [x-intern _NET_WM_STATE_STICKY]
     set NET_WM_STATE_ABOVE [x-intern _NET_WM_STATE_ABOVE]
     set NET_WM_STATE_BELOW [x-intern _NET_WM_STATE_BELOW]
     set NET_WM_STATE_MAXIMIZED_HORZ [x-intern _NET_WM_STATE_MAXIMIZED_HORZ]
@@ -875,13 +884,13 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     # One desktop, no viewport, and we say so rather than staying
     # silent: a client that finds _NET_NUMBER_OF_DESKTOPS missing has
     # to guess, and guessing is what puts things in the wrong place.
-    set-prop-longs $root $NET_NUMBER_OF_DESKTOPS 6 [list 1]   ;# XA_CARDINAL
-    set-prop-longs $root $NET_CURRENT_DESKTOP 6 [list 0]
+    set-prop-longs $root $NET_NUMBER_OF_DESKTOPS 6 [list $ndesks] ;# XA_CARDINAL
+    set-prop-longs $root $NET_CURRENT_DESKTOP 6 [list $desk]
     set-prop-longs $root $NET_DESKTOP_VIEWPORT 6 [list 0 0]
     set-prop-longs $root $NET_SUPPORTED 4 \
         [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
               $NET_WM_STATE $NET_WM_STATE_HIDDEN $NET_WM_STATE_FULLSCREEN \
-              $NET_WM_STATE_ABOVE $NET_WM_STATE_BELOW \
+              $NET_WM_STATE_ABOVE $NET_WM_STATE_BELOW $NET_WM_STATE_STICKY \
               $NET_WM_STATE_MAXIMIZED_HORZ $NET_WM_STATE_MAXIMIZED_VERT \
               $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS \
               $NET_WM_MOVERESIZE $NET_WM_WINDOW_TYPE \
@@ -2009,6 +2018,9 @@ proc net-wm-state-atoms {w} {
     set atoms {}
     if {[info exists ::iconic($w)]} { lappend atoms $::NET_WM_STATE_HIDDEN }
     if {[info exists ::fullscreen($w)]} { lappend atoms $::NET_WM_STATE_FULLSCREEN }
+    if {[llength [info commands desk-sticky-p]] && [desk-sticky-p $w]} {
+        lappend atoms $::NET_WM_STATE_STICKY
+    }
     # ...and where the window sits in the stack, when that is a thing
     # it asked for rather than the ordinary place (see layer-declared).
     if {[llength [info commands layer-declared]]} {
@@ -2101,6 +2113,170 @@ proc deiconify-client {w} {
     x-sync 0
     puts "WM: deiconified 0x[format %x $w]"
     focus-to $w
+}
+
+# ---------------- virtual desks ----------------
+#
+# Several independent sets of windows on one screen, fvwm's Desks. The
+# whole of the mechanism is VISIBILITY: a window belongs to a desk (or
+# to all of them — sticky), the desk one is on decides which windows
+# are on the screen, and NOTHING about geometry changes. That is what
+# makes it cheap, and it is the reason the other half of fvwm's model —
+# Pages, a viewport scrolling over one big virtual screen — is
+# deliberately not here: pages are a COORDINATE SYSTEM, and every clamp,
+# maximize, resistance and placement decision on this desk would have to
+# subtract a viewport origin (the owner's call, 2026-08-04).
+#
+# THE STATE A WINDOW ELSEWHERE IS IN is the one real decision, and it is
+# fvwm's answer (the owner, same day): the frame is unmapped and WM_STATE
+# stays NormalState. ICCCM does not describe that combination — the
+# formally clean alternative is IconicState, which metacity uses — but a
+# client told it is iconic believes it was MINIMIZED, and the ones that
+# paint by their state (emacs, telega) stop painting. So the window is
+# taken off the screen and told nothing, which is the truth: nobody
+# minimized it.
+#
+# The cost of that choice is that "not here" and "iconic" stop being
+# distinguishable from the outside, so we keep the difference ourselves
+# — ::offdesk, an array parallel to ::iconic. Every list, every refocus
+# and every count asks the two separately.
+array set deskof {}          ;# client -> its desk, or "all" for sticky
+array set offdesk {}         ;# client -> on the screen? absent = yes
+proc desk-of {w} {
+    expr {[info exists ::deskof($w)] ? $::deskof($w) : $::desk}
+}
+proc desk-sticky-p {w} { expr {[desk-of $w] eq "all"} }
+proc desk-here-p {w} {
+    set d [desk-of $w]
+    expr {$d eq "all" || $d == $::desk}
+}
+# How many desks there are. One is not a special case anywhere below —
+# it just means every window is here — but it IS the default, so a desk
+# that was never told about desks behaves exactly as it always did.
+proc set-desks {n} {
+    if {![string is integer -strict $n] || $n < 1} {
+        error "set-desks: how many desks, 1 or more (1 switches it off)"
+    }
+    set ::ndesks $n
+    if {$::desk >= $n} { desk-go [expr {$n - 1}] }
+    publish-desk-count
+    # A window parked on a desk that no longer exists comes home rather
+    # than becoming unreachable — a mechanism one turns DOWN must not
+    # eat windows.
+    foreach w [array names ::deskof] {
+        set d $::deskof($w)
+        if {$d ne "all" && $d >= $n} { set ::deskof($w) [expr {$n - 1}] }
+    }
+    foreach w [array names ::managed] {
+        publish-desk-of $w
+        desk-visibility $w
+    }
+    # The keys follow the count: the bundle binds one digit per desk,
+    # so the number changing is the one thing that makes its member
+    # list wrong. Re-applied with whatever parameters it is wearing.
+    if {[llength [info commands wm-keys]] && [dict exists $::key_bundles desks]} {
+        set p [dict get $::key_bundles desks params]
+        soft "re-apply the desks bundle" \
+            [list wm-keys desks {*}[concat {*}[lmap {k v} $p {list -$k $v}]]]
+    }
+}
+proc publish-desk-count {} {
+    if {![info exists ::NET_NUMBER_OF_DESKTOPS]} return
+    soft "publish _NET_NUMBER_OF_DESKTOPS" \
+        { set-prop-longs $::root $::NET_NUMBER_OF_DESKTOPS 6 [list $::ndesks] }
+    soft "publish _NET_CURRENT_DESKTOP" \
+        { set-prop-longs $::root $::NET_CURRENT_DESKTOP 6 [list $::desk] }
+}
+# _NET_WM_DESKTOP, per window: the desk it is on, or the all-ones
+# CARDINAL that EWMH spells sticky.
+proc publish-desk-of {w} {
+    if {![info exists ::NET_WM_DESKTOP]} return
+    set d [desk-of $w]
+    soft "publish _NET_WM_DESKTOP" [list set-prop-longs $w $::NET_WM_DESKTOP 6 \
+        [list [expr {$d eq "all" ? 0xffffffff : $d}]]]
+}
+# Put w where it belongs on the screen — the one place that maps or
+# unmaps for a desk, so the bookkeeping cannot drift from the picture.
+#
+# The unmap is the client's own, and the ORDER is the one iconify
+# fought for: the client's unmap reaches the server before the frame
+# goes, or wine sees a bare FocusOut and comes back keyboard-dead. What
+# is NOT done here is the other half of iconify — WM_STATE is left at
+# NormalState, which is the whole point (see above).
+proc desk-visibility {w} {
+    if {![info exists ::managed($w)]} return
+    if {[info exists ::iconic($w)]} return   ;# minimized outranks: it is already off
+    set want [desk-here-p $w]
+    set now [expr {![info exists ::offdesk($w)]}]
+    if {$want == $now} return
+    if {$want} {
+        unset -nocomplain ::offdesk($w)
+        policy-deiconified $w      ;# the decoration comes back up
+        x-map $w
+        x-sync 0
+    } else {
+        set ::offdesk($w) 1
+        incr ::skip_unmap($w)      ;# our own unmap is not the client withdrawing
+        x-unmap $w
+        x-sync 0
+        policy-iconified $w        ;# ...and the decoration goes with it
+        x-sync 0
+    }
+}
+# Go to desk n. The focus follows: the most recently focused window
+# that is THERE, and the holder when the desk is empty — a desk one
+# switches to with the keyboard still aimed at a window one can no
+# longer see would be a trap.
+proc desk-go {n} {
+    if {![string is integer -strict $n] || $n < 0 || $n >= $::ndesks} {
+        puts "WM: desk $n: there are $::ndesks"
+        return
+    }
+    if {$n == $::desk} return
+    set was $::desk
+    set ::desk $n
+    foreach w [array names ::managed] { desk-visibility $w }
+    publish-desk-count
+    puts "WM: desk $was -> $n"
+    policy-desk-changed $was $n
+    set want 0
+    foreach cand $::focus_hist {
+        if {[info exists ::managed($cand)] && [desk-here-p $cand]
+                && ![info exists ::iconic($cand)]} { set want $cand; break }
+    }
+    if {$want == 0} {
+        focus-park "the new desk is empty"
+    } else {
+        focus-to $want
+    }
+}
+# Send a window to another desk — or to all of them. The desk does NOT
+# follow it: "get this out of my way" would be a poor thing to answer
+# by taking the user there.
+proc desk-send {w n} {
+    if {![info exists ::managed($w)]} return
+    if {$n ne "all"} {
+        if {![string is integer -strict $n] || $n < 0 || $n >= $::ndesks} {
+            puts "WM: desk $n: there are $::ndesks"
+            return
+        }
+    }
+    set was [desk-of $w]
+    if {$was eq $n} return
+    set ::deskof($w) $n
+    publish-desk-of $w
+    puts "WM: 0x[format %x $w] desk $was -> $n"
+    set was_focused [expr {$::focused == $w}]
+    desk-visibility $w
+    if {$was_focused && ![desk-here-p $w]} {
+        set refocus [policy-pick-refocus $w]
+        set ::focused 0
+        focus-park "the focused window went to another desk"
+        if {$refocus != 0} { focus-to $refocus }
+    }
+}
+proc desk-sticky-toggle {w} {
+    desk-send $w [expr {[desk-sticky-p $w] ? $::desk : "all"}]
 }
 
 # ---------------- fullscreen ----------------
@@ -2357,8 +2533,7 @@ proc manage {w {asiconic 0}} {
     x-map $w
     set-wm-state $w 1          ;# NormalState — ICCCM, see set-wm-state
     publish-frame-extents $w   ;# EWMH — how much decoration is around it
-    soft "publish _NET_WM_DESKTOP" \
-        { set-prop-longs $w $::NET_WM_DESKTOP 6 [list 0] }   ;# the one desktop
+    publish-desk-of $w
     lappend ::client_order $w
     publish-client-list
     x-sync 0
@@ -3648,15 +3823,58 @@ proc wm-bind {spec script {name ""}} {
 # click-to-focus button grab.
 proc grab-chord {chord} {
     lassign $chord mods ks
-    set kc [x-keycode $ks]
-    if {$kc == 0} {
+    set got 0
+    foreach k [concat [list $ks] [keypad-twin $ks]] {
+        set kc [x-keycode $k]
+        if {$kc == 0} continue
+        foreach locks {0 2 16 18} {
+            x-grab-key $kc [expr {$mods | $locks}] $::root
+        }
+        incr got
+    }
+    if {!$got} {
         puts "WM: no keycode for [keysym-name $ks] — chord not grabbed"
         return
     }
-    foreach locks {0 2 16 18} {
-        x-grab-key $kc [expr {$mods | $locks}] $::root
-    }
     x-sync 0
+}
+# A DIGIT IS A DIGIT WHEREVER IT IS TYPED. With NumLock on, the keypad
+# sends KP_1 and not 1 — a different keysym, so a chord bound to the
+# digit was simply dead over there (the owner, 2026-08-04). The pair is
+# grabbed together and normalized apart: this returns the twin to grab,
+# and chord-key below folds an arriving KP_n back onto its digit, so
+# ONE binding covers both keys and the help has one line to show.
+#
+# NumLock OFF is deliberately left alone: the keypad then sends End,
+# Down, Prior and friends, which are keys in their own right and belong
+# to whoever bound them.
+proc keypad-twin {ks} {
+    set n [keysym-name $ks]
+    if {[regexp {^([0-9])$} $n -> d]} {
+        set kp [x-keysym KP_$d]
+        if {$kp != 0} { return [list $kp] }
+    }
+    return {}
+}
+# ...and the same fold on the way in: the keysym a lookup is keyed on.
+#
+# The keypad needs its SECOND level read, and this is the part that is
+# easy to get wrong: a keypad keycode carries two keysyms, KP_End at
+# level 0 and KP_1 at level 1, and which one the server reports depends
+# on NumLock. We grabbed the keycode with every lock combination, so
+# the press arrives either way — and a fold that only knew KP_1 left
+# the NumLock-off press swallowed by our own grab and doing nothing,
+# which is the worst of the three outcomes. So the physical key is what
+# is folded: whatever it says now, if its level-1 symbol is KP_n then
+# it IS the digit n.
+proc chord-key {kc ks} {
+    if {![string match KP_* [keysym-name $ks]]} { return $ks }
+    set lvl1 [x-keysym-at $kc 0 1]
+    if {[regexp {^KP_([0-9])$} [keysym-name $lvl1] -> d]} {
+        set alt [x-keysym $d]
+        if {$alt != 0} { return $alt }
+    }
+    return $ks
 }
 # ...and the same four, given back (see keys-drop-orphan).
 proc ungrab-chord {chord} {
@@ -3773,7 +3991,73 @@ proc keymap-rows {node path} {
                 [expr {$name ne "" ? $name : [help-label $payload]}]]
         }
     }
-    return $rows
+    return [help-collapse $rows]
+}
+# A FAMILY OF DIGITS IS ONE LINE. Four desks are four bindings and the
+# help would list four of them; nine would be nine, and the list one
+# reads to learn the desk would be mostly the same row over and over
+# (the owner, 2026-08-04). They collapse to «Super+1..4», with the
+# digit standing as N in the words.
+#
+# Nothing is declared for this and nothing needs to be: rows merge when
+# they differ ONLY by a digit — same path before the last chord, same
+# modifiers on it, and labels that become the same sentence once each
+# has its own digit taken out. That is a strong enough test that an
+# accidental merge would have to be two bindings which are already the
+# same thing said twice.
+#
+# The digits are printed as RUNS, so 1 2 3 5 comes out «1..3,5» rather
+# than pretending to be a range it is not.
+proc help-collapse {rows} {
+    set order {}
+    set group {}
+    foreach row $rows {
+        lassign $row keys label
+        set words [split $keys " "]
+        set last [lindex $words end]
+        if {![regexp {^(.*?)([0-9])$} $last -> pre d]
+                || ($pre ne "" && ![string match "*+" $pre])} {
+            lappend order [list row $row]
+            continue
+        }
+        set canon [string map [list $d "\u0001"] $label]
+        set key [list [lrange $words 0 end-1] $pre $canon]
+        if {![dict exists $group $key]} {
+            lappend order [list group $key]
+            dict set group $key {}
+        }
+        dict lappend group $key $d
+    }
+    set out {}
+    foreach item $order {
+        lassign $item kind payload
+        if {$kind eq "row"} { lappend out $payload; continue }
+        lassign $payload before pre canon
+        set digits [lsort -integer [dict get $group $payload]]
+        set label [string map [list "\u0001" N] $canon]
+        if {[llength $digits] == 1} {
+            set label [string map [list "\u0001" [lindex $digits 0]] $canon]
+        }
+        lappend out [list [string trim "[join $before { }] $pre[digit-runs $digits]"] \
+                          $label]
+    }
+    return $out
+}
+proc digit-runs {digits} {
+    set parts {}
+    set from ""
+    set prev ""
+    foreach d $digits {
+        if {$from eq ""} { set from $d; set prev $d; continue }
+        if {$d == $prev + 1} { set prev $d; continue }
+        lappend parts [expr {$from == $prev ? $from : "$from..$prev"}]
+        set from $d
+        set prev $d
+    }
+    if {$from ne ""} {
+        lappend parts [expr {$from == $prev ? $from : "$from..$prev"}]
+    }
+    join $parts ,
 }
 proc help-label {script} {
     set one [string trim [regsub -all {\s+} $script " "]]
@@ -3954,7 +4238,7 @@ proc modifier-held {mask} {
 # too.
 set CHORD_IGNORE [expr {2 | 16 | 0x6000}]
 proc handle-key {state kc time} {
-    set ks [x-keysym-at $kc 0 0]
+    set ks [chord-key $kc [x-keysym-at $kc 0 0]]
     set mods [expr {$state & ~$::CHORD_IGNORE}]
     if {$::keyrouter ne ""} {
         route-key press [keysym-name $ks] $mods

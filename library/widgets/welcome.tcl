@@ -63,7 +63,7 @@ proc welcome-widget-build {w opts} {
     $w.t insert end " — what is running, from the running desk's own\
  mouth.\n\n"
     # ASK THE KEYMAP, do not assume: the help key is a parameter of
-    # the accords bundle and a config may have moved it, in which case
+    # the chords bundle and a config may have moved it, in which case
     # advising Super+h would be advice to press nothing (the owner).
     # Bound to nothing at all — the sentence simply loses its tail.
     set hk [chord-of key-help-open]

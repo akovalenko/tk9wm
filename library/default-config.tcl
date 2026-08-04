@@ -83,6 +83,42 @@
 #   set-workarea-follow max
 #   set-workarea-follow off
 #
+# ---- virtual desks ----
+#
+# Several independent sets of windows on one screen — fvwm's Desks. One
+# knob, and it is a COUNT: one desk (the default) means the mechanism is
+# off, and nothing about the desk changes.
+#   set-desks 4
+#
+# Switching is VISIBILITY and nothing else: the windows of other desks
+# leave the screen, keep their geometry, and are NOT told they were
+# minimized (their WM_STATE stays Normal), so a client that paints by
+# its state — emacs, telega — goes on painting. What is off the screen
+# is off the screen; there is no pager and none is wanted, since the
+# window list says where everything is.
+#
+# The keys come with the `desks` bundle (above): Super+N goes to a
+# desk, Super+Shift+N sends the focused window there without following
+# it. Reaching a window ACROSS desks — a panel button, a row of the
+# window list — takes you to its desk, because that is what reaching a
+# window means.
+#
+# Per window, in a style rule:
+#   wm-style {filter -class Telegram} {desk 2}       ;# born there
+#   wm-style {filter -title Таймер}   {desk sticky}  ;# on every desk
+# ...and by hand: the window command `Sticky` toggles it.
+#
+# Two window lists, and they are two commands — bind whichever you
+# want where:
+#   winlist       this desk only; what Alt+Tab cycles through
+#   winlist-all   every window there is, each foreign one marked with
+#                 its desk; picking one goes there
+#
+# Pages — fvwm's other half, a viewport scrolling over one big virtual
+# screen — are deliberately NOT here. Desks are visibility; pages are a
+# coordinate system, and every clamp, maximize and placement decision
+# would have to subtract a viewport origin.
+#
 # The mouse gesture that carries a window from ANYWHERE on it: hold
 # the modifier, press, move. Button 1 carries, button 3 resizes from
 # the nearest corner — and for a window styled `decor none` (below)
@@ -788,19 +824,26 @@
 # KEYS COME IN FAMILIES, and a family is what one turns on, off or
 # MOVES. Two are declared in code and both are on by default:
 #
-#   accords — the stumpwm-shaped prefix tree (window menu, window
+#   chords — the stumpwm-shaped prefix tree (window menu, window
 #     list, reload, quit) plus the key that says what is under the
 #     prefix you are standing in. Both are parameters:
-#       wm-keys accords -prefix {<Super>x} -help {<Super>slash}
+#       wm-keys chords -prefix {<Super>x} -help {<Super>slash}
 #     ...and the whole tree moves, help key and all.
 #   windows — the reflexes hands arrive with, reckless on purpose
 #     because applications want these chords too: the switcher, the
 #     window menu, close, and hide-everything:
 #       wm-keys windows -close {<Ctrl><Alt>w} -hide {<Super>m}
+#   desks — one press per desk, and the modifier is the parameter:
+#       wm-keys desks -mods {<Ctrl><Alt>} -send {<Ctrl><Alt><Shift>}
+#     It binds one digit PER DESK, so with one desk (the default) it
+#     binds nothing at all and Super+1 stays whoever's it was. Set
+#     `set-desks` first and the keys follow the count by themselves.
+#     The digits of the NUMPAD are the same keys — a chord on a digit
+#     answers to both, so there is nothing to declare twice.
 #
-# Either goes away whole:
+# Any of them goes away whole:
 #   wm-keys windows off
-#   wm-keys accords off        ;# ...and with it the help key
+#   wm-keys chords off        ;# ...and with it the help key
 #
 # Re-declaring a bundle UNBINDS what its last instance bound, which is
 # what makes moving a prefix a move and not a copy — but only what is

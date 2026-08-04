@@ -5,7 +5,7 @@
 # words against the live payload, and that could not tell two
 # identical scripts apart nor say anything about a word that had
 # stopped answering. Worse, it made a family's departure blind: the
-# owner's desk, 2026-08-01 — three binds TAKEN out of the accords
+# owner's desk, 2026-08-01 — three binds TAKEN out of the chords
 # bundle died when the bundle was toggled, because `wm-keys off`
 # swept its chords whoever owned them by then.
 #
@@ -50,17 +50,17 @@ BEFORE="$(origin '<Super>t w m') $(origin '<Super>9')"
 q 'custom-write {wm-bind {<Super>t w m} {list mine-now} {}}' >/dev/null
 sleep 0.3
 TAKEN="$(origin '<Super>t w m') $(answers '<Super>t w m')"
-TOOK=$(grep -c "takes it from bundle accords" "$HERE/wm-owner.log")
+TOOK=$(grep -c "takes it from bundle chords" "$HERE/wm-owner.log")
 
 # THE TOGGLE that used to destroy it
-q 'wm-keys accords off' >/dev/null
+q 'wm-keys chords off' >/dev/null
 sleep 0.3
 AFTEROFF="$(origin '<Super>t w m') $(answers '<Super>t w m') $(answers '<Super>t q')"
 LEFT=$(grep -c "leaves 1 chord(s) — not its own any more" "$HERE/wm-owner.log")
 
 # ...and the family coming back takes its chord back, saying so —
 # which is a claim the tree can now SHOW instead of a mystery
-q 'wm-keys accords' >/dev/null
+q 'wm-keys chords' >/dev/null
 sleep 0.3
 BACK="$(origin '<Super>t w m') $(answers '<Super>t w m')"
 WHY=$(q 'set r none
@@ -121,7 +121,7 @@ echo "--- before={$BEFORE} taken={$TAKEN} afteroff={$AFTEROFF} back={$BACK}"
 echo "--- why={$WHY} took=$TOOK left=$LEFT where=$WHERE"
 echo "--- effect={$EFFECT} audit={$AUDIT} afterdrop={$AFTERDROP} chain={$CHAIN}"
 echo "--- verdict"
-if [ "$BEFORE" = "bundle accords config" ]; then
+if [ "$BEFORE" = "bundle chords config" ]; then
     echo "OK: a binding says whose it is — the family's, the config's"
 else
     echo "FAIL: before: $BEFORE"
@@ -137,7 +137,7 @@ else
     echo "FAIL: after the toggle: $AFTEROFF (left-lines: $LEFT)"
 fi
 case "$BACK|$WHY" in
-    "bundle accords winops|custom said list mine-now,"*)
+    "bundle chords winops|custom said list mine-now,"*)
         echo "OK: the family taking it back is a claim the tree can explain" ;;
     *) echo "FAIL: back={$BACK} why={$WHY}" ;;
 esac

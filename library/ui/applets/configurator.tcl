@@ -3137,7 +3137,7 @@ proc cfg-pins {} {
 
 # The holder of a chord, in one sentence: the deed, whose word it is,
 # on which line it was said, and — for a family — the parameters it
-# stands on, because «accords» and «accords under another prefix» are
+# stands on, because «chords» and «chords under another prefix» are
 # different answers to «where did this come from».
 proc cfg-holder-sentence {held} {
     set who [dict get $held who]
