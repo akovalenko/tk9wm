@@ -1488,7 +1488,8 @@ SELINK=$(qu 'lindex [$::cfg_T element cget eTxt -fill] 0')
 MENUPAL=$(qu 'cfg-select [dict get $::cfg_item set-fade]
     set m [cfg-row-menu-build]
     list bg [expr {[$m cget -background] eq [ui-color bg]}] \
-         active [expr {[$m cget -activebackground] eq [ui-color select]}]')
+         active [expr {[$m cget -activebackground] eq [ui-color select]}] \
+         marker [expr {[$m cget -selectcolor] eq [ui-color fg]}]')
 echo "--- style before: $BEFORE  after set-theme light: $AFTER"
 if [ "$BEFORE" != "$AFTER" ]; then
     echo "OK: the open applet repainted where it stood ($BEFORE -> $AFTER)"
@@ -1644,7 +1645,7 @@ if [ "$SILENCE" = "over 1 mine custom silence 1 covered 1 back {code 0}" ]; then
 else
     echo "FAIL: silence/instead-of: $SILENCE"
 fi
-if [ "$MENUPAL" = "bg 1 active 1" ]; then
+if [ "$MENUPAL" = "bg 1 active 1 marker 1" ]; then
     echo "OK: a menu built after the flip wears the palette as it stands"
 else
     echo "FAIL: menu palette: $MENUPAL"

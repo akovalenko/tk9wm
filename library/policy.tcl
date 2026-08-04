@@ -330,7 +330,29 @@ proc set-theme {name} {
         error "set-theme: no such theme «$name» — [join [dict keys $::theme_palette] { or }]"
     }
     set ::theme $name
+    # The derived variables move IN THE SAME BREATH as the word, not
+    # at settle time. ::theme moves synchronously — `themed` answers
+    # the new palette at once — so a panel or widget rebuild already
+    # sitting in the idle queue would otherwise build against a MIXED
+    # world: the new theme's raised behind faces still tinted with the
+    # old theme's live. That was the owner's half-applied preview
+    # (2026-08-04): a light strip wearing the dark theme's green under
+    # its matched buttons — sometimes, exactly as often as a rebuild
+    # got into the queue ahead of the settler. Deriving is writing
+    # wishes, not acting on the world, so the word may do it; the
+    # REPAINT stays with the settler.
+    theme-derive
     settle-soon theme
+}
+# The variables a role STANDS BEHIND, unless somebody said their own
+# word. Roles with no knob simply follow.
+proc theme-derive {} {
+    set ::OUTLINE [themed edge]
+    set ::KBMR_BG [themed modal]
+    set ::KEY_ECHO_BAD [themed bad]
+    set ::panel_live_face [themed live]
+    set ::panel_live_bar [themed livebar]
+    theme-derive-said
 }
 # LIVE, like every knob that touches something one can see — and here
 # that means nearly everything, so it is nearly everything that gets
@@ -339,14 +361,10 @@ proc set-theme {name} {
 # reload, and the frames are re-dressed the way a focus change dresses
 # them. The applets are told over the same door a font change uses.
 proc theme-apply {} {
-    # The variables a role STANDS BEHIND, unless somebody said their
-    # own word. Roles with no knob simply follow.
-    set ::OUTLINE [themed edge]
-    set ::KBMR_BG [themed modal]
-    set ::KEY_ECHO_BAD [themed bad]
-    set ::panel_live_face [themed live]
-    set ::panel_live_bar [themed livebar]
-    theme-derive-said
+    # Derived here TOO, not only in the word: a reload's policy-reset
+    # puts the code defaults back under whatever theme the layers
+    # re-say, and this settler is where the two meet again.
+    theme-derive
     # Through the DEFERRED builders, not the direct ones: set-theme is a
     # config line as often as it is a click, and a strip rebuilt in the
     # middle of a load lays itself out against half a config (the

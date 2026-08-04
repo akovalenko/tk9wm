@@ -756,10 +756,16 @@ proc ui-cell-edit {T item column addr opts} {
 # the palette as it stands, every time the menu is built.
 proc ui-menu {path} {
     catch {destroy $path}
+    # -selectcolor is the radiobutton MARKER beside the entry that
+    # holds now — left to the option database it kept the OLD theme's
+    # ink after a live flip (a white dot on a light menu, the owner,
+    # 2026-08-04), for exactly the timeline reason above. The marker
+    # is ink: black on light, white on dark, by the same word.
     menu $path -tearoff 0 -font DeskFont \
         -background [ui-color bg] -foreground [ui-color fg] \
         -activebackground [ui-color select] \
-        -activeforeground [ui-color selectfg]
+        -activeforeground [ui-color selectfg] \
+        -selectcolor [ui-color fg]
     return $path
 }
 proc ui-cell-choice {T item column addr vals opts} {

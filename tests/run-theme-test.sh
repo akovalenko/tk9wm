@@ -92,6 +92,19 @@ sleep 1
 MATNOW=$(ask 'set ::theme')
 MATSAID=$(ask 'expr {[dict exists $::layer_knobs custom set-theme]
                      ? [dict get $::layer_knobs custom set-theme] : "nothing"}')
+# HALF-APPLIED, NEVER: the derived variables (the live face, the
+# outline, the modal amber) move in the same breath as the word —
+# asked INSIDE one script, with no idle tick in between, so a rebuild
+# already queued can never read the new theme's raised behind the old
+# theme's live (the owner's report, 2026-08-04). Both flips checked,
+# both inside the one callback.
+MIX=$(ask 'set-theme dark
+    set a [expr {$::panel_live_face eq [themed live]
+                 && $::OUTLINE eq [themed edge]}]
+    set-theme light
+    set b [expr {$::panel_live_face eq [themed live]
+                 && $::KBMR_BG eq [themed modal]}]
+    list $a $b')
 kill $WM 2>/dev/null
 
 echo "--- light: strip $LSTRIP desk $LDESK"
@@ -130,6 +143,10 @@ case "$OSAID" in
     *"value #4e9a06"*)
         echo "OK: a said colour answers the word that was said" ;;
     *) echo "FAIL: the said knob does not report it: $OSAID"; FAIL=1 ;;
+esac
+case "$MIX" in
+    "1 1") echo "OK: the derived colours move in the same breath as the word" ;;
+    *) echo "FAIL: the word and its derived colours came apart: $MIX"; FAIL=1 ;;
 esac
 echo "--- the mat's switch: $MATWAS -> $MATNOW, custom says: $MATSAID"
 if [ "$MATWAS" = light ] && [ "$MATNOW" = dark ]; then
