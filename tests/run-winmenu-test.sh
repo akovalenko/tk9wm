@@ -80,7 +80,7 @@ GEOM3=$(menu_geom)
 MW=${GEOM3%%x*}; REST=${GEOM3#*x}
 MH=${REST%%+*}; REST=${REST#*+}
 MX=${REST%%+*}; MY=${REST#*+}
-ROWH=$(((MH - 2) / 10))
+ROWH=$(((MH - 2) / 11))   ;# the ops menu has eleven rows
 ROW5=$((MY + 1 + 4 * ROWH + ROWH / 2))
 echo "--- menu $GEOM3, row height $ROWH, Raise at $((MX + MW / 2)),$ROW5"
 xdotool mousemove $((MX + MW / 2)) $((MY + 1 + ROWH / 2))   ;# through row 1...

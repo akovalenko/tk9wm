@@ -818,6 +818,10 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     # whose ancient Emacs.geometry resource then ruled alone (measured:
     # a TELEGA frame 1773 wide on a 1920 workarea, the hole exactly
     # where the request went unheard).
+    # The stacking pair, which we could not honor at all before there
+    # were layers and which every panel-ish client sets on itself.
+    set NET_WM_STATE_ABOVE [x-intern _NET_WM_STATE_ABOVE]
+    set NET_WM_STATE_BELOW [x-intern _NET_WM_STATE_BELOW]
     set NET_WM_STATE_MAXIMIZED_HORZ [x-intern _NET_WM_STATE_MAXIMIZED_HORZ]
     set NET_WM_STATE_MAXIMIZED_VERT [x-intern _NET_WM_STATE_MAXIMIZED_VERT]
     set NET_FRAME_EXTENTS [x-intern _NET_FRAME_EXTENTS]
@@ -877,6 +881,7 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     set-prop-longs $root $NET_SUPPORTED 4 \
         [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
               $NET_WM_STATE $NET_WM_STATE_HIDDEN $NET_WM_STATE_FULLSCREEN \
+              $NET_WM_STATE_ABOVE $NET_WM_STATE_BELOW \
               $NET_WM_STATE_MAXIMIZED_HORZ $NET_WM_STATE_MAXIMIZED_VERT \
               $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS \
               $NET_WM_MOVERESIZE $NET_WM_WINDOW_TYPE \
@@ -1354,6 +1359,22 @@ proc dispatch-event {ev} {
                         if {$on} { maximize-client $A } else {
                             unmaximize-client $A
                         }
+                    } elseif {[info exists ::NET_WM_STATE_ABOVE]
+                            && ($a == $::NET_WM_STATE_ABOVE
+                                || $a == $::NET_WM_STATE_BELOW)
+                            && [llength [info commands layer-set]]} {
+                        # The stacking pair at run time: a client asking
+                        # to be above (or below) everything is asking
+                        # for a LAYER, and now there is one to give it.
+                        # Toggle compares with where the window sits, so
+                        # a second ask puts it back among the ordinary
+                        # windows.
+                        set want [expr {$a == $::NET_WM_STATE_ABOVE
+                                        ? $::LAYER_ABOVE : $::LAYER_BELOW}]
+                        set on [expr {$act == 2
+                            ? [layer-declared $A] != $want : $act == 1}]
+                        layer-set $A [expr {$on ? $want : $::LAYER_NORMAL}]
+                        publish-net-wm-state $A
                     } else {
                         puts "WM: _NET_WM_STATE action $act on\
  [soft "name an atom" { x-atom-name $a } $a] ignored\
@@ -1988,6 +2009,16 @@ proc net-wm-state-atoms {w} {
     set atoms {}
     if {[info exists ::iconic($w)]} { lappend atoms $::NET_WM_STATE_HIDDEN }
     if {[info exists ::fullscreen($w)]} { lappend atoms $::NET_WM_STATE_FULLSCREEN }
+    # ...and where the window sits in the stack, when that is a thing
+    # it asked for rather than the ordinary place (see layer-declared).
+    if {[llength [info commands layer-declared]]} {
+        set n [layer-declared $w]
+        if {$n > $::LAYER_NORMAL && $n <= $::LAYER_ABOVE} {
+            lappend atoms $::NET_WM_STATE_ABOVE
+        } elseif {$n < $::LAYER_NORMAL && $n >= $::LAYER_BELOW} {
+            lappend atoms $::NET_WM_STATE_BELOW
+        }
+    }
     # The maximized mark is the policy's (::maxsaved, the saved way
     # back), and this builder only READS it: what is published is what
     # the maximize machinery believes, wherever it changed hands.
@@ -2113,6 +2144,16 @@ proc unfullscreen-client {w} {
 # the OTHER one — they map at their ordinary size and send the
 # ClientMessage immediately after, so their startup flag arrives as a
 # runtime toggle. Both paths are real and both are tested.
+# The state atoms a client set on ITSELF before mapping — what it says
+# it wants to be, as opposed to what we hold it in. The layer machinery
+# reads it for the ABOVE/BELOW pair.
+proc client-net-wm-state {w} {
+    if {![info exists ::NET_WM_STATE]} { return {} }
+    lassign [soft "read _NET_WM_STATE" { x-prop-get $w $::NET_WM_STATE }] \
+        type fmt value
+    if {$fmt ne "32"} { return {} }
+    return $value
+}
 proc client-initial-fullscreen {w} {
     if {![info exists ::NET_WM_STATE_FULLSCREEN]} { return 0 }
     lassign [soft "read _NET_WM_STATE" { x-prop-get $w $::NET_WM_STATE }] \

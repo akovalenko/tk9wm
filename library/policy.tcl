@@ -646,6 +646,11 @@ proc set-title-justify {j} {
 # chrome-of, and hinted-decor for what the window itself asked for
 # (this key OVERRULES that). place (a term list) — the geometry it is
 # born with; see parse-place.
+# layer (a number 0..12, or below|normal|above|dock|top) — where in the
+# stack it lives; see the LAYERS block. The number is what lets a config
+# say the thing no state can: «over the panel AND over a fullscreen
+# window» is layer 10 or more, and nothing else on the desk has to know
+# about it.
 keep style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
@@ -1382,6 +1387,7 @@ proc policy-detach {w} {
     unset -nocomplain ::maxsaved($w) ::fssaved($w)
     unset -nocomplain ::styleof($w) ::opacityof($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
+    stack-drop $w        ;# out of the stacking model, layer and all
     panel-match-kick
 }
 
@@ -1706,7 +1712,7 @@ proc policy-paint-focus {w} {
     # invitation a beat after the raise that invited it. On a desk with
     # nothing fullscreen the question does not arise, so it costs
     # nothing to ask.
-    if {[array size ::fullscreen]} { panel-on-top }
+    if {[array size ::fullscreen]} { restack-soon }
 }
 
 # ---- fade: how solid a window is ----
@@ -1896,47 +1902,251 @@ proc group-members {leader} {
     }
     return $members
 }
+# ---- LAYERS: the stack is a model, and this is its only owner ----
+#
+# Every window sits in a numbered LAYER, the stack is that number
+# first and the order within it second, and ONE proc puts the server in
+# agreement with the model. Before this the order was a side effect of
+# whoever called `raise` last, out of fourteen places, and every rule
+# about it («the panel stays over the clients», «an active fullscreen
+# window stays over the panel») had to be re-stated as code inside each
+# of them — which is exactly how a fullscreen window ended up
+# unescapable and swallowing its own dialogs (7068aa4).
+#
+# The scale is even numbers with gaps, so anything can be wedged
+# between two without renumbering the world:
+#
+#     0   the desk window — the floor
+#     1   a widget area that got a top-level of its own (just off it)
+#     2   BELOW: _NET_WM_STATE_BELOW, conky and its kin
+#     4   ORDINARY WINDOWS — the default
+#     6   ABOVE: _NET_WM_STATE_ABOVE
+#     8   DOCK: our panel, tray and their passengers; and a foreign
+#         dock that says _NET_WM_WINDOW_TYPE_DOCK
+#     9   the ACTIVE fullscreen window (computed, never declared —
+#         see layer-effective)
+#    12   the ceiling a config may ask for: «over the panel and over
+#         fullscreen too», which is the whole point of numbering
+#    14   the WM's own question windows
+#    16   menus, the compass, the key echo
+#
+# The last two are ABOVE anything a config can name, and that is not
+# an oversight: a desk whose own menu can be covered by a window is
+# broken, so a declared layer is clamped into 0..12 (set-layer).
+keep LAYER_DESK 0
+keep LAYER_AREA 1
+keep LAYER_BELOW 2
+keep LAYER_NORMAL 4
+keep LAYER_ABOVE 6
+keep LAYER_DOCK 8
+keep LAYER_FS 9
+keep LAYER_MAX 12
+keep LAYER_WMWIN 14
+keep LAYER_POPUP 16
+
+array set layerof {}    ;# client -> the layer it DECLARED (style, EWMH)
+array set wm_layer {}   ;# our own top-level -> its layer
+keep stack_order {}     ;# clients, bottom first: the order WITHIN a layer
+keep restack_pending 0
+
+# Our own furniture announces itself; the registry is read fresh at
+# every restack and a window that died simply is not there.
+proc stack-layer {path n} {
+    set ::wm_layer($path) $n
+    restack-soon
+}
+proc layer-declared {w} {
+    expr {[info exists ::layerof($w)] ? $::layerof($w) : $::LAYER_NORMAL}
+}
+# What a window's layer WORKS OUT to, which is the declared one plus
+# the two rules that are about relations rather than about the window:
+#
+#   the ACTIVE fullscreen window rises over the strips — that is what
+#     the state means, and it lasts exactly as long as being active
+#     does (the window itself declares nothing and is back among the
+#     ordinary windows the moment the focus leaves it);
+#   a TRANSIENT is never below its leader — a dialog under the window
+#     that put it up is unreachable, and a group split by a layer is
+#     not a group. It may still declare a HIGHER layer for itself; what
+#     it cannot do is sink.
+proc layer-effective {w} {
+    set leader [group-leader $w]
+    set n [layer-declared $leader]
+    if {[fullscreen-active] == $leader} { set n [expr {max($n, $::LAYER_FS)}] }
+    if {$w != $leader} { set n [expr {max($n, [layer-declared $w])}] }
+    return $n
+}
+# The model's own answer to "what is on top of what": every client,
+# bottom first, layer first and the within-layer order second. This is
+# what _NET_CLIENT_LIST_STACKING publishes and what the policy reasons
+# with — the server AGREES with it rather than being asked, so an
+# answer is right even between the model changing and the restack that
+# lands it (bury reads this the instant after it lowers something).
+proc client-stacking {} {
+    set live {}
+    foreach w $::stack_order {
+        if {[info exists ::frameof($w)]} { lappend live $w }
+    }
+    set ::stack_order $live
+    set byl {}
+    foreach w $live { dict lappend byl [layer-effective $w] $w }
+    set out {}
+    foreach n [lsort -integer [dict keys $byl]] {
+        lappend out {*}[dict get $byl $n]
+    }
+    return $out
+}
+# ...and the whole desk in one order, ours and theirs together.
+proc stack-desired {} {
+    set byl {}
+    foreach {path n} [array get ::wm_layer] {
+        if {[winfo exists $path]} { dict lappend byl $n $path }
+    }
+    foreach w [client-stacking] {
+        dict lappend byl [layer-effective $w] $::frameof($w)
+    }
+    set out {}
+    foreach n [lsort -integer [dict keys $byl]] {
+        lappend out {*}[dict get $byl $n]
+    }
+    return $out
+}
+# Put the server in agreement. Bottom-up, each window over the one
+# before it: only windows the model KNOWS are touched, so anything
+# else on the display (a client's own override-redirect popup, a
+# screensaver) keeps whatever place it took for itself.
+proc restack {} {
+    set prev ""
+    foreach path [stack-desired] {
+        if {![winfo exists $path]} continue
+        if {$prev ne ""} { catch {raise $path $prev} }
+        set prev $path
+    }
+    publish-client-list
+}
+# Coalesced, because one gesture moves the stack several times — a
+# raise, the strips, a fullscreen bump — and the desk should be
+# restacked once, when the dust settles.
+proc restack-soon {} {
+    if {$::restack_pending} return
+    set ::restack_pending 1
+    after idle {set ::restack_pending 0; restack}
+}
+# A new client goes on top of its layer; a departing one leaves no hole.
+proc stack-add {w} {
+    set ::stack_order [lsearch -exact -all -inline -not $::stack_order $w]
+    lappend ::stack_order $w
+    restack-soon
+}
+proc stack-drop {w} {
+    set ::stack_order [lsearch -exact -all -inline -not $::stack_order $w]
+    unset -nocomplain ::layerof($w)
+    restack-soon
+}
+# What layer a NEWCOMER declares, in the order the answers outrank each
+# other — the config last, because a config line is the user speaking
+# and the rest is the window speaking about itself.
+#
+#   _NET_WM_WINDOW_TYPE_DOCK   a foreign panel (trayer, polybar) takes
+#                              the same layer ours does, which is the
+#                              first time this desk has had anywhere
+#                              honest to put one
+#   _NET_WM_STATE_ABOVE/BELOW  the EWMH pair, which we could not honor
+#                              at all before there were layers
+#   the style's `layer`        a number, or one of three words
+proc client-layer-declare {w} {
+    set n ""
+    if {[lsearch -exact [client-window-types $w] dock] >= 0} {
+        set n $::LAYER_DOCK
+    }
+    foreach a [client-net-wm-state $w] {
+        if {[info exists ::NET_WM_STATE_ABOVE] && $a == $::NET_WM_STATE_ABOVE} {
+            set n $::LAYER_ABOVE
+        } elseif {[info exists ::NET_WM_STATE_BELOW]
+                  && $a == $::NET_WM_STATE_BELOW} {
+            set n $::LAYER_BELOW
+        }
+    }
+    set st [style-of $w]
+    if {[dict exists $st layer]} { set n [layer-number [dict get $st layer]] }
+    if {$n eq ""} return
+    set ::layerof($w) $n
+    puts "WM: 0x[format %x $w] on layer $n"
+}
+# The three words a config may use instead of a number, and the clamp.
+# The ceiling is not tidiness: the WM's own menus and question windows
+# live above everything a config can name (LAYER_WMWIN, LAYER_POPUP),
+# and a desk whose menu can be covered by a window is broken.
+proc layer-number {v} {
+    switch -- $v {
+        below  { return $::LAYER_BELOW }
+        normal { return $::LAYER_NORMAL }
+        above  { return $::LAYER_ABOVE }
+        dock   { return $::LAYER_DOCK }
+        top    { return $::LAYER_MAX }
+    }
+    if {![string is integer -strict $v]} {
+        error "layer: a number or below|normal|above|dock|top, got «$v»"
+    }
+    expr {max(0, min($v, $::LAYER_MAX))}
+}
+# The user's own hand on it — the ops menu, a config's chord. Same
+# clamp, and the desk restacks at once.
+proc layer-set {w v} {
+    if {![info exists ::frameof($w)]} return
+    set ::layerof($w) [layer-number $v]
+    puts "WM: 0x[format %x $w] -> layer $::layerof($w)"
+    restack-soon
+}
+# The hand's own way to a layer — the ops menu, a config's chord. Above
+# and Below TOGGLE, because a menu entry that only goes one way leaves
+# the user nowhere to click to undo it; Unlayer is the unconditional
+# way back, the same shape as Unmaximize and Unfullscreen.
+proc layer-above-command {w} { layer-toggle $w $::LAYER_ABOVE }
+proc layer-below-command {w} { layer-toggle $w $::LAYER_BELOW }
+proc layer-clear-command {w} {
+    layer-set $w normal
+    publish-net-wm-state $w
+}
+proc layer-toggle {w n} {
+    if {![info exists ::frameof($w)]} return
+    layer-set $w [expr {[layer-declared $w] == $n ? $::LAYER_NORMAL : $n}]
+    publish-net-wm-state $w    ;# ABOVE/BELOW are EWMH state; say so
+}
 proc raise-group {w} {
     set leader [group-leader $w]
-    # top-to-bottom: the touched transient (never the leader — its
-    # transients stay above it), the remaining transients, the leader
-    set order {}
-    if {$w != $leader} { lappend order $w }
+    # Within the layer: the leader first, then its transients (so they
+    # end up above it), and the one that was TOUCHED last of all — a
+    # click on a dialog puts that dialog on top of its siblings.
+    set order [list $leader]
     foreach c [group-members $leader] {
         if {$c != $w} { lappend order $c }
     }
-    lappend order $leader
-    raise $::frameof([lindex $order 0])
-    for {set i 1} {$i < [llength $order]} {incr i} {
-        lower $::frameof([lindex $order $i]) \
-              $::frameof([lindex $order [expr {$i - 1}]])
+    if {$w != $leader} { lappend order $w }
+    foreach c $order {
+        set ::stack_order [lsearch -exact -all -inline -not $::stack_order $c]
     }
-    panel-on-top $w   ;# the strips, judged by who is being raised HERE
-    publish-client-list   ;# the stacking order just changed (coalesced)
+    lappend ::stack_order {*}$order
+    restack-soon
 }
 
-# Lower the whole transient group of w — the mirror image, same glue,
-# same relative restacks (the ops menu's "lower" is the first lower
-# gesture this WM has): one absolute lower — the leader, straight to
-# the floor — and every transient re-seated right above it, keeping
-# the group's internal order at the bottom of the stack.
+# Lower the whole transient group of w — the mirror image, same glue:
+# the group goes to the BOTTOM OF ITS LAYER (the ops menu's "lower" is
+# the first lower gesture this WM has), keeping its internal order,
+# leader underneath. There is no lowering "through the floor" to worry
+# about any more: the desk window is a layer of its own and nothing in
+# a higher one can sink past it, which is what the old raise-above-the-
+# floor dance was for.
 proc lower-group {w} {
     if {![info exists ::frameof($w)]} return
     set leader [group-leader $w]
-    # To the bottom — but not through the floor. With a desk window of
-    # ours at the very bottom, "lower" means "just above the desk", or
-    # the window would be lowered out of sight entirely.
-    set floor ""
-    if {[llength [info commands desk-window]]} { set floor [desk-window] }
-    if {$floor ne ""} {
-        raise $::frameof($leader) $floor
-    } else {
-        lower $::frameof($leader)
+    set order [list $leader]
+    foreach c [group-members $leader] { lappend order $c }
+    foreach c $order {
+        set ::stack_order [lsearch -exact -all -inline -not $::stack_order $c]
     }
-    foreach c [group-members $leader] {
-        raise $::frameof($c) $::frameof($leader)
-    }
-    publish-client-list   ;# the stacking order just changed (coalesced)
+    set ::stack_order [concat $order $::stack_order]
+    restack-soon
 }
 
 # ---- bury: lower, and hand the focus to whatever that uncovered ----
@@ -2009,6 +2219,8 @@ proc policy-client-click {w} {
 # A newly managed window is raised with its group — a fresh dialog pulls
 # its leader up right under itself, fvwm-style — and gets the focus.
 proc policy-managed {w} {
+    stack-add $w         ;# into the stacking model, at the top of its layer
+    client-layer-declare $w
     raise-group $w
     focus-to $w
     apply-opacity $w
@@ -2649,33 +2861,27 @@ proc policy-fullscreen {w on} {
     # decoration standing around a window that has none.
     frame-layout $t $cw $ch $X $Y
     wm-resize-client $w $cw $ch
-    # Both directions ask the same question — who owns the top layer
-    # now — and the answer comes from the FOCUS, with no hint from
-    # here. That is what tells apart the two ways a window becomes
-    # fullscreen: the user toggling the window in front of him (it is
-    # focused, so it goes over the strips) and a background client
-    # doing it to itself (it is not, so it does not — it becomes a
-    # fullscreen-sized window sitting where it sat, which is the same
-    # rule as everywhere else and no special case at all).
-    panel-on-top
+    # Either direction changes which layer this window works out to
+    # (see layer-effective), and nothing here needs to know which: the
+    # model is asked again and the desk is restacked once.
+    restack-soon
     update idletasks
     send-synthetic-configure $w
 }
 # Nothing of ours stays above THE ACTIVE fullscreen window — that is
 # what the state means, and the panel and the tray are the two that
-# would. Both strips lift themselves for their own reasons (a rebuild,
-# an icon docking), so the rule cannot live at the moment of going
-# fullscreen: it has to run after every one of those lifts, and after
-# every change of who is active.
+# would. It is a LAYER now (LAYER_FS, computed in layer-effective) and
+# not a rule re-stated at every lift: the strips rebuild, an icon
+# docks, the focus moves, and each of those ends in one restack that
+# gets this right by construction.
 #
 # ACTIVE is the whole of it, and it used to be missing: the rule was
 # "every fullscreen window, always, to the very top", which made a
 # fullscreen window a thing you could not get out from under. Alt-Tab
-# away and it came straight back over the window you had just picked —
-# because the raise that picked it ended in panel-on-top, which ended
-# here (owner's report, 2026-08-04). And it swallowed its OWN dialogs
-# for the same reason: raise-group seats a transient above its leader,
-# then this ran and put the leader back on top.
+# away and it came straight back over the window you had just picked;
+# and it swallowed its OWN dialogs, because whatever seated a transient
+# above its leader was undone a moment later (owner's report,
+# 2026-08-04).
 #
 # The reading every other desk uses, and the owner's own words for it:
 # a fullscreen window that lost the focus is JUST A WINDOW — it lies
@@ -2685,39 +2891,16 @@ proc policy-fullscreen {w on} {
 #
 # The group, not the window: the focus may sit on a DIALOG of the
 # fullscreen window, and then the fullscreen window is still what the
-# user is looking at. Its transients are re-seated above it afterwards,
-# which is the whole of bug two.
-# WHO is active takes an argument, because a raise runs BEFORE the
-# focus it is about to cause: `raise-group` restacks and only then does
-# the focus land — and for a globally-active client it lands a beat
-# later still, when the invitation is answered. Asked with no argument
-# (the focus moved, no raise involved) it reads ::focused; asked by a
-# raise it takes the window being raised, which is the honest answer to
-# "who will be active when this settles".
-proc fullscreen-active {{who ""}} {
-    if {$who eq ""} { set who $::focused }
-    if {$who == 0} { return 0 }
-    if {[info exists ::fullscreen($who)]} { return $who }
-    set leader [group-leader $who]
-    if {$leader != $who && [info exists ::fullscreen($leader)]} {
+# user is looking at — so the answer is the LEADER, and every member
+# rides at least as high as its leader (layer-effective).
+proc fullscreen-active {} {
+    if {$::focused == 0} { return 0 }
+    if {[info exists ::fullscreen($::focused)]} { return $::focused }
+    set leader [group-leader $::focused]
+    if {$leader != $::focused && [info exists ::fullscreen($leader)]} {
         return $leader
     }
     return 0
-}
-proc fullscreen-on-top {{who ""}} {
-    set w [fullscreen-active $who]
-    if {$w == 0 || ![info exists ::frameof($w)]} return
-    set t $::frameof($w)
-    raise $t
-    # ...and its own transients ride ABOVE it — over the panel with it,
-    # rather than the window dropping below the panel to let a dialog
-    # show (the owner's call, 2026-08-04: the group goes up, nothing
-    # goes down). A dialog swallowed by the window that put it up is
-    # unreachable: fullscreen took its leader's decoration, so there is
-    # no titlebar to grab and no pixel showing.
-    foreach c [group-members $w] {
-        if {[info exists ::frameof($c)]} { raise $::frameof($c) $t }
-    }
 }
 # The user's own toggle (the ops menu, or a config's chord), as opposed
 # to the client asking through EWMH. Both end in the substrate's pair,
@@ -2885,7 +3068,7 @@ proc popup-show {m W H X Y} {
     set Y [expr {max($my, min($Y, $my + $mh - $H))}]
     place $m.t -x 1 -y 1 -width [expr {$W - 2}] -height [expr {$H - 2}]
     wm geometry $m ${W}x${H}+$X+$Y
-    raise $m
+    stack-layer $m $::LAYER_POPUP
     update idletasks
     # Posted with the button still down — the drag that follows is the
     # same gesture and has to reach this menu (popup-drag-* below).
@@ -3055,7 +3238,7 @@ proc wm-window {t title cw ch closescript} {
     frame-layout $t $cw $ch \
         [expr {max($mx, $mx + ($sw - $W) / 2)}] \
         [expr {max($my, $my + ($sh - $H) / 3)}]
-    raise $t
+    stack-layer $t $::LAYER_WMWIN
     update idletasks
     # Geometry in the log, because a window of ours is the one thing on
     # this desk nothing else can be asked about: it is override-redirect
@@ -3914,6 +4097,9 @@ set window_commands {
     Destroy      kill-client
     Raise        raise-group
     Lower        lower-group
+    Above        layer-above-command
+    Below        layer-below-command
+    Unlayer      layer-clear-command
     Bury         bury-group
     Move         move-keyboard
     Resize       resize-keyboard
@@ -4083,6 +4269,7 @@ set winops_actions {
     Move       m
     Resize     s
     Minimize   i
+    Above      a
 }
 proc winops {{w 0}} {
     if {$w == 0} { set w $::focused }
@@ -4422,7 +4609,7 @@ proc compass-place {rect} {
         set X [expr {max($mx, min($X, $mx + $mw - $s))}]
         set Y [expr {max($my, min($Y, $my + $mh - $s))}]
         wm geometry .compass$cell ${s}x${s}+$X+$Y
-        raise .compass$cell
+        stack-layer .compass$cell $::LAYER_POPUP
     }
 }
 proc compass-highlight {cell} {
@@ -4863,7 +5050,7 @@ proc keyecho-show {kind text} {
  $way $wh $H $valign]
     update idletasks            ;# ...and the move lands, still unmapped
     wm deiconify $b
-    raise $b
+    stack-layer $b $::LAYER_POPUP
     update idletasks
     set line $header
     foreach row $rows { append line " | [lindex $row 0] → [lindex $row 1]" }
@@ -7737,7 +7924,7 @@ proc panels-build {} {
     # rebuild — the commonest event on this desk, and the one that
     # arrives from the most directions — carry its passengers.
     if {[llength [info commands widgets-build]]} { widgets-build }
-    fullscreen-on-top ;# ...and the strips just lifted themselves over the desk
+    restack-soon     ;# the strips are new windows; seat them by layer
     publish-workarea ;# they just took a bite out of the screen
 }
 proc panel-build {name idx} {
@@ -8170,7 +8357,7 @@ proc panel-place {name P T g side n} {
             -width [expr {$W - 2 - $tray - $wg}] -height [expr {$own - 2}]
     }
     wm geometry $P $geo
-    raise $P
+    stack-layer $P $::LAYER_DOCK
     panel-reeval     ;# a build starts stateless — judge the matches now
     puts "WM: panel $name up ($n buttons, $thick px,\
  $side/[dict get $g preset], $geo)"
@@ -8265,20 +8452,11 @@ proc panel-click {name x y {state 0}} {
     # press mean «auto», is what keeps that true.
     action-fire $aname mru
 }
-proc panel-on-top {{who ""}} {
-    foreach name [panel-names] {
-        set P [panel-window $name]
-        if {$P ne ""} { raise $P }
-    }
-    if {[winfo exists .traybg]} { raise .traybg }   ;# under the strip...
-    if {[winfo exists .tray]} { raise .tray }       ;# ...and over the desk
-    # ...and under the ACTIVE fullscreen group, which is the one thing
-    # that outranks the strips. WHO is being raised travels with the
-    # call: a raise happens before the focus it causes, so without it
-    # this would judge by the OLD focus and lift the fullscreen window
-    # back over the window just picked (see fullscreen-on-top).
-    fullscreen-on-top $who
-}
+# The strips' place in the world is their LAYER (LAYER_DOCK), declared
+# once when each is built. This name survives as the sentence the rest
+# of the code says — "the panel belongs on top now" — and means: ask
+# the model again.
+proc panel-on-top {} { restack-soon }
 
 # ---- the system tray strip ----
 # Where docked icons live: a strip of square cells at the FAR end of
@@ -8505,7 +8683,7 @@ proc tray-backdrop {geo} {
     if {$geo eq ""} { wm withdraw .traybg; return }
     wm geometry .traybg $geo
     wm deiconify .traybg
-    raise .traybg        ;# ...and tray-layout raises .tray over it
+    stack-layer .traybg $::LAYER_DOCK   ;# ...and .tray sits over it
 }
 proc set-tray-icon-size {px} {
     set ::tray_icon_size $px
@@ -8644,8 +8822,8 @@ proc tray-layout {} {
     wm geometry .tray $geo
     tray-backdrop $geo       ;# the opaque floor under an ARGB strip
     wm deiconify .tray
-    raise .tray
-    fullscreen-on-top        ;# ...but never over a fullscreen window
+    stack-layer .tray $::LAYER_DOCK
+    restack-soon             ;# the strip is a new window; seat it by layer
     # The COMPUTED string, not [wm geometry .tray]: that answers with
     # the geometry Tk has processed so far, which right after the
     # request is still the previous one — and a re-layout runs twice per
@@ -10786,6 +10964,16 @@ proc policy-apply {} {
     # panels and widgets in some order, and whichever went up first is
     # under the other until somebody says otherwise.
     panel-on-top
+    # ...and every framed client re-reads its layer, for the same
+    # reason the style cache above is dropped: the rules that decide it
+    # have just been re-read, and a window keeping the layer an old
+    # config gave it would be the one thing on the desk that did not
+    # hear the reload.
+    foreach w [array names ::frameof] {
+        unset -nocomplain ::layerof($w)
+        client-layer-declare $w
+    }
+    restack-soon
     panel-match-kick
     # ...and what holding the modifier would swallow, asked of the
     # FINISHED keymap: a config states the knob and its binds in

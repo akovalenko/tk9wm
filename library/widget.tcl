@@ -241,15 +241,15 @@ proc widget-opts {name} {
 
 # Only an area with a WINDOW of its own has a layer to lose — which is
 # to say, only when the desk window is switched off. Inside a panel or
-# inside the desk window, containment settles it and nobody has to
-# keep saying so.
-proc widgets-layer {} {
-    foreach k [array names ::widget_top] {
-        set w $::widget_top($k)
-        if {[winfo exists $w]} { lower $w }
-    }
-    if {[winfo exists .desk]} { lower .desk }
-}
+# inside the desk window, containment settles it and nobody has to keep
+# saying so.
+#
+# ...and since the desk got real LAYERS this is no longer a race
+# against the next raise: both of these are registered where they are
+# built (LAYER_DESK, LAYER_AREA), so all this has to do is ask for the
+# order to be applied. The proc stays because the callers say something
+# true by calling it — the desk's floor may have just been rebuilt.
+proc widgets-layer {} { restack-soon }
 
 # A widget that RIDES A PANEL makes it thicker, exactly as the tray
 # does: the band a strip reserves is the deepest thing in it. Without
@@ -395,7 +395,7 @@ proc desk-window-build {} {
     .desk configure -background $::desk_background
     lassign [screen-size] sw sh
     wm geometry .desk ${sw}x${sh}+0+0
-    lower .desk
+    stack-layer .desk $::LAYER_DESK
 }
 
 # PASS TWO: build it where it lives, now that the strips know how deep
@@ -526,7 +526,7 @@ proc area-build {area place idx} {
             wm geometry $own [expr {$aw + 2}]x[expr {$ah + 2}]+${ax}+${ay}
             update idletasks
             wm deiconify $own
-            lower $own
+            stack-layer $own $::LAYER_AREA
             set ::widget_top(area$idx) $own
         } else {
             place $A -x $ax -y $ay
