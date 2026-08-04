@@ -9664,6 +9664,17 @@ unless-already {[info exists ::policy_bindings_up]} {
 # Those need the collection half of the model — see the config-tree
 # plan — and saying "" here is the honest statement of that, not a
 # gap.
+#
+# `settle` — WHICH SETTLER MAKES IT REAL, by name from the ordered list
+# below. Empty is legal and means exactly what it says: the value IS
+# the state, read at the moment of use, and nothing has to be rebuilt
+# for it (set-edge-resist is asked at the moment a window is carried;
+# set-icon-path at the moment an icon is looked up).
+#
+# Today the setters still do their own work, so this facet DESCRIBES
+# rather than drives — it is the mapping the next steps need, and
+# declaring it now is what makes «осадить только изменившееся» a small
+# change later rather than an archaeology exercise.
 proc knob {name meta} {
     config-node [list knobs $name] [dict merge {node leaf} $meta]
 }
@@ -9828,6 +9839,11 @@ proc knob-vars {} {
     }
     return [lsort -unique $out]
 }
+proc knob-settler {name} {
+    set r [knob-registry]
+    if {[dict exists $r $name settle]} { return [dict get $r $name settle] }
+    return ""
+}
 # ...and the comparison, said once at startup. A knob whose variable a
 # reload does not restore is a knob that outlives the config that set
 # it; a name in the hand-kept list that no knob claims is either
@@ -9877,97 +9893,97 @@ proc vocabulary-audit {} {
  ([llength $loose]): [join $loose { }]"
     }
 }
-knob set-desk-font   {var {} group fonts kind {font DeskFont}  get {font actual DeskFont}
+knob set-desk-font   {var {} settle {titles} group fonts kind {font DeskFont}  get {font actual DeskFont}
                       doc {the font this desk is set in; everything derives from it}}
-knob set-title-font  {var {} group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
+knob set-title-font  {var {} settle {titles} group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
                       doc {the titlebar font, as a delta from the desk font}}
-knob set-panel-font  {var {} group fonts kind {font PanelFont} get {font-kin-opts PanelFont}
+knob set-panel-font  {var {} settle {panels} group fonts kind {font PanelFont} get {font-kin-opts PanelFont}
                       doc {the panel buttons' font, as a delta from the desk font}}
-knob set-title-justify {var {titlejust} group fonts kind {choice left center right}
+knob set-title-justify {var {titlejust} settle {titles} group fonts kind {choice left center right}
                       get {set ::titlejust} doc {where the title sits in its bar}}
-knob set-minimize    {var {minimize} group windows kind {choice iconify refuse}
+knob set-minimize    {var {minimize} settle {} group windows kind {choice iconify refuse}
                       get {set ::minimize} doc {what an iconify request gets}}
-knob set-maximize    {var {maximize} group windows kind {choice drop keep}
+knob set-maximize    {var {maximize} settle {} group windows kind {choice drop keep}
                       get {set ::maximize}
                       doc {what a hand resize does to the maximized mark}}
-knob set-workarea-follow {var {workarea_follow} group windows kind {choice stick max off}
+knob set-workarea-follow {var {workarea_follow} settle {} group windows kind {choice stick max off}
                       get {set ::workarea_follow}
                       doc {which windows follow a moving workarea}}
-knob set-drag-modifier {var {drag_mods} group windows kind text get {mods-name $::drag_mods}
+knob set-drag-modifier {var {drag_mods} settle {} group windows kind text get {mods-name $::drag_mods}
                       doc {the modifier that carries a window from anywhere}}
-knob set-drag-slop   {var {drag_slop} group windows kind int get {set ::drag_slop}
+knob set-drag-slop   {var {drag_slop} settle {} group windows kind int get {set ::drag_slop}
                       doc {pixels a title press may travel and still be a click}}
-knob set-edge-resist {var {edge_resist} group windows kind int get {set ::edge_resist}
+knob set-edge-resist {var {edge_resist} settle {} group windows kind int get {set ::edge_resist}
                       doc {pixels a carried window sticks to a workarea edge}}
-knob set-fade        {var {fade} group windows kind {float 0 1} get {set ::fade}
+knob set-fade        {var {fade} settle {} group windows kind {float 0 1} get {set ::fade}
                       doc {how solid a faded window stays}}
-knob set-root-cursor {var {root_cursor} group desk kind text get {set ::root_cursor}
+knob set-root-cursor {var {root_cursor} settle {cursor} group desk kind text get {set ::root_cursor}
                       doc {the cursor over the bare desk}}
-knob set-desk-window {var {desk_window} group desk kind bool
+knob set-desk-window {var {desk_window} settle {desk-window} group desk kind bool
                       get {expr {$::desk_window ? "on" : "off"}}
                       doc {the desk as one window of ours, or hands off the root}}
-knob set-desks       {var {ndesks} group desk kind int get {set ::ndesks}
+knob set-desks       {var {ndesks} settle {desks} group desk kind int get {set ::ndesks}
                       doc {how many virtual desks; 1 switches them off}}
-knob set-theme       {var {theme} group desk kind {choice dark light} get {set ::theme}
+knob set-theme       {var {theme} settle {titles} group desk kind {choice dark light} get {set ::theme}
                       doc {the desk's colours in one word; every colour derives from it}}
-knob set-desk-background {var {desk_background_said} group desk kind color get {set ::desk_background_said}
+knob set-desk-background {var {desk_background_said} settle {desk-window} group desk kind color get {set ::desk_background_said}
                       derived {themed desk}
                       doc {the desk window's color}}
-knob set-welcome     {var {welcome} group desk kind bool get {set ::welcome}
+knob set-welcome     {var {welcome} settle {welcome} group desk kind bool get {set ::welcome}
                       doc {the welcome note on the desk}}
-knob set-panel-side  {var {} group panel kind {choice bottom top left right}
+knob set-panel-side  {var {} settle {panels} group panel kind {choice bottom top left right}
                       get {panel-cfg default side}
                       doc {which screen edge the default panel rides}}
-knob set-panel-preset {var {} group panel kind {choice row stack icons}
+knob set-panel-preset {var {} settle {panels} group panel kind {choice row stack icons}
                       get {panel-cfg default preset}
                       doc {buttons as a row, label-under-icon, or icons alone}}
-knob set-panel-icon-size {var {} group panel kind int
+knob set-panel-icon-size {var {} settle {panels} group panel kind int
                       get {panel-cfg default icon_size}
                       doc {the button face size when any face is iconic}}
-knob set-icon-path   {var {icon_path} group panel kind {list directories} get {set ::icon_path}
+knob set-icon-path   {var {icon_path} settle {} group panel kind {list directories} get {set ::icon_path}
                       doc {directories bare icon names are searched in}}
-knob set-chord-hold  {var {chord_hold} group keys kind bool
+knob set-chord-hold  {var {chord_hold} settle {keys} group keys kind bool
                       get {expr {$::chord_hold ? "on" : "off"}}
                       doc {a chord answers with the modifier held down too}}
-knob set-winlist-cycle {var {winlist_cycle_opt} group keys kind bool
+knob set-winlist-cycle {var {winlist_cycle_opt} settle {} group keys kind bool
                       get {expr {$::winlist_cycle_opt ? "on" : "off"}}
                       doc {alt-tab as the fvwm cycle, or a static menu}}
-knob set-key-hold-warn {var {key_hold_warn} group keys kind int get {set ::key_hold_warn}
+knob set-key-hold-warn {var {key_hold_warn} settle {} group keys kind int get {set ::key_hold_warn}
     doc {ms a binding may hold the desk before it is reported}}
-knob set-key-echo    {var {key_echo} group keys kind text get {set ::key_echo}
+knob set-key-echo    {var {key_echo} settle {} group keys kind text get {set ::key_echo}
                       doc {ms of hesitation before a chord shows itself; off = never}}
-knob set-key-echo-place {var {key_echo_place} group keys kind text get {set ::key_echo_place}
+knob set-key-echo-place {var {key_echo_place} settle {} group keys kind text get {set ::key_echo_place}
                       doc {where the chord echo sits, in place words}}
-knob set-tray        {var {tray_on} group tray kind bool
+knob set-tray        {var {tray_on} settle {tray} group tray kind bool
                       get {expr {$::tray_on ? "on" : "off"}}
                       doc {be the display's system tray}}
-knob set-tray-panel  {var {tray_panel} group tray kind text get {set ::tray_panel}
+knob set-tray-panel  {var {tray_panel} settle {tray} group tray kind text get {set ::tray_panel}
                       doc {whose strip the tray is part of}}
-knob set-tray-background {var {tray_bg_said} group tray kind color get {set ::tray_bg_said}
+knob set-tray-background {var {tray_bg_said} settle {tray} group tray kind color get {set ::tray_bg_said}
                       derived {themed ground}
                       doc {what shows through a transparent icon}}
-knob set-tray-icon-size {var {tray_icon_size} group tray kind int get {set ::tray_icon_size}
+knob set-tray-icon-size {var {tray_icon_size} settle {tray} group tray kind int get {set ::tray_icon_size}
                       doc {the tray cell's side, in pixels}}
-knob set-tray-argb   {var {tray_argb} group tray kind bool
+knob set-tray-argb   {var {tray_argb} settle {tray} group tray kind bool
                       get {expr {$::tray_argb ? "on" : "off"}}
                       doc {offer an ARGB visual (needs a compositor)}}
-knob set-terminal    {var {terminal_choice} group terminal kind terminal get {set ::terminal_choice}
+knob set-terminal    {var {terminal_choice} settle {} group terminal kind terminal get {set ::terminal_choice}
                       derived {terminal-derived}
                       doc {which terminal emulator this desk favors}}
-knob set-emacs-frames {var {emacs_frames} group emacs kind {choice gui terminal}
+knob set-emacs-frames {var {emacs_frames} settle {} group emacs kind {choice gui terminal}
                       get {set ::emacs_frames}
                       doc {what kind of frame an emacs button makes}}
-knob set-emacs-daemons {var {emacs_daemons} group emacs kind bool get {set ::emacs_daemons}
+knob set-emacs-daemons {var {emacs_daemons} settle {} group emacs kind bool get {set ::emacs_daemons}
                       doc {daemons at all, or the plain lookup-or-run life}}
-knob set-emacs-autodaemon {var {emacs_autodaemon} group emacs kind bool get {set ::emacs_autodaemon}
+knob set-emacs-autodaemon {var {emacs_autodaemon} settle {} group emacs kind bool get {set ::emacs_autodaemon}
                       doc {start a missing daemon, or treat it as an error}}
-knob set-emacs-keep-frame-name {var {emacs_keep_frame_name} group emacs kind bool
+knob set-emacs-keep-frame-name {var {emacs_keep_frame_name} settle {} group emacs kind bool
                       get {set ::emacs_keep_frame_name}
                       doc {leave the button's name in the frame's title}}
-knob set-emacs-edit {var {emacs_edit} group emacs kind {choice reuse create}
+knob set-emacs-edit {var {emacs_edit} settle {} group emacs kind {choice reuse create}
                       get {set ::emacs_edit}
                       doc {where an edit lands — a frame one has, or a fresh one}}
-knob set-emacs-edit-daemon {var {emacs_edit_daemon} group emacs kind text
+knob set-emacs-edit-daemon {var {emacs_edit_daemon} settle {} group emacs kind text
                       get {set ::emacs_edit_daemon}
                       doc {which daemon opens an edit — unsaid is the default one}}
 # knob-table — the send-facing answer: the registry plus each knob's
@@ -11493,7 +11509,24 @@ proc policy-reset {} {
     keys-reset
     policy-default-bindings
 }
-proc policy-apply {} {
+# ---- settlers: what a wish COSTS, named and ordered ---------------
+#
+# The apply used to be fourteen calls in a row with the reasons for
+# their order written between them. The order is real knowledge —
+# panels before widgets because widgets ride panels, the stack last
+# because rebuilding furniture leaves whoever went up first underneath
+# — and it was kept in exactly one place, which was good, and in a
+# form nothing could ask about, which was not (lifecycle plan, step 3).
+#
+# So each step gets a NAME and the sequence becomes a declaration. What
+# that buys immediately: a knob can say which settler makes its wish
+# real (the `settle` facet), one settler failing no longer eats the
+# rest of the apply (each runs soft), and the day the order needs a
+# dependency graph, the list is already the data to build it from.
+set settlers {}
+proc settler {name script} { dict set ::settlers $name $script }
+
+settler styles {
     # A VERDICT COMPUTED WHILE THE CONFIG WAS STILL SPEAKING IS
     # PROVISIONAL. policy-reset drops this cache before the config is
     # read, which is not enough: a knob that touches live frames —
@@ -11511,40 +11544,63 @@ proc policy-apply {} {
     # and a RESTART cured it, adoption happening after the whole config
     # is read, which is why he could not pin it on either.
     array unset ::styleof
-    panels-build        ;# no buttons declared -> the strip goes away
-    tray-reconcile      ;# start, stop or leave the tray exactly alone
-    tray-recolor        ;# ...and wear what the layers say, not what it wore
-    desk-window-build   ;# ...on, off, and the colour of it
-    welcome-inject      ;# a fresh desk gets its invitation, re-decided per load
-    widgets-build       ;# cheap by construction: all of them, from nothing
-    retitle-frames      ;# live frames follow the metrics and the font
-    root-cursor-apply   ;# ...and the desk stops wearing the server's X
-    publish-workarea
-    # ...and the furniture back on its layers, LAST: the apply rebuilt
-    # panels and widgets in some order, and whichever went up first is
-    # under the other until somebody says otherwise.
-    panel-on-top
-    # ...and the desk count settles on whatever the layers finally
-    # said — including a config that stopped saying anything, which
-    # resets it to one like every other knob (desks-apply is idle and
-    # coalesced, so several declarations cost one settling).
+}
+settler panels      {panels-build}       ;# no buttons declared -> the strip goes
+settler tray        {tray-reconcile
+                     tray-recolor}       ;# start, stop, or leave it exactly alone
+settler desk-window {desk-window-build}  ;# on, off, and the colour of it
+settler welcome     {welcome-inject}     ;# re-decided per load
+settler widgets     {widgets-build}      ;# cheap by construction: all, from nothing
+settler titles      {retitle-frames}     ;# live frames follow metrics and font
+settler cursor      {root-cursor-apply}  ;# the desk stops wearing the server's X
+settler workarea    {publish-workarea}
+settler stack       {panel-on-top}
+settler desks {
+    # ...on whatever the layers finally said, including a config that
+    # stopped saying anything (desks-apply is idle and coalesced, so
+    # several declarations cost one settling).
     if {[llength [info commands desks-apply-soon]]} { desks-apply-soon }
-    # ...and every framed client re-reads its layer, for the same
-    # reason the style cache above is dropped: the rules that decide it
-    # have just been re-read, and a window keeping the layer an old
-    # config gave it would be the one thing on the desk that did not
-    # hear the reload.
+}
+settler layers {
+    # Every framed client re-reads its layer, for the same reason the
+    # style cache is dropped: the rules that decide it have just been
+    # re-read, and a window keeping the layer an old config gave it
+    # would be the one thing on the desk that did not hear the reload.
     foreach w [array names ::frameof] {
         unset -nocomplain ::layerof($w)
         client-layer-declare $w
     }
     restack-soon
-    panel-match-kick
-    # ...and what holding the modifier would swallow, asked of the
-    # FINISHED keymap: a config states the knob and its binds in
-    # whatever order it likes, and a warning computed halfway through
-    # names half the collisions.
+}
+settler matches     {panel-match-kick}
+settler keys {
+    # What holding the modifier would swallow, asked of the FINISHED
+    # keymap: a config states the knob and its binds in whatever order
+    # it likes, and a warning computed halfway through names half the
+    # collisions.
     chord-hold-shadows
+}
+
+# THE ORDER, and this list is the only place it lives.
+keep settle_order {
+    styles panels tray desk-window welcome widgets titles cursor
+    workarea stack desks layers matches keys
+}
+proc settle-all {} {
+    foreach name $::settle_order {
+        if {![dict exists $::settlers $name]} {
+            puts "WM: settle: no such settler «$name»"
+            continue
+        }
+        # SOFT, one by one: before this the apply was a straight line,
+        # so a settler that threw took every settler after it with it —
+        # a desk half-applied and silent about which half.
+        soft "settle $name" [dict get $::settlers $name]
+    }
+}
+
+proc policy-apply {} {
+    settle-all
     # DECLARED buttons, not shown ones: under panels-held the strips
     # have not rebuilt yet and the shown lists are stale — the summary
     # was reading «0 buttons» on every reload. What the config APPLIED
