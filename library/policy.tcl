@@ -2738,9 +2738,11 @@ proc titlebar-do {t w part gesture} {
     set cmd [titlebar-action $part $gesture]
     if {$cmd eq ""} return
     puts "WM: titlebar $part $gesture on 0x[format %x $w] -> $cmd"
-    if {[catch {uplevel #0 [list {*}$cmd $w]} err]} {
-        puts "WM: titlebar $part $gesture: $err"
-    }
+    # in a coroutine, the winops rule: a stock command returns at once
+    # and costs nothing, a config's own button may legitimately wait
+    # (Window-Shot, Choose), and its error becomes a problem instead
+    # of a line only this proc would print
+    run-script "titlebar $part $gesture" [list {*}$cmd $w]
 }
 
 # ---- strips: the furniture glued to the screen's edges ----
@@ -7841,6 +7843,66 @@ proc fire-spec-choose {spec wins} {
         return
     }
     fire-spec-reach $spec $ans
+}
+
+# ---- Window-Shot: the window, as the eye sees it ------------------
+# `Window-Shot ?W? ?DIR?` — raise the window (group and desk, exactly
+# as reaching it would), let it repaint what the raise uncovered, read
+# its rectangle off the SCREEN — frame, titlebar and all — and write
+# a PNG into DIR (unsaid: $HOME). Answers the file's path, or empty
+# with a line saying why not.
+#
+# Off the screen and not off the window on purpose: an X11 window
+# stores no pixels, so a shot is of what the eye sees and only that —
+# which is why the raise and the settle are part of the word, not
+# advice to the caller. The pixels come from the shim (one XGetImage,
+# PNG-ready scanlines) and the PNG from rgba-png, the pure-Tcl
+# assembler the client icons already ride — no ImageMagick, nothing
+# external, the kit stays whole.
+#
+# It WAITS (the settle), so it wants the coroutine every script the
+# desk runs already has — a binding, a menu row, a titlebar button.
+proc Window-Shot {{w 0} {dir ""}} {
+    if {[info coroutine] eq ""} {
+        error "Window-Shot waits for the redraw — call it from a\
+ script the desk runs (a binding, a menu row), not bare"
+    }
+    if {$w == 0} { set w $::focused }
+    if {$w == 0 || ![info exists ::frameof($w)]} {
+        puts "WM: Window-Shot: no window"
+        return ""
+    }
+    if {$dir eq ""} { set dir $::env(HOME) }
+    desk-follow $w
+    raise-group $w
+    x-sync 0
+    fut::take [fut::after 200]
+    if {![info exists ::frameof($w)]} {
+        puts "WM: Window-Shot: the window went away while it settled"
+        return ""
+    }
+    set t $::frameof($w)
+    set X [winfo rootx $t]
+    set Y [winfo rooty $t]
+    set W [winfo width $t]
+    set H [winfo height $t]
+    set raw [x-shot $::root $X $Y $W $H]
+    if {$raw eq ""} {
+        puts "WM: Window-Shot: the server would not say —\
+ is the window entirely on the screen?"
+        return ""
+    }
+    file mkdir $dir
+    set who [lindex [client-class $w] 0]
+    if {$who eq ""} { set who window }
+    set path [file join $dir [format %s-%s-%d.png \
+        [clock format [clock seconds] -format %Y%m%d-%H%M%S] \
+        [string map {/ _ { } _} $who] [incr ::shot_seq]]]
+    set f [open $path wb]
+    puts -nonewline $f [rgba-png $W $H $raw]
+    close $f
+    puts "WM: Window-Shot 0x[format %x $w] -> $path (${W}x${H})"
+    return $path
 }
 
 # PIN THE LAST THING I STARTED (the owner's own wording). The other

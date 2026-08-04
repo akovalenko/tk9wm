@@ -151,6 +151,7 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 | a colour from a name | `name-tint`, `pseudo-badge`, `color-hex` | `policy.tcl` |
 | where a deed runs | `run-at`, `run_dir`, `env -C` | `policy.tcl` |
 | the window menu's own rows | `winops-item`, `winops-rows` | `policy.tcl` |
+| a screenshot of a window | `Window-Shot`, `x-shot`, `rgba-png` | `policy.tcl`, `substrate.tcl` |
 | what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy.tcl` |
 | the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy.tcl` |
 | the applet host and the door to it | `ui-open`, `ui-style`, `ui-restyle` | `ui/host.tcl` |
@@ -668,6 +669,18 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   nothing here; an unmet `needs` is refused out loud rather than left
   waiting, there being no registry entry to wait in; an inline emacs
   deed must say its frame name, having no name of its own to lend.
+
+  **A window can be photographed** — `Window-Shot ?W? ?DIR?` raises
+  the window the way reaching it would, lets it repaint what the raise
+  uncovered, reads its rectangle off the screen (frame, titlebar and
+  all — an X11 window stores no pixels, so the shot is of what the
+  eye sees, and the raise and the settle are part of the word), and
+  writes a PNG, answering its path. Nothing external runs: the shim
+  answers PNG-ready scanlines out of one XGetImage, and the pure-Tcl
+  PNG assembler the client icons already ride does the rest — the kit
+  stays self-contained. It waits, so it lives in the same coroutine
+  every fired script has; the titlebar gestures run through
+  run-script now for exactly that reason (the winops rule).
 
   **A deed knows where it runs and what colour it is.** `dir` on any
   action or inline spec is a working directory, landing as an

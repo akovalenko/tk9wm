@@ -86,6 +86,28 @@ TrapEnd(Display *dpy, Tk_ErrorHandler handler, Trap *trap)
     return trap->caught;
 }
 
+/* How far to shift a TrueColor channel mask's value down to land in
+ * 8 bits: the mask's low bit, plus the excess of a channel wider than
+ * 8 (a 10-bit visual keeps its top 8 — the eye's half). */
+static int
+MaskShift(unsigned long mask)
+{
+    int low = 0, width = 0;
+
+    if (mask == 0) {
+	return 0;
+    }
+    while (!(mask & 1)) {
+	mask >>= 1;
+	low++;
+    }
+    while (mask & 1) {
+	mask >>= 1;
+	width++;
+    }
+    return low + (width > 8 ? width - 8 : 0);
+}
+
 /* ------------------------------------------------------------------ */
 /* argument plumbing                                                   */
 /* Event masks are named, not numeric, everywhere in this package; the
@@ -194,11 +216,11 @@ WindowObjCmd(void *clientData, Tcl_Interp *interp, int objc,
     static const char *const subs[] = {
 	"map", "unmap", "reparent", "move", "resize", "geometry",
 	"saveset", "tree", "configure", "restack", "create", "attrs",
-	"kill", "clear", NULL
+	"kill", "clear", "shot", NULL
     };
     enum { W_MAP, W_UNMAP, W_REPARENT, W_MOVE, W_RESIZE, W_GEOMETRY, W_SAVESET,
 	   W_TREE, W_CONFIGURE, W_RESTACK, W_CREATE, W_ATTRS, W_KILL,
-	   W_CLEAR };
+	   W_CLEAR, W_SHOT };
     Tk_Window tkMain = (Tk_Window)clientData;
     Display *dpy;
     Window win;
@@ -321,6 +343,73 @@ WindowObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 	Tcl_ListObjAppendElement(interp, res, Tcl_NewIntObj((int)bw));
 	Tcl_ListObjAppendElement(interp, res, Tcl_NewIntObj((int)depth));
 	Tcl_SetObjResult(interp, res);
+	return TCL_OK;
+    }
+
+    case W_SHOT: {
+	/* PNG-ready RGBA scanlines of a rectangle of this window, each
+	 * row led by the None filter byte — exactly what the policy's
+	 * pure-Tcl PNG assembler (rgba-png) eats, so a screenshot is
+	 * one XGetImage here and one zlib deflate there. Pixels are
+	 * read off the SCREEN through the window (an X11 window stores
+	 * nothing; what is obscured is undefined), which is why the
+	 * caller raises and settles first — see Window-Shot. {} when
+	 * the server will not say (the window died, the rectangle ran
+	 * off the edge): ordinary life, the geometry rule. */
+	int x, y, w, h, cx, cy;
+	XImage *img;
+	unsigned char *buf, *p;
+	int shr, shg, shb;
+	Tcl_Size len;
+	if (n != 5) {
+	    Tcl_WrongNumArgs(interp, 2, objv,
+			     "?-displayof window? window x y width height");
+	    return TCL_ERROR;
+	}
+	if (WindowFromObj(interp, tkMain, av[0], &win) != TCL_OK
+		|| Tcl_GetIntFromObj(interp, av[1], &x) != TCL_OK
+		|| Tcl_GetIntFromObj(interp, av[2], &y) != TCL_OK
+		|| Tcl_GetIntFromObj(interp, av[3], &w) != TCL_OK
+		|| Tcl_GetIntFromObj(interp, av[4], &h) != TCL_OK) {
+	    return TCL_ERROR;
+	}
+	if (w <= 0 || h <= 0) {
+	    Tcl_SetObjResult(interp, Tcl_NewStringObj(
+		"width and height must be positive", -1));
+	    Tcl_SetErrorCode(interp, "TKWMX", "VALUE", (char *)NULL);
+	    return TCL_ERROR;
+	}
+	{
+	    Trap trap;
+	    Tk_ErrorHandler handler = TrapBegin(dpy, &trap);
+	    img = XGetImage(dpy, win, x, y, (unsigned)w, (unsigned)h,
+			    AllPlanes, ZPixmap);
+	    if (TrapEnd(dpy, handler, &trap) || img == NULL) {
+		if (img != NULL) {
+		    XDestroyImage(img);
+		}
+		return TCL_OK;
+	    }
+	}
+	shr = MaskShift(img->red_mask);
+	shg = MaskShift(img->green_mask);
+	shb = MaskShift(img->blue_mask);
+	len = (Tcl_Size)h * (1 + (Tcl_Size)w * 4);
+	buf = (unsigned char *)ckalloc(len);
+	p = buf;
+	for (cy = 0; cy < h; cy++) {
+	    *p++ = 0;			/* the None filter byte */
+	    for (cx = 0; cx < w; cx++) {
+		unsigned long px = XGetPixel(img, cx, cy);
+		*p++ = (unsigned char)((px & img->red_mask) >> shr);
+		*p++ = (unsigned char)((px & img->green_mask) >> shg);
+		*p++ = (unsigned char)((px & img->blue_mask) >> shb);
+		*p++ = 0xff;
+	    }
+	}
+	XDestroyImage(img);
+	Tcl_SetObjResult(interp, Tcl_NewByteArrayObj(buf, len));
+	ckfree(buf);
 	return TCL_OK;
     }
 

@@ -580,6 +580,23 @@
 #           bg [name-tint $t -from black]] run [list ssh $t]]
 #   }
 #
+# ---- Window-Shot: the window, as the eye sees it ----
+#
+# `Window-Shot ?W? ?DIR?` raises the window (group and desk, as
+# reaching it would), lets it repaint, reads its rectangle off the
+# screen — frame and all — and writes a PNG into DIR (unsaid: $HOME),
+# answering the file's path or empty with a reason. Nothing external
+# runs: the pixels come from the shim, the PNG from the same pure-Tcl
+# assembler the client icons ride. It waits for the repaint, so it
+# belongs in a script the desk runs — a binding, a menu row, a
+# titlebar button:
+#
+#   winops-item shot {label скриншот key t
+#                     command {Window-Shot-To ~/screenshots}}
+#
+# ...where Window-Shot-To is your two-line proc reordering the
+# arguments; bare `command Window-Shot` shoots into $HOME.
+#
 # `Choose rows…` is the same list as a QUESTION — for the config's own
 # scripts: it puts the rows up, waits without freezing the desk, and
 # answers the picked row's `value` (its label when no value is said),

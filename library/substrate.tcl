@@ -473,6 +473,7 @@ proc x-focus-get {}             { tkwmx::focus get }
 proc x-focus-tame {on}          { tkwmx::focus tame-implicit $on }
 # {x y width height border-width depth}, or {} — the window is gone
 proc x-geometry {w}             { tkwmx::window geometry $w }
+proc x-shot {w x y width height} { tkwmx::window shot $w $x $y $width $height }
 # Raw monitor layouts, one per source — empty when the server has no
 # such answer. Merging them (and trusting one) is the policy's call.
 proc x-monitors-randr {}        { tkwmx::server monitors }
