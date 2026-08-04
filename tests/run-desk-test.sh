@@ -172,6 +172,45 @@ else
     bad "the arrivals were not batched"
 fi
 
+# --- a minimized window keeps its desk ----------------------------
+# Minimizing moves nothing, so restoring must move nothing either. The
+# restore here is the one with NO HAND behind it — the client mapping
+# itself again — because every road a hand takes (a panel button, a row
+# of the list) goes through the desk first and would hide the bug.
+# ...on «нижний», whose desk nothing has touched: первый was sent to
+# the third desk two legs ago, and a leg that assumed otherwise would
+# be measuring its own forgetfulness (it did, on the first run).
+NID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | sed -n 3p)
+xdotool key --clearmodifiers super+1
+sleep 0.8
+xdotool windowminimize "$NID"
+sleep 1
+MINSTATE=$(wmstate "$NID")
+xdotool key --clearmodifiers super+2
+sleep 1
+xdotool windowmap "$NID"        ;# the client comes back by itself
+sleep 1.2
+AWAY=$(viewable "$NID")
+xdotool key --clearmodifiers super+1
+sleep 1.2
+HOME=$(viewable "$NID")
+echo "--- minimized ($MINSTATE), restored on the wrong desk: $AWAY; back home: $HOME"
+if [ "$MINSTATE" = "Iconic" ]; then
+    ok "a minimize is an ICONIC state, desks or no desks"
+else
+    bad "the minimized window is in state «$MINSTATE», want Iconic"
+fi
+case $AWAY in
+    IsUnMapped|IsUnviewable)
+        ok "...and restoring it from another desk does not drag it here" ;;
+    *) bad "the restored window appeared on the wrong desk ($AWAY)" ;;
+esac
+if [ "$HOME" = "IsViewable" ]; then
+    ok "...it is waiting on its own desk when you go back"
+else
+    bad "the restored window is not on its own desk either ($HOME)"
+fi
+
 # --- the indicator answers "where am I" ---------------------------
 # There is no pager and none is wanted, so the standing fact of which
 # desk one is on lives in a widget. It is EVENT-driven (nothing polls

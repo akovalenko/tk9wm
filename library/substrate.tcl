@@ -2106,10 +2106,30 @@ proc iconify-client {w} {
 proc deiconify-client {w} {
     if {![info exists ::managed($w)] || ![info exists ::iconic($w)]} return
     unset ::iconic($w)
-    policy-deiconified $w
-    x-map $w
     set-wm-state $w 1          ;# NormalState
     publish-net-wm-state $w
+    # ...AND IT COMES BACK ON ITS OWN DESK. Minimizing never moved the
+    # window anywhere — ::deskof is untouched by the whole iconic
+    # business — so restoring must not move it either. Unconditional,
+    # this mapped the window wherever the user happened to be standing,
+    # and a window belonging to desk 1 sat on desk 2 looking sticky
+    # until the next switch swept it off (the owner, 2026-08-04: "при
+    # deiconify оно становится как бы sticky").
+    #
+    # Nobody is short-changed by that: every road a HAND takes to a
+    # window — a panel button, a row of the list — goes through
+    # panel-focus-hit, which follows the desk first and only then asks
+    # for this. What is left is a CLIENT restoring ITSELF, and a client
+    # has no business pulling a window onto the desk in front of
+    # somebody else's eyes.
+    if {![desk-here-p $w]} {
+        set ::offdesk($w) 1    ;# invisible for a second reason now
+        puts "WM: deiconified 0x[format %x $w] — on desk [desk-of $w], not this one"
+        return
+    }
+    unset -nocomplain ::offdesk($w)
+    policy-deiconified $w
+    x-map $w
     x-sync 0
     puts "WM: deiconified 0x[format %x $w]"
     focus-to $w
