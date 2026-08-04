@@ -1320,6 +1320,32 @@ proc dispatch-event {ev} {
                 set rt [lindex $data 1]
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
                 soft "activation request" { policy-client-click $A }
+            } elseif {[info exists ::NET_WM_DESKTOP] && $B == $::NET_WM_DESKTOP
+                    && [info exists ::managed($A)]} {
+                # "put this window on that desk" — what a pager sends,
+                # and what `wmctrl -r X -t N` is. The all-ones CARDINAL
+                # is sticky, same spelling as the property.
+                set d [lindex $data 0]
+                desk-send $A [expr {$d == 0xffffffff ? "all" : $d}]
+            } elseif {[info exists ::NET_CURRENT_DESKTOP]
+                    && $B == $::NET_CURRENT_DESKTOP} {
+                # ...and "go to that desk", which is the same message
+                # aimed at the root.
+                #
+                # ALL-ONES IS NOT A DESK. A tool that means "go to
+                # where this window is" reads the window's
+                # _NET_WM_DESKTOP and sends it back — and a sticky
+                # window's is the all-ones CARDINAL, which arrives here
+                # as -1 (xdotool windowactivate does exactly this,
+                # measured). There is nowhere to go: the window is
+                # already on this desk, being on all of them.
+                set d [lindex $data 0]
+                if {$d == 0xffffffff || $d < 0} {
+                    puts "WM: «go to desk» for a window that is on all of them\
+ — already there"
+                } else {
+                    desk-go $d
+                }
             } elseif {[info exists ::NET_WM_STATE] && $B == $::NET_WM_STATE
                     && [info exists ::managed($A)]} {
                 # EWMH's one write into a window's state: data.l[0] is
@@ -2216,6 +2242,18 @@ proc publish-desk-count {} {
     soft "publish _NET_CURRENT_DESKTOP" \
         { set-prop-longs $::root $::NET_CURRENT_DESKTOP 6 [list $::desk] }
 }
+# What the WINDOW says about its own desk, if anything: the EWMH
+# property, read as a request before the map and as a memory after a
+# restart. "" when it says nothing, `all` for the all-ones CARDINAL.
+proc client-asked-desk {w} {
+    if {![info exists ::NET_WM_DESKTOP]} { return "" }
+    lassign [soft "read _NET_WM_DESKTOP" {
+        x-prop-get $w $::NET_WM_DESKTOP
+    }] type fmt value
+    if {$fmt ne "32" || ![llength $value]} { return "" }
+    set d [lindex $value 0]
+    expr {$d == 0xffffffff ? "all" : $d}
+}
 # _NET_WM_DESKTOP, per window: the desk it is on, or the all-ones
 # CARDINAL that EWMH spells sticky.
 proc publish-desk-of {w} {
@@ -2608,7 +2646,14 @@ proc manage {w {asiconic 0}} {
     x-map $w
     set-wm-state $w 1          ;# NormalState — ICCCM, see set-wm-state
     publish-frame-extents $w   ;# EWMH — how much decoration is around it
-    publish-desk-of $w
+    # ...but the DESK only when the window has said nothing about it.
+    # This runs before the policy has decided (client-desk-declare, and
+    # it publishes for itself), and desk-of answers "wherever you are"
+    # until then — so publishing here unconditionally overwrote the one
+    # fact worth reading: the desk this very window was on before a
+    # restart, which the previous instance had published (the owner,
+    # 2026-08-04, and measured: every window came back to desk one).
+    if {[client-asked-desk $w] eq ""} { publish-desk-of $w }
     lappend ::client_order $w
     publish-client-list
     x-sync 0

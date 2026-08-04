@@ -596,6 +596,14 @@ proc widget-tick-once {name} {
     # `return` and an ELSE body of `0`, so the ordinary path — the
     # widget being alive — runs «0» as a command and throws.
     if {![info exists ::widget_win($name)]} { return 0 }
+    # A RELOAD RESETS THE DECLARATIONS BEFORE IT REBUILDS THE WIDGETS,
+    # so between those two moments a live frame belongs to a name the
+    # config no longer knows. Anything that ticks in that window dies
+    # on the lookup — and a desk switch inside a config file is exactly
+    # such a thing, so `set-desks` in a reloaded config took the whole
+    # config word down with it (measured, the reload leg of the desk
+    # suite: «key "где" not known in dictionary»).
+    if {![dict exists $::widgets $name]} { return 0 }
     set c $::widget_win($name)
     if {![winfo exists $c]} { unset ::widget_win($name); return 0 }
     set opts [widget-opts $name]

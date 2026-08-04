@@ -249,6 +249,53 @@ case "$HELP" in
     *)          bad "the collapsed row lost its wording" ;;
 esac
 
+# --- the count changes under everything ---------------------------
+# Two ways a config turns the mechanism down, and both have to be
+# survivable: a window on a desk that no longer exists must come home
+# rather than become unreachable, and the keys must follow the count
+# (nine bindings on a two-desk machine would take Super+3 from
+# whoever else wants it).
+xdotool key --clearmodifiers super+3
+sleep 0.6
+cat > "$CONF/tk9wm.tcl" <<'EOF'
+set-desks 2
+wm-style {filter -title липкий} {desk sticky}
+wm-widget где -type desks -on workarea -place {left top} -style text
+EOF
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :91
+sleep 2
+NOW=$(curdesk); COUNT=$(ndesks); SENT=$(deskof "$AID")
+echo "--- after set-desks 2: on $NOW of $COUNT, «первый» (was on the 3rd) -> $SENT"
+if [ "$COUNT" = "2" ] && [ "$NOW" -lt 2 ] 2>/dev/null; then
+    ok "the count came down and took the current desk with it"
+else
+    bad "after the reload: on $NOW of $COUNT"
+fi
+if [ "$SENT" = "1" ]; then
+    ok "...and a window past the end came home to the last desk"
+else
+    bad "the window past the end is on desk $SENT, want 1"
+fi
+
+# --- and a RESTART keeps every window where it was -----------------
+# The WM publishes _NET_WM_DESKTOP per window; reading it back is the
+# whole of surviving a restart, and without it every window came back
+# to the desk in front of you (the owner, 2026-08-04).
+xdotool key --clearmodifiers super+1
+sleep 0.6
+xdotool windowactivate "$BID" 2>/dev/null
+sleep 0.6
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :91
+sleep 3.5
+RSTATE=$(deskof "$AID")
+RCOUNT=$(ndesks)
+echo "--- after a restart: «первый» on desk $RSTATE, $RCOUNT desks"
+if [ "$RSTATE" = "1" ]; then
+    ok "a restart found the window on the desk it was left on"
+else
+    bad "after the restart the window is on desk $RSTATE, want 1"
+fi
+
 kill $WM $CA $CB $CC $CD 2>/dev/null
 check_invariants "$LOG" || FAIL=1
 if grep -q 'handler error' "$LOG"; then

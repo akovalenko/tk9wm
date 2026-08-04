@@ -2259,11 +2259,39 @@ proc client-desk-declare {w} {
     # no desk of its own, desk-of answered "wherever you are now", and
     # the window followed every switch — every desk showed everything
     # (measured, the first run of the suite).
-    set d [expr {[dict exists $st desk] ? [dict get $st desk] : $::desk}]
+    #
+    # WHERE, in the order the answers outrank each other:
+    #
+    #   the style's `desk`   the user's standing word about this kind
+    #                        of window, and it beats the rest;
+    #   the window's own     _NET_WM_DESKTOP, which is BOTH a client
+    #     _NET_WM_DESKTOP    asking for a desk before it maps (EWMH
+    #                        says so) and the desk this very window was
+    #                        on before a restart — the previous
+    #                        instance published it, and reading it back
+    #                        is the whole of surviving one. Without
+    #                        this every window came back to the desk in
+    #                        front of you and the property we had
+    #                        published was overwritten with it (the
+    #                        owner, 2026-08-04: "похоже всё сваливается
+    #                        на один стол");
+    #   the desk one is on   the ordinary case: a new window appears
+    #                        where you are.
+    set d ""
+    if {[dict exists $st desk]} {
+        set d [dict get $st desk]
+    } else {
+        set d [client-asked-desk $w]
+    }
+    if {$d eq ""} { set d $::desk }
     if {$d eq "sticky" || $d eq "all"} {
         set ::deskof($w) all
-    } elseif {[string is integer -strict $d] && $d >= 0 && $d < $::ndesks} {
-        set ::deskof($w) $d
+    } elseif {[string is integer -strict $d] && $d >= 0} {
+        # PAST THE END IS THE LAST ONE, not a refusal: a window comes
+        # back from a session with more desks than this config has, and
+        # leaving it with no desk at all would make it follow every
+        # switch (which is what "no desk" means here).
+        set ::deskof($w) [expr {min($d, $::ndesks - 1)}]
     } else {
         puts "WM: 0x[format %x $w] desk «$d»: not a desk of the [set ::ndesks]"
         return
