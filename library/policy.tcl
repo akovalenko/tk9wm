@@ -454,10 +454,20 @@ set SVG_MIN {<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
 # to be in the same place or come from the same author.
 
 # --- layer 2: the catalogue ---
-# titlebar-button NAME -glyph SVG ?-side left|right?
+# titlebar-button NAME -glyph SVG ?-side left|right? ?-needs CMDS?
+#                                                    ?-when PRED?
 # Order within a side is declaration order, left to right. The name
 # becomes a treectrl column tag and an image name, so it is kept to
 # lowercase letters.
+#
+# PRESENCE is two conditions, judged where the set is (client-buttons,
+# at frame build and again on retitle): `-needs` gates on the machine
+# — commands in PATH, the actions' own word — and `-when` on the
+# WINDOW, a predicate exactly as wm-style takes them. The minimize
+# button refusing to appear on a client whose style refuses
+# minimization used to be a name check hard-coded in client-buttons;
+# it is now the stock declaration's own -when, the first consumer of
+# the general word.
 keep titlebar_buttons {}
 proc titlebar-button {name args} {
     if {![regexp {^[a-z][a-z0-9]*$} $name]} {
@@ -466,6 +476,7 @@ proc titlebar-button {name args} {
     }
     set side right
     set glyph ""
+    set spec {}
     foreach {opt val} $args {
         switch -- $opt {
             -side {
@@ -475,11 +486,31 @@ proc titlebar-button {name args} {
                 set side $val
             }
             -glyph { set glyph $val }
+            -needs { dict set spec needs $val }
+            -when  { dict set spec when $val }
             default { error "titlebar-button $name: unknown option $opt" }
         }
     }
-    if {$glyph eq ""} { error "titlebar-button $name: -glyph svg is required" }
-    dict set ::titlebar_buttons $name [dict create side $side glyph $glyph]
+    if {$glyph eq ""} {
+        error "titlebar-button $name: -glyph is required —\
+ svg markup, or a character or two"
+    }
+    if {![string match <* [string trim $glyph]]
+            && [string length $glyph] > 2} {
+        error "titlebar-button $name: a text glyph is a character or\
+ two, not «$glyph» — anything longer wants svg"
+    }
+    dict set ::titlebar_buttons $name \
+        [dict merge [dict create side $side glyph $glyph] $spec]
+}
+# Which of the two a glyph IS: svg markup renders to a photo
+# (btn-images), a bare character draws as text in the strip's own
+# font and ink — `titlebar-button ask -glyph ?` is the whole
+# declaration (the owner, 2026-08-05).
+proc titlebar-glyph-text {name} {
+    set g [dict get $::titlebar_buttons $name glyph]
+    if {[string match <* [string trim $g]]} { return "" }
+    return $g
 }
 proc titlebar-side  {name} { dict get $::titlebar_buttons $name side }
 proc titlebar-image {name} { return imgBtn-$name }
@@ -490,6 +521,7 @@ proc btn-images {} {
     # button cell, no inset
     set g [expr {max($::btnw - 2 * $::btnpad, 7)}]
     dict for {name spec} $::titlebar_buttons {
+        if {[titlebar-glyph-text $name] ne ""} continue   ;# drawn as text
         image create photo [titlebar-image $name] \
             -format [list svg -scaletoheight $g] -data [dict get $spec glyph]
     }
@@ -528,8 +560,9 @@ proc titlebar-action {part gesture} {
 # nowhere else. Close on the far right, then maximize and minimize
 # inward — so the two the hand knows by position keep it — and the menu
 # alone on the left.
+proc minimize-allowed {w} { expr {[minimize-mode $w] ne "refuse"} }
 titlebar-button menu     -side left  -glyph $SVG_MENU
-titlebar-button minimize -side right -glyph $SVG_MIN
+titlebar-button minimize -side right -glyph $SVG_MIN -when minimize-allowed
 titlebar-button maximize -side right -glyph $SVG_MAX
 titlebar-button close    -side right -glyph $SVG_CLOSE
 
@@ -878,14 +911,36 @@ proc frame-chrome {t} {
 # windows wear close alone, and a client whose style refuses minimize
 # is not given a button whose only answer would be to refuse. Derived
 # once when the frame is built and again on a reload (retitle-frames),
-# which is also when a config may have changed the catalogue itself.
+# which is also when a config may have changed the catalogue itself —
+# and that is the moment -needs and -when are judged, not
+# continuously. A predicate that throws costs its button and a log
+# line, never the frame (the panel-matches rule).
 proc client-buttons {w} {
     set names {}
-    foreach name [dict keys $::titlebar_buttons] {
-        if {$name eq "minimize" && [minimize-mode $w] eq "refuse"} continue
+    dict for {name spec} $::titlebar_buttons {
+        if {[dict exists $spec needs]
+                && ![needs-met [dict get $spec needs]]} continue
+        if {[dict exists $spec when]} {
+            if {[catch {uplevel #0 \
+                    [list {*}[dict get $spec when] $w]} m]} {
+                puts "WM: titlebar button $name: when predicate error: $m"
+                continue
+            }
+            if {!$m} continue
+        }
         lappend names $name
     }
     return $names
+}
+# Commands in PATH, all of them — the actions' waiting gate, factored:
+# the cached MISS is busted first, so software that arrived since is
+# noticed (the needs lesson).
+proc needs-met {cmds} {
+    foreach c $cmds {
+        array unset ::auto_execs $c
+        if {[auto_execok $c] eq ""} { return 0 }
+    }
+    return 1
 }
 proc frame-buttons {t} {
     if {[info exists ::btncols($t)]} { return $::btncols($t) }
@@ -2530,11 +2585,27 @@ proc titlebar-build {t w names title} {
     # client area opens BELOW the buttons
     set cells {}
     foreach name $names {
-        $t.title element create e$name image -image [titlebar-image $name]
+        # a glyph is svg rendered to a photo, or a bare character
+        # drawn in the strip's own font and ink; either way the box
+        # union is padded out to the same btnw square, so a text
+        # button sits in the row exactly as its svg neighbours do
+        set txt [titlebar-glyph-text $name]
+        if {$txt ne ""} {
+            $t.title element create e$name text -fill white -lines 1 \
+                -font TitleFont -text $txt
+            set px [expr {max($::btnpad,
+                ($::btnw - [font measure TitleFont $txt]) / 2)}]
+            set py [expr {max($::btnpad,
+                ($::btnw - [font metrics TitleFont -linespace]) / 2)}]
+        } else {
+            $t.title element create e$name image -image [titlebar-image $name]
+            set px $::btnpad
+            set py $::btnpad
+        }
         $t.title style create s$name
         $t.title style elements s$name [list eBox e$name]
         $t.title style layout s$name eBox -union e$name \
-            -ipadx $::btnpad -ipady $::btnpad -expand s
+            -ipadx $px -ipady $py -expand s
         $t.title style layout s$name e$name -expand s
         lappend cells C$name s$name
     }
@@ -4566,6 +4637,36 @@ set winops_actions {
     Above      a
     Sticky     y
 }
+# The rows this window's menu shows: the stock commands, then the
+# config's own items (winops-item below) — each gated by its needs
+# (the machine) and its when (this window), judged at open.
+proc winops-rows {w} {
+    set rows {}
+    foreach {label key} $::winops_actions {
+        lappend rows [dict create label $label key $key command $label]
+    }
+    dict for {name item} $::winops_items {
+        if {[dict exists $item needs]
+                && ![needs-met [dict get $item needs]]} {
+            puts "WM: winops: «$name» waits on [dict get $item needs]\
+ — not shown"
+            continue
+        }
+        if {[dict exists $item when]} {
+            if {[catch {uplevel #0 \
+                    [list {*}[dict get $item when] $w]} m]} {
+                puts "WM: winops «$name»: when predicate error: $m"
+                continue
+            }
+            if {!$m} continue
+        }
+        lappend rows [dict create label [dict get $item label] \
+            key [expr {[dict exists $item key]
+                       ? [dict get $item key] : ""}] \
+            command [dict get $item command]]
+    }
+    return $rows
+}
 proc winops {{w 0}} {
     if {$w == 0} { set w $::focused }
     if {$w == 0 || ![info exists ::frameof($w)]} {
@@ -4574,7 +4675,8 @@ proc winops {{w 0}} {
         return
     }
     set ::winops_win $w
-    set n [expr {[llength $::winops_actions] / 2}]
+    set ::winops_rows [winops-rows $w]
+    set n [llength $::winops_rows]
     set ih [expr {[font metrics TitleFont -linespace] + 6}]
     set T [popup-shell .winops $ih winops-click]
     $T column create -squeeze yes -expand yes -tags C0
@@ -4591,12 +4693,13 @@ proc winops {{w 0}} {
     $T style layout sKey eSel -detach yes -iexpand xy
     $T style layout sKey eKey -expand wns -padx 6
     set maxw 0
-    foreach {label key} $::winops_actions {
+    foreach row $::winops_rows {
+        set label [dict get $row label]
         set maxw [expr {max($maxw, [font measure TitleFont $label])}]
         set item [$T item create]
         $T item style set $item C0 sAct Ckey sKey
         $T item element configure $item C0 eTxt -text $label
-        $T item element configure $item Ckey eKey -text $key
+        $T item element configure $item Ckey eKey -text [dict get $row key]
         $T item lastchild root $item
     }
     $T selection add 1
@@ -4626,14 +4729,17 @@ proc winops-key {kind name mods} {
     if {$kind eq "release"} return
     if {$mods == 0} {
         set i 0
-        foreach {label key} $::winops_actions {
+        foreach row $::winops_rows {
             incr i
-            if {$name eq $key} { winops-fire $i; return }
+            if {[dict get $row key] ne "" && $name eq [dict get $row key]} {
+                winops-fire $i
+                return
+            }
         }
     }
     set d [popup-nav $name $mods]
     if {$d != 0} {
-        popup-move .winops.t [expr {[llength $::winops_actions] / 2}] $d
+        popup-move .winops.t [llength $::winops_rows] $d
         return
     }
     switch -- $name {
@@ -4644,17 +4750,62 @@ proc winops-key {kind name mods} {
 proc winops-fire {i} {
     if {$i eq "" || $i < 1} { popups-close; return }
     set w $::winops_win
-    lassign [lrange $::winops_actions [expr {($i - 1) * 2}] [expr {$i * 2 - 1}]] \
-        command key
+    set row [lindex $::winops_rows [expr {$i - 1}]]
     popups-close
     if {![info exists ::frameof($w)]} return
-    puts "WM: winops 0x[format %x $w] $command"
-    $command $w
+    puts "WM: winops 0x[format %x $w] [dict get $row label]"
+    # in a coroutine, as every fired script here: a stock command
+    # returns at once and costs nothing, and a config's own item may
+    # legitimately wait (Choose, a launch) — and its error becomes a
+    # problem instead of a throw up the binding
+    run-script "winops [dict get $row label]" \
+        [list {*}[dict get $row command] $w]
 }
 proc winops-click {x y} {
     set T .winops.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     winops-fire $A(item)
+}
+
+# ---- the window menu grows rows of the config's own ----
+# winops-item NAME {label … command … ?key …? ?needs …? ?when …?} —
+# a row under the stock commands, shown per window: `command` is a
+# prefix the window is appended to (the titlebar-bind convention, so
+# a window command or the config's own proc both fit), `needs` gates
+# on the machine, `when` on the window (a predicate as wm-style takes
+# them). The name is the primary key and a second word refines; the
+# label reads on the row (the name, unsaid); a key is one character
+# and the stock letters are looked up first.
+keep winops_items {}   ;# NAME -> the merged raw words
+proc winops-item {name settings} {
+    set raw $settings
+    if {[dict exists $::winops_items $name]} {
+        set raw [dict merge [dict get $::winops_items $name] $settings]
+    }
+    foreach k [dict keys $raw] {
+        if {[dict get $raw $k] eq ""} { dict unset raw $k }
+    }
+    foreach k [dict keys $raw] {
+        if {$k ni {label key command needs when}} {
+            error "winops-item $name: unknown word «$k»\
+ (label key command needs when)"
+        }
+    }
+    if {![dict exists $raw command]} {
+        error "winops-item $name: an item needs a command —\
+ a row that does nothing is a typo"
+    }
+    if {[dict exists $raw key]
+            && [string length [dict get $raw key]] != 1} {
+        error "winops-item $name: a key is one character,\
+ not «[dict get $raw key]»"
+    }
+    if {![dict exists $raw label]} { dict set raw label $name }
+    dict set ::winops_items $name $raw
+}
+proc winops-item-remove {name} {
+    dict unset ::winops_items $name
+    puts "WM: winops item $name: removed"
 }
 
 # Where a GESTURE wants a menu: the hand's point — except that a hand
@@ -7186,14 +7337,8 @@ proc action-realize {name} {
         catch {wm-unbind [dict get $::action_spec $name key]}
     }
     set state active
-    if {[dict exists $raw needs]} {
-        foreach c [dict get $raw needs] {
-            # bust Tcl's auto_execok cache first: a MISS is cached
-            # too, and a cached miss would hide the software this
-            # judgement exists to notice arriving
-            array unset ::auto_execs $c
-            if {[auto_execok $c] eq ""} { set state waiting; break }
-        }
+    if {[dict exists $raw needs] && ![needs-met [dict get $raw needs]]} {
+        set state waiting
     }
     # A TERMINAL DEED NEEDS A TERMINAL, and it is the one need an
     # action cannot state for itself: WHICH emulator is a detection
@@ -11321,6 +11466,8 @@ config-verb wm-font           {at {fonts @1}    key wm-font      value options s
 config-verb wm-keys           {at {keys @1}     key wm-keys      value params}
 config-verb wm-menu           {at {menus @1}    key wm-menu      spec menu}
 config-verb wm-menu-remove    {at {menus @1}    key wm-menu      denies 1}
+config-verb winops-item        {at {winops @1}   key winops-item  value options}
+config-verb winops-item-remove {at {winops @1}   key winops-item  denies 1}
 # A word without a knob: sayable, and therefore guarded, but with no
 # row in the configurator — its value is a list of six-word monitor
 # rectangles, which is a repair tool and a test seam rather than
@@ -12167,6 +12314,7 @@ set config_vars {
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
     emacs_edit emacs_edit_daemon emacs_keep_frame_name
     welcome key_bundles action_raw action_spec action_lint menus
+    winops_actions winops_items
 }
 proc policy-snapshot-defaults {} {
     # Incremental on purpose: a Reread may bring NEW config_vars into

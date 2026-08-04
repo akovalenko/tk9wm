@@ -159,8 +159,10 @@
 #
 # WHICH BUTTONS EXIST, and what they look like. Order within a side is
 # declaration order, left to right; the stock set is menu on the left,
-# then minimize, maximize and close on the right. The glyph is svg, so
-# it is re-rendered crisp at whatever size the titlebar font dictates.
+# then minimize, maximize and close on the right. The glyph is svg —
+# re-rendered crisp at whatever size the titlebar font dictates — or
+# just a character or two, drawn in the strip's own font and ink:
+# `-glyph ?` is a whole glyph.
 #
 #   titlebar-button shade -side left -glyph {<svg
 #    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path
@@ -194,8 +196,29 @@
 # anything:
 #   titlebar-bind close <3> Destroy
 #
-# A window whose style refuses minimize is not given the minimize
-# button: a button whose only answer is "no" is worse than none.
+# WHEN A BUTTON EXISTS AT ALL: `-needs CMDS` gates it on the machine
+# (commands in PATH — the actions' own word), `-when PRED` on the
+# window, a predicate exactly as wm-style takes them, judged when the
+# frame is dressed (manage and reload, not continuously). A window
+# whose style refuses minimize is not given the minimize button — that
+# rule IS the stock set's own `-when minimize-allowed`, the first
+# consumer of the general word.
+#
+#   titlebar-button ask -side right -needs claude -glyph ?
+#   titlebar-bind   ask <1> Ask-Claude
+#
+# ---- the window menu's own rows ----
+#
+# winops-item NAME {label … command … ?key …? ?needs …? ?when …?} — a
+# row under the stock window commands, shown per window. `command` is
+# a prefix the window is appended to (the titlebar-bind convention, so
+# a window command and a proc of this config's both fit); `needs`
+# gates on the machine, `when` on the window; the label reads on the
+# row (the name, unsaid), the key is one character and the stock
+# letters answer first. The name is the primary key, a second word
+# refines, winops-item-remove is the negative word.
+#
+#   winops-item ask {label "ask claude" key a needs claude command Ask-Claude}
 #
 # ---- fade: how solid a window is ----
 #

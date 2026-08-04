@@ -150,6 +150,7 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 | run-or-raise as a word | `Fire`, `action-fire`, `fire-spec` | `policy.tcl` |
 | a colour from a name | `name-tint`, `pseudo-badge`, `color-hex` | `policy.tcl` |
 | where a deed runs | `run-at`, `run_dir`, `env -C` | `policy.tcl` |
+| the window menu's own rows | `winops-item`, `winops-rows` | `policy.tcl` |
 | what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy.tcl` |
 | the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy.tcl` |
 | the applet host and the door to it | `ui-open`, `ui-style`, `ui-restyle` | `ui/host.tcl` |
@@ -620,6 +621,15 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   was. The menu drops from the top-left corner, and the titlebar has a
   menu button of its own on the left.
 
+  **The window menu grows rows of the config's own** — `winops-item
+  NAME {label … command … ?key …? ?needs …? ?when …?}`: a row under
+  the stock commands, the command a prefix the window is appended to
+  (the titlebar-bind convention), `needs` gating on the machine and
+  `when` on the window, judged at open. Refines by name,
+  `winops-item-remove` takes it back, and the stock vocabulary plus
+  the items ride config_vars, so a reload sweeps and the config
+  redeclares.
+
   **A config gets menus of its own** (`wm-menu NAME {key … items …}`)
   — another surface for actions, the way the panel is: a row is a
   reference to an action (a bare name, or `{action NAME key w}` with a
@@ -760,11 +770,19 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
     press/arm/release machinery that turns a click into "this part,
     this gesture". It knows there are button cells; it does not know
     their names;
-  - **the buttons** — `titlebar-button NAME -glyph SVG ?-side?`, one
-    catalogue, declaration order left to right within a side. A frame
-    wears a SET of them, per frame because it varies: the WM's own
-    windows wear close alone, and a client whose style refuses minimize
-    is not given a button whose only answer would be to refuse;
+  - **the buttons** — `titlebar-button NAME -glyph GLYPH ?-side?
+    ?-needs CMDS? ?-when PRED?`, one catalogue, declaration order left
+    to right within a side. A glyph is svg rendered to a photo, or a
+    bare character or two drawn in the strip's own font and ink —
+    `-glyph ?` is a whole declaration, padded out to the same square
+    its svg neighbours sit in. A frame wears a SET of them, per frame
+    because it varies: the WM's own windows wear close alone, and
+    presence is two general conditions — `-needs` gates on the machine
+    (commands in PATH), `-when` on the window (a wm-style predicate,
+    judged when the frame is dressed). A client whose style refuses
+    minimize is not given a button whose only answer would be to
+    refuse — that rule is the stock set's own `-when
+    minimize-allowed`, the first consumer of the general word;
   - **the gestures** — `titlebar-bind PART GESTURE COMMAND`, where a
     part is a button's name or `title` for the strip. The same table
     answers "what does close do", "what does a double click on the
