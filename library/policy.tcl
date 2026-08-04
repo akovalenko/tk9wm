@@ -520,11 +520,40 @@ proc btn-images {} {
     # so this glyph height makes the box exactly btnw square — the full
     # button cell, no inset
     set g [expr {max($::btnw - 2 * $::btnpad, 7)}]
+    # ...and the TEXT glyphs get a font fitted to the same square the
+    # svg renders into: a font asks for its linespace, and a glyph
+    # taller than the cell hung below the row — a П-shaped button rank
+    # (the owner, 2026-08-05). The badge trick, again: a PIXEL size
+    # walked down until the line fits, so a text button is the same
+    # btnw square its svg neighbours are.
+    if {"BtnGlyphFont" ni [font names]} { font create BtnGlyphFont }
+    for {set s $g} {$s > 7} {incr s -1} {
+        font configure BtnGlyphFont \
+            -family [font actual TitleFont -family] -size -$s -weight bold
+        if {[font metrics BtnGlyphFont -linespace] <= $g} break
+    }
     dict for {name spec} $::titlebar_buttons {
         if {[titlebar-glyph-text $name] ne ""} continue   ;# drawn as text
         image create photo [titlebar-image $name] \
             -format [list svg -scaletoheight $g] -data [dict get $spec glyph]
     }
+}
+# The stock right-side trio keeps the OUTER edge: a config's buttons
+# land INSIDE — right of the menu, left of minimize — in declaration
+# order (the owner, 2026-08-05). The hand knows close and its
+# neighbours by position, and a custom button outside them would move
+# what must not move.
+proc titlebar-order {names} {
+    set out {}
+    set tail {}
+    foreach n $names {
+        if {$n in {minimize maximize close}} {
+            lappend tail $n
+        } else {
+            lappend out $n
+        }
+    }
+    concat $out $tail
 }
 
 # --- layer 3: what a gesture on a part does ---
@@ -2544,6 +2573,7 @@ proc policy-pick-refocus {w} {
 # and a picture. Which ones exist is the catalogue's business and what
 # they do is the gesture table's.
 proc titlebar-build {t w names title} {
+    set names [titlebar-order $names]
     treectrl $t.title -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
         -background [themed focus] -itemheight $::titleh
@@ -2592,11 +2622,11 @@ proc titlebar-build {t w names title} {
         set txt [titlebar-glyph-text $name]
         if {$txt ne ""} {
             $t.title element create e$name text -fill white -lines 1 \
-                -font TitleFont -text $txt
+                -font BtnGlyphFont -text $txt
             set px [expr {max($::btnpad,
-                ($::btnw - [font measure TitleFont $txt]) / 2)}]
+                ($::btnw - [font measure BtnGlyphFont $txt]) / 2)}]
             set py [expr {max($::btnpad,
-                ($::btnw - [font metrics TitleFont -linespace]) / 2)}]
+                ($::btnw - [font metrics BtnGlyphFont -linespace]) / 2)}]
         } else {
             $t.title element create e$name image -image [titlebar-image $name]
             set px $::btnpad

@@ -21,6 +21,11 @@ sleep 1
 
 key() { xdotool key "$@"; sleep 1; }
 LOG="$HERE/wm-winopsitem.log"
+askw() {
+    printf '%s\n' "$1" > "$HERE/winopsitem-config/q.tcl"
+    "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl \
+        "$HERE/winopsitem-config/q.tcl" 2>&1
+}
 
 CONF="$HERE/winopsitem-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
@@ -83,6 +88,15 @@ key alt+space
 key p
 sleep 1
 
+# the text-glyph button must sit IN the row (the П-shaped rank was
+# the owner's report) and INSIDE the stock trio (his order rule)
+RANK=$(askw "set t \$::frameof([expr {$XID}])
+    lassign [\$t.title item bbox 1 Cxbadge eBox] - ay1 - ay2
+    lassign [\$t.title item bbox 1 Cclose eBox] - by1 - by2
+    list top [expr {\$ay1 == \$by1}] bottom [expr {\$ay2 == \$by2}] \
+        cols [lmap c [\$t.title column list] {lindex [\$t.title column cget \$c -tags] 0}]")
+echo "--- rank: $RANK"
+
 import -window root "$HERE/winopsitem-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/winopsitem-test.png"
 kill $WM $CA $CB $CX 2>/dev/null
@@ -127,6 +141,11 @@ if grep -q 'WM: winops: «ghost» waits on no-such-binary-xyzzy' "$LOG"; then
     echo "OK: the needs-gated row says why it is not shown"
 else
     echo "FAIL: the ghost row vanished silently"; BAD=1
+fi
+if [ "$RANK" = "top 1 bottom 1 cols {Cmenu C0 Cxbadge Cminimize Cmaximize Cclose}" ]; then
+    echo "OK: the ? button sits square in the row, inside the stock trio"
+else
+    echo "FAIL: the button rank says: $RANK"; BAD=1
 fi
 if [ "$FIRED" = "4" ] && [ "$LASTID" = "$BID" ]; then
     echo "OK: q answered on the xterm alone, p everywhere, and the reload kept the rows"
