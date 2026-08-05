@@ -8126,6 +8126,14 @@ proc Ask {prompt args} {
     puts "WM: Ask $id «$prompt»"
     return [fut::take $::ask_fut($id)]
 }
+# The ANSWER and the CANCEL are different facts (the owner's
+# expectation, 2026-08-05): Enter delivers the text — the empty
+# string included, an answer like any other — while Escape cancels
+# the WAIT itself: the asking script stops at that line, quietly (the
+# calm branch in run-script), exactly as a yank stops it. Collapsing
+# the two into one empty string would make «answered nothing» and
+# «did not answer» the same word, and a script acting on it could not
+# tell a cleared field from a person who walked away.
 proc ask-answer {id text} {
     if {![info exists ::ask_fut($id)]} {
         puts "WM: ask $id: nobody waits — dropped"
@@ -8133,8 +8141,18 @@ proc ask-answer {id text} {
     }
     set f $::ask_fut($id)
     unset ::ask_fut($id)
-    puts "WM: ask $id: [expr {$text eq "" ? "nothing" : "answered"}]"
+    puts "WM: ask $id: answered"
     fut::fulfill $f $text
+}
+proc ask-cancel {id} {
+    if {![info exists ::ask_fut($id)]} {
+        puts "WM: ask $id: nobody waits — dropped"
+        return
+    }
+    set f $::ask_fut($id)
+    unset ::ask_fut($id)
+    puts "WM: ask $id: cancelled by the person"
+    fut::cancel $f "the person cancelled the ask"
 }
 # The host, up — found on the registry or spawned the applet door's
 # way and awaited (a fresh host loads a Tk and a theme before it can

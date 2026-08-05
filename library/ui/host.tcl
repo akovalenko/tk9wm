@@ -704,7 +704,7 @@ proc ui-ask-commit {wmapp id} {
     catch {destroy .ask}
 }
 proc ui-ask-cancel {wmapp id} {
-    catch {send -- $wmapp [list ask-answer $id ""]}
+    catch {send -- $wmapp [list ask-cancel $id]}
     catch {destroy .ask}
 }
 proc ui-ask-drop {id} { catch {destroy .ask} }

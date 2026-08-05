@@ -695,9 +695,11 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   the field, or ABOVE it when it runs past twenty characters, so a
   long question and a long answer each get the full width; the field
   is dressed exactly as the configurator's editors (ui-field,
-  text-as-entry), there are no buttons — Enter answers, Escape
-  answers empty — and `-width` is characters or a percent of the
-  workarea's width. The typing
+  text-as-entry), there are no buttons — Enter ANSWERS, the empty
+  string included, and Escape CANCELS: the asking script stops at
+  that line, quietly, exactly as a yank stops it — «answered
+  nothing» and «did not answer» are different facts — and `-width`
+  is characters or a percent of the workarea's width. The typing
   happens in the ui host — the WM process takes no typed text by
   design (the XIM post-mortem) — so the word sends the question over
   the send bridge, parks on a future, and the host's answer wakes it;

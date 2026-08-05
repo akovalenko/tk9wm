@@ -311,8 +311,20 @@ proc unless-already {test script} {
 keep script_seq 0
 proc run-script {what script} {
     coroutine ::script[incr ::script_seq] apply {{what script} {
-        if {[catch {uplevel #0 $script} err]} {
-            problem-record $what $err
+        if {[catch {uplevel #0 $script} err opts]} {
+            # A CANCELLED WAIT IS NOT A PROBLEM: the person pressed
+            # Escape on an ask, a newer ask displaced it, a reload
+            # swept the world — the script stopping there is the
+            # designed outcome, and recording it as a problem (echo
+            # flash and all) made every deliberate cancel nag (the
+            # owner's expectation, 2026-08-05: «всё отменяется»).
+            # Said calmly in the log, and no further.
+            if {[lrange [dict getdef $opts -errorcode {}] 0 1] \
+                    eq {FUT CANCELLED}} {
+                puts "WM: $what: cancelled — $err"
+            } else {
+                problem-record $what $err
+            }
         }
     }} $what $script
 }

@@ -610,7 +610,10 @@
 # `Ask PROMPT ?-initial …? ?-place …? ?-width …?` puts up an
 # undecorated one-line box dressed as the key echo: the prompt, then
 # a field dressed exactly as the configurator's editors
-# (text-as-entry), no buttons — Enter answers, Escape answers empty.
+# (text-as-entry), no buttons. Enter ANSWERS — the empty string
+# included — and Escape CANCELS: the asking script stops at that
+# line, quietly. «Answered nothing» and «did not answer» are
+# different facts.
 # It stands at the place-grammar point over the workarea (unsaid:
 # center); a prompt past twenty characters moves ABOVE the field, so
 # a long question and a long answer each get the full width. -width

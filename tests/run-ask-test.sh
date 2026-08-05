@@ -53,7 +53,7 @@ xdotool type hello42
 sleep 1
 key Return
 sleep 1
-# ---- warm: Escape answers empty ----
+# ---- warm: Escape CANCELS the asking script ----
 key super+1
 sleep 2
 BOXID=$(xdotool search --class Tk9wmGadget 2>/dev/null | head -1)
@@ -67,6 +67,11 @@ LAYS=$(askq 'list frow [dict get [grid info .ask.b.f] -row] \
     fcol [dict get [grid info .ask.b.f] -column] \
     title [wm title .ask]')
 key Escape
+sleep 1
+# ---- an empty Enter is an answer, the empty one ----
+key super+1
+sleep 2
+key Return
 sleep 1
 # ---- a long prompt sits ABOVE the field, on the echo's amber ----
 key super+2
@@ -156,10 +161,22 @@ if grep -q 'TEST: ask <hello42>' "$LOG"; then
 else
     echo "FAIL: the answer never reached the asker"; BAD=1
 fi
-if grep -q 'TEST: ask <>' "$LOG"; then
-    echo "OK: Escape answered the empty answer"
+if grep -q 'WM: ask [0-9]*: cancelled by the person' "$LOG" \
+        && grep -q 'cancelled — .*the person cancelled the ask' "$LOG"; then
+    echo "OK: Escape cancelled the ask, and the script stopped quietly"
 else
-    echo "FAIL: the Escape never answered"; BAD=1
+    echo "FAIL: the Escape cancel is missing or loud"; BAD=1
+fi
+if grep -q 'TEST: ask <>' "$LOG"; then
+    echo "OK: an empty Enter delivered the empty string"
+else
+    echo "FAIL: the empty answer never arrived"; BAD=1
+fi
+if grep -q 'WM: PROBLEM' "$LOG"; then
+    echo "FAIL: a deliberate cancel was recorded as a problem:"
+    grep 'WM: PROBLEM' "$LOG"; BAD=1
+else
+    echo "OK: not one cancel nagged the problems store"
 fi
 if [ -n "$BOXGEO" ]; then
     set -- $BOXGEO
