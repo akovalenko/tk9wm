@@ -9678,6 +9678,36 @@ proc panel-btn-update {T item key data} {
 # The tray strip sits at the FAR end of this same band, in its own
 # top-level above ours: the button row stops short of it so a button
 # can never end up hidden under an icon.
+# THE BAND'S INNER FACE WEARS A HAIRLINE. The screen edge holds three
+# sides of a strip; the fourth is where the clients live, and in the
+# light theme a pale strip against a pale client is two grounds fusing
+# into one field — the browser ran straight into the panel with
+# nothing to say where it ended (the owner, 2026-08-05). That boundary
+# is `edge`'s exact job — the BORDER role, what keeps touching frames
+# from fusing — and in the dark theme edge IS the strip's own ground,
+# so the line vanishes there: the dark desk is unchanged by palette
+# rather than by code.
+#   The pixel it stands on is already there. Every rider of a band —
+# the tree, a widget area — keeps at least 1px of air to this face
+# (the ±1 margins all over the strip geometry), so the line replaces
+# air and moves nothing; raised, so the face reads as ONE line for
+# the band's whole length, over whatever rode in. The tray draws it
+# too: it is a toplevel of its own ABOVE the panel's window and can
+# be as deep as the band, so its stretch would cut the panel's line —
+# and an ARGB strip draws on its opaque floor besides (.traybg),
+# because paint on a 32-bit window is not promised to cover.
+proc strip-hairline {win side w h} {
+    set E $win.hair
+    if {![winfo exists $E]} { frame $E -borderwidth 0 }
+    $E configure -background [themed edge]
+    switch -- $side {
+        top    { place $E -x 0 -y [expr {$h - 1}] -width $w -height 1 }
+        bottom { place $E -x 0 -y 0 -width $w -height 1 }
+        left   { place $E -x [expr {$w - 1}] -y 0 -width 1 -height $h }
+        right  { place $E -x 0 -y 0 -width 1 -height $h }
+    }
+    raise $E
+}
 proc panel-place {name P T g side n} {
     set thick [dict get $g thick]
     set vert [dict get $g vert]
@@ -9712,6 +9742,7 @@ proc panel-place {name P T g side n} {
             -width [expr {$W - 2 - $tray - $wg}] -height [expr {$own - 2}]
     }
     wm geometry $P $geo
+    strip-hairline $P $side $W $H
     stack-layer $P $::LAYER_DOCK 0     ;# the band's floor...
     panel-reeval     ;# a build starts stateless — judge the matches now
     puts "WM: panel $name up ($n buttons, $thick px,\
@@ -10167,6 +10198,12 @@ proc tray-layout {} {
     }
     wm geometry .tray $geo
     tray-backdrop $geo       ;# the opaque floor under an ARGB strip
+    # the tray's stretch of the band carries the same inner-face line
+    # the panel's does — on the floor too when there is one, since an
+    # ARGB strip's own paint is not promised to cover (see the proc)
+    if {$vert} { set tw $thick; set th $len } else { set tw $len; set th $thick }
+    strip-hairline .tray $side $tw $th
+    if {[winfo exists .traybg]} { strip-hairline .traybg $side $tw $th }
     wm deiconify .tray
     stack-layer .tray $::LAYER_DOCK 2   ;# ...and the icons over both
     restack-soon             ;# the strip is a new window; seat it by layer
