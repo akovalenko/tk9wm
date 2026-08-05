@@ -283,6 +283,14 @@ proc title-metrics {} {
 # in both themes. A light `edge` would have to differ from `unfocus`
 # to do its job, and there is no light grey that does.
 #
+# `curb` is the line a strip draws against the clients it borders, and
+# it is edge's job done the other way around: whichever way the theme
+# goes, the browser beside the panel is the same near-ground field —
+# the light one fused with the light strip, the dark one with the dark
+# (the owner, 2026-08-05, both at once) — so where edge could stay
+# dark forever, the curb must step AWAY from ground in each theme:
+# dark on the light desk, pale on the dark one.
+#
 # The light `select` is deliberately not the palest blue that still
 # reads as blue. It was, and against the furniture it sits on the band
 # barely showed at all (the owner, 2026-08-02) — a selection has to be
@@ -302,7 +310,7 @@ keep theme_palette {
         edge    #2e3436   rule    #888a85   desk    #14181b   slot    #202020
         focus   #3465a4   unfocus #888a85   modal   #c17d11   alert   #cc4444
         found   #4e9a06   firing  #ce5c00   live    #5d6e59   livebar #8ae234
-        bad     #a40000
+        bad     #a40000   curb    #888a85
         field   #22272a   link    #8ab4f8   select  #204a87   trough  #3a4144
     }
     light {
@@ -310,7 +318,7 @@ keep theme_palette {
         edge    #2e3436   rule    #babdb6   desk    #d3d7cf   slot    #c8ccc4
         focus   #3465a4   unfocus #6b7278   modal   #c17d11   alert   #cc4444
         found   #4e9a06   firing  #ce5c00   live    #b8d39a   livebar #4e9a06
-        bad     #a40000
+        bad     #a40000   curb    #2e3436
         field   #ffffff   link    #1a4a8a   select  #a3c4ea   trough  #e4e2de
     }
 }
@@ -9679,27 +9687,26 @@ proc panel-btn-update {T item key data} {
 # top-level above ours: the button row stops short of it so a button
 # can never end up hidden under an icon.
 # THE BAND'S INNER FACE WEARS A HAIRLINE. The screen edge holds three
-# sides of a strip; the fourth is where the clients live, and in the
-# light theme a pale strip against a pale client is two grounds fusing
-# into one field — the browser ran straight into the panel with
-# nothing to say where it ended (the owner, 2026-08-05). That boundary
-# is `edge`'s exact job — the BORDER role, what keeps touching frames
-# from fusing — and in the dark theme edge IS the strip's own ground,
-# so the line vanishes there: the dark desk is unchanged by palette
-# rather than by code.
+# sides of a strip; the fourth is where the clients live, and a strip
+# beside a client of its own lightness is two grounds fusing into one
+# field — the light browser ran straight into the light panel, and
+# the dark desk told the same story in negative (the owner,
+# 2026-08-05, both at once). The line is dressed in `curb`, the role
+# that steps away from ground in EITHER theme — edge could not say it
+# in the dark, where edge IS the strip's own ground.
 #   The pixel it stands on is already there. Every rider of a band —
 # the tree, a widget area — keeps at least 1px of air to this face
 # (the ±1 margins all over the strip geometry), so the line replaces
 # air and moves nothing; raised, so the face reads as ONE line for
-# the band's whole length, over whatever rode in. The tray draws it
-# too: it is a toplevel of its own ABOVE the panel's window and can
-# be as deep as the band, so its stretch would cut the panel's line —
-# and an ARGB strip draws on its opaque floor besides (.traybg),
-# because paint on a 32-bit window is not promised to cover.
-proc strip-hairline {win side w h} {
-    set E $win.hair
+# the band's whole length, over whatever rode in. And it is drawn
+# ONCE, here, on the panel's window — which spans the whole band for
+# exactly this reason — never by a rider: the tray is laid a pixel
+# short of the face instead (the owner's trade, 2026-08-05 — a pixel
+# of tray for a line nobody else has to re-draw).
+proc panel-hairline {P side w h} {
+    set E $P.hair
     if {![winfo exists $E]} { frame $E -borderwidth 0 }
-    $E configure -background [themed edge]
+    $E configure -background [themed curb]
     switch -- $side {
         top    { place $E -x 0 -y [expr {$h - 1}] -width $w -height 1 }
         bottom { place $E -x 0 -y 0 -width $w -height 1 }
@@ -9723,6 +9730,13 @@ proc panel-place {name P T g side n} {
     if {[llength [info commands widgets-thickness]]} {
         set thick [expr {max($thick, [widgets-thickness $name])}]
     }
+    # ...and the tray's depth besides — strip-carve's own arithmetic,
+    # repeated on purpose: the window is the band's floor and the
+    # hairline's anchor, so it has to reach the band's true inner face
+    # even when the tray is the deepest thing riding it.
+    if {[tray-panel] eq $name} {
+        set thick [expr {max($thick, [tray-thickness])}]
+    }
     lassign [band-strip $band $side $thick] X Y W H
     set geo ${W}x${H}+${X}+${Y}
     set tray [expr {[tray-panel] eq $name ? [tray-extent] : 0}]
@@ -9742,7 +9756,7 @@ proc panel-place {name P T g side n} {
             -width [expr {$W - 2 - $tray - $wg}] -height [expr {$own - 2}]
     }
     wm geometry $P $geo
-    strip-hairline $P $side $W $H
+    panel-hairline $P $side $W $H
     stack-layer $P $::LAYER_DOCK 0     ;# the band's floor...
     panel-reeval     ;# a build starts stateless — judge the matches now
     puts "WM: panel $name up ($n buttons, $thick px,\
@@ -10169,10 +10183,25 @@ proc tray-layout {} {
     }
     tray-refit-cells        ;# the size knob may have moved under them
     set thick [tray-thickness]
-    set sz $::tray_icon_size
-    set cross [expr {($thick - $sz) / 2}]   ;# centered across the strip
     set side [tray-side]
     set vert [expr {$side in {left right}}]
+    # The FAR end of our panel's band: the end with the larger
+    # coordinate along the band's long axis — the right end of a
+    # horizontal bar, the bottom end of a vertical one. Taken from the
+    # band and not from the screen, so a tray on the second panel
+    # declared lands inside what the first one left.
+    set band [strip-band [tray-panel]]
+    if {$band eq ""} { set band [panel-monitor [tray-panel]] }
+    # A PIXEL SHORT OF THE FACE: the band's inner row is the panel's
+    # hairline, drawn once on the panel's own window — the tray backs
+    # off it rather than re-drawing it (the owner's trade, 2026-08-05).
+    # A tray whose band holds no panel window has no line to yield to.
+    if {[panel-window [tray-panel]] ne ""} {
+        lassign $band - - bandw bandh
+        set thick [expr {min($thick, ($vert ? $bandw : $bandh) - 1)}]
+    }
+    set sz $::tray_icon_size
+    set cross [expr {($thick - $sz) / 2}]   ;# centered across the strip
     set i 0
     foreach w $::tray_order {
         set off [expr {$::tray_pad + $i*($sz + $::tray_gap)}]
@@ -10183,13 +10212,6 @@ proc tray-layout {} {
         }
         incr i
     }
-    # The FAR end of our panel's band: the end with the larger
-    # coordinate along the band's long axis — the right end of a
-    # horizontal bar, the bottom end of a vertical one. Taken from the
-    # band and not from the screen, so a tray on the second panel
-    # declared lands inside what the first one left.
-    set band [strip-band [tray-panel]]
-    if {$band eq ""} { set band [panel-monitor [tray-panel]] }
     lassign [band-strip $band $side $thick] bx by bw bh
     if {$vert} {
         set geo ${thick}x${len}+${bx}+[expr {$by + $bh - $len}]
@@ -10198,12 +10220,7 @@ proc tray-layout {} {
     }
     wm geometry .tray $geo
     tray-backdrop $geo       ;# the opaque floor under an ARGB strip
-    # the tray's stretch of the band carries the same inner-face line
-    # the panel's does — on the floor too when there is one, since an
-    # ARGB strip's own paint is not promised to cover (see the proc)
-    if {$vert} { set tw $thick; set th $len } else { set tw $len; set th $thick }
-    strip-hairline .tray $side $tw $th
-    if {[winfo exists .traybg]} { strip-hairline .traybg $side $tw $th }
+    destroy .tray.hair .traybg.hair   ;# step 182's first cut drew here
     wm deiconify .tray
     stack-layer .tray $::LAYER_DOCK 2   ;# ...and the icons over both
     restack-soon             ;# the strip is a new window; seat it by layer

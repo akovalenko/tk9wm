@@ -8,9 +8,10 @@
 #
 #  - one word repaints the desk: the strip and the desktop behind it
 #    both change, and change BACK, with nothing else edited;
-#  - the band's inner face wears the 1px `edge` hairline — the line
-#    that keeps a pale strip from fusing with a pale client — and
-#    exactly one pixel of it: the row below is ground again;
+#  - the band's inner face wears the 1px `curb` hairline in BOTH
+#    themes — the line that keeps the strip from fusing with a client
+#    of its own lightness — and exactly one pixel of it: the row
+#    below is ground again;
 #  - an OVERRIDE outranks the theme and only where it was spoken — a
 #    desk colour of one's own stands while the strip beside it still
 #    follows the theme, which is the whole claim of "overridden whole
@@ -73,6 +74,7 @@ panel-button терминал
 EOF
 reload
 DSTRIP=$(strip); DDESK=$(desk)
+DFACE=$(pix 800 $((500 - THICK))); DUNDER=$(pix 800 $((500 - THICK + 1)))
 import -display :67 -window root "$HERE/theme-dark.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/theme-dark.png"
 
@@ -132,10 +134,14 @@ want() {
 }
 want "one word and the strip is light"        "$LSTRIP" "srgb(242,241,239)"
 want "...and the desktop behind it too"       "$LDESK"  "srgb(211,215,207)"
-want "the band's inner face wears the edge hairline" \
+want "the light band's inner face wears the curb hairline" \
     "$LFACE"  "srgb(46,52,54)"
 want "...exactly one pixel of it — below is ground again" \
     "$LUNDER" "srgb(242,241,239)"
+want "...and the dark band steps AWAY from its own ground too" \
+    "$DFACE"  "srgb(136,138,133)"
+want "...one pixel likewise — below is the dark ground" \
+    "$DUNDER" "srgb(46,52,54)"
 want "the other word takes the strip back"    "$DSTRIP" "srgb(46,52,54)"
 want "...and the desktop with it"             "$DDESK"  "srgb(20,24,27)"
 want "an override stands where it was spoken" "$ODESK"  "srgb(78,154,6)"

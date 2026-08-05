@@ -166,17 +166,19 @@ if [ "$GEOM_A" = "24x24" ]; then
 else
     echo "FAIL: icon A is $GEOM_A, want 24x24"
 fi
-# 2 cells: 2*3 + 2*24 + 4 = 58 wide; thickness follows the panel's strip
-# (PH is read up where the pixel is taken, which needs it too)
-if [ "$STRIP" = "58x${PH}+742+$((600 - PH))" ]; then
-    echo "OK: the strip sits in the corner at the panel's thickness ($STRIP)"
+# 2 cells: 2*3 + 2*24 + 4 = 58 wide; thickness follows the panel's
+# strip A PIXEL SHORT — the band's inner row is the panel's hairline
+# and the tray backs off it (PH is read up where the pixel is taken,
+# which needs it too)
+if [ "$STRIP" = "58x$((PH - 1))+742+$((600 - PH + 1))" ]; then
+    echo "OK: the strip sits in the corner, a pixel short of the hairline ($STRIP)"
 else
-    echo "FAIL: strip «$STRIP», want 58x${PH}+742+$((600 - PH))"
+    echo "FAIL: strip «$STRIP», want 58x$((PH - 1))+742+$((600 - PH + 1))"
 fi
-if [ "$STRIP1" = "30x${PH}+770+$((600 - PH))" ]; then
+if [ "$STRIP1" = "30x$((PH - 1))+770+$((600 - PH + 1))" ]; then
     echo "OK: the strip shrank when the icon left ($STRIP1)"
 else
-    echo "FAIL: strip after the undock «$STRIP1», want 30x${PH}+770+$((600 - PH))"
+    echo "FAIL: strip after the undock «$STRIP1», want 30x$((PH - 1))+770+$((600 - PH + 1))"
 fi
 if [ -n "$ICON_B" ] && grep -q "^WM: tray: undocked $ICON_B" "$HERE/wm-tray.log"; then
     echo "OK: B's icon was undocked when its client destroyed it"
