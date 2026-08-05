@@ -709,6 +709,11 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   early: the reload sweeping the config's world (box and all), and a
   newer ask displacing it, one box being one question — the displaced
   waiter is cancelled under its own name, never left parked forever.
+  A newcomer mapping over a standing question raises but does not
+  steal the focus: it takes it FOR LATER, seated right behind the box
+  in the focus history, so answering or cancelling lands the focus
+  exactly where the newcomer's manage would have put it — and the
+  gadget layer is what keeps the question visible above it meanwhile.
   The material is deliberately the desk's own: whatever command line
   this grows into later is a prompt, a field and two keys.
 

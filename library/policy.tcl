@@ -2518,6 +2518,23 @@ proc policy-managed {w} {
     client-layer-declare $w
     client-desk-declare-and-paint $w
     raise-group $w
+    # A newcomer does not steal the focus from a STANDING QUESTION —
+    # it takes it FOR LATER (the owner, 2026-08-05): seated right
+    # behind the box in the focus history, so answering or cancelling
+    # the ask lands the focus exactly where this manage would have put
+    # it. The raise still happens — the ask's layer is what keeps the
+    # question on top of it. A gadget newcomer is the question itself
+    # (a displacement's fresh box) and focuses as ever.
+    if {[array size ::ask_fut] && $::focused != 0
+            && [lindex [client-class $w] 1] ne "Tk9wmGadget"
+            && [lindex [client-class $::focused] 1] eq "Tk9wmGadget"} {
+        set ::focus_hist [linsert \
+            [lsearch -exact -all -inline -not $::focus_hist $w] 1 $w]
+        puts "WM: 0x[format %x $w]: the focus is the ask's — taken for later"
+        apply-opacity $w
+        panel-match-kick
+        return
+    }
     # the newcomer's focus is the POLICY's move, not the person's —
     # the ask's focus-left rule must not read it as leaving
     set ::focus_by_policy 1
@@ -8060,11 +8077,11 @@ unless-already {[info exists ::gadget_rule_said]} {
 #  - CONFIRMED focus only (policy-paint-focus): the WM's own grabs —
 #    a menu glanced at over the box — move nothing and cancel
 #    nothing;
-#  - the POLICY's own focus moves do not count as leaving: a fresh
-#    xterm stealing the focus at manage, a refocus after somebody
-#    else's window died — the box was not LEFT, it was robbed, and
-#    the top layer holds it visible until the person tabs back
-#    (focus_by_policy, set at the two places the policy aims focus);
+#  - the POLICY's own focus moves do not count as leaving: a refocus
+#    after somebody else's window died is not the person going
+#    anywhere (focus_by_policy, set at the two places the policy aims
+#    focus — a newcomer's manage does not even take the focus while a
+#    question holds it: it queues behind the box, see policy-managed);
 #  - only a departure FROM the box counts: switching between other
 #    windows while the box stands unfocused says nothing about it.
 #

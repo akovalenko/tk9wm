@@ -621,7 +621,9 @@
 # workarea's width (50% — the whole box takes it). An ask is not
 # keyboard-modal: menus come and go over it and it stands; only a
 # reload or a NEWER ask ends it early (one box, one question — the
-# displaced waiter is cancelled under its own name). The typing happens in
+# displaced waiter is cancelled under its own name). A window mapping
+# while the question stands does not steal the focus — it takes it
+# for later, first in line once the ask ends. The typing happens in
 # the ui host — this process takes no typed text by design — and the
 # word waits on a future, so it belongs in a script the desk runs.
 #

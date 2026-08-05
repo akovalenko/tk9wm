@@ -116,7 +116,9 @@ xdotool type disp
 sleep 1
 key Return
 sleep 1
-# ---- a fresh window rising over the ask neither hides nor kills it
+# ---- a fresh window rising over the ask neither hides it, nor
+#      kills it, nor even takes the typing: the focus is the ask's,
+#      and the newcomer gets it AFTER the answer
 key super+1
 sleep 2
 set -- $BOXGEO
@@ -125,8 +127,7 @@ set -- $BOXGEO
 CR=$!
 sleep 2
 ONTOP=$(px $(($1 + 6)) $(($2 + 6)))
-key alt+Tab            # back to the box: the newcomer ROBBED it, no cancel
-xdotool type ontop
+xdotool type ontop     # no tabbing back: the focus never left the box
 sleep 1
 key Return
 sleep 1
@@ -228,10 +229,18 @@ if grep -q 'displaced by a newer ask' "$LOG" \
 else
     echo "FAIL: the displacement is silent or the newer ask broke"; BAD=1
 fi
-if [ "$ONTOP" = "srgb(193,125,17)" ] && grep -q 'TEST: ask <ontop>' "$LOG"; then
-    echo "OK: a riser neither covered nor killed the ask — robbed, tabbed back, answered"
+RID=$(sed -n 's/^WM: title \(0x[0-9a-f]*\) -> «поверх-окно».*/\1/p' "$LOG" | head -1)
+AFTERFOCUS=$(sed -n '/TEST: ask <ontop>/,$p' "$LOG" | sed -n 's/^WM: focus -> \(0x[0-9a-f]*\).*/\1/p' | head -1)
+if [ "$ONTOP" = "srgb(193,125,17)" ] && grep -q 'TEST: ask <ontop>' "$LOG" \
+        && grep -q 'the focus is the ask'\''s — taken for later' "$LOG"; then
+    echo "OK: a riser neither covered the ask nor took its typing"
 else
-    echo "FAIL: over the riser the box pixel is $ONTOP or the answer broke"; BAD=1
+    echo "FAIL: box pixel $ONTOP, or the answer broke, or the riser stole"; BAD=1
+fi
+if [ -n "$RID" ] && [ "$AFTERFOCUS" = "$RID" ]; then
+    echo "OK: ...and the answer landed the focus on the riser, as its manage would have"
+else
+    echo "FAIL: after the answer the focus went to «$AFTERFOCUS», want the riser $RID"; BAD=1
 fi
 if grep -q 'WM: ask [0-9]*: the focus left the ask — the wait is cancelled' "$LOG"; then
     echo "OK: alt-tabbing away from the box answered nothing, by hand"
