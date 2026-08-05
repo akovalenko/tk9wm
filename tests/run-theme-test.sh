@@ -8,6 +8,9 @@
 #
 #  - one word repaints the desk: the strip and the desktop behind it
 #    both change, and change BACK, with nothing else edited;
+#  - the band's inner face wears the 1px `edge` hairline — the line
+#    that keeps a pale strip from fusing with a pale client — and
+#    exactly one pixel of it: the row below is ground again;
 #  - an OVERRIDE outranks the theme and only where it was spoken — a
 #    desk colour of one's own stands while the strip beside it still
 #    follows the theme, which is the whole claim of "overridden whole
@@ -53,6 +56,11 @@ XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
 sleep 2.5
 LSTRIP=$(strip); LDESK=$(desk)
+# The inner face of the bottom band: its topmost pixel row, found from
+# the strip's own thickness — and the row below it, which must be the
+# strip's ground again (a hairline, not a flood).
+THICK=$(ask 'panel-thickness default')
+LFACE=$(pix 800 $((500 - THICK))); LUNDER=$(pix 800 $((500 - THICK + 1)))
 LSAID=$(ask 'dict get [knob-table] set-desk-background')
 import -display :67 -window root "$HERE/theme-light.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/theme-light.png"
@@ -124,6 +132,10 @@ want() {
 }
 want "one word and the strip is light"        "$LSTRIP" "srgb(242,241,239)"
 want "...and the desktop behind it too"       "$LDESK"  "srgb(211,215,207)"
+want "the band's inner face wears the edge hairline" \
+    "$LFACE"  "srgb(46,52,54)"
+want "...exactly one pixel of it — below is ground again" \
+    "$LUNDER" "srgb(242,241,239)"
 want "the other word takes the strip back"    "$DSTRIP" "srgb(46,52,54)"
 want "...and the desktop with it"             "$DDESK"  "srgb(20,24,27)"
 want "an override stands where it was spoken" "$ODESK"  "srgb(78,154,6)"
