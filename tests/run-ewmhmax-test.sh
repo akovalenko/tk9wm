@@ -4,6 +4,14 @@
 # request (a client that sets the property before mapping — emacs's
 # `fullscreen: maximized` X resource takes this road), and published
 # back while the mark holds.
+#
+# ...and PER AXIS, which is what the pair of atoms always meant:
+# maximized_vert alone makes a window tall at its own width (published
+# as VERT alone), Maximize-H by key grows a tall window to full and
+# toggles back to tall, a gridded client fills the workarea to the
+# PIXEL when maximized (the mutter rule: a maximized axis owes the
+# increments nothing), and a client that sets VERT alone before its
+# first map is BORN tall.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:93
 rm -f /tmp/.X93-lock /tmp/.X11-unix/X93
@@ -26,6 +34,31 @@ wm-style {filter -title zoomed} {place 50%right}
 # saved way-back geometry, never in the live one
 wm-style {filter -title щитовой} {place {max force}}
 wm-bind {<Super>u} Unmaximize
+wm-bind {<Super>d} Maximize-H
+EOF
+# a pre-map claimant for ONE axis, RAW X: Tk rewrites _NET_WM_STATE on
+# its wrapper at map time (measured — an atom xprop wrote pre-map was
+# gone before the WM looked), so this road needs a window Tk does not
+# own. tkwmx creates a bare child of the root, the client stamps VERT
+# alone on it, and only then maps.
+cat > "$HERE/ewmhmax-config/client-tall.tcl" <<'EOF'
+set ::auto_path [linsert $::auto_path 0 \
+    [file dirname [file dirname [file dirname \
+        [file normalize [info script]]]]]]
+package require Tk
+package require tkwmx
+wm withdraw .
+proc A {name} { tkwmx::atom intern $name }
+set root [lindex [tkwmx::window tree [winfo id .]] 0]
+set w [tkwmx::window create $root 10 10 240 120]
+tkwmx::prop set $w [A WM_NAME] [A STRING] 8 tall
+tkwmx::prop set $w [A _NET_WM_STATE] [A ATOM] 32 \
+    [list [A _NET_WM_STATE_MAXIMIZED_VERT]]
+tkwmx::window map $w
+chan configure stdout -buffering line
+puts "TALL: id [format 0x%x $w]"
+after 30000 exit
+vwait forever
 EOF
 # a pre-map claimant: -zoomed before the first map
 cat > "$HERE/ewmhmax-config/client-zoomed.tcl" <<'EOF'
@@ -55,7 +88,8 @@ sleep 1.5
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-ewmhmax.log" | head -1)
 PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-ewmhmax.log" | head -1)
 TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-ewmhmax.log" | head -1)
-WANTMAX="788x$((600 - ${PH:-38} - ${TOP:-30} - 6))"
+MAXH=$((600 - ${PH:-38} - ${TOP:-30} - 6))
+WANTMAX="788x$MAXH"
 
 size_of() { xwininfo -id "$1" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}'; }
 
@@ -67,6 +101,18 @@ SZ_REM=$(size_of "$AID")
 ST_REM=$(xprop -id "$AID" _NET_WM_STATE | sed 's/.*= //')
 wmctrl -i -r "$AID" -b toggle,maximized_vert,maximized_horz; sleep 1
 SZ_TOG=$(size_of "$AID")
+
+# --- one axis at a time: tall by wmctrl, wide by key, and back
+wmctrl -i -r "$AID" -b remove,maximized_vert,maximized_horz; sleep 1
+wmctrl -i -r "$AID" -b add,maximized_vert;                   sleep 1
+SZ_V=$(size_of "$AID")
+ST_V=$(xprop -id "$AID" _NET_WM_STATE | sed 's/.*= //')
+xdotool key super+d; sleep 1     # Maximize-H: the tall window grows wide
+SZ_VH=$(size_of "$AID")
+xdotool key super+d; sleep 1     # ...and the same key toggles wide off
+SZ_VH2=$(size_of "$AID")
+wmctrl -i -r "$AID" -b remove,maximized_vert; sleep 1
+SZ_V0=$(size_of "$AID")
 
 "$LINUX/whale" "$HERE/ewmhmax-config/client-zoomed.tcl" > "$HERE/ewmhmax-config/zoomed.log" 2>&1 &
 CZ=$!
@@ -85,7 +131,28 @@ SZ_PIN=$(size_of "$SID")
 xdotool key super+u; sleep 1     # the USER unmaximizes — the pin binds clients only
 SZ_SR=$(size_of "$SID")
 
-kill $WM $CA $CZ $CS 2>/dev/null
+# --- the mutter rule: a gridded client (10x10 increments) maximizes to
+# the PIXEL, not to the nearest cell — 788x$MAXH, never 780x520
+"$LINUX/whale" "$HERE/client-grid.tcl" сетка "#729fcf" "" 30 &
+CG=$!
+sleep 1.5
+GID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-ewmhmax.log" | sed -n 4p)
+wmctrl -i -r "$GID" -b add,maximized_vert,maximized_horz;    sleep 1
+SZ_G=$(size_of "$GID")
+wmctrl -i -r "$GID" -b remove,maximized_vert,maximized_horz; sleep 1
+SZ_G0=$(size_of "$GID")
+
+# --- born TALL: VERT alone set before the first map, by the client
+# itself, on a raw window (see the claimant above for why not Tk)
+"$LINUX/whale" "$HERE/ewmhmax-config/client-tall.tcl" \
+    > "$HERE/ewmhmax-config/tall.log" 2>&1 &
+CT=$!
+sleep 2
+TXID=$(sed -n 's/^TALL: id //p' "$HERE/ewmhmax-config/tall.log" | head -1)
+SZ_T=$(size_of "$TXID")
+ST_T=$(xprop -id "$TXID" _NET_WM_STATE | sed 's/.*= //')
+
+kill $WM $CA $CZ $CS $CG $CT 2>/dev/null
 
 echo "--- actors: A=$AID Z=$ZID want-max=$WANTMAX"
 echo "--- maximize lines:"
@@ -118,12 +185,61 @@ if [ "$SZ_TOG" = "$WANTMAX" ]; then
 else
     echo "FAIL: after toggle the client is $SZ_TOG, want $WANTMAX"
 fi
+if [ "$SZ_V" = "240x$MAXH" ]; then
+    echo "OK: maximized_vert alone made it tall at its own width ($SZ_V)"
+else
+    echo "FAIL: after add,maximized_vert the client is $SZ_V, want 240x$MAXH"
+fi
+case $ST_V in
+    *MAXIMIZED_HORZ*)
+        echo "FAIL: a tall window published HORZ too: $ST_V" ;;
+    *MAXIMIZED_VERT*)
+        echo "OK: the tall window publishes VERT alone" ;;
+    *)  echo "FAIL: published state while tall: $ST_V" ;;
+esac
+if [ "$SZ_VH" = "$WANTMAX" ]; then
+    echo "OK: Maximize-H by key grew the tall window to full ($SZ_VH)"
+else
+    echo "FAIL: after Maximize-H the client is $SZ_VH, want $WANTMAX"
+fi
+if [ "$SZ_VH2" = "240x$MAXH" ]; then
+    echo "OK: ...and the same key toggled wide back off ($SZ_VH2)"
+else
+    echo "FAIL: after the second Maximize-H the client is $SZ_VH2, want 240x$MAXH"
+fi
+if [ "$SZ_V0" = "240x120" ]; then
+    echo "OK: remove,maximized_vert restored the asked-for size"
+else
+    echo "FAIL: after the vert remove the client is $SZ_V0, want 240x120"
+fi
+if [ "$SZ_G" = "$WANTMAX" ]; then
+    echo "OK: the gridded client maximized to the pixel ($SZ_G — the mutter rule)"
+else
+    echo "FAIL: the gridded client maximized to $SZ_G, want $WANTMAX exactly"
+fi
+if [ "$SZ_G0" = "300x200" ]; then
+    echo "OK: ...and restored to its own gridded size"
+else
+    echo "FAIL: the gridded client restored to $SZ_G0, want 300x200"
+fi
+if [ "$SZ_T" = "240x$MAXH" ]; then
+    echo "OK: VERT alone before the first map bore a tall window ($SZ_T)"
+else
+    echo "FAIL: the born-tall client is $SZ_T, want 240x$MAXH"
+fi
+case $ST_T in
+    *MAXIMIZED_HORZ*)
+        echo "FAIL: the born-tall window published HORZ too: $ST_T" ;;
+    *MAXIMIZED_VERT*)
+        echo "OK: ...and it publishes VERT alone" ;;
+    *)  echo "FAIL: published state on the born-tall window: $ST_T" ;;
+esac
 if [ "$SZ_Z" = "$WANTMAX" ]; then
     echo "OK: the -zoomed client mapped maximized ($SZ_Z)"
 else
     echo "FAIL: the -zoomed client is $SZ_Z, want $WANTMAX"
 fi
-if grep -qE 'asks to be born maximized|client asks maximize on' "$HERE/wm-ewmhmax.log"; then
+if grep -qE 'asks to be born maximized|client asks maximize [hv] on' "$HERE/wm-ewmhmax.log"; then
     echo "OK: the zoomed request was heard (whichever road Tk took)"
 else
     echo "FAIL: no sign the zoomed request arrived"

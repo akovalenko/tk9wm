@@ -265,7 +265,10 @@
 #
 # Keys so far:
 #   increments respect|ignore — WM_NORMAL_HINTS resize increments;
-#     default respect (xterm resizes land on whole cells).
+#     default respect (xterm resizes land on whole cells). The grid
+#     binds the FREE resize only: a maximized axis and a %-sized
+#     place fill to the pixel regardless (the mutter rule), so even
+#     edges no longer need `ignore` — it stays for taste.
 #   minimize iconify|refuse — this client's answer to an iconify
 #     request, overriding the desk-wide set-minimize (above).
 #   decor full|border|none — how much frame this window wears. full
@@ -369,9 +372,11 @@
 # restores such a window to the size it asked for, at the place the
 # ordinary cascade would have put it.
 #
-# Size increments bind a placement the way they bind maximize: an xterm
-# placed 50%right keeps its right edge flush and eats the leftover on
-# the left. Percentages are of ONE monitor's workarea — the primary,
+# Size increments bind a placement the way they bind maximize — which
+# is to say they do NOT bind the axes the rule sized: an xterm placed
+# 50%right takes exactly half the workarea and pads its own sub-cell
+# remainder, the way a maximized one fills its monitor to the pixel.
+# Percentages are of ONE monitor's workarea — the primary,
 # where placement rules deal their windows; never of the joined
 # bounding box of a multihead desk. Maximize later, on whatever
 # monitor the window has been carried to, fills THAT monitor.
@@ -1202,6 +1207,13 @@
 #   Minimize  Maximize  Fullscreen  Move  Resize
 #   Raise     Lower     Bury        Close Destroy
 #   Unmaximize  Unfullscreen  Fade  Unfade
+#   Maximize-V  Maximize-H
+#
+# The axis pair is Maximize held to one axis — V makes the window tall,
+# H makes it wide, each a toggle of its own in a user's mouth, and the
+# two states compose: tall then wide is full, and Unmaximize lets both
+# go. The titlebar's maximize button carries them the classic way —
+# middle button tall, right button wide.
 #
 # These are the winops menu's entries, available by name. Bind one and
 # it acts on the ACTIVE window — it works out from context which window

@@ -1047,14 +1047,29 @@ proc dispatch-event {ev} {
                     # Position requests are denied like fullscreen's;
                     # the synthetic ConfigureNotify below tells the
                     # client what remains true either way.
+                    # PER AXIS, like the state itself: only the axes
+                    # the mark holds are the state's — a tall window
+                    # asking for a width is minding its own business,
+                    # and that half of the request is granted live,
+                    # position claim and all.
                     lassign $::maxsaved($B) scw sch sX sY
-                    if {$vmask & (1 << 2)} { set scw $w }
-                    if {$vmask & (1 << 3)} { set sch $h }
+                    set held 0
+                    set live $vmask
+                    if {"h" in $::maxaxes($B)} {
+                        if {$vmask & (1 << 2)} { set scw $w; set held 1 }
+                        set live [expr {$live & ~((1 << 0) | (1 << 2))}]
+                    }
+                    if {"v" in $::maxaxes($B)} {
+                        if {$vmask & (1 << 3)} { set sch $h; set held 1 }
+                        set live [expr {$live & ~((1 << 1) | (1 << 3))}]
+                    }
                     set ::maxsaved($B) [list $scw $sch $sX $sY]
-                    if {$vmask & 12} {
+                    if {$held} {
                         puts "WM: size request 0x[format %x $B]\
  ${w}x${h} while maximized — saved for the way back"
                     }
+                    if {$live & 3} { move-client-request $B $x $y $live }
+                    resize-client $B $w $h $live
                 } else {
                     if {$vmask & 3} { move-client-request $B $x $y $vmask }
                     resize-client $B $w $h $vmask
@@ -1371,10 +1386,12 @@ proc dispatch-event {ev} {
                 # be implemented will announce itself here.
                 set act [lindex $data 0]
                 # One message may name BOTH maximize atoms (wmctrl
-                # does), and our maximize is whole — acting per atom
-                # would toggle twice and land where it started, so the
-                # pair collapses to one act.
-                set didmax 0
+                # does), and each atom is ITS OWN axis now: HORZ acts
+                # on h, VERT on v, independently — a toggle of both on
+                # a fully-maximized window restores it, on a bare one
+                # maximizes it, and on a tall-only one it drops tall
+                # and adds wide, which is what the two atoms literally
+                # say (and how mutter reads them).
                 foreach a [lrange $data 1 2] {
                     if {$a == 0} continue
                     if {[info exists ::NET_WM_STATE_FULLSCREEN]
@@ -1388,10 +1405,11 @@ proc dispatch-event {ev} {
                             && ($a == $::NET_WM_STATE_MAXIMIZED_HORZ
                                 || $a == $::NET_WM_STATE_MAXIMIZED_VERT)
                             && [llength [info commands maximize-client]]} {
-                        if {$didmax} continue
-                        set didmax 1
-                        set on [expr {$act == 2
-                            ? ![info exists ::maxsaved($A)] : $act == 1}]
+                        set ax [expr {$a == $::NET_WM_STATE_MAXIMIZED_HORZ
+                                      ? "h" : "v"}]
+                        set held [expr {[info exists ::maxaxes($A)]
+                                        && $ax in $::maxaxes($A)}]
+                        set on [expr {$act == 2 ? !$held : $act == 1}]
                         if {!$on && [llength [info commands maximize-pinned]]
                                 && [maximize-pinned $A]} {
                             # the config's forced max outranks a client
@@ -1402,10 +1420,10 @@ proc dispatch-event {ev} {
                             publish-net-wm-state $A   ;# re-state the truth
                             continue
                         }
-                        puts "WM: client asks maximize [expr {$on ? {on} : {off}}]\
- (0x[format %x $A])"
-                        if {$on} { maximize-client $A } else {
-                            unmaximize-client $A
+                        puts "WM: client asks maximize $ax\
+ [expr {$on ? {on} : {off}}] (0x[format %x $A])"
+                        if {$on} { maximize-client $A $ax } else {
+                            unmaximize-client $A $ax
                         }
                     } elseif {[info exists ::NET_WM_STATE_ABOVE]
                             && ($a == $::NET_WM_STATE_ABOVE
@@ -2070,12 +2088,18 @@ proc net-wm-state-atoms {w} {
             lappend atoms $::NET_WM_STATE_BELOW
         }
     }
-    # The maximized mark is the policy's (::maxsaved, the saved way
-    # back), and this builder only READS it: what is published is what
-    # the maximize machinery believes, wherever it changed hands.
-    if {[info exists ::maxsaved($w)]} {
-        lappend atoms $::NET_WM_STATE_MAXIMIZED_HORZ \
-                      $::NET_WM_STATE_MAXIMIZED_VERT
+    # The maximized mark is the policy's (::maxsaved the saved way
+    # back, ::maxaxes the axes held), and this builder only READS it:
+    # what is published is what the maximize machinery believes,
+    # wherever it changed hands — per axis, so a window maximized tall
+    # answers MAXIMIZED_VERT alone.
+    if {[info exists ::maxaxes($w)]} {
+        if {"h" in $::maxaxes($w)} {
+            lappend atoms $::NET_WM_STATE_MAXIMIZED_HORZ
+        }
+        if {"v" in $::maxaxes($w)} {
+            lappend atoms $::NET_WM_STATE_MAXIMIZED_VERT
+        }
     }
     return $atoms
 }
@@ -2476,19 +2500,21 @@ proc client-initial-fullscreen {w} {
     if {$fmt ne "32"} { return 0 }
     expr {$::NET_WM_STATE_FULLSCREEN in $value}
 }
-# ...and "start me maximized", same road, the pair of atoms. Either
-# atom counts: our maximize is whole (one saved geometry, both axes),
-# so a single-axis request maximizes whole rather than being dropped —
-# the client asked for more room and gets it, which is nearer its
-# meaning than silence. Emacs's `fullscreen: maximized` X resource is
-# the live case (the owner's desk).
+# ...and "start me maximized", same road, the pair of atoms — answered
+# AS AXES ({}, h, v or both): the state is per-axis, so a client that
+# set only VERT before mapping is born tall at its own width, not
+# swept to full. Emacs's `fullscreen: maximized` X resource (both
+# atoms) is the live case (the owner's desk). Callers test emptiness
+# with llength: the list is the answer, not a boolean.
 proc client-initial-maximized {w} {
-    if {![info exists ::NET_WM_STATE_MAXIMIZED_HORZ]} { return 0 }
+    if {![info exists ::NET_WM_STATE_MAXIMIZED_HORZ]} { return {} }
     lassign [soft "read _NET_WM_STATE" { x-prop-get $w $::NET_WM_STATE }] \
         type fmt value
-    if {$fmt ne "32"} { return 0 }
-    expr {$::NET_WM_STATE_MAXIMIZED_HORZ in $value
-          || $::NET_WM_STATE_MAXIMIZED_VERT in $value}
+    if {$fmt ne "32"} { return {} }
+    set axes {}
+    if {$::NET_WM_STATE_MAXIMIZED_HORZ in $value} { lappend axes h }
+    if {$::NET_WM_STATE_MAXIMIZED_VERT in $value} { lappend axes v }
+    return $axes
 }
 
 # ---------------- what a client asks about its DECORATION ----------------
@@ -2735,7 +2761,7 @@ proc manage {w {asiconic 0}} {
     if {[client-initial-fullscreen $w]} {
         puts "WM: 0x[format %x $w] asked to start fullscreen"
         fullscreen-client $w
-    } elseif {[client-initial-maximized $w]
+    } elseif {[llength [set _born [client-initial-maximized $w]]]
               && ![info exists ::maxsaved($w)]
               && [llength [info commands maximize-client]]} {
         # The machinery is the policy's; a substrate running bare (a
@@ -2744,9 +2770,9 @@ proc manage {w {asiconic 0}} {
         # window policy-initial-size already BORE maximized (the mark
         # is set) has nothing left to ask: this branch catches only
         # what the pre-map road could not size — a style whose own
-        # `place` spoke first.
-        puts "WM: 0x[format %x $w] asked to start maximized"
-        maximize-client $w
+        # `place` spoke first. The asked-for axes ride along.
+        puts "WM: 0x[format %x $w] asked to start maximized ($_born)"
+        maximize-client $w $_born
     }
 }
 

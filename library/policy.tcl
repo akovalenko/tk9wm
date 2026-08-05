@@ -606,6 +606,11 @@ titlebar-button close    -side right -glyph $SVG_CLOSE
 titlebar-bind menu     <1> winops
 titlebar-bind minimize <1> Minimize
 titlebar-bind maximize <1> Maximize
+# The pair every classic desktop hides on this button (Metacity, KWin):
+# the middle button makes the window tall, the right one wide — each
+# axis a toggle of its own.
+titlebar-bind maximize <2> Maximize-V
+titlebar-bind maximize <3> Maximize-H
 titlebar-bind close    <1> Close
 # The strip itself. Double click maximizes and button 3 opens the ops
 # menu, both being what a hand trained anywhere else already expects.
@@ -740,7 +745,9 @@ proc set-title-justify {j} {
 #
 # Keys so far: increments (respect|ignore) — WM_NORMAL_HINTS resize
 # increments; the default respects them (the world's xterms expect
-# integral columns), the owner's config ignores them by taste.
+# integral columns) in the FREE resize only: a maximized axis and a
+# %-sized place fill to the pixel regardless (the mutter rule — see
+# apply-size-hints), so `ignore` is for taste, not for even edges.
 # icon (anything resolve-icon takes: a Tk image name, a file path, a
 # bare NAME searched as NAME.png through icon-path) — shown for the
 # window in the window list, overriding the client's own _NET_WM_ICON.
@@ -1059,10 +1066,13 @@ proc parse-place {spec} {
 # The placement spelled out for one client: {cw ch X Y} — the CLIENT
 # size and the FRAME position. The percentages are of the frame (what
 # one sees), so the client size is what is left after the decoration;
-# the size hints then bind it exactly as they bind maximize, and the
-# slack that leaves goes to the side the term did NOT pin — a
-# right-aligned xterm keeps its right edge flush and eats the remainder
-# on the left.
+# the size hints then bind it exactly as they bind maximize — which is
+# to say the minimum does and the increments do NOT on the axes the
+# rule SIZED: a term that says 50% means half the workarea to the
+# pixel, the same tiling reading mutter gives its side-by-side halves,
+# and an xterm placed 50%right pads its sub-cell remainder itself. A
+# sizeless axis carries the client's own size, which is on its own
+# grid already.
 proc place-geometry {w cw ch spec} {
     lassign [workarea] wax way ww wh
     lassign [chrome-of $w] B top
@@ -1071,8 +1081,11 @@ proc place-geometry {w cw ch spec} {
     lassign $vax vsize valign
     set fw [expr {$hsize eq "" ? $cw + 2*$B : $ww * $hsize / 100}]
     set fh [expr {$vsize eq "" ? $ch + $top + $B : $wh * $vsize / 100}]
+    set sized {}
+    if {$hsize ne ""} { lappend sized h }
+    if {$vsize ne ""} { lappend sized v }
     lassign [apply-size-hints $w [expr {max($fw - 2*$B, 1)}] \
-                                 [expr {max($fh - $top - $B, 1)}]] cw ch
+                                 [expr {max($fh - $top - $B, 1)}] $sized] cw ch
     set fw [expr {$cw + 2*$B}]
     set fh [expr {$ch + $top + $B}]
     list $cw $ch [place-axis $wax $ww $fw $halign] \
@@ -1103,20 +1116,44 @@ proc policy-initial-size {w cw ch} {
     set st [style-of $w]
     set spec ""
     set forced 0
+    set born [client-initial-maximized $w]   ;# the AXES asked for, {} if none
     if {[dict exists $st place]} {
         lassign [place-force [dict get $st place]] spec forced
-        if {!$forced && [client-initial-maximized $w]} {
-            # The client's own pre-map "start me maximized" outranks an
-            # unforced rule — and its own USSize claim below: the two
-            # client words contradict each other, and the state is the
-            # later, stronger one. A forced rule still wins: force
-            # means it.
-            set spec max
-            set forced 1
-            puts "WM: 0x[format %x $w] asks to be born maximized\
+        if {$forced} { set born {} }   ;# force means it — over the state too
+    }
+    if {[llength $born] == 1} {
+        # Born maximized on ONE axis — the same pre-map road, but the
+        # place language cannot say it (an axis no term claims is
+        # FILLED), so the answer is assembled by hand: the held axis
+        # takes the workarea, the free one keeps the client's own word,
+        # and ::maxsaved keeps what the ordinary placement would have
+        # made, exactly as the full case does through its spec.
+        puts "WM: 0x[format %x $w] asks to be born maximized ($born)"
+        lassign [chrome-of $w] B top
+        lassign [place-frame $w [expr {$cw + 2*$B}] \
+                                [expr {$ch + $top + $B}]] X0 Y0
+        set ::maxsaved($w) [list $cw $ch $X0 $Y0]
+        set ::maxaxes($w) $born
+        lassign [workarea] wax way ww wh
+        set X $X0; set Y $Y0
+        if {"h" in $born} { set cw [expr {max($ww - 2*$B, $minw, 1)}]; set X $wax }
+        if {"v" in $born} { set ch [expr {max($wh - $top - $B, $minh, 1)}]; set Y $way }
+        lassign [apply-size-hints $w $cw $ch $born] cw ch
+        set ::placeof($w) [list $X $Y]
+        publish-net-wm-state $w   ;# born maximized is EWMH state too
+        return [list $cw $ch]
+    }
+    if {[llength $born] && [dict exists $st place]} {
+        # The client's own pre-map "start me maximized" outranks an
+        # unforced rule — and its own USSize claim below: the two
+        # client words contradict each other, and the state is the
+        # later, stronger one. (A forced rule already won above: force
+        # means it.)
+        set spec max
+        set forced 1
+        puts "WM: 0x[format %x $w] asks to be born maximized\
  (over its style's place)"
-        }
-    } elseif {[client-initial-maximized $w]} {
+    } elseif {[llength $born]} {
         # "Start me maximized", asked BEFORE the map — and honoring it
         # HERE is the point of the pre-map protocol: the window must
         # be framed at its maximized size the first time, not mapped
@@ -1189,12 +1226,13 @@ proc policy-initial-size {w cw ch} {
             lassign [place-frame $w [expr {$cw + 2*$B}] \
                                     [expr {$ch + $top + $B}]] X0 Y0
             set ::maxsaved($w) [list $cw $ch $X0 $Y0]
+            set ::maxaxes($w) {h v}
             publish-net-wm-state $w   ;# born maximized is EWMH state too
         }
         lassign [place-geometry $w $cw $ch $spec] pw ph X Y
     } err]} {
         puts "WM: place «$spec» on 0x[format %x $w]: $err"
-        unset -nocomplain ::maxsaved($w)
+        unset -nocomplain ::maxsaved($w) ::maxaxes($w)
         return [list $cw $ch]
     }
     # The position is the rule's only when the rule still owns it.
@@ -1225,13 +1263,24 @@ proc place-sizeless {spec} {
 # when this client's style says respect. Every WM-initiated size
 # decision (border/corner drag, maximize) funnels through here; the
 # client's OWN ConfigureRequests are its business and stay untouched.
-proc apply-size-hints {w cw ch} {
+# `exempt` names the axes the grid does NOT bind (h, v) — see below.
+proc apply-size-hints {w cw ch {exempt {}}} {
     lassign [client-size-hints $w] minw minh incw inch basew baseh
     if {[dict get [style-of $w] increments] eq "respect"} {
-        if {$incw > 0 && $cw > $basew} {
+        # ...except on an EXEMPT axis — one a maximize holds or a place
+        # rule sized outright. The rule is mutter's, and every desktop's
+        # by now: increments quantize the FREE resize, where a hand
+        # wants whole cells and the readout says 80x24, but a maximized
+        # axis fills its workarea to the pixel — a terminal paints the
+        # sub-cell remainder as padding, which beats a strip of desk
+        # showing through beside a "maximized" window. KWin has shipped
+        # exactly this since 2004 ("the bug is in xterm after all");
+        # fullscreen here always worked this way, so the precedent is
+        # in-house too. The minimum still binds everywhere.
+        if {"h" ni $exempt && $incw > 0 && $cw > $basew} {
             set cw [expr {$basew + ($cw - $basew) / $incw * $incw}]
         }
-        if {$inch > 0 && $ch > $baseh} {
+        if {"v" ni $exempt && $inch > 0 && $ch > $baseh} {
             set ch [expr {$baseh + ($ch - $baseh) / $inch * $inch}]
         }
     }
@@ -1512,7 +1561,7 @@ proc policy-detach {w} {
     unset -nocomplain ::titleof($w)
     unset -nocomplain ::leaderof($w)
     unset -nocomplain ::placeof($w)
-    unset -nocomplain ::maxsaved($w) ::fssaved($w)
+    unset -nocomplain ::maxsaved($w) ::maxaxes($w) ::fssaved($w)
     unset -nocomplain ::styleof($w) ::opacityof($w)
     set ::focus_hist [lsearch -exact -all -inline -not $::focus_hist $w]
     stack-drop $w        ;# out of the stacking model, layer and all
@@ -1756,12 +1805,28 @@ proc resize-by-edge {w e cw ch cw0 ch0 fx fy} {
     # and the keyboard arrows — which makes it the one place the
     # maximized mark can be shed by hand, and the only way the two can
     # not disagree about it. A drag that changed NOTHING (pushed against
-    # the minimum, say) is not a resize and shed nothing.
-    if {$::maximize eq "drop" && ($cw != $cw0 || $ch != $ch0)
-            && [info exists ::maxsaved($w)]} {
-        unset ::maxsaved($w)
-        publish-net-wm-state $w
-        puts "WM: 0x[format %x $w] resized by hand — no longer maximized"
+    # the minimum, say) is not a resize and shed nothing. Shedding is BY
+    # AXIS: pulling a tall window's side edge says nothing about its
+    # height, so only the axes the hand actually changed drop off the
+    # mark — the rest of the state stands, shield and all.
+    if {$::maximize eq "drop" && [info exists ::maxsaved($w)]} {
+        set shed {}
+        if {$cw != $cw0 && "h" in $::maxaxes($w)} { lappend shed h }
+        if {$ch != $ch0 && "v" in $::maxaxes($w)} { lappend shed v }
+        if {[llength $shed]} {
+            set keep {}
+            foreach a $::maxaxes($w) { if {$a ni $shed} { lappend keep $a } }
+            if {[llength $keep]} {
+                set ::maxaxes($w) $keep
+                puts "WM: 0x[format %x $w] resized by hand — the mark\
+ sheds $shed"
+            } else {
+                unset ::maxsaved($w) ::maxaxes($w)
+                puts "WM: 0x[format %x $w] resized by hand — no longer\
+ maximized"
+            }
+            publish-net-wm-state $w
+        }
     }
     wm-resize-client $w $cw $ch
 }
@@ -3064,6 +3129,15 @@ proc policy-workareas {} {
 # second toggle restores it. "Maximized" is a saved geometry and not a
 # state the client is held in: the window can be moved and resized by
 # hand meanwhile like any other.
+# It is PER AXIS, the way the EWMH pair of atoms always said it was:
+# ::maxaxes($w) names which axes the state holds (h, v or both) and
+# ::maxsaved($w) keeps the way back, one rect for both axes. A window
+# maximized tall keeps its own width and its own X; only the axes the
+# state holds belong to it — the mark, the shield, the published atoms
+# and the restore all answer axis by axis. The two arrays live and die
+# together: ::maxsaved exists iff ::maxaxes is non-empty, and every
+# existence check on "is this window maximized at all" reads ::maxsaved
+# as it always did.
 # Three operations, not one with a mood. A MENU naturally toggles — you
 # open it over a window, and the entry means "the other way" — but a
 # config wants to force: `Apply-To-Matching always Maximize` that
@@ -3106,48 +3180,95 @@ proc maximize-guard {w} {
     }
     return 1
 }
+# The axes argument every maximize verb takes — h, v, or both. Checked
+# once, here, because a config's hand reaches every entry point: a
+# typo'd axis must die at its own line, not half-apply.
+proc max-axes {axes} {
+    set out {}
+    foreach a $axes {
+        if {$a ni {h v}} { error "maximize: axis is h or v, not «$a»" }
+        if {$a ni $out} { lappend out $a }
+    }
+    if {![llength $out]} { error "maximize: no axes" }
+    return $out
+}
 # The client size maximize gives THIS window in that rect: the rect
-# minus this frame's decoration, snapped by the client's own size hints
-# — increments bind maximize too (an xterm fills to whole cells, and the
-# slack stays at the far edge), unless a style says otherwise.
+# minus this frame's decoration, run through the size hints — where the
+# minimum binds but the axes being maximized owe the increments nothing
+# (see apply-size-hints for the rule and its pedigree).
 #
 # Its own proc because two callers need the same arithmetic and must not
 # each carry a copy: maximize does it TO a window, and the reflow below
 # asks whether a window already IS the shape it would have made — which
-# is only answerable by the same sum, slack and all.
-proc maximize-fit {w rect} {
+# is only answerable by the same sum.
+proc maximize-fit {w rect {axes {h v}}} {
     lassign [frame-chrome $::frameof($w)] B top
     lassign $rect - - rw rh
-    apply-size-hints $w [expr {$rw - 2*$B}] [expr {$rh - $top - $B}]
+    apply-size-hints $w [expr {$rw - 2*$B}] [expr {$rh - $top - $B}] $axes
 }
-proc maximize-client {w} {
+proc maximize-client {w {axes {h v}}} {
     if {![maximize-guard $w]} return
+    set axes [max-axes $axes]
     set t $::frameof($w)
-    # Only the FIRST maximize records where to go back to. Calling this
-    # on an already-maximized window re-fits it to the workarea as it is
-    # now — and must not overwrite the saved geometry with the maximized
-    # one, which would lose the way back entirely.
+    set cw [$t.slot cget -width]; set ch [$t.slot cget -height]
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
+    # Only the FIRST maximize of an axis records where that axis goes
+    # back to. Calling this on an already-maximized axis re-fits it to
+    # the workarea as it is now — and must not overwrite the saved
+    # geometry with the maximized one, which would lose the way back
+    # entirely. An axis JOINING a held state records its way back NOW,
+    # not at the first mark: the free axis's requests are granted live
+    # while the state holds (see the shield), so the number written
+    # when the OTHER axis maximized may long since be stale.
     if {![info exists ::maxsaved($w)]} {
-        regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
-        set ::maxsaved($w) \
-            [list [$t.slot cget -width] [$t.slot cget -height] $X $Y]
+        set ::maxsaved($w) [list $cw $ch $X $Y]
+        set ::maxaxes($w) {}
+    } else {
+        lassign $::maxsaved($w) scw sch sX sY
+        if {"h" in $axes && "h" ni $::maxaxes($w)} { set scw $cw; set sX $X }
+        if {"v" in $axes && "v" ni $::maxaxes($w)} { set sch $ch; set sY $Y }
+        set ::maxsaved($w) [list $scw $sch $sX $sY]
+    }
+    foreach a {h v} {
+        if {$a in $axes && $a ni $::maxaxes($w)} { lappend ::maxaxes($w) $a }
     }
     # the workarea of the monitor the window STANDS ON: maximize fills
-    # the glass under the window, never the bounding box of the desk
+    # the glass under the window, never the bounding box of the desk —
+    # and only along its own axes: a window maximized tall stands where
+    # it stood and as wide as it was.
     set wa [workarea-of-frame $t]
-    wm geometry $t +[lindex $wa 0]+[lindex $wa 1]
-    wm-resize-client $w {*}[maximize-fit $w $wa]
+    lassign [maximize-fit $w $wa $::maxaxes($w)] mw mh
+    set nx $X; set ncw $cw; set ny $Y; set nch $ch
+    if {"h" in $::maxaxes($w)} { set nx [lindex $wa 0]; set ncw $mw }
+    if {"v" in $::maxaxes($w)} { set ny [lindex $wa 1]; set nch $mh }
+    wm geometry $t +$nx+$ny
+    wm-resize-client $w $ncw $nch
     maximize-settle $w
     publish-net-wm-state $w   ;# the mark is EWMH state now; say so
 }
-proc unmaximize-client {w} {
+proc unmaximize-client {w {axes {h v}}} {
     if {![maximize-guard $w]} return
     if {![info exists ::maxsaved($w)]} return   ;# not maximized: nothing to undo
+    set drop {}
+    foreach a [max-axes $axes] {
+        if {$a in $::maxaxes($w)} { lappend drop $a }
+    }
+    if {![llength $drop]} return   ;# none of these axes are held
     set t $::frameof($w)
-    lassign $::maxsaved($w) cw ch X Y
-    unset ::maxsaved($w)
-    wm geometry $t +$X+$Y
-    wm-resize-client $w $cw $ch
+    lassign $::maxsaved($w) scw sch sX sY
+    set ncw [$t.slot cget -width]; set nch [$t.slot cget -height]
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> nx ny
+    if {"h" in $drop} { set ncw $scw; set nx $sX }
+    if {"v" in $drop} { set nch $sch; set ny $sY }
+    set keep {}
+    foreach a $::maxaxes($w) { if {$a ni $drop} { lappend keep $a } }
+    if {[llength $keep]} {
+        set ::maxaxes($w) $keep
+    } else {
+        unset ::maxsaved($w) ::maxaxes($w)
+    }
+    wm geometry $t +$nx+$ny
+    wm-resize-client $w $ncw $nch
     maximize-settle $w
     publish-net-wm-state $w
 }
@@ -3166,12 +3287,17 @@ proc maximize-pinned {w} {
     lassign [place-force [dict get $st place]] spec forced
     expr {$forced && [string trim $spec] eq "max"}
 }
-proc maximize-toggle {w} {
-    if {[info exists ::maxsaved($w)]} {
-        unmaximize-client $w
-    } else {
-        maximize-client $w
+# The toggle asks about ITS axes: any of them free means maximize (a
+# tall window's full toggle goes to full, which is what the button
+# means over a half-held window everywhere else); all of them held
+# means those axes let go. The full restore after tall-then-full comes
+# back whole — the way back was recorded axis by axis.
+proc maximize-toggle {w {axes {h v}}} {
+    set have [expr {[info exists ::maxaxes($w)] ? $::maxaxes($w) : {}}]
+    foreach a [max-axes $axes] {
+        if {$a ni $have} { maximize-client $w $axes; return }
     }
+    unmaximize-client $w $axes
 }
 # wm-resize-client skips a no-op resize and tells the client nothing
 # then — but the frame MOVED either way, so state the origin once more,
@@ -3840,6 +3966,20 @@ proc wm-invariants {} {
     # has ended, and standing there for its second is its whole job.)
     if {$::keyecho_kind in {keys help} && $::keyseq eq ""} {
         lappend bad "the key echo shows a sequence that is not running"
+    }
+    # The maximized mark is two arrays that live and die together:
+    # ::maxsaved (the way back) and ::maxaxes (the axes held). One
+    # without the other — or an empty axes list still on the books —
+    # means some path forgot half of a teardown.
+    foreach ww [array names ::maxsaved] {
+        if {![info exists ::maxaxes($ww)] || ![llength $::maxaxes($ww)]} {
+            lappend bad "0x[format %x $ww] keeps a way back with no held axes"
+        }
+    }
+    foreach ww [array names ::maxaxes] {
+        if {![info exists ::maxsaved($ww)]} {
+            lappend bad "0x[format %x $ww] holds axes with no way back"
+        }
     }
     return $bad
 }
@@ -4521,12 +4661,20 @@ proc programmatically {script} {
 }
 proc interactive-p {} { expr {!$::programmatic} }
 
-# The two commands that read it. Everything else in the table means one
+# The commands that read it. Everything else in the table means one
 # thing in either mouth — there is no toggling sense of Close, and
 # Minimize has none either (a window you can pick the menu over is on
-# the screen by definition).
+# the screen by definition). The axis pair are the same verb held to
+# one axis: Maximize-V makes a window tall, Maximize-H makes it wide,
+# and in a user's mouth each toggles its own axis alone.
 proc maximize-command {w} {
     if {[interactive-p]} { maximize-toggle $w } else { maximize-client $w }
+}
+proc maximize-h-command {w} {
+    if {[interactive-p]} { maximize-toggle $w h } else { maximize-client $w h }
+}
+proc maximize-v-command {w} {
+    if {[interactive-p]} { maximize-toggle $w v } else { maximize-client $w v }
 }
 proc fullscreen-command {w} {
     if {[interactive-p]} { fullscreen-toggle $w } else { fullscreen-client $w }
@@ -4537,6 +4685,8 @@ proc fullscreen-command {w} {
 # out and no guessing has it, and so does a sweep.
 set window_commands {
     Maximize     maximize-command
+    Maximize-H   maximize-h-command
+    Maximize-V   maximize-v-command
     Unmaximize   unmaximize-client
     Fullscreen   fullscreen-command
     Unfullscreen unfullscreen-client
@@ -10419,9 +10569,9 @@ proc geometry-held-p {w} {
 # So flush at the far edge means AS CLOSE AS THIS WINDOW CAN GET: short
 # by less than one increment. For a client with no increments the slack
 # is 1 and the test is the exact one it always was. The near edge needs
-# none of this — a position is never quantized — and neither does span,
-# which is measured against maximize-fit and so carries the same slack
-# already.
+# none of this — a position is never quantized — and neither does span:
+# maximize fills to the pixel now (a maximized axis owes the increments
+# nothing), so the span test is measured against an exact fit.
 proc reflow-axis {o0 o n0 n p s om nm {slack 1}} {
     if {$p == $o0 && $s == $om}  { return [list $n0 $nm span] }
     if {$p == $o0}               { return [list $n0 $s near] }

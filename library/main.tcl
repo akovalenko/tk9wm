@@ -205,6 +205,14 @@ proc reread-layers {} {
         }
     }
     puts "WM: re-sourced (procs replaced; state, grabs and clients untouched)"
+    # The honest edge of "state untouched": state written by OLDER
+    # procs may predate a shape the new ones insist on. The one such
+    # split so far: a maximized mark written before the mark went
+    # per-axis is a whole one (::maxsaved with no ::maxaxes) — say the
+    # axes for it, or the first resize after this Reread throws.
+    foreach w [array names ::maxsaved] {
+        if {![info exists ::maxaxes($w)]} { set ::maxaxes($w) {h v} }
+    }
     # ...and the resident ui host gets a nudge: the edit that asked
     # for this Reread may have moved the ui code too, and an OPEN
     # applet never passes the ui-open stale check. A current host
