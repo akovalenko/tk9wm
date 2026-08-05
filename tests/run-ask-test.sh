@@ -32,6 +32,10 @@ askq() {
     printf '%s\n' "$1" > "$CONF/hq.tcl"
     "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm-ui "$CONF/hq.tcl" 2>&1
 }
+px() {
+    import -window root png:- 2>/dev/null | convert png:- -format \
+        "%[pixel:p{$1,$2}]" info:-
+}
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
@@ -52,7 +56,7 @@ sleep 1
 # ---- warm: Escape answers empty ----
 key super+1
 sleep 2
-BOXID=$(xdotool search --class Tk9wmAsk 2>/dev/null | head -1)
+BOXID=$(xdotool search --class Tk9wmGadget 2>/dev/null | head -1)
 BOXGEO=""
 if [ -n "$BOXID" ]; then
     BOXGEO=$(xwininfo -id "$BOXID" | awk '/Absolute upper-left X/ {x=$NF}
@@ -60,7 +64,8 @@ if [ -n "$BOXID" ]; then
         END {print x, y, w, h}')
 fi
 LAYS=$(askq 'list frow [dict get [grid info .ask.b.f] -row] \
-    fcol [dict get [grid info .ask.b.f] -column]')
+    fcol [dict get [grid info .ask.b.f] -column] \
+    title [wm title .ask]')
 key Escape
 sleep 1
 # ---- a long prompt sits ABOVE the field, on the echo's amber ----
@@ -106,16 +111,35 @@ xdotool type disp
 sleep 1
 key Return
 sleep 1
+# ---- a fresh window rising over the ask neither hides nor kills it
+key super+1
+sleep 2
+set -- $BOXGEO
+"$LINUX/whale" "$HERE/client.tcl" "поверх-окно" 240x100+190+530 "#8ae234" "" "" 60 \
+    > "$HERE/ask-r.log" 2>&1 &
+CR=$!
+sleep 2
+ONTOP=$(px $(($1 + 6)) $(($2 + 6)))
+key alt+Tab            # back to the box: the newcomer ROBBED it, no cancel
+xdotool type ontop
+sleep 1
+key Return
+sleep 1
+# ---- but alt-tabbing AWAY from the box is answering nothing ----
+key super+1
+sleep 2
+key alt+Tab
+sleep 1
 # ---- a reload yanks the standing ask, box and all ----
 key super+1
 sleep 2
 key super+r
 sleep 2
-LEFT=$(xdotool search --class Tk9wmAsk 2>/dev/null | wc -l)
+LEFT=$(xdotool search --class Tk9wmGadget 2>/dev/null | wc -l)
 
 import -window root "$HERE/ask-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/ask-test.png"
-kill $WM $CA 2>/dev/null
+kill $WM $CA $CR 2>/dev/null
 
 echo "--- box: id=$BOXID geo=($BOXGEO) left-after-yank=$LEFT"
 echo "--- WM saw:"
@@ -151,10 +175,15 @@ if [ -n "$BOXGEO" ]; then
 else
     echo "FAIL: no Tk9wmAsk box found on the second ask"; BAD=1
 fi
-if [ "$LAYS" = "frow 0 fcol 1" ]; then
-    echo "OK: a short prompt sits beside the field"
+if [ "$LAYS" = "frow 0 fcol 1 title спроси:" ]; then
+    echo "OK: a short prompt sits beside the field, and the box is titled"
 else
     echo "FAIL: the short layout says: $LAYS"; BAD=1
+fi
+if grep -q 'on layer 10' "$LOG"; then
+    echo "OK: the gadget rule put the box above the top client layer"
+else
+    echo "FAIL: the box never landed on layer 10"; BAD=1
 fi
 if [ "$LAYL" = "prow 0 frow 1 modal 1" ]; then
     echo "OK: a long prompt sits above the field, on the echo's own amber"
@@ -181,6 +210,16 @@ if grep -q 'displaced by a newer ask' "$LOG" \
     echo "OK: a newer ask displaced the older, said so, and got its answer"
 else
     echo "FAIL: the displacement is silent or the newer ask broke"; BAD=1
+fi
+if [ "$ONTOP" = "srgb(193,125,17)" ] && grep -q 'TEST: ask <ontop>' "$LOG"; then
+    echo "OK: a riser neither covered nor killed the ask — robbed, tabbed back, answered"
+else
+    echo "FAIL: over the riser the box pixel is $ONTOP or the answer broke"; BAD=1
+fi
+if grep -q 'WM: ask [0-9]*: the focus left the ask — the wait is cancelled' "$LOG"; then
+    echo "OK: alt-tabbing away from the box answered nothing, by hand"
+else
+    echo "FAIL: leaving the box by hand cancelled nothing"; BAD=1
 fi
 if grep -q 'WM: ask [0-9]*: the config is being reloaded — the wait is cancelled' "$LOG"; then
     echo "OK: the reload cancelled the standing wait under its own name"

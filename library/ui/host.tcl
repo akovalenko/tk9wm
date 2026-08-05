@@ -630,17 +630,17 @@ proc ui-place-axis {origin extent size align} {
 }
 proc ui-ask {wmapp id prompt initial anchor warect {width ""}} {
     catch {destroy .ask}
-    toplevel .ask -class Tk9wmAsk -background [ui-color edge]
-    # A CLIENT, not an override-redirect: splash is one of the types
-    # the WM's own hinted-decor reads as «no frame at all», so the box
-    # is undecorated AND managed — focus arrives through the front
-    # door when the WM manages it, the typing follows, and closing it
-    # hands the focus back through the refocus history. The first
-    # version was override-redirect and learned why not: Tk's
-    # focus -force on such a window moves Tk's own notion and never
-    # the SERVER's, so every keystroke went on landing in whatever
-    # held the real focus (measured on the stand).
-    wm attributes .ask -type splash
+    # A CLIENT, not an override-redirect (the first version was one,
+    # and learned why not: Tk's focus -force on such a window moves
+    # Tk's own notion of focus and never the SERVER's, so every
+    # keystroke went on landing in whatever held the real focus).
+    # Managed, the box gets the focus through the front door and
+    # hands it back through the refocus history. The WM tells it
+    # apart BY CLASS — Tk9wmGadget, the host's gadget mark, the ask
+    # the first wearer — and its own code rule undresses it and holds
+    # it above the top client layer; no window type is claimed.
+    toplevel .ask -class Tk9wmGadget -background [ui-color edge]
+    wm title .ask $prompt
     wm withdraw .ask
     # dressed as the KEY ECHO, which is the modal box this desk
     # already speaks through — the amber ground, white ink, the edge
@@ -692,14 +692,20 @@ proc ui-ask {wmapp id prompt initial anchor warect {width ""}} {
     # keys the server sends this client land in it
     focus .ask.b.f.t
 }
+# The answer goes over SYNCHRONOUSLY, before the box is destroyed:
+# destroying first races the WM's focus bookkeeping — the box's
+# unmanage moves the focus, the focus-left-the-ask rule would cancel
+# the wait, and the answer would arrive to nobody. Synchronous is
+# safe in THIS direction: the WM never waits on the host (its sends
+# are -async), so the two cannot deadlock.
 proc ui-ask-commit {wmapp id} {
     set text [ui-field-get .ask.b.f]
-    destroy .ask
-    catch {send -async -- $wmapp [list ask-answer $id $text]}
+    catch {send -- $wmapp [list ask-answer $id $text]}
+    catch {destroy .ask}
 }
 proc ui-ask-cancel {wmapp id} {
-    destroy .ask
-    catch {send -async -- $wmapp [list ask-answer $id ""]}
+    catch {send -- $wmapp [list ask-answer $id ""]}
+    catch {destroy .ask}
 }
 proc ui-ask-drop {id} { catch {destroy .ask} }
 

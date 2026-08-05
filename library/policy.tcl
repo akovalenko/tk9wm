@@ -1897,6 +1897,7 @@ proc policy-paint-focus {w} {
     # nothing fullscreen the question does not arise, so it costs
     # nothing to ask.
     if {[array size ::fullscreen]} { restack-soon }
+    ask-focus-note $w
 }
 
 # ---- fade: how solid a window is ----
@@ -2517,6 +2518,9 @@ proc policy-managed {w} {
     client-layer-declare $w
     client-desk-declare-and-paint $w
     raise-group $w
+    # the newcomer's focus is the POLICY's move, not the person's —
+    # the ask's focus-left rule must not read it as leaving
+    set ::focus_by_policy 1
     focus-to $w
     apply-opacity $w
     panel-match-kick
@@ -2543,6 +2547,9 @@ proc refocus-ok {cand w} {
           && ![info exists ::iconic($cand)] && [desk-here-p $cand]}
 }
 proc policy-pick-refocus {w} {
+    # whoever this pick lands on gets the focus by the POLICY's hand —
+    # the ask's focus-left rule must not read it as the person leaving
+    set ::focus_by_policy 1
     if {[info exists ::leaderof($w)]} {
         set leader $::leaderof($w)
         if {$leader != 0 && [refocus-ok $leader $w]} { return $leader }
@@ -8029,6 +8036,51 @@ proc Window-Shot {{w 0} {dir ""}} {
 # command line this grows into later (the owner, 2026-08-05).
 array set ask_fut {}   ;# id -> the future its asker parks on
 keep ask_seq 0
+keep ask_prev_gadget 0  ;# the last confirmed focus sat on a gadget
+keep focus_by_policy 0  ;# the next confirmed focus is the POLICY's move
+
+# The box is a HOST GADGET, told apart by class and dressed by this
+# rule — the code's own word, snapshotted like any default: no frame
+# (the desk must not frame its own question), and a layer above the
+# fullscreen top, because a question must stay visible whatever
+# raises meanwhile — a fresh xterm mapping over the box was the
+# owner's case (2026-08-05). Below the WM's own windows and menus,
+# which answer to nobody. Guarded for the Reread: a rule appended
+# twice is the same rule said twice.
+unless-already {[info exists ::gadget_rule_said]} {
+    set ::gadget_rule_said 1
+    wm-style {filter -class {* Tk9wmGadget}} {decor none layer 10}
+}
+
+# ...and LEAVING the box BY HAND cancels the ask: the person
+# alt-tabbing away from a question is the person doing something
+# else, which is an answer — the empty one (the dismissal rule).
+# Three fences around that sentence, each one a measured case:
+#
+#  - CONFIRMED focus only (policy-paint-focus): the WM's own grabs —
+#    a menu glanced at over the box — move nothing and cancel
+#    nothing;
+#  - the POLICY's own focus moves do not count as leaving: a fresh
+#    xterm stealing the focus at manage, a refocus after somebody
+#    else's window died — the box was not LEFT, it was robbed, and
+#    the top layer holds it visible until the person tabs back
+#    (focus_by_policy, set at the two places the policy aims focus);
+#  - only a departure FROM the box counts: switching between other
+#    windows while the box stands unfocused says nothing about it.
+#
+# The cost, accepted with the owner (2026-08-05): deliberately going
+# elsewhere abandons the question — and the top layer is what makes
+# that rare, the box floating above whatever one peeks at.
+proc ask-focus-note {w} {
+    set policy $::focus_by_policy
+    set ::focus_by_policy 0
+    set was $::ask_prev_gadget
+    set now [expr {[lindex [client-class $w] 1] eq "Tk9wmGadget"}]
+    set ::ask_prev_gadget $now
+    if {![array size ::ask_fut]} return
+    if {$now || $policy || !$was} return
+    ask-yank "the focus left the ask"
+}
 proc Ask {prompt args} {
     if {[info coroutine] eq ""} {
         error "Ask waits for an answer — call it from a script the\
