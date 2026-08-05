@@ -80,9 +80,9 @@ if grep -q 'soft failure\|handler error' "$HERE/wm-termtint.log"; then
     echo "FAIL: soft failures or handler errors:"
     grep 'soft failure\|handler error' "$HERE/wm-termtint.log"; BAD=1
 fi
-if grep -q 'VT100\*background: #200040' "$HERE/wm-termtint.log" \
-        && grep -q 'VT100\*foreground: #e0e0ff' "$HERE/wm-termtint.log"; then
-    echo "OK: xterm is told through -xrm at the VT100 widget, bg and fg"
+if grep -q 'VT100\.background: #200040' "$HERE/wm-termtint.log" \
+        && grep -q 'VT100\.foreground: #e0e0ff' "$HERE/wm-termtint.log"; then
+    echo "OK: xterm is told through -xrm at the VT100 widget, dot-bound, bg and fg"
 else
     echo "FAIL: the xterm spelling is missing from the spawn"; BAD=1
 fi
@@ -91,7 +91,7 @@ if [ "$BODY" = "srgb(32,0,64)" ]; then
 else
     echo "FAIL: the body pixel is $BODY, want srgb(32,0,64)"; BAD=1
 fi
-if grep -q 'VT100\*background: #528b8b' "$HERE/wm-termtint.log"; then
+if grep -q 'VT100\.background: #528b8b' "$HERE/wm-termtint.log"; then
     echo "OK: an X colour name is normalized to hex before the dialect"
 else
     echo "FAIL: DarkSlateGray4 did not come out as #528b8b"; BAD=1

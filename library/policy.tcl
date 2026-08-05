@@ -6097,7 +6097,12 @@ proc keyecho-hide {} {
 # a glance). The value reaching %s is always #rrggbb — spawn-terminal
 # normalizes through winfo rgb, because alacritty knows no X colour
 # names at all. xterm is told through -xrm aimed at the VT100 widget
-# alone, the right way: a bare -bg would paint its menus too. A beast
+# alone, the right way: a bare -bg would paint its menus too — and
+# with the DOT binding, strictly (the owner's measurement,
+# 2026-08-05): the colour app-defaults carry dot-bound entries for
+# these resources, and a star-bound -xrm loses to them on
+# specificity — it worked on the suite's bare Xvfb and not on a real
+# desk. A beast
 # with no entry (vanilla st compiles its colours in; konsole and
 # gnome-terminal keep theirs in profiles) gets the standing "has no
 # way to say" line and spawns unpainted.
@@ -6116,8 +6121,8 @@ set terminal_adapters {
                     icon st}
     xterm          {name {-name %s}   title {-T %s}      cmd {-e} class XTerm
                     icon xterm-color
-                    bg {-xrm {*VT100*background: %s}}
-                    fg {-xrm {*VT100*foreground: %s}}}
+                    bg {-xrm {*VT100.background: %s}}
+                    fg {-xrm {*VT100.foreground: %s}}}
     konsole        {name {-name %s}   title {--qwindowtitle %s} cmd {-e} class konsole
                     icon konsole}
     gnome-terminal {name {--class=%s} title {--title %s} cmd {--} class Gnome-terminal
