@@ -47,6 +47,12 @@ fail() { echo "$@"; BAD=1; }
 q 'applet configurator' >/dev/null
 sleep 3
 ROWS=$(qu 'llength [dict keys $::cfg_item]')
+# the said order, one storey down: the tree opens on the desk heading
+# and its first row is the edit door — the declaration order showing,
+# not the alphabet (which put set-desk-background first)
+FIRSTROW=$(qu 'set g [lindex [$::cfg_T item children root] 0]
+    set k [lindex [$::cfg_T item children $g] 0]
+    list [dict get $::cfg_node $g label] [dict get $::cfg_node $k label]')
 HOSTFONT=$(qu 'font actual DeskFont -size')
 WMFONT=$(q 'font actual DeskFont -size')
 CFGBADGE=$(qu 'cfg-owner set-edge-resist')
@@ -1583,6 +1589,11 @@ if [ "${ROWS:-0}" -ge 25 ]; then
     echo "OK: the configurator renders the live registry ($ROWS rows)"
 else
     fail "FAIL: rows=$ROWS"
+fi
+if [ "$FIRSTROW" = "desk set-edit-door" ]; then
+    echo "OK: the tree opens on the edit door — knobs in said order"
+else
+    fail "FAIL: the tree opens on «$FIRSTROW», want «desk set-edit-door»"
 fi
 if [ -n "$HOSTFONT" ] && [ "$HOSTFONT" = "$WMFONT" ]; then
     echo "OK: the style bridge carried the desk font to the host"

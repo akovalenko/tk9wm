@@ -591,8 +591,12 @@ proc cfg-select-first {} {
 # the family rows).
 proc cfg-nodes {} {
     set out {}
-    # the knobs, gathered into their groups, knobs in name order
-    # inside a group
+    # the knobs, gathered into their groups, knobs in SAID order
+    # inside a group: the registry keeps its declaration order, and
+    # the declarations are curated to read — the same ruling the
+    # headings got (the owner, 2026-08-06), one storey down. The
+    # alphabet put set-root-cursor above set-theme and could not put
+    # the edit door first, which is where the owner wants it.
     set groups {}
     dict for {name meta} $::cfg_table {
         dict lappend groups [dict get $meta group] $name
@@ -641,7 +645,7 @@ proc cfg-nodes {} {
         }
         set kids {}
         if {[dict exists $groups $topic]} {
-            foreach name [lsort [dict get $groups $topic]] {
+            foreach name [dict get $groups $topic] {
                 lappend kids [dict create what knob key $name label $name \
                     addr $name meta [dict get $::cfg_table $name]]
             }

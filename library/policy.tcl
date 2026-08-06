@@ -11733,6 +11733,12 @@ proc vocabulary-audit {} {
  ([llength $loose]): [join $loose { }]"
     }
 }
+# THE DECLARATION ORDER IS THE DISPLAY ORDER: inside a group the
+# configurator shows knobs as they are said here, the way the
+# headings go in their said order (the owner, 2026-08-06 — the
+# alphabet put set-root-cursor above set-theme, and could not put
+# the edit door first). Declaring is curating: a group's first
+# declaration is its first row.
 knob set-desk-font   {var {} settle {titles} group fonts kind {font DeskFont}  get {font actual DeskFont}
                       doc {the font this desk is set in; everything derives from it}}
 knob set-title-font  {var {} settle {titles} group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
@@ -11761,18 +11767,18 @@ knob set-edit-door   {var {edit_door} settle {} group desk kind {choice emacs te
                       get {set ::edit_door}
                       derived {edit-door-derived}
                       doc {how a file opens to edit — emacs, or an editor in a terminal}}
-knob set-root-cursor {var {root_cursor} settle {cursor} group desk kind text get {set ::root_cursor}
-                      doc {the cursor over the bare desk}}
+knob set-theme       {var {theme} settle {theme} group desk kind {choice dark light} get {set ::theme}
+                      doc {the desk's colours in one word; every colour derives from it}}
+knob set-desks       {var {ndesks} settle {desks} group desk kind {int 1} get {set ::ndesks}
+                      doc {how many virtual desks; 1 switches them off}}
 knob set-desk-window {var {desk_window} settle {desk-window} group desk kind bool
                       get {expr {$::desk_window ? "on" : "off"}}
                       doc {the desk as one window of ours, or hands off the root}}
-knob set-desks       {var {ndesks} settle {desks} group desk kind {int 1} get {set ::ndesks}
-                      doc {how many virtual desks; 1 switches them off}}
-knob set-theme       {var {theme} settle {theme} group desk kind {choice dark light} get {set ::theme}
-                      doc {the desk's colours in one word; every colour derives from it}}
 knob set-desk-background {var {desk_background_said} settle {desk-window} group desk kind color get {set ::desk_background_said}
                       derived {themed desk}
                       doc {the desk window's color}}
+knob set-root-cursor {var {root_cursor} settle {cursor} group desk kind text get {set ::root_cursor}
+                      doc {the cursor over the bare desk}}
 knob set-welcome     {var {welcome} settle {welcome} group desk kind bool get {set ::welcome}
                       doc {the welcome note on the desk}}
 knob set-panel-side  {var {} settle {panels} group panel kind {choice bottom top left right}
@@ -11792,12 +11798,12 @@ knob set-chord-hold  {var {chord_hold} settle {keys} group keys kind bool
 knob set-winlist-cycle {var {winlist_cycle_opt} settle {} group keys kind bool
                       get {expr {$::winlist_cycle_opt ? "on" : "off"}}
                       doc {alt-tab as the fvwm cycle, or a static menu}}
-knob set-key-hold-warn {var {key_hold_warn} settle {} group keys kind {int 0} get {set ::key_hold_warn}
-    doc {ms a binding may hold the desk before it is reported}}
 knob set-key-echo    {var {key_echo} settle {} group keys kind text get {set ::key_echo}
                       doc {ms of hesitation before a chord shows itself; off = never}}
 knob set-key-echo-place {var {key_echo_place} settle {} group keys kind text get {set ::key_echo_place}
                       doc {where the chord echo sits, in place words}}
+knob set-key-hold-warn {var {key_hold_warn} settle {} group keys kind {int 0} get {set ::key_hold_warn}
+    doc {ms a binding may hold the desk before it is reported}}
 knob set-tray        {var {tray_on} settle {tray} group tray kind bool
                       get {expr {$::tray_on ? "on" : "off"}}
                       doc {be the display's system tray}}
@@ -11814,13 +11820,13 @@ knob set-tray-argb   {var {tray_argb} settle {tray} group tray kind bool
 knob set-terminal    {var {terminal_choice} settle {} group terminal kind terminal get {set ::terminal_choice}
                       derived {terminal-derived}
                       doc {which terminal emulator this desk favors}}
-knob set-emacs-frames {var {emacs_frames} settle {} group emacs kind {choice gui terminal}
-                      get {set ::emacs_frames}
-                      doc {what kind of frame an emacs button makes}}
 knob set-emacs-daemons {var {emacs_daemons} settle {} group emacs kind bool get {set ::emacs_daemons}
                       doc {daemons at all, or the plain lookup-or-run life}}
 knob set-emacs-autodaemon {var {emacs_autodaemon} settle {} group emacs kind bool get {set ::emacs_autodaemon}
                       doc {start a missing daemon, or treat it as an error}}
+knob set-emacs-frames {var {emacs_frames} settle {} group emacs kind {choice gui terminal}
+                      get {set ::emacs_frames}
+                      doc {what kind of frame an emacs button makes}}
 knob set-emacs-keep-frame-name {var {emacs_keep_frame_name} settle {} group emacs kind bool
                       get {set ::emacs_keep_frame_name}
                       doc {leave the button's name in the frame's title}}
