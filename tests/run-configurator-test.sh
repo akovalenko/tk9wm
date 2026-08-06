@@ -52,7 +52,8 @@ ROWS=$(qu 'llength [dict keys $::cfg_item]')
 # not the alphabet (which put set-desk-background first)
 FIRSTROW=$(qu 'set g [lindex [$::cfg_T item children root] 0]
     set k [lindex [$::cfg_T item children $g] 0]
-    list [dict get $::cfg_node $g label] [dict get $::cfg_node $k label]')
+    list [$::cfg_T item element cget $g Cname eGrp -text] \
+         [$::cfg_T item element cget $k Cname eTxt -text]')
 HOSTFONT=$(qu 'font actual DeskFont -size')
 WMFONT=$(q 'font actual DeskFont -size')
 CFGBADGE=$(qu 'cfg-owner set-edge-resist')
