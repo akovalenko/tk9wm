@@ -6812,6 +6812,8 @@ proc wm-errand {label body} {
 #   -stderr separate  kept apart, through a `chan pipe` — measured to
 #                     work in this build, and it costs no temp file
 #   -stderr drop      thrown away
+#   -stderr said      nothing is wired: the argv has its own say
+#                     (`2>`, `>&`) and the caller means it to stand
 #   -timeout MS       cancel and kill the pipeline after this long; 0
 #                     (default) waits as long as it takes. `emacs
 #                     --daemon` deciding to byte-compile mu4e at
@@ -6831,11 +6833,12 @@ proc pipe-run {argv args} {
     switch -- [dict get $o -stderr] {
         merge    { set spec [list {*}$argv 2>@1] }
         drop     { set spec [list {*}$argv 2>/dev/null] }
+        said     { set spec $argv }
         separate {
             lassign [chan pipe] errrd errwr
             set spec [list {*}$argv 2>@$errwr]
         }
-        default { error "pipe-run: -stderr is merge, separate or drop" }
+        default { error "pipe-run: -stderr is merge, separate, drop or said" }
     }
     if {[catch {open |$spec r} ch]} {
         catch {close $errrd}; catch {close $errwr}
@@ -6994,11 +6997,15 @@ proc pipe-run-close {key killed} {
 #     loses;
 #   - `&` at the end means «do not wait», which is the opposite of
 #     what parking is for.
-# Anything it does not handle goes to the real exec, renamed rather
-# than replaced: the background form, redirections (pipe-run wires
-# stderr plumbing of its own, and a config's `2>` must not fight
-# it), a switch it did not parse (the honest error lives there), or
-# no coroutine to park in.
+# Redirections and pipes RIDE ALONG (the owner's word, 2026-08-07:
+# let everything through): the words go to pipe-run as they stand —
+# open's pipeline shares exec's grammar — and when the line itself
+# says where stderr goes (`2>`, `>&`), no plumbing of our own is
+# added and stderr stops being an error, which is exec's own rule
+# for a redirected stream. What still goes to the real exec, renamed
+# rather than replaced: the background form (`&` means «do not
+# wait», and the real exec does not wait), a switch it did not parse
+# (the honest error lives there), or no coroutine to park in.
 if {![llength [info commands exec-blocking]]} {
     rename exec exec-blocking
 }
@@ -7014,10 +7021,14 @@ proc exec {args} {
     }
     if {[info coroutine] eq "" || ![llength $args]
             || [string match -* [lindex $args 0]]
-            || ![exec-plain? {*}$args]} {
+            || [lindex $args end] eq "&"} {
         return [exec-blocking {*}$said]
     }
-    set r [fut::await [pipe-run $args -stderr separate]]
+    set mode separate
+    foreach a $args {
+        if {[regexp {^(2>|>>?&)} $a]} { set mode said; break }
+    }
+    set r [fut::await [pipe-run $args -stderr $mode]]
     set err [dict get $r err]
     set out [dict get $r out]
     if {"-keepnewline" ni $opts && [string index $out end] eq "\n"} {
@@ -7035,20 +7046,6 @@ proc exec {args} {
     }
     return $out
 }
-# The one question exec-plain? answers is whether the words are a
-# plain command or pipeline. Switches are none of its business — the
-# shim above parses those itself, and once did not: a second
-# `proc exec` used this filter on the whole line, so a switch sent
-# `Exec -ignorestderr cmd` to the blocking form — the desk stopped,
-# which is the very thing Exec promises never to do.
-proc exec-plain? {args} {
-    foreach a $args {
-        if {$a eq "&"} { return 0 }
-        if {[regexp {^([0-9]?[<>]|>>|>&)} $a]} { return 0 }
-    }
-    return 1
-}
-
 # ---- Exec: the same, said the way one writes a script ----
 # `exec` with the desk left running. Capitalized like every word here
 # that ACTS, and a word of its own rather than a redefinition of

@@ -19,6 +19,12 @@
 # stopped the desk — the very thing Exec promises never to do. The
 # keyed scene parks a slow `Exec -ignorestderr`, answers another
 # chord meanwhile, and still gets the value with the noise ignored.
+#
+# Redirections ride along too (the owner's word, 2026-08-07): the
+# routed scene parks a pipeline that routes its own stderr
+# (`2>/dev/null | tr …`) — the words go through as they stand,
+# nothing falls back to the blocking form, and a stream the line
+# already routed is no error.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:102
 rm -f /tmp/.X102-lock /tmp/.X11-unix/X102
@@ -44,6 +50,10 @@ wm-bind {<Super>5} {puts "WM: keyed starts"
     puts "WM: keyed said [Exec -ignorestderr sh -c {sleep 2; echo noise >&2; printf order}]"
     puts "WM: keyed done"} keyed
 wm-bind {<Super>6} {puts "WM: nimble answered"} nimble
+wm-bind {<Super>7} {puts "WM: routed starts"
+    puts "WM: routed said [exec sh -c {sleep 2; echo loud >&2; printf quiet} 2>/dev/null | tr a-z A-Z]"
+    puts "WM: routed done"} routed
+wm-bind {<Super>8} {puts "WM: eager answered"} eager
 EOF
 
 XDG_CONFIG_HOME="$HERE/coop-config" \
@@ -63,6 +73,10 @@ xdotool key super+5
 sleep 0.5
 xdotool key super+6      # ...while the keyed one is still parked
 sleep 2.5
+xdotool key super+7
+sleep 0.5
+xdotool key super+8      # ...while the routed one is still parked
+sleep 2.5
 
 # the ORDER is the whole point: the quick chord answered between the
 # slow one starting and finishing
@@ -74,13 +88,17 @@ FAILED=$(grep -aci 'well' "$HERE/wm-coop.log" || true)
 ORDER2=$(grep -aE 'keyed starts|nimble answered|keyed done' "$HERE/wm-coop.log" \
         | sed 's/^WM: //' | tr '\n' '|')
 KEYED=$(grep -ac 'WM: keyed said order' "$HERE/wm-coop.log" || true)
+ORDER3=$(grep -aE 'routed starts|eager answered|routed done' "$HERE/wm-coop.log" \
+        | sed 's/^WM: //' | tr '\n' '|')
+ROUTED=$(grep -ac 'WM: routed said QUIET' "$HERE/wm-coop.log" || true)
 
 kill $WM 2>/dev/null
 sleep 0.5
 
 echo "--- order: $ORDER"
 echo "--- keyed order: $ORDER2"
-echo "--- value=$VALUE config-exec=$LOADED failure-noted=$FAILED keyed=$KEYED"
+echo "--- routed order: $ORDER3"
+echo "--- value=$VALUE config-exec=$LOADED failure-noted=$FAILED keyed=$KEYED routed=$ROUTED"
 echo "--- verdict"
 if [ "$ORDER" = "slow starts|quick answered|slow done|" ]; then
     echo "OK: the desk answered another chord while a bound exec was running"
@@ -111,5 +129,15 @@ if [ "$KEYED" = 1 ]; then
     echo "OK: -ignorestderr means the noise, and the value still came back"
 else
     echo "FAIL: the keyed exec's value did not come back ($KEYED)"
+fi
+if [ "$ORDER3" = "routed starts|eager answered|routed done|" ]; then
+    echo "OK: a redirect rides along — the pipeline parks with its own 2>"
+else
+    echo "FAIL: the routed order was «$ORDER3»"
+fi
+if [ "$ROUTED" = 1 ]; then
+    echo "OK: a stream the line routed is no error, and the pipe spoke"
+else
+    echo "FAIL: the routed pipeline's value did not come back ($ROUTED)"
 fi
 check_invariants "$HERE/wm-coop.log"
