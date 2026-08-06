@@ -87,13 +87,13 @@ ck "unsaid, emacs outranks a set \$EDITOR" \
    "emacs {} found"
 ck "said terminal: \$EDITOR, arguments kept" \
    "$(q "door-probe terminal $BASE/bin-emacs:$BASE/bin-ed {EDITOR {myed -q}}")" \
-   "terminal {myed -q} \$EDITOR"
+   "terminal {myed -q} {\$EDITOR}"
 ck "\$VISUAL outranks \$EDITOR" \
    "$(q "door-probe terminal $BASE/bin-ed {VISUAL myvis EDITOR myed}")" \
-   "terminal myvis \$VISUAL"
+   "terminal myvis {\$VISUAL}"
 ck "a \$VISUAL naming a missing binary falls through" \
    "$(q "door-probe terminal $BASE/bin-ed {VISUAL ghost-editor EDITOR myed}")" \
-   "terminal myed \$EDITOR"
+   "terminal myed {\$EDITOR}"
 ck "no words: sensible-editor before the hunt" \
    "$(q "door-probe {} $BASE/bin-sens {}")" "terminal sensible-editor probed"
 ck "the hunt: vim first" \
