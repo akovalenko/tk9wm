@@ -4731,6 +4731,67 @@ foreach {_name _impl} $window_commands {
     interp alias {} ::$_name {} window-do $_name
 }
 
+# ---- what a verb READS: the state behind a marked menu row ----
+# The marker is a fact about the VERB, not about a row: a row firing
+# Maximize-V is marked because of what Maximize-V means, wherever the
+# row lives — the same rule that keeps the winops menu a SELECTION
+# from the table above rather than a copy that drifts. Keyed by the
+# command prefix exactly as a row spells it; absence means a stateless
+# verb (Close, Move) — no marker, not an error.
+#
+# Each predicate MIRRORS ITS VERB'S TOGGLE: marked means firing takes
+# the state off. Maximize marks only when every axis is held, which is
+# the toggle's own reading (any axis free means maximize) — a tall
+# window marks Maximize-V alone, and the axis rows are where the
+# partial truth shows.
+set window_states {
+    Maximize    {maximized-p {h v}}
+    Maximize-H  {maximized-p h}
+    Maximize-V  {maximized-p v}
+    Fullscreen  fullscreen-p
+    Minimize    iconic-p
+    Above       {layer-at-p above}
+    Below       {layer-at-p below}
+    Sticky      desk-sticky-p
+}
+proc maximized-p {axes w} {
+    set have [expr {[info exists ::maxaxes($w)] ? $::maxaxes($w) : {}}]
+    foreach a [max-axes $axes] {
+        if {$a ni $have} { return 0 }
+    }
+    return 1
+}
+proc fullscreen-p {w} { info exists ::fullscreen($w) }
+proc iconic-p {w} { info exists ::iconic($w) }
+proc layer-at-p {name w} {
+    expr {[layer-declared $w] == [layer-number $name]}
+}
+# desk-sticky-p is the substrate's own; the sticky row reads it as is.
+
+# The config's door for its own verbs: declare what a command reads,
+# and every surface showing a row that fires it can mark the row —
+# winops today, whatever grows rows tomorrow. The key is the exact
+# command prefix as the row spells it: a verb with an argument baked
+# in ({my-thing --tall}) is its own verb, exactly as the stock axis
+# pair is two names over one implementation.
+proc command-state {name pred} {
+    if {![llength $pred]} {
+        error "command-state $name: a state that reads nothing is a typo"
+    }
+    dict set ::window_states $name $pred
+}
+# Marked (1), unmarked (0), or stateless ("") — the one question a
+# surface asks about a row. A predicate that throws is LOGGED and
+# reads unmarked: a bad line in a config must not cost the menu.
+proc command-marked-p {cmd w} {
+    if {![dict exists $::window_states $cmd]} { return "" }
+    if {[catch {uplevel #0 [list {*}[dict get $::window_states $cmd] $w]} m]} {
+        puts "WM: command-state «$cmd»: predicate error: $m"
+        return 0
+    }
+    expr {$m ? 1 : 0}
+}
+
 # Commands about the DESK rather than a window — same Capital, nothing
 # to resolve. The lowercase originals stay: they are the implementations
 # (as close-client is the implementation behind Close), the substrate
@@ -4858,6 +4919,8 @@ proc Apply-To-Matching-1 {pred command} {
 # binding drift into doing different things.
 set winops_actions {
     Maximize   x
+    Maximize-V v
+    Maximize-H h
     Fullscreen f
     Close      c
     Destroy    d
@@ -4872,11 +4935,15 @@ set winops_actions {
 }
 # The rows this window's menu shows: the stock commands, then the
 # config's own items (winops-item below) — each gated by its needs
-# (the machine) and its when (this window), judged at open.
+# (the machine) and its when (this window), judged at open. `marked`
+# is the row's state marker, read off the command it fires
+# (command-marked-p) at the same moment — open is when the menu
+# looks, for the marker as for the when.
 proc winops-rows {w} {
     set rows {}
     foreach {label key} $::winops_actions {
-        lappend rows [dict create label $label key $key command $label]
+        lappend rows [dict create label $label key $key command $label \
+            marked [command-marked-p $label $w]]
     }
     dict for {name item} $::winops_items {
         if {[dict exists $item needs]
@@ -4896,7 +4963,8 @@ proc winops-rows {w} {
         lappend rows [dict create label [dict get $item label] \
             key [expr {[dict exists $item key]
                        ? [dict get $item key] : ""}] \
-            command [dict get $item command]]
+            command [dict get $item command] \
+            marked [command-marked-p [dict get $item command] $w]]
     }
     return $rows
 }
@@ -4912,10 +4980,17 @@ proc winops {{w 0}} {
     set n [llength $::winops_rows]
     set ih [expr {[font metrics TitleFont -linespace] + 6}]
     set T [popup-shell .winops $ih winops-click]
+    # The state marker: a bullet rather than a check because the
+    # bullet is in every font a spartan X setup has — a marker that
+    # renders as tofu marks nothing.
+    set markw [expr {[font measure TitleFont "•"] + 8}]
+    $T column create -width $markw -tags Cmark
     $T column create -squeeze yes -expand yes -tags C0
     $T column create -width [expr {$ih + 4}] -tags Ckey
     $T configure -treecolumn C0
     $T element create eKey text -fill [themed dim] -lines 1 \
+        -font [popup-hover-font]
+    $T element create eMark text -fill [themed ink] -lines 1 \
         -font [popup-hover-font]
     $T style create sAct
     $T style elements sAct {eSel eTxt}
@@ -4925,12 +5000,18 @@ proc winops {{w 0}} {
     $T style elements sKey {eSel eKey}
     $T style layout sKey eSel -detach yes -iexpand xy
     $T style layout sKey eKey -expand wns -padx 6
+    $T style create sMark
+    $T style elements sMark {eSel eMark}
+    $T style layout sMark eSel -detach yes -iexpand xy
+    $T style layout sMark eMark -expand wens
     set maxw 0
     foreach row $::winops_rows {
         set label [dict get $row label]
         set maxw [expr {max($maxw, [font measure TitleFont $label])}]
         set item [$T item create]
-        $T item style set $item C0 sAct Ckey sKey
+        $T item style set $item Cmark sMark C0 sAct Ckey sKey
+        $T item element configure $item Cmark eMark \
+            -text [expr {[dict get $row marked] eq "1" ? "•" : ""}]
         $T item element configure $item C0 eTxt -text $label
         $T item element configure $item Ckey eKey -text [dict get $row key]
         $T item lastchild root $item
@@ -4947,7 +5028,7 @@ proc winops {{w 0}} {
     # config's own menus now share.
     set at [gesture-menu-at $w]
     if {[llength $at]} { lassign $at X Y }
-    set W [expr {max($maxw + $ih + 40, 160)}]
+    set W [expr {max($maxw + $ih + 40, 160) + $markw}]
     set H [expr {$n * $ih + 2}]
     lassign [popup-show .winops $W $H $X $Y] X Y
     if {![grab-keys-to winops-key]} {
@@ -12027,6 +12108,7 @@ config-verb wm-menu           {at {menus @1}    key wm-menu      spec menu}
 config-verb wm-menu-remove    {at {menus @1}    key wm-menu      denies 1}
 config-verb winops-item        {at {winops @1}   key winops-item  value options}
 config-verb winops-item-remove {at {winops @1}   key winops-item  denies 1}
+config-verb command-state      {at {states @1}   key command-state value word}
 # A word without a knob: sayable, and therefore guarded, but with no
 # row in the configurator — its value is a list of six-word monitor
 # rectangles, which is a repair tool and a test seam rather than

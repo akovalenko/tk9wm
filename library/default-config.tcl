@@ -220,6 +220,19 @@
 #
 #   winops-item ask {label "ask claude" key a needs claude command Ask-Claude}
 #
+# A row whose verb is a TOGGLE wears a state marker while the state
+# holds — Maximize and the axis pair, Fullscreen, Above, Sticky do out
+# of the box. The marker is a fact about the VERB, not the row:
+# declare what a verb of your own reads and every row firing it is
+# marked, judged when the menu opens. The predicate takes the window
+# appended (as `when` does), and the key is the exact command prefix
+# as the row spells it:
+#
+#   proc Solo {w} { ... }             ;# a toggle of this config's
+#   proc solo-p {w} { ... }           ;# ...and what it reads
+#   winops-item solo {label соло key o command Solo}
+#   command-state Solo solo-p
+#
 # ---- fade: how solid a window is ----
 #
 # A frame can be made translucent, frame and client together, and it

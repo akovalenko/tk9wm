@@ -72,20 +72,20 @@ GEOM2=$(menu_geom)
 xdotool key Escape
 sleep 0.4
 
-# --- 3: press, drag onto an entry, release. Row 5 of the ten is Raise
-#        — harmless, and the menu logs the pick by name.
+# --- 3: press, drag onto an entry, release. Row 7 of the fourteen is
+#        Raise — harmless, and the menu logs the pick by name.
 xdotool mousemove $HITX $BY mousedown 3
 sleep 0.5
 GEOM3=$(menu_geom)
 MW=${GEOM3%%x*}; REST=${GEOM3#*x}
 MH=${REST%%+*}; REST=${REST#*+}
 MX=${REST%%+*}; MY=${REST#*+}
-ROWH=$(((MH - 2) / 12))   ;# the ops menu has twelve rows
-ROW5=$((MY + 1 + 4 * ROWH + ROWH / 2))
-echo "--- menu $GEOM3, row height $ROWH, Raise at $((MX + MW / 2)),$ROW5"
+ROWH=$(((MH - 2) / 14))   ;# the ops menu has fourteen rows
+ROW7=$((MY + 1 + 6 * ROWH + ROWH / 2))
+echo "--- menu $GEOM3, row height $ROWH, Raise at $((MX + MW / 2)),$ROW7"
 xdotool mousemove $((MX + MW / 2)) $((MY + 1 + ROWH / 2))   ;# through row 1...
 sleep 0.3
-xdotool mousemove $((MX + MW / 2)) $ROW5                    ;# ...down to row 5
+xdotool mousemove $((MX + MW / 2)) $ROW7                    ;# ...down to row 7
 sleep 0.3
 xdotool mouseup 3
 sleep 0.6
