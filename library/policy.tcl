@@ -6976,23 +6976,34 @@ proc pipe-run-close {key killed} {
 # that inside a coroutine it parks instead of holding the desk still.
 # A binding writes `exec gpg --decrypt … | grep password:` and reads
 # like a shell script; the desk answers keys while gpg thinks.
+# Shadowing the global is his call too (2026-08-02, reversing an
+# earlier «never touch exec»; the origin was a bound `exec xedit`
+# freezing the desk until the editor closed), and the objection —
+# that a synchronous exec is legitimate in the config and in the
+# desk's own code — still holds: neither runs in a coroutine, and
+# both forward to the real exec exactly as before.
 #
 # It is a shim, not a new command, so it has to be honest about
 # exec's own contract, which is fussier than it looks:
-#   - a non-zero exit is an error, and so is ANYTHING on stderr
-#     unless -ignorestderr says otherwise;
+#   - a non-zero exit is an error, and the message carries what the
+#     child managed to say first — that is the sentence worth
+#     reading when a bound command goes wrong;
+#   - ANYTHING on stderr is an error of its own unless -ignorestderr
+#     says otherwise;
 #   - -keepnewline keeps the trailing newline the result otherwise
 #     loses;
 #   - `&` at the end means «do not wait», which is the opposite of
 #     what parking is for.
-# Anything it does not handle — the background form, no coroutine to
-# park in — goes to the real exec, which is renamed rather than
-# replaced. Nothing about a config's top level, or the desk's own
-# code, changes: neither runs in a coroutine.
+# Anything it does not handle goes to the real exec, renamed rather
+# than replaced: the background form, redirections (pipe-run wires
+# stderr plumbing of its own, and a config's `2>` must not fight
+# it), a switch it did not parse (the honest error lives there), or
+# no coroutine to park in.
 if {![llength [info commands exec-blocking]]} {
     rename exec exec-blocking
 }
 proc exec {args} {
+    set said $args
     set opts {}
     while {[llength $args]} {
         set a [lindex $args 0]
@@ -7001,17 +7012,21 @@ proc exec {args} {
         lappend opts $a
         set args [lrange $args 1 end]
     }
-    if {[info coroutine] eq "" || [lindex $args end] eq "&"
-            || ![llength $args]} {
-        return [exec-blocking {*}$opts {*}$args]
+    if {[info coroutine] eq "" || ![llength $args]
+            || [string match -* [lindex $args 0]]
+            || ![exec-plain? {*}$args]} {
+        return [exec-blocking {*}$said]
     }
     set r [fut::await [pipe-run $args -stderr separate]]
     set err [dict get $r err]
     set out [dict get $r out]
-    if {"-keepnewline" ni $opts} { set out [string trimright $out \n] }
+    if {"-keepnewline" ni $opts && [string index $out end] eq "\n"} {
+        set out [string range $out 0 end-1]
+    }
     if {[dict get $r status] != 0} {
-        set msg [string trim $err]
-        if {$msg eq ""} { set msg "child process exited abnormally" }
+        set msg [string trim "$out\n$err"]
+        if {$msg ne ""} { append msg \n }
+        append msg "child process exited abnormally"
         return -code error -errorcode \
             [list CHILDSTATUS 0 [dict get $r status]] $msg
     }
@@ -7019,6 +7034,19 @@ proc exec {args} {
         return -code error -errorcode NONE [string trim $err]
     }
     return $out
+}
+# The one question exec-plain? answers is whether the words are a
+# plain command or pipeline. Switches are none of its business — the
+# shim above parses those itself, and once did not: a second
+# `proc exec` used this filter on the whole line, so a switch sent
+# `Exec -ignorestderr cmd` to the blocking form — the desk stopped,
+# which is the very thing Exec promises never to do.
+proc exec-plain? {args} {
+    foreach a $args {
+        if {$a eq "&"} { return 0 }
+        if {[regexp {^([0-9]?[<>]|>>|>&)} $a]} { return 0 }
+    }
+    return 1
 }
 
 # ---- Exec: the same, said the way one writes a script ----
@@ -7072,80 +7100,6 @@ proc pipe-output-close {ch} {
     unset -nocomplain ::pipe_buf($ch)
     catch {close $ch}
 }
-
-# ---- exec that does not stop the desk ----------------------------
-# The owner's idea (2026-08-01), and his own bug report the next day:
-# he bound `exec xedit` to a chord and the whole desk waited for the
-# editor to be closed. A binding's script runs in a coroutine now (see
-# run-script), so `exec` can PARK instead of blocking: the pipeline is
-# started, the event loop keeps turning, and the output comes back as
-# the command's value exactly as it always did.
-#
-# THE GLOBAL COMMAND IS SHADOWED, and that is the owner's call
-# (2026-08-02), reversing the earlier «never touch exec»: the
-# objection was that a synchronous exec is legitimate in the config
-# and inside the desk's own code, and it stays legitimate — with no
-# coroutine under it this forwards to the real one and blocks exactly
-# as before. So the config load is synchronous (his answer: «конфиг
-# считаем синхронный, по крайней мере пока»), the desk's own
-# `exec update-alternatives --query` is untouched, and only scripts
-# that run on a LIVE desk get the cooperative form.
-#
-# What it does NOT try to be is all of exec. Anything with a leading
-# switch, a redirection or a trailing `&` goes to the real one: `&`
-# does not block in the first place, and the rest is exec's own
-# grammar, which `open |…` does not share in full. A plain command or
-# a pipeline — which is what a binding writes — is what parks.
-if {![llength [info commands ::exec-blocking]]} { rename exec ::exec-blocking }
-proc exec {args} {
-    if {[info coroutine] eq "" || ![exec-plain? {*}$args]} {
-        return [::exec-blocking {*}$args]
-    }
-    return [coop-exec {*}$args]
-}
-proc exec-plain? {args} {
-    if {![llength $args] || [string match -* [lindex $args 0]]} { return 0 }
-    foreach a $args {
-        if {$a eq "&"} { return 0 }
-        if {[regexp {^([0-9]?[<>]|>>|>&)} $a]} { return 0 }
-    }
-    return 1
-}
-# Two deliberate differences from exec, both in the direction a desk
-# wants: what the child says on stderr is part of the answer rather
-# than an error in itself, and only a non-zero exit fails — with the
-# output carried into the message, because that is the sentence worth
-# reading when a bound command goes wrong.
-proc coop-exec {args} {
-    set f [fut::new]
-    if {[catch {open |[list {*}$args 2>@1] r} ch]} {
-        return -code error $ch
-    }
-    chan configure $ch -blocking 0 -profile tcl8
-    set ::coop_buf($ch) {}
-    fut::oncancel $f [list coop-exec-close $ch]
-    fileevent $ch readable [list coop-exec-read $ch $f]
-    return [fut::take $f]
-}
-proc coop-exec-read {ch f} {
-    append ::coop_buf($ch) [read $ch]
-    if {![eof $ch]} return
-    set out [string trimright $::coop_buf($ch) \n]
-    fileevent $ch readable {}
-    unset ::coop_buf($ch)
-    chan configure $ch -blocking 1
-    if {[catch {close $ch} err opts]} {
-        fut::fail $f [string trim "$out\n$err"] $opts
-        return
-    }
-    fut::fulfill $f $out
-}
-proc coop-exec-close {ch} {
-    catch {fileevent $ch readable {}}
-    unset -nocomplain ::coop_buf($ch)
-    catch {close $ch}
-}
-
 
 # ---- the emacs layer ----
 # A button that means "the telega frame of the telega daemon" — on the

@@ -13,6 +13,12 @@
 # in a binding returns what the child said. The config's own exec
 # stays blocking (there is no coroutine there) — asserted by a config
 # that execs at load and still comes up.
+#
+# And a switch is not a trapdoor: a second exec shim once sent any
+# switch-bearing line to the blocking form, so `Exec -ignorestderr`
+# stopped the desk — the very thing Exec promises never to do. The
+# keyed scene parks a slow `Exec -ignorestderr`, answers another
+# chord meanwhile, and still gets the value with the noise ignored.
 . "$(dirname "$0")/common.sh"
 export DISPLAY=:102
 rm -f /tmp/.X102-lock /tmp/.X11-unix/X102
@@ -34,6 +40,10 @@ wm-bind {<Super>1} {puts "WM: slow starts"; exec sh -c {sleep 2}
 wm-bind {<Super>2} {puts "WM: quick answered"} quick
 wm-bind {<Super>3} {puts "WM: got [exec printf hello]"} value
 wm-bind {<Super>4} {exec sh -c {echo well; exit 3}} failing
+wm-bind {<Super>5} {puts "WM: keyed starts"
+    puts "WM: keyed said [Exec -ignorestderr sh -c {sleep 2; echo noise >&2; printf order}]"
+    puts "WM: keyed done"} keyed
+wm-bind {<Super>6} {puts "WM: nimble answered"} nimble
 EOF
 
 XDG_CONFIG_HOME="$HERE/coop-config" \
@@ -49,6 +59,10 @@ xdotool key super+3
 sleep 0.5
 xdotool key super+4
 sleep 1
+xdotool key super+5
+sleep 0.5
+xdotool key super+6      # ...while the keyed one is still parked
+sleep 2.5
 
 # the ORDER is the whole point: the quick chord answered between the
 # slow one starting and finishing
@@ -57,12 +71,16 @@ ORDER=$(grep -aE 'slow starts|quick answered|slow done' "$HERE/wm-coop.log" \
 VALUE=$(grep -ac 'WM: got hello' "$HERE/wm-coop.log" || true)
 LOADED=$(grep -ac 'WM: config said loaded' "$HERE/wm-coop.log" || true)
 FAILED=$(grep -aci 'well' "$HERE/wm-coop.log" || true)
+ORDER2=$(grep -aE 'keyed starts|nimble answered|keyed done' "$HERE/wm-coop.log" \
+        | sed 's/^WM: //' | tr '\n' '|')
+KEYED=$(grep -ac 'WM: keyed said order' "$HERE/wm-coop.log" || true)
 
 kill $WM 2>/dev/null
 sleep 0.5
 
 echo "--- order: $ORDER"
-echo "--- value=$VALUE config-exec=$LOADED failure-noted=$FAILED"
+echo "--- keyed order: $ORDER2"
+echo "--- value=$VALUE config-exec=$LOADED failure-noted=$FAILED keyed=$KEYED"
 echo "--- verdict"
 if [ "$ORDER" = "slow starts|quick answered|slow done|" ]; then
     echo "OK: the desk answered another chord while a bound exec was running"
@@ -83,5 +101,15 @@ if [ "$FAILED" -ge 1 ]; then
     echo "OK: a non-zero exit is a failure, and what the child said is in it"
 else
     echo "FAIL: the failing exec said nothing ($FAILED)"
+fi
+if [ "$ORDER2" = "keyed starts|nimble answered|keyed done|" ]; then
+    echo "OK: a switch is no trapdoor — Exec -ignorestderr parks too"
+else
+    echo "FAIL: the keyed order was «$ORDER2»"
+fi
+if [ "$KEYED" = 1 ]; then
+    echo "OK: -ignorestderr means the noise, and the value still came back"
+else
+    echo "FAIL: the keyed exec's value did not come back ($KEYED)"
 fi
 check_invariants "$HERE/wm-coop.log"
