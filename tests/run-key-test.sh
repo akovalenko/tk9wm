@@ -5,7 +5,7 @@
 #    hotkey letter x fires maximize, twice = toggle there and back;
 #  - the navigation keys run the menu: Ctrl+N/Ctrl+P unconditionally,
 #    bare n/p and j/k when no hotkey claims the letter (none of winops'
-#    x f c d r l does), Enter fires the selected action (raise);
+#    x v h f c d r l does), Enter fires the selected action (raise);
 #  - Alt+Tab with Alt held is the fvwm cycle: the list opens on the
 #    Tab press, releasing Alt commits to the selection — a quick full
 #    Alt+Tab toggles to the PREVIOUS window; a second Tab while Alt is
@@ -52,12 +52,14 @@ key x           # maximize B
 key alt+space
 key x           # ...and restore it
 key alt+space   # navigation soak: nothing may fire
-key ctrl+n      # -> fullscreen
-key n           # -> close (bare n is free: no hotkey claims it)
-key p           # -> fullscreen
+key ctrl+n      # -> maximize-v
+key n           # -> maximize-h (bare n is free: no hotkey claims it)
+key p           # -> maximize-v
 key k           # -> maximize
 key Escape
 key alt+space
+key j           # -> maximize-v
+key j           # -> maximize-h
 key j           # -> fullscreen
 key j           # -> close
 key j           # -> destroy
