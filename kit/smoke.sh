@@ -27,7 +27,8 @@ rm -rf "$HERE/smoke-config"
 mkdir -p "$HERE/smoke-config"
 cat > "$HERE/smoke-config/tk9wm.tcl" <<'EOF'
 set-panel-side left
-panel-button терм {match {filter -title {кит*}} launch {exec true}}
+action терм {match {filter -title {кит*}} launch {exec true}}
+panel-button терм
 panel-button ещё {}
 # a chord for the restart leg below: a wrapped manager re-execs itself
 # differently from a checkout (a starpack IS its application, a starkit

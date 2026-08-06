@@ -34,11 +34,14 @@ VFS=$HERE/tk9wm.vfs
 rm -rf "$VFS"
 mkdir -p "$VFS/lib/tk9wm" "$VFS/lib/tkwmx"
 
-# the window manager itself — the package, exactly as `make
-# install-library` would lay it out
-for f in substrate.tcl policy.tcl main.tcl default-config.tcl pkgIndex.tcl; do
-    cp "$ROOT/library/$f" "$VFS/lib/tk9wm/"
-done
+# the window manager itself — the library WHOLE, because a curated
+# list is a manifest nobody maintains: the one that stood here rotted
+# the moment the library grew (fut.tcl, treesync.tcl, the widgets —
+# pkgIndex.tcl sources them unconditionally, so a kit built off the
+# old list died on its first breath; the ui host and the .el templates
+# are read off the library at run time and were missing too). The
+# directory itself is the manifest, and it cannot fall behind.
+cp -a "$ROOT/library/." "$VFS/lib/tk9wm/"
 
 # the shim, with the index `make install-shim` would have written
 cp "$SO/libtkwmx.so" "$VFS/lib/tkwmx/"

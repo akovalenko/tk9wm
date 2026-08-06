@@ -53,13 +53,16 @@ install-shim: libtkwmx.so
 	    '    [list load [file join $$dir libtkwmx.so] Tkwmx]' \
 	    > $(SHIMDIR)/pkgIndex.tcl
 
-# The window manager itself: the two layers, the annotated config
-# sample, and the entry script (installed INTO the package directory,
-# so `whale $(libdir)/tk9wm$(WMVERSION)/tk9wm.tcl` runs it).
+# The window manager itself: the library whole — pkgIndex.tcl is the
+# manifest of what loads, and the ui host and the .el templates are
+# read off the installed tree at run time — plus the entry script
+# (installed INTO the package directory, so
+# `whale $(libdir)/tk9wm$(WMVERSION)/tk9wm.tcl` runs it). A curated
+# file list stood here once and rotted as the library grew; the
+# directory cannot fall behind.
 install-library:
 	mkdir -p $(WMDIR)
-	cp library/substrate.tcl library/policy.tcl library/main.tcl \
-	   library/default-config.tcl library/pkgIndex.tcl $(WMDIR)/
+	cp -R library/. $(WMDIR)/
 	cp tk9wm.tcl $(WMDIR)/
 
 install: install-shim install-library
