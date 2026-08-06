@@ -149,9 +149,10 @@
 #                               down right now (XQueryKeymap)?
 #   $::key_invoke_mods          modifier mask of the chord that invoked
 #                               the currently running key action
-#   client-stacking             managed windows in the SERVER's stacking
-#                               order, bottom first — read, not
-#                               remembered (a client can restack itself)
+#   client-stacking             every managed window, bottom first —
+#                               THE POLICY'S word (the model speaks,
+#                               the server agrees); the substrate only
+#                               publishes it and releases the desk by it
 #   kill-client w               unconditional XKillClient (close-client
 #                               asks politely first)
 #   close-client w              WM_DELETE_WINDOW when supported, else kill
@@ -1938,11 +1939,14 @@ proc publish-frame-extents {w} {
 
 # ---------------- what the desk looks like from outside ----------------
 # _NET_CLIENT_LIST is the managed windows in the order they arrived;
-# _NET_CLIENT_LIST_STACKING is the same set bottom-to-top, and the
-# server is the only honest source for that — we ask the root for its
-# children and translate the ones that are ours. The translation is by
-# the frame's WRAPPER (Tk's toplevels sit inside one, and it is the
-# wrapper that is the root's child), remembered per client at manage.
+# _NET_CLIENT_LIST_STACKING is the same set bottom-to-top — and that
+# answer is THE POLICY'S client-stacking: the model speaks, layer
+# first, and the server agrees with the model rather than being asked
+# (the comment over it says why that is right even mid-restack). A
+# server-walking twin of it lived right here, sure that the server
+# was the only honest source, and lost the redefinition race; the one
+# tree read still standing is adopt-existing's, at startup, before
+# there is a model to ask.
 #
 # Coalesced through the idle queue: a raise happens on every click, and
 # publishing is a round trip plus two property writes.
@@ -1966,28 +1970,6 @@ proc publish-client-list-now {} {
         [list set-prop-longs $::root $::NET_CLIENT_LIST_STACKING 33 \
             [client-stacking]]
 }
-# The managed windows in the server's OWN stacking order, bottom first.
-# Read rather than remembered: the order lives in the server, and a
-# client can restack itself behind our back. The walk goes through each
-# frame's WRAPPER, because that — not the frame — is the root's child
-# and therefore the thing that is actually stacked.
-#
-# Published as _NET_CLIENT_LIST_STACKING, and the same answer a policy
-# needs whenever it has to reason about what is on top of what (the ops
-# menu's bury does).
-proc client-stacking {} {
-    set byroot {}
-    foreach w $::client_order {
-        if {[info exists ::wrapof($w)]} { dict set byroot $::wrapof($w) $w }
-    }
-    set stack {}
-    set tree [soft "read the root's children" { x-query-tree $::root }]
-    foreach id [lindex $tree 2] {
-        if {[dict exists $byroot $id]} { lappend stack [dict get $byroot $id] }
-    }
-    return $stack
-}
-
 # _NET_WORKAREA — the screen minus whatever the policy reserves (our
 # panel and tray strips). Toolkits place popups and maximize by it, and
 # a WM that leaves it unset makes everyone guess the full screen.
