@@ -804,6 +804,22 @@ SWITCHED=$(q 'list said [dict get $::action_raw probe] \
     fires [lindex [dict get $::action_spec probe launch] 0]')
 SLOTROWS2=$(qu 'list p-run [dict exists $::cfg_fitem {@field actions probe run}] \
     p-launch [dict exists $::cfg_fitem {@field actions probe launch}]')
+# ---- the icon row answers as a picture ----
+# a found file shows its thumbnail and its path; a miss clears the
+# picture and names the search that failed
+ICONROW=$(qu 'set png [file join $::env(XDG_CONFIG_HOME) probe-icon.png]
+    set src [image create photo -width 6 -height 6]
+    $src put yellow -to 0 0 6 6
+    $src write $png -format png
+    image delete $src
+    cfg-set {@field actions probe icon} $png
+    set it [dict get $::cfg_fitem {@field actions probe icon}]
+    set r [list img [expr {[$::cfg_T item element cget $it Cval eImg -image] ne ""}] \
+                doc [$::cfg_T item element cget $it Cdoc eDoc -text]]
+    cfg-set {@field actions probe icon} no-such-icon-xyzzy
+    lappend r missdoc [$::cfg_T item element cget $it Cdoc eDoc -text] \
+        missimg [expr {[$::cfg_T item element cget $it Cval eImg -image] eq ""}]
+    set r')
 # A DEED THE CONFIG DECLARES can be dropped now — the family had no
 # word for it at all before, so the applet could only refuse. The
 # removal is a customization like any other: it shows where the deed
@@ -2181,6 +2197,11 @@ case $FACESAID in
     "launch {Run xclock -digital}")
         echo "OK: writing the face un-says the run beneath it in the same word" ;;
     *) fail "FAIL: after writing the face: $FACESAID" ;;
+esac
+case $ICONROW in
+    "img 1 doc "*"probe-icon.png missdoc {no no-such-icon-xyzzy.png"*" missimg 1")
+        echo "OK: the icon row shows the picture it found, and names the miss" ;;
+    *) fail "FAIL: the icon row: $ICONROW" ;;
 esac
 case $CROSS in
     "plain {xclock -update 1} subst {} other {} two {}")

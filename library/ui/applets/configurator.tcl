@@ -193,6 +193,7 @@ proc cfg-build {W} {
     $T element create eDoc  text -fill [cfg-ink fg]   -lines 1 -font DeskFont
     $T element create eFlag text -fill [cfg-ink-flag] -lines 1 -font DeskFont
     $T element create eGrp  text -fill [cfg-ink fg]   -lines 1 -font TitleFont
+    $T element create eImg  image
     $T element create eSel  rect -fill [list [ui-color select] selected] \
         -outline [list [ui-color link] selected] -outlinewidth 1
     foreach {st els} {
@@ -204,6 +205,13 @@ proc cfg-build {W} {
         $T style layout $st eSel -detach yes -iexpand xy
         $T style layout $st [lindex $els 1] -expand ns -padx 5 -squeeze x
     }
+    # the icon field's value cell carries a PICTURE beside the words:
+    # the resolved thumbnail is the found/not-found answer at a glance
+    $T style create sValImg
+    $T style elements sValImg {eSel eImg eVal}
+    $T style layout sValImg eSel -detach yes -iexpand xy
+    $T style layout sValImg eImg -expand ns -padx {5 0}
+    $T style layout sValImg eVal -expand ns -padx 5 -squeeze x
     # The tree says what it is, and its underline leads to it: Alt+k
     # from anywhere in this window puts the focus back on the knobs.
     ui-label $W.head "&Knobs — everything this desk can be told" $T \
@@ -788,7 +796,12 @@ proc cfg-row-make {T parent key node} {
         elem { lappend ::cfg_fresh $item }
     }
     if {[dict get $node what] ni {grp coll}} {
-        $T item style set $item Cname sName Cval sVal Cflag sFlag Cdoc sDoc
+        set sval sVal
+        if {[dict exists $node meta kind]
+                && [lindex [dict get $node meta kind] 0] eq "icon"} {
+            set sval sValImg
+        }
+        $T item style set $item Cname sName Cval $sval Cflag sFlag Cdoc sDoc
     }
     $T item element configure $item Cname \
         [expr {[dict get $node what] in {grp coll} ? "eGrp" : "eTxt"}] \
@@ -992,6 +1005,17 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
             set doc "derived from the words below, not written — $doc"
         }
     }
+    # AN ICON ANSWERS AS A PICTURE (the owner, 2026-08-06): the row
+    # resolves the value the way the panel will — the thumbnail says
+    # «found», the path in this column says WHERE, and «path found,
+    # no picture» is the broken-svg diagnosis neither half could give
+    # alone. A miss names the search that failed.
+    if {[lindex [cfg-kind-of $addr] 0] eq "icon"} {
+        lassign [cfg-icon-dress $addr] img note bad
+        catch {$T item element configure $item Cval eImg -image $img}
+        if {$note ne ""} { set doc $note }
+        if {$bad} { lappend flags ✗ }
+    }
     # A remark REPLACES the field's description while it stands: the
     # description says what the word is for, and one who has a
     # sentence about THIS word has the more useful thing to say.
@@ -1002,6 +1026,58 @@ proc cfg-field-dress {T item addr fmeta {lint {}}} {
     }
     cfg-flag-set $item $flags
     $T item element configure $item Cdoc eDoc -text $doc
+}
+# What the icon VALUE amounts to on this machine: the desk resolves
+# it exactly as a panel would (icon-file-of — path, ~, or a name
+# searched through icon-path), and the thumbnail is made HERE, in the
+# ui process, since an image cannot cross the send door. Returns
+# {image doc-note bad}: a found file shows its picture and its path,
+# a file no image comes out of says so, a miss names the search.
+proc cfg-icon-dress {addr} {
+    set spec [cfg-cur $addr]
+    if {$spec eq "" || [ui-standalone?]} { return {{} {} 0} }
+    set path ""
+    catch {set path [wm-call [list icon-file-of $spec]]}
+    if {$path eq ""} {
+        return [list {} "no $spec.png or $spec.svg in icon-path —\
+ the button would wear its badge" 1]
+    }
+    set img [cfg-icon-thumb $path]
+    if {$img eq ""} {
+        return [list {} "found $path — but no image comes out of it" 1]
+    }
+    return [list $img $path 0]
+}
+# One thumbnail per resolved file, made once and kept: a row-height
+# rendering for svg (the core reads it), an integer subsample for
+# anything bigger than the row (a panel-size png shrunk to a stamp —
+# rough is fine, it is a presence mark, not a preview).
+set cfg_icon_imgs {}
+proc cfg-icon-thumb {path} {
+    set h [expr {[font metrics DeskFont -linespace] + 2}]
+    set key [list $path $h]
+    if {[dict exists $::cfg_icon_imgs $key]} {
+        return [dict get $::cfg_icon_imgs $key]
+    }
+    set img ""
+    if {[string match -nocase *.svg $path]} {
+        catch {set img [image create photo -file $path \
+                            -format [list svg -scaletoheight $h]]}
+    } else {
+        catch {
+            set src [image create photo -file $path]
+            if {[image height $src] > $h} {
+                set f [expr {([image height $src] + $h - 1) / $h}]
+                set img [image create photo]
+                $img copy $src -subsample $f $f
+                image delete $src
+            } else {
+                set img $src
+            }
+        }
+    }
+    dict set ::cfg_icon_imgs $key $img
+    return $img
 }
 # What an element is AT A GLANCE, per family: a button says which
 # fields speak, a binding shows its script, a bundle whether it
@@ -1326,6 +1402,12 @@ proc cfg-node-addr {it} {
 proc cfg-show-field {addr} {
     if {![dict exists $::cfg_fitem $addr]} return
     set it [dict get $::cfg_fitem $addr]
+    # an icon cell re-dresses WHOLE: the thumbnail and the resolved
+    # path answer the value just typed, not only its text
+    if {[cfg-field? $addr] && [lindex [cfg-kind-of $addr] 0] eq "icon"} {
+        cfg-field-dress $::cfg_T $it $addr [cfg-field-meta $addr]
+        return
+    }
     $::cfg_T item element configure $it Cval eVal \
         -text [cfg-value-text $addr [cfg-cur $addr]]
     # keep whatever mark the linter left standing: this is the quick

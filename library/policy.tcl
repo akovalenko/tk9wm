@@ -9014,7 +9014,7 @@ proc spec-check {who name settings} {
 proc spec-fields {name} {
     set editor {words list  commands list  envdict dict  beastdict dict
                 subspec dict  chord chord  script text  predicate text
-                icon text  text text  rows list}
+                icon icon  text text  rows list}
     set out {}
     dict for {k meta} [spec-table $name] {
         set kind [dict get $meta kind]
