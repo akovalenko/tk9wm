@@ -7444,28 +7444,137 @@ proc emacs-activate {spec w} {
 # the socket is dead, the honest outcome is its error in the log. The
 # guard reaps a connection that answers nothing: a wedged daemon must
 # not leak channels, and must say so.
+# ---- which editor, and through which door ----
+# HOW THIS DESK WALKS AN EDITOR INTO A FILE — one default for every
+# «open it» the desk offers, resolved the way the terminal is: a
+# chain with its sources said out loud, cached until a reload, one
+# log line naming what was picked and on whose word. Unsaid, the door
+# is emacs when this machine has one — the door rides emacsclient,
+# but «is there an emacs here» is the question, so both halves are
+# asked — else an editor in a terminal.
+keep edit_door {}          ;# the config's word: emacs | terminal; {} = pick here
+keep edit_door_found {}    ;# the resolution, cached: {door argv source}
+proc set-edit-door {how} {
+    set ::edit_door $how
+    set ::edit_door_found {}
+}
+# The terminal door's editor — a chain with an attribution each: the
+# user's own word first ($VISUAL outranks $EDITOR, the order
+# sensible-editor itself reads them in; either may carry arguments),
+# then sensible-editor — Debian's, and it honors a select-editor
+# choice this desk has no window into — then a plain hunt. A word
+# naming a binary this machine lacks falls through with a line, the
+# way $TERMINAL does. xedit closes the hunt and is its own X11
+# window: the third element says so, and the door opens it bare
+# rather than wrap a GUI in a terminal it never asked for.
+proc editor-resolve {} {
+    foreach var {VISUAL EDITOR} {
+        if {![info exists ::env($var)] || $::env($var) eq ""} continue
+        set argv [regexp -all -inline {\S+} $::env($var)]
+        if {[auto_execok [lindex $argv 0]] eq ""} {
+            puts "WM: edit door: \$$var names [lindex $argv 0] — no such\
+ binary in PATH"
+            continue
+        }
+        return [list $argv "\$$var" 0]
+    }
+    foreach ed {sensible-editor vim vi mcedit nano} {
+        if {[auto_execok $ed] ne ""} { return [list [list $ed] probed 0] }
+    }
+    if {[auto_execok xedit] ne ""} { return [list xedit probed 1] }
+    return {}
+}
+# The resolution: what the desk WOULD open, and on whose word —
+# «emacs (found)» is a promise about this machine, «vim ($EDITOR)»
+# somebody's environment. A said `emacs` stands even with no emacs
+# here: the user said it, and the honest outcome is emacsclient's own
+# error at the moment of opening, not a silent detour. Cached like
+# the terminal's verdict — PATH does not move under a desk
+# mid-session, and when it does, a reload re-asks.
+proc edit-door-resolve {} {
+    if {$::edit_door_found ne ""} { return $::edit_door_found }
+    set found {}
+    if {$::edit_door eq "emacs"
+            || ($::edit_door eq "" && [auto_execok emacs] ne ""
+                && [auto_execok emacsclient] ne "")} {
+        set found [list emacs {} [expr {$::edit_door eq "emacs"
+                                        ? "set-edit-door" : "found"}]]
+    } else {
+        set r [editor-resolve]
+        if {[llength $r]} {
+            lassign $r argv source bare
+            set found [list [expr {$bare ? "bare" : "terminal"}] $argv $source]
+        }
+    }
+    if {$found eq ""} {
+        puts "WM: edit door: no editor anywhere — set-edit-door, \$EDITOR,\
+ or install one (sensible-editor vim vi mcedit nano xedit)"
+        set found {none {} none}
+    } else {
+        puts "WM: edit door: [edit-door-name $found]"
+    }
+    set ::edit_door_found $found
+    return $found
+}
+# The verdict as one line — the log's and, while the knob is unsaid,
+# the tree's derived answer.
+proc edit-door-name {found} {
+    lassign $found door argv source
+    switch -- $door {
+        emacs    { return "emacs ($source)" }
+        terminal { return "[lindex $argv 0] ($source), in a terminal" }
+        bare     { return "[lindex $argv 0] ($source), its own window" }
+    }
+    return ""
+}
+proc edit-door-derived {} { edit-door-name [edit-door-resolve] }
 # OPENING THE LINE THAT SAYS IT. A config is a file a person writes by
 # hand, so «where is this said» deserves a way to get there (the
 # owner, 2026-08-02). Only the CONFIG's own lines are ever offered:
 # the custom file is written by click, and nobody opens it to edit.
-# Both doors are the desk's existing ones — an emacs frame of ours,
-# or $EDITOR in whatever terminal the desk was told to use — so a
-# machine with neither says so instead of failing silently.
+# All doors are the desk's existing ones — an emacs frame of ours, or
+# an editor in whatever terminal the desk was told to use — so a
+# machine with none says so instead of failing silently. `door` is
+# the desk's own pick (set-edit-door and the resolution above); the
+# named doors stay for a caller that means one in particular.
 proc edit-place {how file line} {
     if {![string is integer -strict $line] || $line < 1} {
         error "edit-place: $line is not a line number"
     }
     switch -- $how {
+        door {
+            lassign [edit-door-resolve] door argv
+            switch -- $door {
+                emacs    { emacs-edit-open $file $line }
+                terminal { edit-in-terminal $argv $file $line }
+                bare     { exec {*}$argv $file & }
+                none     { error "no way to edit — set-edit-door,\
+ \$EDITOR, or install an editor" }
+            }
+        }
         emacs { emacs-edit-open $file $line }
         terminal {
-            set ed [expr {[info exists ::env(EDITOR)] && $::env(EDITOR) ne ""
-                          ? $::env(EDITOR) : "vi"}]
-            spawn-terminal-run [dict create name tk9wm-edit \
-                title "$ed [file tail $file]"] [list $ed +$line $file]
+            set r [editor-resolve]
+            if {![llength $r]} {
+                error "no editor for a terminal — \$EDITOR, or install one"
+            }
+            lassign $r argv - bare
+            if {$bare} { exec {*}$argv $file & } else {
+                edit-in-terminal $argv $file $line
+            }
         }
-        default { error "edit-place: emacs or terminal, not $how" }
+        default { error "edit-place: door, emacs or terminal, not $how" }
     }
     return
+}
+# The line rides `+N` — the dialect vi, vim, nano, mcedit and
+# emacsclient share, and what sensible-editor passes through. The
+# bare branch above drops it instead: xedit has no line word, and a
+# `+7` handed to it would be read as a file to open.
+proc edit-in-terminal {argv file line} {
+    spawn-terminal-run [dict create name tk9wm-edit \
+        title "[lindex $argv 0] [file tail $file]"] \
+        [concat $argv [list +$line $file]]
 }
 # ---- the edit door ----
 # «Open this file, at this line» is a different verb from «the telega
@@ -11648,6 +11757,10 @@ knob set-edge-resist {var {edge_resist} settle {} group windows kind {int 0} get
                       doc {pixels a carried window sticks to a workarea edge}}
 knob set-fade        {var {fade} settle {} group windows kind {float 0 1} get {set ::fade}
                       doc {how solid a faded window stays}}
+knob set-edit-door   {var {edit_door} settle {} group desk kind {choice emacs terminal}
+                      get {set ::edit_door}
+                      derived {edit-door-derived}
+                      doc {how a file opens to edit — emacs, or an editor in a terminal}}
 knob set-root-cursor {var {root_cursor} settle {cursor} group desk kind text get {set ::root_cursor}
                       doc {the cursor over the bare desk}}
 knob set-desk-window {var {desk_window} settle {desk-window} group desk kind bool
@@ -13247,6 +13360,7 @@ set config_vars {
     tray_panel
     terminal_choice terminal_found emacs_frames emacs_daemons emacs_autodaemon
     emacs_edit emacs_edit_daemon emacs_keep_frame_name
+    edit_door edit_door_found
     welcome key_bundles action_raw action_spec action_lint menus
     menu_griped winops_actions winops_items
 }
