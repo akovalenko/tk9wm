@@ -8868,25 +8868,26 @@ spec-keys action {
     run      {kind words     xor launch  face launch
               doc {raw argv — sugar for a launch that says Run}}
     launch   {kind script    xor run
-              doc {a Tcl script, run when the deed fires}}
-    match    {kind predicate doc {which window counts as already-running}}
-    activate {kind script    doc {what a found window gets instead of the focus}}
+              doc {a Tcl script, run when the action fires — a plain command is «Run word word…»}}
+    match    {kind predicate doc {a Tcl predicate, asked per window id — which window counts as already-running}}
+    activate {kind script    doc {run on the found window instead of just focusing it — for raises that need ceremony}}
     many     {kind {choice mru choose}
               doc {what the CHORD does with several windows — the button has both}}
     icon     {kind icon      doc {a face, for whatever panel carries it}}
     badge    {kind text
-              doc {a letter or two laid over the icon — one picture, many deeds}}
+              doc {a letter or two laid over the icon — one picture, many actions}}
     key      {kind chord     doc {the chord that does it — panel or no panel}}
-    needs    {kind commands  doc {commands this deed waits for}}
-    style    {kind text      doc {a style rule for the windows it finds}}
-    env      {kind envdict   doc {environment around the launch}}
+    needs    {kind commands  doc {commands that must exist in PATH — the action waits until they do}}
+    style    {kind text      doc {a wm-style rule laid on the windows this action matches — not the button's look}}
+    env      {kind envdict   doc {environment for the process the launch starts}}
     env-unset {kind words
               doc {variables the launch must NOT have — absent, not empty}}
     dir      {kind text
               doc {the working directory — env -C around whatever Run starts}}
     terminal {kind subspec of terminal empty value
-              doc {settings for a terminal deed — the type may say it alone}}
-    emacs    {kind subspec of emacs    doc {do it in emacs}}
+              doc {settings for a terminal action — saying this word, even empty, is what makes it one}}
+    emacs    {kind subspec of emacs
+              doc {do it in emacs — saying this word is what makes the action an emacs one}}
 }
 spec-keys terminal {
     name  {kind text      doc {the window's name — the WM_CLASS instance}}
@@ -8895,7 +8896,8 @@ spec-keys terminal {
     fg    {kind text      doc {the ink, any Tk colour — the beast's own dialect}}
     env   {kind envdict   doc {environment for the terminal process itself}}
     env-unset {kind words doc {variables it must NOT have — absent, not empty}}
-    args  {kind beastdict doc {beast-keyed extras, applied verbatim}}
+    args  {kind beastdict
+           doc {extra argv per emulator, keyed by its name (kitty, xterm, …) — applied verbatim}}
 }
 spec-keys emacs {
     daemon     {kind text doc {which daemon (-s); unsaid is the default one}}
@@ -8915,7 +8917,7 @@ config-node {@spec menu} {node dict merge merges}
 spec-keys menu {
     key   {kind chord doc {the chord that opens it}}
     items {kind rows  xor body
-           doc {the rows — action references, or label+do pairs}}
+           doc {the rows, written down — action references, or label+do pairs}}
     body  {kind script xor items
            doc {a script asked for the rows at open time}}
     place {kind text
@@ -11768,7 +11770,7 @@ proc collection-fields {name} { config-nodes-under [list $name @] }
 # kinds onto this tree's editors).
 collection actions [list \
     key name ordered no insert {an action} \
-    doc {named deeds — run-or-raise by name, prior to any button} \
+    doc {named deeds — run-or-raise by name; a panel button is a reference to one} \
     list collection-actions \
     fields [spec-fields action]]
 collection panel {
@@ -11788,7 +11790,7 @@ collection bindings {
     list collection-bindings
     fields {
         script {kind text lint script doc {what the chord runs}}
-        name   {kind text doc {how the help list names it}}
+        name   {kind text doc {how the key-help overlay names it — display only}}
     }
 }
 collection widgets {
@@ -11798,8 +11800,8 @@ collection widgets {
     fields {
         -type    {kind choice choices-from types
                   doc {what the widget IS — see wm-widget-type}}
-        -on      {kind text doc {workarea, screen, or panel NAME}}
-        -place   {kind text doc {edge words of the place grammar}}
+        -on      {kind text doc {which surface hosts it — workarea, screen, or a panel's name}}
+        -place   {kind text doc {where on its surface — [SIZE]EDGE words: 50%right, center, top left}}
         -padding {kind int  doc {air inside the container, px}}
     }
 }
