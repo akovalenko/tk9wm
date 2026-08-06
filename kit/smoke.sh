@@ -61,9 +61,12 @@ printf 'applet about\n' > "$HERE/smoke-config/q.tcl"
 "${TCLKIT:-$1}" "$ROOT/tools/send-eval.tcl" tk9wm \
     "$HERE/smoke-config/q.tcl" >/dev/null 2>&1 || true
 sleep 3
-printf 'tk::pkgconfig get fontsystem\n' > "$HERE/smoke-config/q.tcl"
-HOSTFS=$("${TCLKIT:-$1}" "$ROOT/tools/send-eval.tcl" tk9wm-ui \
+printf 'list [tk::pkgconfig get fontsystem] [ttk::style theme use]\n' \
+    > "$HERE/smoke-config/q.tcl"
+HOSTANS=$("${TCLKIT:-$1}" "$ROOT/tools/send-eval.tcl" tk9wm-ui \
     "$HERE/smoke-config/q.tcl" 2>/dev/null || true)
+HOSTFS=${HOSTANS%% *}
+HOSTTHEME=${HOSTANS##* }
 # read the client's liveness BEFORE we kill it ourselves — asking after
 # is asking about our own handiwork (it read as a failed restart)
 kill -0 $CL 2>/dev/null && CLIENT_ALIVE=yes || CLIENT_ALIVE=no
@@ -102,6 +105,11 @@ if [ "$HOSTFS" = xft ]; then
 else
     echo "FAIL: the ui host's font engine is «$HOSTFS», not xft"
 fi
+case "$HOSTTHEME" in
+    aw*) echo "OK: the applets wear awthemes ($HOSTTHEME)" ;;
+    *)   echo "FAIL: the applets wear «$HOSTTHEME» — awthemes did not\
+ arrive (clam is the batteryless fallback)" ;;
+esac
 if grep -q 'handler error' "$HERE/smoke-wm.log"; then
     echo "FAIL: handler errors:"; grep 'handler error' "$HERE/smoke-wm.log"
 fi

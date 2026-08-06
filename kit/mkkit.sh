@@ -31,8 +31,9 @@ for v in TCLKIT SDX; do
     fi
 done
 if [ ! -f "$SO/libtkwmx.so" ] || [ ! -d "$SO/treectrl" ] \
-	|| [ ! -f "$SO/libtcl9tk9.0.so" ] || [ ! -d "$SO/tk9.0" ]; then
-    echo "mkkit.sh: no binary parts in $SO — run ./kit/so.sh first" >&2
+	|| [ ! -f "$SO/libtcl9tk9.0.so" ] || [ ! -d "$SO/tk9.0" ] \
+	|| [ ! -d "$SO/awthemes" ]; then
+    echo "mkkit.sh: missing parts in $SO — run ./kit/so.sh first" >&2
     exit 2
 fi
 
@@ -59,6 +60,11 @@ EOF
 
 # treectrl, as whalebuild's `so` command laid it out, index included
 cp -a "$SO/treectrl" "$VFS/lib/"
+
+# awthemes, as whalebuild's image carries it — the applets' ttk dress;
+# the ui host asks for awdark/awlight and settles for clam otherwise,
+# which is a settlement the dark scheme cannot afford
+cp -a "$SO/awthemes" "$VFS/lib/"
 
 # Tk — our own shared Xft build: the .so and its script library in one
 # package directory. The index makes lib/tk9.0 normal for whoever else

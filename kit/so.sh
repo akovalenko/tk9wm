@@ -1,6 +1,8 @@
 #!/bin/sh
-# so.sh — build the binary parts a kit needs, as stubs-linked shared
-# libraries: Tk itself, the tkwmx shim and treectrl.
+# so.sh — collect the parts a kit needs beyond the tk9wm library
+# itself: Tk, the tkwmx shim and treectrl as stubs-linked shared
+# libraries, and awthemes, which is no binary at all but comes from
+# the same place.
 #
 # Both are built INSIDE whalebuild's container box, and that is the
 # whole point rather than a convenience. The box holds an old userland
@@ -34,6 +36,15 @@ mkdir -p "$OUT"
 ( cd "$WHALEBUILD" && ./cbuild.sh linux so treectrl )
 rm -rf "$OUT/treectrl"
 cp -a "$WHALEBUILD/work-linux/linux/so/treectrl" "$OUT/"
+
+# awthemes — the ttk themes the applets wear (awdark/awlight; without
+# them the ui host falls back to clam, and dark-on-clam is a sight
+# nobody should be shown twice). Pure script, so there is nothing to
+# build: whalebuild's image layout already holds the package pruned
+# and indexed, and the kit takes it as laid out. The scalable
+# variants' svg is rendered by Tk 9's own nanosvg — no tksvg to carry.
+rm -rf "$OUT/awthemes"
+cp -a "$WHALEBUILD/work-linux/linux/vfs/lib/awthemes" "$OUT/"
 
 # Tk itself, shared, stubs-linked, Xft — the reason the kit line
 # breathes again: a stock tclkit draws core X fonts, so the kit brings
