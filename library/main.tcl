@@ -51,7 +51,23 @@ proc config-dir {} {
 proc config-path {} {
     set conf [file join [config-dir] tk9wm.tcl]
     if {![file exists $conf]} {
-        set conf [file join $::tk9wm_library default-config.tcl]
+        # FIRST RUN MATERIALIZES THE SAMPLE (the owner, 2026-08-06).
+        # The annotated default-config is every knob's documentation,
+        # and read in place from the library it left the user nothing
+        # to edit: the natural next move — open ~/.config/tk9wm.tcl
+        # and uncomment something — found no file there. The copy
+        # changes no behavior at all (the sample is all comment, a
+        # deliberate no-op), it only puts the crib where the editing
+        # will happen. A desk that cannot write there keeps the old
+        # fallback and reads the library's copy in place.
+        set sample [file join $::tk9wm_library default-config.tcl]
+        if {[catch {
+            file mkdir [config-dir]
+            file copy $sample $conf
+        }]} {
+            return $sample
+        }
+        puts "WM: config: first run — $conf written from the sample"
     }
     return $conf
 }
@@ -69,8 +85,6 @@ proc load-config {} {
     set ::layer_knobs {}   ;# a fresh load cycle starts here
     set ::layer_where {}   ;# ...and so does what it knows about lines
     set conf [config-path]
-    set ::config_is_default \
-        [string equal $conf [file join $::tk9wm_library default-config.tcl]]
     lassign [layer-source config $conf] code err info
     if {$code} {
         puts "WM: config $conf FAILED: $err — running on what it managed to set"

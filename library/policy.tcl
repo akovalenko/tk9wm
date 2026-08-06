@@ -13028,7 +13028,7 @@ keep welcome_presets {
         {panel-buttons-own default}
         {set-tray on}
         {wm-widget clock -type clock -on {panel default} -place {right vcenter}}
-        {action terminal {type terminal key {<Super>t t}}}
+        {action terminal {terminal {name terminal} key {<Super>t t}}}
         {action emacs {emacs {frame tk9wm-frame} needs emacs key {<Super>t e}}}
         {action tmux {terminal {name tmux title tmux}
                       run {sh -c {tmux attach || tmux new}}
@@ -13049,11 +13049,16 @@ keep welcome_presets {
 # second press finds the first press's window. No eval — the button
 # opens emacs, it does not tell emacs what to think.
 #
-# The plain terminal says `type terminal` OUTRIGHT rather than leaning
-# on the sugar of an empty `terminal {}` (the owner, 2026-08-02). The
-# sugar is not going anywhere — his own config is full of it — but
-# what the desk WRITES for somebody is also the example they will read
-# and copy, and the word we recommend is the word it should show.
+# The terminal button says a NAME (the owner, 2026-08-06): nameless,
+# its match is the any-emulator predicate, and a button meant to be
+# «my shell» would light up for a tmux in a plain xterm, an ssh
+# window — every terminal-shaped thing on the desk. Named, the
+# emulator is spawned wearing `terminal` as its WM_CLASS instance and
+# the match narrows to exactly the windows this button opened. It is
+# also the better example to copy — what the desk WRITES for somebody
+# is the idiom they will read and reuse, and the name idiom is the
+# one that keeps buttons from swallowing each other. The catch-all
+# `terminal {}` stays a legal word for whoever wants exactly that.
 #
 # The tmux button says a TITLE as well as a name, because the two are
 # different marks and only one of them derives itself. A terminal

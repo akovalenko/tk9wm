@@ -1,10 +1,12 @@
 #!/bin/sh
-# Regression for the customization layer: config resolution (XDG →
-# project default-config), the increments knob on style predicates, and
-# the dev-preset knobs (bold font, centered title).
+# Regression for the customization layer: config resolution (XDG,
+# with the annotated sample materialized on first run), the increments
+# knob on style predicates, and the dev-preset knobs (bold font,
+# centered title).
 #
-# Phase A, no user config: the project default-config is sourced (a
-# deliberate no-op), so increments are respected — the gridded client
+# Phase A, no user config: the first run copies the project sample to
+# the XDG path and sources it there (a deliberate no-op either way),
+# so increments are respected — the gridded client
 # (inc 10x10, base 0, natural 300x200) dragged +37 on the right edge
 # lands SNAPPED at 330. Phase B, XDG_CONFIG_HOME points at the dev
 # preset (ignore increments, bold centered titles): the same drag lands
@@ -144,8 +146,9 @@ case "$BADSTATE" in
     *"path 2"*) echo "OK: ...both components are still in the path" ;;
     *) echo "FAIL: the path was shortened behind the config's back"; FAIL=1 ;;
 esac
-if grep -q 'WM: config .*default-config\.tcl$' "$HERE/wm-config-A.log"; then
-    echo "OK: phase A fell back to the project default-config"
+if grep -q 'first run — .*tk9wm\.tcl written from the sample' "$HERE/wm-config-A.log" \
+        && grep -q 'WM: config .*empty/tk9wm\.tcl$' "$HERE/wm-config-A.log"; then
+    echo "OK: phase A materialized the sample as the user config — a no-op still"
 else
     echo "FAIL: phase A config line: $(grep '^WM: config' "$HERE/wm-config-A.log")"
 fi

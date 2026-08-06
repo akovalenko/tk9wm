@@ -160,13 +160,16 @@ WELCOME=$(qf 'dict exists $::widgets __welcome')
 # layer, so a key nobody registered would die at apply time and leave
 # the desk half furnished. It is also the EXAMPLE a first-time user
 # reads afterwards, which is why two of its words are the way they are
-# (the owner, 2026-08-02): the plain terminal says `type terminal`
-# outright instead of leaning on the empty-dict sugar, and the tmux
-# button carries a title of its own — a terminal left to name its
-# window takes the command's first word, and that word is `sh`.
+# (the owner, 2026-08-06): the terminal button carries a NAME, so its
+# match is its own windows and not the any-emulator catch-all (a tmux
+# in a plain xterm is not «my shell»), and the tmux button carries a
+# title of its own — a terminal left to name its window takes the
+# command's first word, and that word is `sh`.
 qf 'welcome-preset minimal' >/dev/null
 sleep 0.5
 PRESET=$(qf 'list type [action-type [dict get $::action_raw terminal]] \
+    name [expr {[dict exists $::action_raw terminal terminal name]
+                ? [dict get $::action_raw terminal terminal name] : "none"}] \
     title [expr {[dict exists $::action_raw tmux terminal title]
                  ? [dict get $::action_raw tmux terminal title] : "none"}] \
     actions [expr {[dict exists $::action_raw terminal]
@@ -234,8 +237,18 @@ if [ "$WELCOME" = 1 ]; then
 else
     echo "FAIL: no welcome widget on the fresh desk"
 fi
-if [ "$PRESET" = "type terminal title tmux actions 1" ] && [ "$PRESETFILE" = 3 ]; then
-    echo "OK: the starter set applied whole, and says its type and title outright"
+# ...and the first run put the annotated sample where the editing
+# will happen — a real file, all comment, changing nothing
+if grep -q 'first run — .*tk9wm.tcl written from the sample' "$HERE/wm-fresh.log" \
+        && [ -s "$HERE/custom-fresh/tk9wm.tcl" ] \
+        && ! grep -qv '^#\|^$' "$HERE/custom-fresh/tk9wm.tcl"; then
+    echo "OK: the first run materialized the sample config, and it is a no-op"
+else
+    echo "FAIL: no materialized sample on the fresh desk"
+fi
+if [ "$PRESET" = "type terminal name terminal title tmux actions 1" ] \
+        && [ "$PRESETFILE" = 3 ]; then
+    echo "OK: the starter set applied whole — a named terminal, a titled tmux"
 else
     echo "FAIL: the starter set: {$PRESET}, action lines written: $PRESETFILE"
 fi
