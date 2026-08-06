@@ -814,6 +814,10 @@ proc set-prop-utf8 {win prop str} {
 # the whole setup (measured, the first run of this).
 keep ndesks 1                ;# 1 = the mechanism is off
 keep desk 0                  ;# where we are
+keep adopting 0              ;# the startup sweep is framing the desk back
+keep adopt_prev 0            ;# ...and the window it showed last (the next seats under it)
+keep releasing 0             ;# a restart/quit is releasing every client at once
+keep prev_active 0           ;# what the PREVIOUS instance held active (see below)
 
 unless-already {[info exists ::wmcheck]} {if {[catch {
     set NET_CHECK     [x-intern _NET_SUPPORTING_WM_CHECK]
@@ -892,7 +896,19 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     # _NET_ACTIVE_WINDOW is load-bearing for Wine 10+: it derives its
     # foreground from this root property, and its focus-stealing guard
     # judges our WM_TAKE_FOCUS invitations against that foreground —
-    # kept honest by paint-focus below
+    # kept honest by paint-focus below.
+    #
+    # ...but READ FIRST: across a restart the property still says what
+    # the desk had active, and adoption's one focus decision wants
+    # exactly that (policy-adopt-settled). Inline rather than
+    # read-prop-long — that proc is defined further down and this
+    # block runs at source time.
+    catch {
+        lassign [x-prop-get $root $NET_ACTIVE] _pa_type _pa_fmt _pa_val
+        if {$_pa_fmt eq "32" && [llength $_pa_val]} {
+            set prev_active [lindex $_pa_val 0]
+        }
+    }
     set-prop-longs $root $NET_ACTIVE 33 [list 0]
     # One desktop, no viewport, and we say so rather than staying
     # silent: a client that finds _NET_NUMBER_OF_DESKTOPS missing has
@@ -2806,8 +2822,11 @@ proc unmanage {w {dead 0}} {
     if {![info exists ::managed($w)]} return
     # Decide the refocus candidate BEFORE the teardown: the policy's pick
     # rests on facts it keeps per-frame (the dialog's leader, the focus
-    # history) and policy-detach cleans those up.
-    set refocus [policy-pick-refocus $w]
+    # history) and policy-detach cleans those up. When the whole desk
+    # is being released at once there is nothing to pick — every
+    # candidate is about to go the same way (the pre-restart log showed
+    # a focus handed to a window unmanaged two lines later).
+    set refocus [expr {$::releasing ? 0 : [policy-pick-refocus $w]}]
     # Give the client window back to root BEFORE destroying the frame:
     # the client lives INSIDE the frame's slot, and destroying a Tk
     # toplevel destroys its whole X subtree — this used to kill an
@@ -2828,13 +2847,13 @@ proc unmanage {w {dead 0}} {
             # back in adopt-existing.
             set-wm-state $w [expr {[info exists ::iconic($w)] ? 3 : 0}]
             x-reparent $w $::root $x $y
-            x-sync 0
+            if {!$::releasing} { x-sync 0 }   ;# the sweep syncs once
         }
     }
     policy-detach $w
     unset ::managed($w)
     unset -nocomplain ::wrapof($w)
-    publish-client-list
+    if {!$::releasing} { publish-client-list }
     icon-invalidate $w
     unset -nocomplain ::iconic($w) ::fullscreen($w) ::skip_unmap($w)
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
@@ -2849,6 +2868,11 @@ proc unmanage {w {dead 0}} {
     }
     if {$::invited == $w} { set ::invited 0 }
     puts "WM: unmanaged 0x[format %x $w], frame destroyed"
+    # The whole-desk release skips the focus repair below too: N
+    # windows would run N server round trips and hand the focus to N-1
+    # doomed candidates in turn, all a beat before the exec (or the
+    # exit) throws the lot away.
+    if {$::releasing} return
     # Refocus not only when OUR records say the dead window was focused:
     # a client may have grabbed focus behind our back (focus -force) and
     # died — then the server reverts to a dead end (None, PointerRoot, or
@@ -4515,6 +4539,7 @@ proc handle-key {state kc time} {
 proc adopt-existing {} {
     set tree [x-query-tree $::root]
     if {![llength $tree]} return
+    set found {}    ;# {w iconic width height viewable}, bottom first
     foreach w [lindex $tree 2] {
         if {[info exists ::managed($w)]} continue
         # A window OF OURS is not a client to adopt: the frames, the
@@ -4550,18 +4575,45 @@ proc adopt-existing {} {
         set wmstate [read-prop-long $w $::WM_STATE]
         set iconic [expr {$wmstate == 3}]
         if {[dict get $at map-state] ne "viewable" && !$iconic} continue
-        set aw [dict get $at width]; set ah [dict get $at height]
-        set ::geomof($w) [list $aw $ah]
-        # Reparenting a MAPPED window generates an UnmapNotify we must
-        # not mistake for the client withdrawing itself. An unmapped one
-        # does not, and counting an echo that never comes would swallow
-        # the next genuine withdrawal instead.
-        if {[dict get $at map-state] eq "viewable"} { incr ::skip_unmap($w) }
-        puts "WM: adopting existing window 0x[format %x $w] (${aw}x${ah})[
-            expr {$iconic ? { — minimized, and staying that way} : {}}]"
-        # The intent goes IN, so manage can skip the initial-focus
-        # decision rather than make it and take it back.
-        manage $w $iconic
+        lappend found [list $w $iconic \
+            [dict get $at width] [dict get $at height] \
+            [expr {[dict get $at map-state] eq "viewable"}]]
+    }
+    if {![llength $found]} return
+    # TOPMOST FIRST — the tree came bottom-first — and under the
+    # ::adopting flag: the model seats each arrival at the bottom and
+    # frame-show seats its frame under the one shown before it, so the
+    # desk reassembles BEHIND its own top window. The desk switch's
+    # cure, applied to the restart: reframing bottom-up gave every
+    # window a raise and a focus apiece, each on the glass (the owner,
+    # 2026-08-06: «адское мигание всего»). The one focus decision
+    # waits for the sweep's end.
+    set ::adopting 1
+    set ::adopt_prev 0
+    try {
+        foreach f [lreverse $found] {
+            lassign $f w iconic aw ah viewable
+            set ::geomof($w) [list $aw $ah]
+            # Reparenting a MAPPED window generates an UnmapNotify we
+            # must not mistake for the client withdrawing itself. An
+            # unmapped one does not, and counting an echo that never
+            # comes would swallow the next genuine withdrawal instead.
+            if {$viewable} { incr ::skip_unmap($w) }
+            puts "WM: adopting existing window 0x[format %x $w] (${aw}x${ah})[
+                expr {$iconic ? { — minimized, and staying that way} : {}}]"
+            # The intent goes IN, so manage can skip the initial-focus
+            # decision rather than make it and take it back.
+            manage $w $iconic
+        }
+    } finally {
+        set ::adopting 0
+        set ::adopt_prev 0
+    }
+    # ...and the focus, ONCE: to what the desk had active before the
+    # restart (read off the root before our announce zeroed it), else
+    # to the top. A substrate running bare has no policy to settle.
+    if {[llength [info commands policy-adopt-settled]]} {
+        soft "settle the adopted focus" { policy-adopt-settled $::prev_active }
     }
 }
 
@@ -4606,8 +4658,7 @@ unless-already {[llength [info commands ::tk9wm-real-exit]]} \
     {rename ::exit ::tk9wm-real-exit}
 proc ::exit {{code 0}} {
     soft "release the tray on exit" { tray-stop "the window manager is exiting" }
-    soft "release clients on exit" \
-        { foreach w [array names ::managed] { unmanage $w } }
+    soft "release clients on exit" { release-all-clients }
     ::tk9wm-real-exit $code
 }
 
@@ -4656,6 +4707,31 @@ proc reexec-head {} {
     return [list $exe $::argv0]
 }
 
+# Release the whole desk, BOTTOM of the stack first: a reparent back
+# to root puts a window on top of the root's children, so releasing in
+# stacking order leaves the tree carrying the old order for the next
+# instance to read back — the hash order this used to walk shuffled
+# the desk on every restart (measured 2026-08-06: eight windows came
+# back stacked by release order, the active one wherever it fell).
+# Under ::releasing the per-window ceremonies stand down (refocus
+# pick, focus repair, client-list, sync) — one of each for the sweep.
+proc release-all-clients {} {
+    set order {}
+    if {[llength [info commands client-stacking]]} {
+        set order [client-stacking]
+    }
+    foreach w [array names ::managed] {
+        if {$w ni $order} { lappend order $w }
+    }
+    set ::releasing 1
+    try {
+        foreach w $order { unmanage $w }
+    } finally {
+        set ::releasing 0
+    }
+    publish-client-list
+}
+
 proc restart-wm {} {
     set head [reexec-head]
     # Look before letting go. If what execv needs has moved or been
@@ -4678,8 +4754,7 @@ proc restart-wm {} {
     # The tray goes back to the root the same way the clients do; the
     # fresh instance announces itself and every icon docks again.
     soft "release the tray on restart" { tray-stop "the window manager is restarting" }
-    soft "release clients on restart" \
-        { foreach w [array names ::managed] { unmanage $w } }
+    soft "release clients on restart" { release-all-clients }
     soft "sync before exec" { x-sync 0 }
     # -replace, even when we were not started with it, and for a reason
     # that only appeared once we owned WM_S<n>: execv keeps the PID but
@@ -4775,8 +4850,7 @@ unless-already {[info exists ::orphans]} { adopt-orphans }
 proc quit-wm {} {
     puts "WM: quit requested — releasing clients and leaving"
     soft "release the tray on quit" { tray-stop "the window manager is quitting" }
-    soft "release clients on quit" \
-        { foreach w [array names ::managed] { unmanage $w } }
+    soft "release clients on quit" { release-all-clients }
     soft "sync before exit" { x-sync 0 }
     puts "WM: bye"
     exit 0

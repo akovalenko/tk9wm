@@ -1468,6 +1468,16 @@ proc policy-attach {w cw ch} {
     lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $top + $B}]] X Y
     toplevel $t -background [themed focus]
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
+    # Born WITHDRAWN, shown by frame-show once the client is seated
+    # inside: the flush below used to map the frame right here — an
+    # empty, focus-colored rectangle on the glass a beat before its
+    # client arrived, one blink per window and a storm of them on a
+    # restart (the owner, 2026-08-06). A window arriving minimized or
+    # on another desk now never shows at all, where it used to flash
+    # once before hiding. The withdrawn toplevel's children still get
+    # their server-side windows (winfo id at the end), so the reparent
+    # has its slot either way — measured, not assumed.
+    wm withdraw $t
     # The decoration underlay: a canvas filling the whole frame, drawn
     # below every other child (created first — sibling stacking is
     # creation order). It paints the border background, the 1px outline
@@ -2586,11 +2596,53 @@ proc policy-client-click {w} {
 
 # A newly managed window is raised with its group — a fresh dialog pulls
 # its leader up right under itself, fvwm-style — and gets the focus.
+# The frame's FIRST appearance: built withdrawn (policy-attach), it
+# goes on the glass only here — client seated, title drawn, dressed
+# whole. A window arriving minimized or on another desk simply never
+# shows. During the adoption sweep each frame is seated UNDER the one
+# shown before it — the desk switch's own cure, so the desk
+# reassembles behind its top window — and the flush waits for the
+# sweep's end; the ordinary path flushes NOW, because a focus lands
+# right after and a focus on a window the server has not mapped yet
+# is refused (policy-deiconified's lesson).
+proc frame-show {w} {
+    if {![info exists ::frameof($w)] || [info exists ::iconic($w)]
+            || ![desk-here-p $w]} return
+    set t $::frameof($w)
+    wm deiconify $t
+    if {$::adopting} {
+        if {$::adopt_prev != 0 && [info exists ::frameof($::adopt_prev)]} {
+            lower $t $::frameof($::adopt_prev)
+        }
+        set ::adopt_prev $w
+    } else {
+        update idletasks
+    }
+}
 proc policy-managed {w} {
-    stack-add $w         ;# into the stacking model, at the top of its layer
+    if {$::adopting} {
+        # The adoption sweep walks TOPMOST FIRST (adopt-existing), so
+        # the model seats each arrival at the BOTTOM — the same
+        # arithmetic the desk switch runs, and the restack at the end
+        # finds nothing left to move.
+        lower-group $w
+    } else {
+        stack-add $w     ;# into the stacking model, at the top of its layer
+    }
     client-layer-declare $w
     client-desk-declare-and-paint $w
-    raise-group $w
+    if {!$::adopting} { raise-group $w }
+    frame-show $w
+    if {$::adopting} {
+        # No focus per adopted window: framing bottom-up used to hand
+        # the highlight to every window in turn and leave it with the
+        # LAST arrival, whatever was active before the restart. The
+        # sweep hands the focus out once, at its end
+        # (policy-adopt-settled).
+        apply-opacity $w
+        panel-match-kick
+        return
+    }
     # A newcomer does not steal the focus from a STANDING QUESTION —
     # it takes it FOR LATER (the owner, 2026-08-05): seated right
     # behind the box in the focus history, so answering or cancelling
@@ -2614,6 +2666,29 @@ proc policy-managed {w} {
     focus-to $w
     apply-opacity $w
     panel-match-kick
+}
+# The adoption sweep's ONE focus decision, after every frame is up:
+# the window the desk had active before the restart — the previous
+# instance's _NET_ACTIVE_WINDOW, read off the root before this
+# instance zeroed it — else the topmost thing that can take a focus.
+# Candidates pass the same test a refocus applies: alive, on this
+# desk, not minimized.
+proc policy-adopt-settled {act} {
+    update idletasks     ;# every frame the sweep queued is on the glass
+    set ::focus_by_policy 1
+    if {$act ne "" && $act != 0 && [refocus-ok $act 0]} {
+        puts "WM: adoption settled — focus back to 0x[format %x $act]"
+        focus-to $act
+        return
+    }
+    foreach w [lreverse [client-stacking]] {
+        if {[refocus-ok $w 0]} {
+            puts "WM: adoption settled — focus to the top (0x[format %x $w])"
+            focus-to $w
+            return
+        }
+    }
+    puts "WM: adoption settled — nothing to focus"
 }
 
 # Refocus pick after w's unmanage (the smsrc observation: an unpatched
