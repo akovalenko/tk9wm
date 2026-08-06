@@ -989,6 +989,37 @@
 # a tty frame sits in, and naming frames to spoof your own desk is
 # your own game.
 #
+# The telega-recipients model task, whole — a menu of the people
+# telega talks to most, asked of the daemon AT OPEN TIME and opened
+# in the same emacs. `Exec` reads what emacsclient answers without
+# holding the desk; `elisp-read` turns the printed chat plists into
+# Tcl shapes (the naive projection: a plist is a dict, a propertized
+# title is its string, nil is empty — `elisp-read -all` for a text
+# of many forms); the pick is a Fire over an inline emacs spec —
+# run-or-raise on the TELEGA frame, the eval riding hit and launch
+# alike, so the chat opens whether the frame existed or not:
+#
+#   proc telega-chats {} {
+#       set out [Exec emacsclient -s telega --eval \
+#                    {(telega--getTopChats "Users" 12)}]
+#       set items {}
+#       foreach chat [elisp-read $out] {
+#           lappend items [list label [dict get $chat :title] \
+#               do [list telega-open [dict get $chat :id]]]
+#       }
+#       return $items
+#   }
+#   proc telega-open {id} {
+#       Fire [list emacs [list daemon telega frame TELEGA eval \
+#           "(telega-chat--pop-to-buffer (telega-chat-get $id))"]]
+#   }
+#   wm-menu telega {key {<Super>t t} body {telega-chats}}
+#
+# A daemon that is not up makes Exec throw, and the body's error
+# lands as a problem line rather than a dead chord; elisp-read
+# refuses what it cannot read — a cycle, an #<unreadable> — the same
+# way.
+#
 # ---- and the OTHER emacs verb: the edit door ----
 #
 # «Show me the line that says this» — the configurator's `in emacs`,

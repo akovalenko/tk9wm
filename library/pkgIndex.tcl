@@ -19,6 +19,8 @@
 # walks the same order for the same reason.
 set _tk9wm_load [list source -encoding utf-8 [file join $dir fut.tcl]]
 append _tk9wm_load \n \
+    [list source -encoding utf-8 [file join $dir elisp.tcl]]
+append _tk9wm_load \n \
     [list source -encoding utf-8 [file join $dir treesync.tcl]]
 append _tk9wm_load \n \
     [list source -encoding utf-8 [file join $dir substrate.tcl]]
