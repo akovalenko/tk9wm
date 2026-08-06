@@ -582,8 +582,8 @@ proc cfg-select-first {} {
 # the family rows).
 proc cfg-nodes {} {
     set out {}
-    # the knobs, gathered into their groups, groups in name order and
-    # knobs in name order inside them — the tree's reading order
+    # the knobs, gathered into their groups, knobs in name order
+    # inside a group
     set groups {}
     dict for {name meta} $::cfg_table {
         dict lappend groups [dict get $meta group] $name
@@ -594,14 +594,42 @@ proc cfg-nodes {} {
     # and wrong once a subtree is something one addresses (the owner,
     # 2026-08-02). A family that named a topic hangs UNDER it as a
     # subsection of its own; one that named none is a topic itself and
-    # stands where it always did.
+    # stands among the headings.
     set under {}
     dict for {cname cmeta} $::cfg_coll {
         if {[dict exists $cmeta topic]} {
             dict lappend under [lindex [dict get $cmeta topic] 0] $cname
         }
     }
-    foreach topic [lsort -unique [concat [dict keys $groups] [dict keys $under]]] {
+    # The headings' order is SAID, not sorted: the desk and its fonts
+    # first, then actions before the keys and panel that lean on them
+    # (a button is a reference to an action, a chord is what an action
+    # carries), then the terminal and emacs integrations those actions
+    # launch through, then the remaining furniture. Alphabet put
+    # actions last of all — backwards to how the subjects depend on
+    # each other (the owner, 2026-08-06). A subject the list never
+    # heard of goes after the named ones, in name order — a new group
+    # surfaces rather than vanishes.
+    set said {desk fonts actions keys panel terminal emacs \
+        windows tray widgets menus}
+    set subjects [dict keys $groups]
+    foreach t [dict keys $under] {
+        if {$t ni $subjects} { lappend subjects $t }
+    }
+    dict for {cname cmeta} $::cfg_coll {
+        if {![dict exists $cmeta topic]} { lappend subjects $cname }
+    }
+    set ordered {}
+    foreach s $said { if {$s in $subjects} { lappend ordered $s } }
+    foreach s [lsort $subjects] {
+        if {$s ni $ordered} { lappend ordered $s }
+    }
+    foreach topic $ordered {
+        if {![dict exists $groups $topic] && ![dict exists $under $topic]} {
+            # a family that is a subject in its own right
+            lappend out [cfg-coll-node $topic $topic]
+            continue
+        }
         set kids {}
         if {[dict exists $groups $topic]} {
             foreach name [lsort [dict get $groups $topic]] {
@@ -615,12 +643,6 @@ proc cfg-nodes {} {
         }
         lappend out [dict create what grp key [list grp $topic] \
             label $topic button 1 children $kids]
-    }
-    # ...then the families that are subjects in their own right, in
-    # the table's own order
-    dict for {cname cmeta} $::cfg_coll {
-        if {[dict exists $cmeta topic]} continue
-        lappend out [cfg-coll-node $cname $cname]
     }
     return $out
 }
