@@ -532,6 +532,24 @@
 # referencing a deed nobody declared is skipped with a log line. The
 # menu navigates, picks and dismisses exactly as the window list does.
 #
+# A row may carry a SECOND reading under Shift — `shift-do SCRIPT` or
+# `shift-action NAME-or-SPEC` beside the plain half. Shift+Return,
+# Shift+letter and Shift+click all take it; a row without a shift
+# half reads plain however it is picked, so the modifier never
+# invents a difference the row did not declare. The claude-projects
+# model task is the shape it exists for — one list, two ways in:
+#
+#   {label ~/proj key p
+#    do       {Fire {terminal {name claude_proj} dir ~/proj
+#                    run claude}}
+#    shift-do {Fire {terminal {name claude_proj} dir ~/proj
+#                    run {claude --continue}}}}
+#
+# The shift half is judged as the plain one is — an unmet needs, a
+# waiting or unknown reference — but the consequence is its own:
+# the plain half's refusal hides the row, the shift half's only
+# takes the other reading away.
+#
 # WHERE it opens is worked out: brought up by a mouse gesture it lands
 # under the hand (from a titlebar it hangs off the strip's bottom
 # edge, the way the window menu does); by a chord, in the window
@@ -664,7 +682,9 @@
 # scripts: it puts the rows up, waits without freezing the desk, and
 # answers the picked row's `value` (its label when no value is said),
 # or empty when the person did something else. A row is a bare word or
-# `{label L ?value V? ?key K?}`. It waits, so it belongs in a script
+# `{label L ?value V? ?key K? ?shift-value V?}` — shift-value is what
+# a SHIFTED pick answers, for rows with a second reading; without it
+# the modifier changes nothing. It waits, so it belongs in a script
 # the desk runs — a binding's payload, a launch — not at the top level
 # of this file:
 #

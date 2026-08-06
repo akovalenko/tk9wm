@@ -2824,7 +2824,7 @@ proc titlebar-build {t w names title} {
         bind $t.title <ButtonPress-$n> \
             [list title-press $t $w %x %y %X %Y $n]
         bind $t.title <ButtonRelease-$n> \
-            [list title-release $t $w %x %y %X %Y $n]
+            [list title-release $t $w %x %y %X %Y $n %s]
     }
     bind $t.title <B1-Motion> [list title-motion $t $w %x %y %X %Y]
     # Buttons 2 and 3 fire on the PRESS, so a menu they open stands
@@ -2876,11 +2876,11 @@ proc title-motion {t w x y X Y} {
     $t.title item state forcolumn 1 C$b \
         [expr {[title-button $t $x $y] eq $b ? "pressed" : "!pressed"}]
 }
-proc title-release {t w x y X Y n} {
+proc title-release {t w x y X Y n {s 0}} {
     # First the menu this press may have posted, because a gesture on
     # the STRIP arms no button and the check below is the way it
     # leaves: the release that ends such a gesture is the menu's.
-    popup-drag-release $X $Y
+    popup-drag-release $X $Y $s
     if {![info exists ::btn($t)]} return
     lassign $::btn($t) b bn
     if {$n != $bn} return
@@ -3616,8 +3616,11 @@ proc popup-shell {m ih pick} {
     # holds it because there are two ways in: the plain click, and the
     # release that ends a drag begun outside this window
     # (popup-drag-release). Bound in one place, they cannot come apart.
+    # The modifier state rides along because a shifted pick is a
+    # different reading of the same row (the menu grammar's shift-*
+    # words); picks that have no other reading take it and ignore it.
     set ::popup_pick($m) $pick
-    bind $m.t <ButtonPress-1> [list $pick %x %y]
+    bind $m.t <ButtonPress-1> [list $pick %x %y %s]
     return $m.t
 }
 # Which row the pointer is over, marked and unmarked. Off the widget
@@ -3726,14 +3729,14 @@ proc popup-drag-motion {X Y} {
         popup-hover $m.t -1 -1
     }
 }
-proc popup-drag-release {X Y} {
+proc popup-drag-release {X Y {s 0}} {
     if {![llength $::popup_drag]} return
     lassign $::popup_drag m entered
     set ::popup_drag {}
     if {![winfo exists $m]} return
     lassign [popup-drag-point $m $X $Y] in x y
     if {$in} {
-        {*}$::popup_pick($m) $x $y
+        {*}$::popup_pick($m) $x $y $s
     } elseif {$entered} {
         popups-close
     }
@@ -4651,7 +4654,7 @@ proc winlist-pick {} {
         panel-focus-hit $w    ;# the desk, the deiconify and the focus
     }
 }
-proc winlist-click {x y} {
+proc winlist-click {x y {s 0}} {
     set T .winlist.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     $T selection clear
@@ -5150,7 +5153,7 @@ proc winops-fire {i} {
     run-script "winops [dict get $row label]" \
         [list {*}[dict get $row command] $w]
 }
-proc winops-click {x y} {
+proc winops-click {x y {s 0}} {
     set T .winops.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
     winops-fire $A(item)
@@ -5311,8 +5314,9 @@ proc menu-item-check {who item} {
  not «$item»"
     }
     foreach k [dict keys $item] {
-        if {$k ni {action label do key}} {
-            error "$who: unknown item word «$k» (action label do key)"
+        if {$k ni {action label do key shift-action shift-do}} {
+            error "$who: unknown item word «$k»\
+ (action label do key shift-action shift-do)"
         }
     }
     if {[dict exists $item action] && [dict exists $item do]} {
@@ -5331,6 +5335,19 @@ proc menu-item-check {who item} {
     }
     if {[dict exists $item do] && ![dict exists $item label]} {
         error "$who: a do item needs a label"
+    }
+    # The shift half is the row's OTHER reading — same two shapes as
+    # the plain one, at most one of them, and never on its own: a
+    # modifier modifies something. It borrows the row's label, so an
+    # inline shift-action needs none of its own.
+    if {[dict exists $item shift-action] && [dict exists $item shift-do]} {
+        error "$who: the shift half is an action reference or a\
+ do-script, not both"
+    }
+    if {[dict exists $item shift-action]
+            && [llength [dict get $item shift-action]] > 1} {
+        fire-spec-gate "$who: inline shift-action" \
+            [dict get $item shift-action]
     }
     if {[dict exists $item key]
             && [string length [dict get $item key]] != 1} {
@@ -5417,8 +5434,49 @@ proc menu-open {name {w 0}} {
             set fire [list run-script "menu $name «$label»" \
                           [dict get $item do]]
         }
-        lappend rows [dict create label $label fire $fire key \
+        # The SHIFT half — the same two shapes, judged the same way,
+        # with one difference in consequence: the plain half's refusal
+        # hides the row, the shift half's only takes the other reading
+        # away (the row is alive by the plain half's judgement, and a
+        # shifted pick then reads plain). A reference nobody declared
+        # is still a defect and still gripes, once per cycle.
+        set sfire ""
+        if {[dict exists $item shift-action]} {
+            set sa [dict get $item shift-action]
+            if {[llength $sa] > 1} {
+                if {([dict exists $sa needs]
+                        && ![needs-met [dict get $sa needs]])
+                        || ([action-type $sa] eq "terminal"
+                            && [lindex [terminal-resolve] 0] eq "")} {
+                    puts "WM: menu $name: «$label» shift half waits —\
+ Shift reads plain"
+                } else {
+                    set sfire [list Fire $sa]
+                }
+            } elseif {![dict exists $::action_spec $sa]} {
+                if {![dict exists $::menu_griped [list $name $sa]]} {
+                    dict set ::menu_griped [list $name $sa] 1
+                    problem-record "menu $name" \
+                        "shift half «$sa» is not a deed this desk knows —\
+ Shift reads plain"
+                } else {
+                    puts "WM: menu $name: shift half «$sa» is not a deed\
+ this desk knows — Shift reads plain"
+                }
+            } elseif {[dict get $::action_spec $sa state] ne "active"} {
+                puts "WM: menu $name: «$label» shift half «$sa» is\
+ waiting — Shift reads plain"
+            } else {
+                set sfire [list action-fire $sa]
+            }
+        } elseif {[dict exists $item shift-do]} {
+            set sfire [list run-script "menu $name «$label» (shift)" \
+                           [dict get $item shift-do]]
+        }
+        set row [dict create label $label fire $fire key \
             [expr {[dict exists $item key] ? [dict get $item key] : ""}]]
+        if {$sfire ne ""} { dict set row sfire $sfire }
+        lappend rows $row
     }
     if {![llength $rows]} {
         puts "WM: menu $name: nothing to show"
@@ -5435,7 +5493,11 @@ proc menu-open {name {w 0}} {
 # put THESE rows up, wait, answer the picked row's value — its label
 # when no value is said — or empty when the person did something
 # else. A row is a bare word (label and value both) or `{label L
-# ?value V? ?key K?}`. It WAITS, so it wants the coroutine every
+# ?value V? ?key K? ?shift-value V?}` — shift-value is what a SHIFTED
+# pick answers, for a caller whose rows have a second reading; a row
+# without one answers `value` however it was picked, so the modifier
+# never invents a difference the caller did not declare. It WAITS, so
+# it wants the coroutine every
 # script the desk runs already has (run-script wraps a binding's
 # payload and a launch alike); called bare it says so instead of
 # wedging the caller.
@@ -5454,8 +5516,9 @@ proc Choose {items {place ""}} {
  not «$item»"
         }
         foreach k [dict keys $item] {
-            if {$k ni {label value key}} {
-                error "Choose: unknown row word «$k» (label value key)"
+            if {$k ni {label value key shift-value}} {
+                error "Choose: unknown row word «$k»\
+ (label value key shift-value)"
             }
         }
         if {![dict exists $item label]} {
@@ -5466,13 +5529,17 @@ proc Choose {items {place ""}} {
             error "Choose: a row key is one character,\
  not «[dict get $item key]»"
         }
-        lappend rows [dict create \
+        set row [dict create \
             label [dict get $item label] \
             value [expr {[dict exists $item value]
                          ? [dict get $item value]
                          : [dict get $item label]}] \
             key [expr {[dict exists $item key]
                        ? [dict get $item key] : ""}]]
+        if {[dict exists $item shift-value]} {
+            dict set row svalue [dict get $item shift-value]
+        }
+        lappend rows $row
     }
     if {![llength $rows]} { return "" }
     set geo [menu-post $rows $place]
@@ -5567,15 +5634,23 @@ proc menu-post {rows {place ""} {w 0}} {
     }
     return ${W}x${H}+$X+$Y
 }
+# Shift on any way of picking — Return, a hotkey letter, a click — is
+# the row's OTHER reading; a row without one reads plain, so the
+# modifier never surprises. A hotkey letter fires bare or with Shift
+# alone (a shifted LETTER arrives as its own uppercase keysym, which
+# the -nocase match already takes; a shifted DIGIT arrives as the
+# layout's symbol — «!», «@» — and honestly is not that hotkey any
+# more, so the shift reading of a digit row goes through Return).
 proc menu-key {kind name mods} {
     if {$kind eq "release"} return
-    if {$mods == 0 && [string length $name] == 1} {
+    set shifted [expr {($mods & 1) != 0}]
+    if {($mods & ~1) == 0 && [string length $name] == 1} {
         set i 0
         foreach row $::menu_rows {
             incr i
             set k [dict get $row key]
             if {$k ne "" && [string equal -nocase $k $name]} {
-                menu-pick $i
+                menu-pick $i $shifted
                 return
             }
         }
@@ -5586,27 +5661,33 @@ proc menu-key {kind name mods} {
         return
     }
     switch -- $name {
-        Return - KP_Enter { menu-pick [lindex [.menu.t selection get] 0] }
+        Return - KP_Enter { menu-pick [lindex [.menu.t selection get] 0] \
+                                $shifted }
         Escape            { popups-close }
     }
 }
-proc menu-pick {i} {
+proc menu-pick {i {shifted 0}} {
     if {$i eq "" || $i < 1} { popups-close; return }
     set row [lindex $::menu_rows [expr {$i - 1}]]
     # a list that answers does not act — the winlist's rule, verbatim
     if {[info exists ::popup_fut(.menu)]} {
-        puts "WM: menu answers «[dict get $row value]»"
-        popup-answer .menu [dict get $row value]
+        set which [expr {$shifted && [dict exists $row svalue]
+                         ? "svalue" : "value"}]
+        puts "WM: menu answers «[dict get $row $which]»"
+        popup-answer .menu [dict get $row $which]
         return
     }
     popups-close
-    puts "WM: menu $::menu_name pick «[dict get $row label]»"
-    uplevel #0 [dict get $row fire]
+    set which [expr {$shifted && [dict exists $row sfire]
+                     ? "sfire" : "fire"}]
+    puts "WM: menu $::menu_name pick «[dict get $row label]»[expr\
+ {$which eq "sfire" ? " (shift)" : ""}]"
+    uplevel #0 [dict get $row $which]
 }
-proc menu-click {x y} {
+proc menu-click {x y {s 0}} {
     set T .menu.t
     if {[catch {$T identify -array A $x $y}] || $A(where) ne "item"} return
-    menu-pick $A(item)
+    menu-pick $A(item) [expr {($s & 1) != 0}]
 }
 
 # ---- keyboard move / resize ----
