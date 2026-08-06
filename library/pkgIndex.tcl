@@ -35,3 +35,13 @@ append _tk9wm_load \n [list package provide tk9wm 0.1]
 package ifneeded tk9wm 0.1 $_tk9wm_load
 unset _tk9wm_load _f _tk9wm_files
 catch {unset _w}
+
+# tcllib's json rides THIS index rather than its own: the package
+# unknown handler reads an auto_path directory's children for
+# pkgIndex.tcl files and no deeper, and json/ sits a level below
+# wherever this library lands — checkout, installed tree and kit
+# alike. Vendored unmodified from tcllib 2.0 (see json/README.md);
+# pure Tcl, with json.tcl quietly picking up the tcllibc accelerator
+# when the interpreter carries one (a whale does).
+package ifneeded json 1.3.6 \
+    [list source -encoding utf-8 [file join $dir json json.tcl]]
