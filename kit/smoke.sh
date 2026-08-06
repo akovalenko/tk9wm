@@ -50,6 +50,20 @@ import -display "$DISP" -window root "$HERE/smoke.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/smoke.png"
 xdotool key super+t; sleep 0.4; xdotool key x
 sleep 3
+# the ui host, asked for by the (restarted) desk over the send door,
+# then asked POINT-BLANK which font engine it runs: the kit's Tk must
+# arrive in the host too — on a stock -tk tclkit it would otherwise
+# draw core fonts into every applet, and on a Tk-less one it would
+# have no Tk at all (-ui-host in mkkit.sh is what makes this true).
+# A wrapped desk answers to tk9wm — its mkkit-claimed name (a starpack
+# left to the boot's accidents said «main.tcl») — the host, to tk9wm-ui.
+printf 'applet about\n' > "$HERE/smoke-config/q.tcl"
+"${TCLKIT:-$1}" "$ROOT/tools/send-eval.tcl" tk9wm \
+    "$HERE/smoke-config/q.tcl" >/dev/null 2>&1 || true
+sleep 3
+printf 'tk::pkgconfig get fontsystem\n' > "$HERE/smoke-config/q.tcl"
+HOSTFS=$("${TCLKIT:-$1}" "$ROOT/tools/send-eval.tcl" tk9wm-ui \
+    "$HERE/smoke-config/q.tcl" 2>/dev/null || true)
 # read the client's liveness BEFORE we kill it ourselves — asking after
 # is asking about our own handiwork (it read as a failed restart)
 kill -0 $CL 2>/dev/null && CLIENT_ALIVE=yes || CLIENT_ALIVE=no
@@ -77,6 +91,16 @@ if [ "$(grep -c 'redirect armed' "$HERE/smoke-wm.log")" -ge 2 ] \
     echo "OK: a restart in place came back up, client and all"
 else
     echo "FAIL: the wrapped manager did not restart in place"
+fi
+if grep -q 'applet about up' "$HERE/smoke-wm.log"; then
+    echo "OK: the applet came up in a spawned host"
+else
+    echo "FAIL: no applet — the ui host did not come up"
+fi
+if [ "$HOSTFS" = xft ]; then
+    echo "OK: the ui host runs the kit's own Tk (fontsystem=xft)"
+else
+    echo "FAIL: the ui host's font engine is «$HOSTFS», not xft"
 fi
 if grep -q 'handler error' "$HERE/smoke-wm.log"; then
     echo "FAIL: handler errors:"; grep 'handler error' "$HERE/smoke-wm.log"

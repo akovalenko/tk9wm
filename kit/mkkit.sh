@@ -85,11 +85,18 @@ if {$mode eq "sourced"} return
 # a file its interpreter has to be told about again (which is what
 # makes replacing the .kit and restarting come up on the new one). The
 # substrate can guess both, and does when nobody tells it; a wrapper
-# that knows should not leave it guessing.
+# that knows should not leave it guessing. The ui mirror says the
+# OTHER thing this wrapper knows: how to become the applet host —
+# through this same file (-ui-host below), because no stock
+# interpreter could read a script out of our VFS, let alone bring our
+# Tk along to run it on.
 switch -- $mode {
-    starpack { set ::tk9wm_reexec [list [info nameofexecutable]] }
+    starpack { set ::tk9wm_reexec [list [info nameofexecutable]]
+               set ::tk9wm_uiexec [list [info nameofexecutable] -ui-host] }
     starkit  { set ::tk9wm_reexec [list [info nameofexecutable] \
-                                        $::starkit::topdir] }
+                                        $::starkit::topdir]
+               set ::tk9wm_uiexec [list [info nameofexecutable] \
+                                        $::starkit::topdir -ui-host] }
 }
 # Tk rides in the kit: our own Xft-enabled shared build, loaded before
 # anyone can `package require Tk`. Explicit and early on purpose — a
@@ -104,6 +111,28 @@ if {[catch {package present Tk}]} {
     set ::tk_library [file join $starkit::topdir lib tk9.0]
     load [file join $::tk_library libtcl9tk9.0.so] Tk
 }
+# THE KIT IS THE HOST'S INTERPRETER TOO (-ui-host SCRIPT ARG...). The
+# applet host is a separate process, and under a kit there is nothing
+# else fit to run it: a bare starpack re-runs its baked script and
+# cannot take ours, and a stock tclkit handed the host's path could
+# not even read it — the path leads through OUR mounted VFS — let
+# alone bring our Tk or treectrl to it. The wrapper can: by here the
+# kit is mounted, lib/ is on auto_path and the Tk above is loaded, so
+# the host starts from the same floor the manager stands on. vwait,
+# because only a wish-shaped interpreter runs an event loop after its
+# script ends, and this one is not obliged to be wish-shaped.
+if {[lindex $argv 0] eq "-ui-host"} {
+    set argv [lassign [lrange $argv 1 end] tk9wm_uiscript]
+    set argc [llength $argv]
+    source $tk9wm_uiscript
+    vwait ::forever
+}
+# The desk's name on the send registry is the desk's own to choose —
+# left to the boot script's accidents a starpack introduces itself as
+# «main.tcl», which nobody would think to call and anybody might
+# collide with. (The checkout keeps its argv0-basename habit; this is
+# the wrapper knowing better, same as the reexec above.)
+tk appname tk9wm
 package require tk9wm
 tk9wm-main {*}$argv
 EOF
