@@ -624,6 +624,55 @@
 #           bg [name-tint $t -from black]] run [list ssh $t]]
 #   }
 #
+# The claude-projects model task, whole — a dynamic menu of the
+# projects claude was last opened in, freshest first; Return starts a
+# fresh session in the project's own terminal, Shift-Return continues
+# the last one, and a project whose terminal already lives is raised
+# by either (run-or-raise, the variant only says what LAUNCHES).
+# `package require json` is tcllib's json, travelling with the
+# library. The recency is read where it honestly is: ~/.claude.json
+# knows the project paths, but only the session transcripts under
+# ~/.claude/projects/<slug>/ carry times — the slug is the path with
+# every non-alphanumeric turned to a dash, one-way, so the paths come
+# from the one file and the times from the other:
+#
+#   proc claude-recent-projects {{n 12}} {
+#       package require json
+#       set ch [open [file join $::env(HOME) .claude.json] r]
+#       set cfg [json::json2dict [read $ch]]
+#       close $ch
+#       set stamped {}
+#       foreach dir [dict keys [dict getdef $cfg projects {}]] {
+#           set slug [regsub -all {[^A-Za-z0-9]} $dir -]
+#           set newest 0
+#           foreach f [glob -nocomplain -directory [file join \
+#                   $::env(HOME) .claude projects $slug] *.jsonl] {
+#               set m [file mtime $f]
+#               if {$m > $newest} { set newest $m }
+#           }
+#           if {$newest} { lappend stamped [list $newest $dir] }
+#       }
+#       set out {}
+#       foreach p [lrange [lsort -integer -decreasing -index 0 \
+#                              $stamped] 0 [expr {$n - 1}]] {
+#           lappend out [lindex $p 1]
+#       }
+#       return $out
+#   }
+#   proc claude-items {} {
+#       set items {}
+#       foreach dir [claude-recent-projects] {
+#           set slug [regsub -all {[^A-Za-z0-9]} $dir _]
+#           set t [list terminal [list name claude_$slug] dir $dir]
+#           lappend items [list \
+#               label [string map [list $::env(HOME) ~] $dir] \
+#               do       [list Fire [concat $t {run claude}]] \
+#               shift-do [list Fire [concat $t {run {claude --continue}}]]]
+#       }
+#       return $items
+#   }
+#   wm-menu claude {key {<Super>t p} body {claude-items}}
+#
 # ---- Window-Shot: the window, as the eye sees it ----
 #
 # `Window-Shot ?W? ?DIR?` raises the window (group and desk, as
