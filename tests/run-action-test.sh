@@ -105,6 +105,19 @@ LINT=$(q 'set out {}
 LINTSYNC=$(q 'set v [lindex [spec-lint action {launch {exec true}}] 0]
     list [dict get $v level] [string match {*holds the desk still*} \
                                   [dict get $v text]]')
+# ...and a leading ~ in command words is a literal ~ (dir expands its
+# own now): flagged wherever the words are extractable, quiet where
+# there is nothing to expand — and quiet on dir itself
+TILDE=$(q 'set r {}
+    foreach s {{run {vi ~/todo}} {launch {Run tail -f ~/log}} \
+               {launch {exec ~/bin/x &}} {run {vi todo}} {dir ~/notes}} {
+        set hit 0
+        foreach v [spec-lint action $s] {
+            if {[string match {*literal ~*} [dict get $v text]]} { set hit 1 }
+        }
+        lappend r $hit
+    }
+    set r')
 # ...and it says so when the deed is DECLARED — once, not on every
 # replay of the same words
 q 'action loud {launch {exec true &}}' >/dev/null
@@ -276,6 +289,11 @@ if [ "$COLL" = "n 4 w8 alive" ]; then
     echo "OK: the actions family serves its elements, waiting told apart"
 else
     echo "FAIL: coll: $COLL"
+fi
+if [ "$TILDE" = "1 1 1 0 0" ]; then
+    echo "OK: a ~ in command words is flagged with its repair — dir's own expands"
+else
+    echo "FAIL: tilde lint: $TILDE"
 fi
 case "$LINT|$LINTSYNC" in
     "key/warn needs/note launch/note|warn 1")

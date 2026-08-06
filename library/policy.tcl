@@ -9097,6 +9097,26 @@ proc exec-words-of {script} {
     list $words $bg
 }
 
+# ...and the tilde question over both: a leading ~ in a command's
+# words reaches exec as a LITERAL ~ — Run reads nothing (the owner,
+# 2026-08-01) — while `dir` expands its own since the cosmetics
+# line. The asymmetry deserves a sentence at the moment of typing,
+# with the exact repair in it.
+proc tilde-word {words} {
+    foreach w $words {
+        if {[string index $w 0] eq "~"} { return $w }
+    }
+    return ""
+}
+proc tilde-advice {w} {
+    if {[string range $w 0 1] eq "~/"} {
+        return "«$w» reaches exec as a literal ~ — nothing expands in a\
+ command's words; say \$env(HOME)[string range $w 1 end]"
+    }
+    return "«$w» reaches exec as a literal ~ — nothing expands in a\
+ command's words; say the full path"
+}
+
 # ---- what went wrong, kept where it can be looked at ----
 # A binding whose script throws used to leave one line in the log and
 # nothing anywhere else — and the log is not where a hand on the
@@ -9220,6 +9240,13 @@ proc script-lint {script} {
  «Run $ewords» does not"]
         }
     }
+    # ...and the tilde rule, on whichever words were extractable
+    set words [run-words-of $script]
+    if {![llength $words] && [llength $e]} { set words [lindex $e 0] }
+    set tw [tilde-word $words]
+    if {$tw ne ""} {
+        lappend out [list level warn text [tilde-advice $tw]]
+    }
     return $out
 }
 proc spec-lint {name settings} {
@@ -9262,6 +9289,26 @@ proc spec-lint {name settings} {
                         lappend out [list key $k level warn text \
                             "an exec with no & holds the desk still\
  until it returns; «Run $words» does not"]
+                    }
+                }
+                set words [run-words-of $v]
+                if {![llength $words] && [llength $e]} {
+                    set words [lindex $e 0]
+                }
+                set tw [tilde-word $words]
+                if {$tw ne ""} {
+                    lappend out [list key $k level warn text [tilde-advice $tw]]
+                }
+            }
+            words {
+                # only the command sugar (a words key that named a
+                # script face) speaks argv; env-unset's words are
+                # variable names, no path among them
+                if {[dict exists $meta face]} {
+                    set tw [tilde-word $v]
+                    if {$tw ne ""} {
+                        lappend out [list key $k level warn text \
+                            [tilde-advice $tw]]
                     }
                 }
             }
