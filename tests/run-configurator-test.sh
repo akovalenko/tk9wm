@@ -1710,7 +1710,7 @@ else
     fail "FAIL: scrollbar takefocus = $SBFOCUS"
 fi
 if [ "$BOXFOCUS" = "takefocus 0 stops {.tk9wm-configurator.b.save\
- .tk9wm-configurator.b.revert}" ]; then
+ .tk9wm-configurator.b.revert .tk9wm-configurator.b.edit}" ]; then
     echo "OK: the ring box decorates without being a Tab stop of its own"
 else
     fail "FAIL: ring box focus: $BOXFOCUS"
