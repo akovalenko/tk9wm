@@ -8901,17 +8901,29 @@ spec-keys action {
     run      {kind words     xor launch  face launch
               doc {raw argv — sugar for a launch that says Run}}
     launch   {kind script    xor run
-              doc {a Tcl script, run when the action fires — a plain command is «Run word word…»}}
-    match    {kind predicate doc {a Tcl predicate, asked per window id — which window counts as already-running}}
+              doc {a Tcl script, run when the action fires — a plain command is «Run word word…»}
+              examples {
+                  {Run firefox} {a plain command — Run is the door}
+                  {Run tail -f $env(HOME)/log} {words are data: $env(HOME), not ~}}}
+    match    {kind predicate doc {a Tcl predicate, asked per window id — which window counts as already-running}
+              examples {
+                  {filter -class TELEGA} {either half of WM_CLASS, glob allowed}
+                  terminal-window {any terminal emulator's window}}}
     activate {kind script    doc {run on the found window instead of just focusing it — for raises that need ceremony}}
     many     {kind {choice mru choose}
               doc {what the CHORD does with several windows — the button has both}}
     icon     {kind icon      doc {a face, for whatever panel carries it}}
     badge    {kind text
               doc {a letter or two laid over the icon — one picture, many actions}}
-    key      {kind chord     doc {the chord that does it — panel or no panel}}
+    key      {kind chord     doc {the chord that does it — panel or no panel}
+              examples {
+                  {<Super>t r f} {under the desk's own prefix — chords compose}
+                  {<Super>F9} {a bare top-level chord}}}
     needs    {kind commands  doc {commands that must exist in PATH — the action waits until they do}}
-    style    {kind text      doc {a wm-style rule laid on the windows this action matches — not the button's look}}
+    style    {kind text      doc {a wm-style rule laid on the windows this action matches — not the button's look}
+              examples {
+                  {place "max force"} {open maximized, and mean it}
+                  {minimize refuse} {a window that may not iconify}}}
     env      {kind envdict   doc {environment for the process the launch starts}}
     env-unset {kind words
               doc {variables the launch must NOT have — absent, not empty}}
@@ -9049,6 +9061,11 @@ proc spec-fields {name} {
         # «said, and empty» without knowing there is one
         if {[dict exists $meta empty]} {
             dict set out $k empty [dict get $meta empty]
+        }
+        # ...and EXAMPLES, for the editor's ▾: words to take and bend
+        # to one's need, not abstract help (the owner, 2026-08-06)
+        if {[dict exists $meta examples]} {
+            dict set out $k examples [dict get $meta examples]
         }
     }
     return $out

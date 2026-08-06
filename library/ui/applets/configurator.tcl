@@ -1760,14 +1760,64 @@ proc cfg-cell-opts {name {how primary}} {
 # Which kinds have a picker behind the ▾ — and what it is. A slot's
 # switch is NOT here on purpose: editing the command is the everyday
 # thing and keeps the everyday gestures; changing which spelling the
-# slot wears is rare and has a key of its own (F3).
+# slot wears is rare and has a key of its own (F3). A field whose
+# registry entry declared EXAMPLES gets the examples dialog — unless
+# its kind already earns a real editor dialog, which wins.
 proc cfg-picker-of {name} {
     switch -- [lindex [cfg-kind-of $name] 0] {
         color { return cfg-color-dialog }
         font  { return cfg-font-dialog }
         list  { return cfg-list-dialog }
     }
+    if {[dict size [cfg-examples-of $name]]} { return cfg-examples-dialog }
     return ""
+}
+# The declared examples of this row, wherever its meta lives: a
+# field's come off the registry through spec-fields, a knob's off the
+# knob table. Empty when nobody offered any.
+proc cfg-examples-of {name} {
+    if {[cfg-field? $name]} {
+        set meta [cfg-field-meta $name]
+        if {[dict exists $meta examples]} { return [dict get $meta examples] }
+        return {}
+    }
+    if {![cfg-member? $name] && [dict exists $::cfg_table $name examples]} {
+        return [dict get $::cfg_table $name examples]
+    }
+    return {}
+}
+# The ▾ of a field with examples (the owner, 2026-08-06): not
+# abstract help but words to take and bend — picking a row puts its
+# value into the entry ready for editing, the entry is what commits,
+# and an untouched pick commits as itself.
+proc cfg-examples-dialog {name} {
+    set w .cfg-examples
+    set rows {}
+    set ::cfg_example_vals {}
+    dict for {v hint} [cfg-examples-of $name] {
+        set row [expr {$hint eq "" ? $v : "$v   — $hint"}]
+        lappend rows $row
+        dict set ::cfg_example_vals $row $v
+    }
+    ui-pick-dialog $w [winfo toplevel $::cfg_T] \
+        "tk9wm: [cfg-pretty $name]" \
+        "examples — pick one and bend it to your need" \
+        $rows "as it will be said" \
+        [list cfg-example-picked $name]
+    bind $w.list <<ListboxSelect>> [list cfg-example-fill $w]
+}
+proc cfg-example-fill {w} {
+    if {![llength [$w.list curselection]]} return
+    set row [$w.list get [lindex [$w.list curselection] 0]]
+    $w.e delete 0 end
+    $w.e insert 0 [dict get $::cfg_example_vals $row]
+}
+proc cfg-example-picked {name choice typed} {
+    if {$typed eq "" && $choice ne ""} {
+        set typed [dict get $::cfg_example_vals $choice]
+    }
+    if {$typed eq ""} return
+    cfg-picked $name $typed
 }
 # The pending value is kept AS A VALUE. It used to be dug back out
 # of the command with `lindex ... end`, which is the last WORD — so a
@@ -3403,6 +3453,9 @@ ui-lazy "problems view" {
 ui-lazy "insert dialog" {
     cfg-pick-dialog "probe" {one two} "name" {}
 } {destroy .cfg-insert}
+ui-lazy "examples dialog" {
+    cfg-examples-dialog {@field actions example key}
+} {destroy .cfg-examples}
 proc cfg-insert-binding-dialog {} {
     set w .cfg-insert
     catch {destroy $w}

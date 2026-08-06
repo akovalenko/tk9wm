@@ -820,6 +820,24 @@ ICONROW=$(qu 'set png [file join $::env(XDG_CONFIG_HOME) probe-icon.png]
     lappend r missdoc [$::cfg_T item element cget $it Cdoc eDoc -text] \
         missimg [expr {[$::cfg_T item element cget $it Cval eImg -image] eq ""}]
     set r')
+# ---- the examples behind the ▾ ----
+# a field that declared examples offers them: picking a row seeds the
+# entry, the entry is bent by hand, and the bent words commit
+EXAMPLES=$(qu 'set n {@field actions probe key}
+    set r [list pick [cfg-picker-of $n] \
+                n [dict size [cfg-examples-of $n]]]
+    cfg-examples-dialog $n
+    set w .cfg-examples
+    update
+    $w.list selection set 0
+    event generate $w.list <<ListboxSelect>> -when now
+    lappend r seed [$w.e get]
+    $w.e delete 0 end
+    $w.e insert 0 {<Super>F8}
+    ui-pick-commit $w [list cfg-example-picked $n] {}
+    after 300; update
+    lappend r cur [cfg-cur $n]
+    set r')
 # A DEED THE CONFIG DECLARES can be dropped now — the family had no
 # word for it at all before, so the applet could only refuse. The
 # removal is a customization like any other: it shows where the deed
@@ -2202,6 +2220,11 @@ case $ICONROW in
     "img 1 doc "*"probe-icon.png missdoc {no no-such-icon-xyzzy.png"*" missimg 1")
         echo "OK: the icon row shows the picture it found, and names the miss" ;;
     *) fail "FAIL: the icon row: $ICONROW" ;;
+esac
+case $EXAMPLES in
+    "pick cfg-examples-dialog n 2 seed {<Super>t r f} cur <Super>F8")
+        echo "OK: the examples dialog seeds the entry, and the bent words commit" ;;
+    *) fail "FAIL: the examples dialog: $EXAMPLES" ;;
 esac
 case $CROSS in
     "plain {xclock -update 1} subst {} other {} two {}")
