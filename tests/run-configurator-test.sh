@@ -25,6 +25,7 @@ wm-bind {<Super>5} {list config-five}
 wm-widget часы -type clock
 action probe {run {true} icon P}
 action w8x {run {true} needs /no/such/thing}
+action facep {run {true}}
 EOF
 
 XDG_CONFIG_HOME="$HERE/cfg-config" \
@@ -771,13 +772,25 @@ qu 'cfg-problems-clear .cfg-problems; list cleared' >/dev/null
 sleep 0.3
 PROBGONE=$(q 'llength [problems]')
 
-# ---- one slot, two spellings (slice 3) ----
-# the tree shows the spelling in EFFECT and not the other: probe says
-# run, dummy says launch, and neither wears the row it did not say
+# ---- one slot, one spelling on screen (slice 3) ----
+# the slot wears its FACE: probe says run and the tree shows launch
+# (the derived desugaring), dummy says launch and shows it — the run
+# row never stands
 SLOTROWS=$(qu 'list p-run [dict exists $::cfg_fitem {@field actions probe run}] \
     p-launch [dict exists $::cfg_fitem {@field actions probe launch}] \
     d-run [dict exists $::cfg_fitem {@field actions dummy run}] \
     d-launch [dict exists $::cfg_fitem {@field actions dummy launch}]')
+# ...and the face row is honest: it shows the launch the run
+# desugars to, and hands those words to the editor as its seed
+FACEVAL=$(qu 'list val [cfg-field-derived {@field actions probe launch}] \
+    cell [$::cfg_T item element cget \
+        [dict get $::cfg_fitem {@field actions probe launch}] Cval eVal -text] \
+    seed [dict get [cfg-cell-opts {@field actions probe launch}] value]')
+# writing the face writes THROUGH: the same merging word un-says the
+# run still standing under it — the pair may not stand together
+qu 'cfg-set {@field actions facep launch} {Run xclock -digital}' >/dev/null
+sleep 0.5
+FACESAID=$(q 'dict get $::action_raw facep')
 # what may cross over, and what may not: one Run of literal words is
 # a command said as a script; anything richer stays a script
 CROSS=$(q 'list plain [run-words-of {Run xclock -update 1}] \
@@ -2155,9 +2168,19 @@ case "$PROBVIEW|$PROBGONE" in
     *) fail "FAIL: problems view: {$PROBVIEW} left=$PROBGONE" ;;
 esac
 case "$SLOTROWS|$SLOTROWS2" in
-    "p-run 1 p-launch 0 d-run 0 d-launch 1|p-run 0 p-launch 1")
-        echo "OK: the slot shows the spelling in effect, and flips with it" ;;
+    "p-run 0 p-launch 1 d-run 0 d-launch 1|p-run 0 p-launch 1")
+        echo "OK: the slot wears its face — a written run stands as launch" ;;
     *) fail "FAIL: slot rows: «$SLOTROWS» then «$SLOTROWS2»" ;;
+esac
+case $FACEVAL in
+    "val {Run xclock} cell {Run xclock} seed {Run xclock}")
+        echo "OK: the face row shows the derived launch and seeds the editor with it" ;;
+    *) fail "FAIL: the face row: $FACEVAL" ;;
+esac
+case $FACESAID in
+    "launch {Run xclock -digital}")
+        echo "OK: writing the face un-says the run beneath it in the same word" ;;
+    *) fail "FAIL: after writing the face: $FACESAID" ;;
 esac
 case $CROSS in
     "plain {xclock -update 1} subst {} other {} two {}")

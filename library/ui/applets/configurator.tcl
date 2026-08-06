@@ -15,7 +15,8 @@
 #     F2 ACTIVATES — a bool toggles, a choice drops a menu, the
 #     free-form kinds open the overlay entry, color and font their
 #     dialogs; Left/Right fold and unfold a group; F3 switches a
-#     SLOT between its two spellings (an action's run and launch);
+#     SLOT between its two spellings (a menu's items and body — an
+#     action's run hides behind its face, launch, and has no switch);
 #   - the mouse follows the same grammar: a single click only SELECTS
 #     (and focuses the tree); activation is the double click;
 #   - Save and Revert wear Alt accelerators (ui-accel, the generic
@@ -686,8 +687,9 @@ proc cfg-field-nodes {cname key e} {
     set out {}
     set said [cfg-elem-values $cname $key]
     set lint [expr {[dict exists $e lint] ? [dict get $e lint] : {}}]
-    dict for {f fmeta} [dict get $::cfg_coll $cname fields] {
-        if {![cfg-slot-shown? $f $fmeta $said]} continue
+    set fields [dict get $::cfg_coll $cname fields]
+    dict for {f fmeta} $fields {
+        if {![cfg-slot-shown? $f $fmeta $said $fields]} continue
         set addr [list @field $cname $key $f]
         set node [dict create what field key $f label $f \
             addr $addr coll $cname elkey $key \
@@ -1214,16 +1216,24 @@ proc cfg-member-drop {name} {
 # Some keys are two ways of saying one thing and cannot be said
 # together (the registry's `xor`: an action's command is `run` or
 # `launch`, never both). A tree that showed both rows would be
-# offering a mistake — so it shows ONE, the spelling in effect, with
-# the switch behind its ▾. Unsaid on both, the first of the pair is
-# the face: the plain one, which is what the sugar is for.
+# offering a mistake — so it shows ONE. A pair whose sugar named a
+# FACE (run's is launch) keeps the face on screen always: the sugar
+# is for WRITING, and a config that says `run {mutt}` shows as the
+# derived `Run mutt` it desugars to — one spelling in the UI, two in
+# the file (the owner, 2026-08-06). A pair without a face (a menu's
+# items/body) shows the spelling in effect, with the switch on F3.
 proc cfg-field-meta {name} {
     dict get $::cfg_coll [lindex $name 1] fields [lindex $name 3]
 }
-proc cfg-slot-shown? {f fmeta said} {
+proc cfg-slot-shown? {f fmeta said fields} {
+    if {[dict exists $fmeta face]} { return 0 }
     if {![dict exists $fmeta xor] || [dict exists $said $f]} { return 1 }
     foreach other [dict get $fmeta xor] {
-        if {[dict exists $said $other]} { return 0 }
+        if {![dict exists $said $other]} continue
+        # a said sibling whose face THIS row is does not hide it:
+        # the row stands, showing the derived spelling
+        if {[dict getdef [dict getdef $fields $other {}] face {}] eq $f} continue
+        return 0
     }
     return 1
 }
@@ -1654,6 +1664,12 @@ proc cfg-add-commit {addr name} {
 #   may-i   cfg-may-i   — the rule above
 proc cfg-cell-opts {name {how primary}} {
     set v [cfg-cur $name]
+    # an unsaid slot showing a derived value EDITS as that value: the
+    # row says «Run true» and opening it offers those words to work
+    # from, not an empty cell
+    if {$v eq "" && [cfg-field? $name] && ![cfg-field-said? $name]} {
+        set v [cfg-field-derived $name]
+    }
     dict create how $how kind [cfg-kind-of $name] \
         value [cfg-value-typed $name $v] element eVal \
         pick [cfg-picker-of $name] \
@@ -1730,16 +1746,28 @@ proc cfg-slot-menu {} {
         return
     }
     set name [cfg-node-addr $it]
-    if {![dict exists [cfg-field-meta $name] xor]} {
+    set f [lindex $name 3]
+    # a sibling that made this row its face is not on offer: the
+    # pair has one UI spelling, and F3 has nothing to switch
+    set others {}
+    if {[dict exists [cfg-field-meta $name] xor]} {
+        set fields [dict get $::cfg_coll [lindex $name 1] fields]
+        foreach other [dict get [cfg-field-meta $name] xor] {
+            if {[dict getdef [dict getdef $fields $other {}] face {}] eq $f} {
+                continue
+            }
+            lappend others $other
+        }
+    }
+    if {![llength $others]} {
         cfg-status "[cfg-pretty $name] has only the one spelling" error
         return
     }
-    set f [lindex $name 3]
     set T $::cfg_T
     ui-menu $T.pop
     set ::cfg_slot $f
     set value [cfg-cur $name]
-    foreach other [concat [list $f] [dict get [cfg-field-meta $name] xor]] {
+    foreach other [concat [list $f] $others] {
         if {$other eq $f} {
             $T.pop add radiobutton -label $other -variable ::cfg_slot \
                 -value $other
@@ -2112,8 +2140,20 @@ proc cfg-field-command {name value} {
     set el [expr {[dict exists $fam key-words] ? [split $key " "] : $key}]
     switch -- [dict get $fam shape] {
         spec - overrides {
-            # a merging word: the delta is this one field
-            return [list $verb $el [list $f $value]]
+            # a merging word: the delta is this one field — and when
+            # this field is the FACE of a spelling still said (launch
+            # over a written run), the same word un-says that
+            # spelling: the pair may not stand together, and the desk
+            # would refuse a merge that kept both
+            set delta [list $f $value]
+            set said [cfg-elem-values $coll $key]
+            dict for {other ometa} [dict get $fam fields] {
+                if {[dict getdef $ometa face {}] eq $f
+                        && [dict exists $said $other]} {
+                    set delta [linsert $delta 0 $other {}]
+                }
+            }
+            return [list $verb $el $delta]
         }
         options {
             # a replacing word: everything it holds goes out again,
@@ -2196,7 +2236,22 @@ proc cfg-save-actions {deltas} {
         set e [cfg-elem-rec actions $key]
         set said ""
         if {$e ne "" && [dict exists $e said]} { set said [dict get $e said] }
-        cfg-write [list action $key [dict merge $said $delta]]
+        set word [dict merge $said $delta]
+        # the face's un-say rides into the FILE too: a written run may
+        # stand in the config layer under the launch saved here (the
+        # preview's un-say does not survive a reload), and the replay
+        # would meet the pair refused — so a word that says a face
+        # un-says the spelling behind it (a no-op when nothing stands)
+        set fields [dict get $::cfg_coll actions fields]
+        dict for {f v} $word {
+            dict for {other ometa} $fields {
+                if {[dict getdef $ometa face {}] eq $f
+                        && ![dict exists $word $other]} {
+                    set word [linsert $word 0 $other {}]
+                }
+            }
+        }
+        cfg-write [list action $key $word]
     }
 }
 # ADOPTION (the owner's decision 2). A set custom already owns takes

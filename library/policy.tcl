@@ -8865,7 +8865,7 @@ config-node {@spec action} {node dict merge merges}
 spec-keys action {
     type     {kind {choice generic terminal emacs}
               doc {what kind of deed — unsaid, the settings below say}}
-    run      {kind words     xor launch
+    run      {kind words     xor launch  face launch
               doc {raw argv — sugar for a launch that says Run}}
     launch   {kind script    xor run
               doc {a Tcl script, run when the deed fires}}
@@ -8992,6 +8992,13 @@ proc spec-fields {name} {
         # both and meet the refusal afterwards
         if {[dict exists $meta xor]} {
             dict set out $k xor [dict get $meta xor]
+        }
+        # ...and so does a FACE: a spelling that named one never
+        # stands as a row of its own — the face answers for the slot
+        # on screen while the written sugar stays written (the owner,
+        # 2026-08-06: one spelling in the UI)
+        if {[dict exists $meta face]} {
+            dict set out $k face [dict get $meta face]
         }
         # A DICT OF PLAIN MEMBERS is a subtree, not a cell: the editor
         # can show one row per variable and edit them one at a time
@@ -11846,6 +11853,13 @@ proc collection-actions {} {
         # says that it was derived rather than written.
         if {![dict exists $raw type]} {
             dict set e derived [dict create type [action-type $raw]]
+        }
+        # A WRITTEN `run` SHOWS THROUGH ITS FACE: the tree keeps one
+        # row for the slot — launch — so the launch this run desugars
+        # to rides as derived, giving that row an honest value to
+        # show and to seed an edit with.
+        if {[dict exists $raw run]} {
+            dict set e derived launch [list Run {*}[dict get $raw run]]
         }
         if {[dict exists $::custom_effect "action $name"]} {
             dict set e effect [dict get $::custom_effect "action $name"]
