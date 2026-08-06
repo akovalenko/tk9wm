@@ -431,6 +431,20 @@ proc cfg-note-room {W l room} {
     $m configure -font [$l cget -font] -wraplength $room -text $::cfg_hint
     set line [font metrics [$l cget -font] -linespace]
     set want [expr {max(3*$line, [winfo reqheight $m]) + 12}]
+    # THE BOX MAY NOT SWALLOW THE WINDOW. «The hint takes the lines
+    # it needs» stood on slack going down; a third button in the row
+    # (less room for the note) times a narrow window broke it — the
+    # wrapped hint asked for more height than the whole window had,
+    # the grid starved the tree's row and UNMAPPED it, and every
+    # overlay editor placed in that tree was unviewable: focus
+    # refused quietly, keys went to the tree, nothing grew. The
+    # box's ceiling is half the window — the workarea's half while
+    # the window has no height yet — and past it the hint runs off
+    # the bottom, which is what the top-left anchor has always been
+    # for.
+    set wh [winfo height $W]
+    if {$wh <= 1} { set wh [lindex [ui-workarea] 3] }
+    set want [expr {min($want, max(3*$line + 12, $wh / 2))}]
     if {[$W.b cget -height] != $want} { $W.b configure -height $want }
 }
 
