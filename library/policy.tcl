@@ -6821,9 +6821,17 @@ proc pipe-run {argv args} {
                    pids [pid $ch]]
     if {$errrd ne ""} { dict incr state open }
     set ::pipe_state($ch) $state
+    # -profile tcl8, because a child's bytes must not wedge the desk:
+    # Tcl 9's strict default THROWS on the first byte that is not
+    # honest UTF-8, inside the fileevent handler — and real children
+    # write such bytes (measured, 2026-08-06: emacs prints an emoji
+    # that came over telega's wire as CESU-8 surrogates, and a
+    # getTopChats answer killed the read). tcl8 is the pre-9 behavior:
+    # every byte decodes to SOMETHING and the reader downstream deals
+    # with what it means.
     foreach {c which} [list $ch out $errrd err] {
         if {$c eq ""} continue
-        fconfigure $c -blocking 0
+        fconfigure $c -blocking 0 -profile tcl8
         fileevent $c readable [list pipe-run-read $ch $c $which]
     }
     # ...through a proc of its own, because fut::cancel hands every
@@ -7016,7 +7024,7 @@ proc pipe-output {cmd} {
         fut::fail $f $ch
         return $f
     }
-    chan configure $ch -blocking 0
+    chan configure $ch -blocking 0 -profile tcl8
     set ::pipe_buf($ch) {}
     fut::oncancel $f [list pipe-output-close $ch]
     fileevent $ch readable [list pipe-output-read $ch $f]
@@ -7087,7 +7095,7 @@ proc coop-exec {args} {
     if {[catch {open |[list {*}$args 2>@1] r} ch]} {
         return -code error $ch
     }
-    chan configure $ch -blocking 0
+    chan configure $ch -blocking 0 -profile tcl8
     set ::coop_buf($ch) {}
     fut::oncancel $f [list coop-exec-close $ch]
     fileevent $ch readable [list coop-exec-read $ch $f]

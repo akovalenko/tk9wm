@@ -188,10 +188,37 @@ proc elisp::read-string {} {
         if {$pos >= $len} { fail "unterminated string" }
         set c [string index $text $pos]
         incr pos
-        if {$c eq "\""} { return $out }
+        if {$c eq "\""} { return [fold-surrogates $out] }
         if {$c ne "\\"} { append out $c; continue }
         append out [read-escape]
     }
+}
+
+# An emoji that crossed telega's wire comes out of emacs as CESU-8 —
+# a surrogate PAIR encoded as two characters — and the tolerant
+# channel profile (pipe-run reads -profile tcl8) hands them through
+# as two lone surrogates. Folded here, once, for every consumer:
+# a title reads as its emoji, not as two tofu boxes. A lone
+# surrogate with no partner passes through as it came.
+proc elisp::fold-surrogates {s} {
+    if {![regexp {[\uD800-\uDBFF]} $s]} { return $s }
+    set out ""
+    set n [string length $s]
+    for {set i 0} {$i < $n} {incr i} {
+        set c [string index $s $i]
+        scan $c %c hi
+        if {$hi >= 0xD800 && $hi <= 0xDBFF && $i + 1 < $n} {
+            scan [string index $s [expr {$i + 1}]] %c lo
+            if {$lo >= 0xDC00 && $lo <= 0xDFFF} {
+                append out [format %c \
+                    [expr {0x10000 + (($hi & 0x3FF) << 10) + ($lo & 0x3FF)}]]
+                incr i
+                continue
+            }
+        }
+        append out $c
+    }
+    return $out
 }
 
 proc elisp::read-escape {} {

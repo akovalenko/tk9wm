@@ -55,6 +55,10 @@ is "a literal newline stands" [elisp-read "\"a\nb\""] "a\nb"
 is "hex escape"            [elisp-read {"\x41B"}] "Л"
 is "unicode escape"        [elisp-read {"Ж"}] "Ж"
 is "octal escape"          [elisp-read {"\101"}] "A"
+is "CESU-8 surrogates fold into their emoji" \
+    [elisp-read "\"\uD83D\uDC4D\""] [format %c 0x1F44D]
+is "a lone surrogate passes as it came" \
+    [elisp-read "\"x\uD83Dy\""] "x\uD83Dy"
 
 # ---- lists, pairs, vectors, sugar
 is "a nested list"         [elisp-read {(a (b c) d)}] {a {b c} d}
