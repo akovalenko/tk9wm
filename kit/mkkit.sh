@@ -6,14 +6,19 @@
 # whale (and no toolchain) can be handed.
 #
 #   ./kit/so.sh                     the binary parts (see there)
-#   TCLKIT=…/tclkit-9.0.4-Linux64-intel-tk SDX=…/sdx.kit ./kit/mkkit.sh
+#   TCLKIT=…/tclkit-9.0.4-Linux64-intel-tcl SDX=…/sdx.kit ./kit/mkkit.sh
 #
 #   kit/tk9wm.kit   starkit  — needs a tclkit: `tclkit tk9wm.kit`
 #   kit/tk9wm.bin   starpack — needs nothing:  `./tk9wm.bin`
 #
 # TCLKIT is both the runtime the starpack is built on and the
 # interpreter sdx runs under; SDX is sdx.kit. Neither has a default:
-# where a kit distribution lives is the builder's business.
+# where a kit distribution lives is the builder's business. Take the
+# Tk-LESS flavor (…-tcl): the kit carries its own Tk, so a built-in
+# one is dead weight the wrapper only has to suppress — and worse, a
+# -tk runtime's boot image already owns a lib/tk9.0, which sdx's sync
+# then rewrites in place inside the mounted starpack and dies on
+# («error deleting …/listbox.tcl: invalid argument», measured).
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
