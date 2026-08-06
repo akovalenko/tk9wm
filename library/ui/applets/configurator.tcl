@@ -224,14 +224,21 @@ proc cfg-build {W} {
     grid rowconfigure $W 1 -weight 1
     grid columnconfigure $W 0 -weight 1
     frame $W.b -takefocus 0
-    # Save and Revert only: «Erase customization» stood here too, and
-    # a button in the WINDOW'S OWN row read as «all of it» while it
-    # worked on the selected row (the owner, 2026-08-02). The gesture
-    # lives where its subject is — «Erase my word» in the row's menu;
-    # cfg-erase stays as its engine.
+    # Save, Revert — and the config file. «Erase customization» stood
+    # here too, and a button in the WINDOW'S OWN row read as «all of
+    # it» while it worked on the selected row (the owner, 2026-08-02).
+    # The gesture lives where its subject is — «Erase my word» in the
+    # row's menu; cfg-erase stays as its engine. «Edit config…» passes
+    # that same ruling the other way: its subject IS the whole file —
+    # the knobs are half the story, and the annotated config in the
+    # user's own path (first run copies it there) is the other half,
+    # one press away instead of a path to remember (the owner,
+    # 2026-08-06).
     ttk::button $W.b.save   -text Save   -underline 0 -command cfg-save
     ttk::button $W.b.revert -text Revert -underline 0 -command cfg-revert
-    foreach b [list $W.b.save $W.b.revert] {
+    ttk::button $W.b.edit   -text "Edit config…" -underline 0 \
+        -command cfg-edit-config
+    foreach b [list $W.b.save $W.b.revert $W.b.edit] {
         ui-focusable $b; ui-accel $b
     }
     # ANCHORED AT ITS TOP-LEFT, and filling what the box gives it: a
@@ -241,7 +248,7 @@ proc cfg-build {W} {
     # be the one that stays.
     label  $W.b.note -takefocus 0 -anchor nw -justify left -text $::cfg_hint \
         -foreground [ui-color link]
-    pack $W.b.save $W.b.revert -side left -padx 4 -pady 4
+    pack $W.b.save $W.b.revert $W.b.edit -side left -padx 4 -pady 4
     pack $W.b.note -side left -padx 12 -fill both -expand 1
     grid $W.b -row 2 -columnspan 2 -sticky ew
     # ...and the box stops propagating its children's appetite: a
@@ -2668,6 +2675,13 @@ proc cfg-row-menu-build {} {
         $T.rowpop add command -label "Pin this value as mine" \
             -state [expr {$mine ? "disabled" : "normal"}] \
             -command [list cfg-row-do pin $s]
+        # ...and the edit-door knob carries its own proof: the same
+        # act as the window's «Edit config…», right where the door
+        # is being chosen — set it, press, walk through it.
+        if {[dict get $s name] eq "set-edit-door"} {
+            $T.rowpop add command -label "Open the config through this door" \
+                -command cfg-edit-config
+        }
     }
     cfg-row-menu-where $s
     return $T.rowpop
@@ -2693,31 +2707,54 @@ proc cfg-row-menu-where {s} {
     set T $::cfg_T
     $T.rowpop add separator
     set i 0
+    # one ask for the whole menu: the door's own verdict and the
+    # terminal editor's name, so every item below says what it will
+    # DO — «open — vim (probed), in a terminal» is a promise, the old
+    # «in $EDITOR» was a guess that stood even with no $EDITOR set
+    lassign [cfg-door-names] doorlbl edlbl
     foreach place [dict get $s where] {
         incr i
         cfg-where-item $i $place [expr {$i == 1
             ? "Said at [cfg-place-brief $place]"
-            : "…called from [cfg-place-brief $place]"}]
+            : "…called from [cfg-place-brief $place]"}] $doorlbl $edlbl
     }
     # ...and the word underneath, if a click of ours covers one: only
     # its head, because what a reader wants there is the line, not the
     # buried word's own call chain.
     foreach place [cfg-dict-get $s under] {
         incr i
-        cfg-where-item $i $place "…over the config's [cfg-place-brief $place]"
+        cfg-where-item $i $place "…over the config's [cfg-place-brief $place]" \
+            $doorlbl $edlbl
         break
     }
     if {!$i} {
         $T.rowpop add command -state disabled -label [cfg-where-none $s]
     }
 }
-proc cfg-where-item {i place label} {
+proc cfg-door-names {} {
+    if {[catch {wm-call {list [edit-door-name [edit-door-resolve]] \
+            [lindex [editor-resolve] 0 0]}} r]} {
+        return {{} {}}
+    }
+    return $r
+}
+# The first item is the DOOR — the desk's own pick (set-edit-door and
+# its resolution); the named ways stay below for a hand that means
+# one in particular.
+proc cfg-where-item {i place label doorlbl edlbl} {
     set T $::cfg_T
     set m $T.rowpop.p$i
     ui-menu $m
+    $m add command -label [expr {$doorlbl eq ""
+            ? "open" : "open — $doorlbl"}] \
+        -command [list cfg-open-place door $place]
     $m add command -label "in emacs" -command [list cfg-open-place emacs $place]
-    $m add command -label "in \$EDITOR, in a terminal" \
-        -command [list cfg-open-place terminal $place]
+    if {$edlbl eq ""} {
+        $m add command -label "in a terminal" -state disabled
+    } else {
+        $m add command -label "in $edlbl, in a terminal" \
+            -command [list cfg-open-place terminal $place]
+    }
     $T.rowpop add cascade -menu $m -label $label
 }
 # NO FILE POINTS AT IT — and there are three different reasons for
@@ -2749,6 +2786,19 @@ proc cfg-open-place {how place} {
         return
     }
     cfg-status "opening [cfg-place-brief $place]"
+}
+# THE CONFIG FILE, ONE PRESS AWAY. The first run copies the annotated
+# sample into the user's own path exactly so there is something to
+# edit — this is the door to it, and it doubles as the edit-door
+# knob's try-me: set the door, press, walk through it. Line 1 on
+# purpose: the file opens on its own preamble, which is the map.
+proc cfg-edit-config {} {
+    if {[catch {wm-call {edit-place door [config-path] 1}} err]} {
+        cfg-status [cfg-brief $err] error
+        return
+    }
+    cfg-status "opening the config —\
+ [wm-call {edit-door-name [edit-door-resolve]}]"
 }
 proc cfg-row-do {how s} {
     if {![cfg-editing-guard [dict get $s pretty]]} return

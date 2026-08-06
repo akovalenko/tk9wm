@@ -88,6 +88,14 @@
 #
 # ---- the desk itself ----
 #
+# How this desk walks you into a file to EDIT — this one, from the
+# «Said at …» openers and the knobs window's «Edit config…» button.
+# Unsaid, the desk picks for this machine: emacs when there is one,
+# else $VISUAL/$EDITOR in your terminal, else an editor hunt
+# (sensible-editor, vim, vi, mcedit, nano, xedit):
+#   set-edit-door terminal
+#   set-edit-door emacs
+#
 # The desk's colour scheme — the applets, menus and decorations wear
 # it; dark is the default:
 #   set-theme light

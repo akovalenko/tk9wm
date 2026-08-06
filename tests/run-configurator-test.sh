@@ -1577,6 +1577,34 @@ else
  «$(echo "$AFTER" | awk '{print $2}')»"
 fi
 
+# ---- THE EDIT DOOR, PRESSED ----
+# The window's own «Edit config…» opens the user's config through the
+# desk's edit door; the where-cascade leads with that same door and
+# names the terminal editor instead of guessing «$EDITOR». Driven on
+# stub binaries so the machine's own editors cannot vote. Last scene
+# on purpose: it takes the WM's PATH.
+mkdir -p "$HERE/cfg-config/doorbin"
+for c in myed xterm; do
+    printf '#!/bin/sh\nexit 0\n' > "$HERE/cfg-config/doorbin/$c"
+    chmod +x "$HERE/cfg-config/doorbin/$c"
+done
+q "array unset ::auto_execs
+   unset -nocomplain ::env(VISUAL) ::env(TERMINAL)
+   set ::env(EDITOR) myed
+   set ::env(PATH) $HERE/cfg-config/doorbin
+   set ::edit_door_found {}
+   set ::terminal_found {}
+   list reset" >/dev/null
+EDITBTN=$(qu 'set b [winfo toplevel $::cfg_T].b.edit
+    list exists [winfo exists $b] label [$b cget -text]')
+DOORMENU=$(qu 'cfg-select [dict get $::cfg_item set-edge-resist]
+    set m [cfg-row-menu-build]
+    list [$m.p1 entrycget 0 -label] [$m.p1 entrycget 2 -label]')
+qu '[winfo toplevel $::cfg_T].b.edit invoke; list pressed' >/dev/null
+sleep 1
+DOORSTATUS=$(qu '[winfo toplevel $::cfg_T].b.note cget -text')
+DOORSPAWN=$(grep 'terminal: spawn' "$HERE/wm-cfg.log" | tail -1)
+
 kill $WM 2>/dev/null
 pkill -f 'ui/host[.]tcl' 2>/dev/null
 
@@ -1596,6 +1624,26 @@ if [ "$FIRSTROW" = "desk set-edit-door" ]; then
 else
     fail "FAIL: the tree opens on «$FIRSTROW», want «desk set-edit-door»"
 fi
+case $EDITBTN in
+    'exists 1 label {Edit config…}')
+        echo "OK: Edit config… stands in the window's own row" ;;
+    *) fail "FAIL: the Edit config… button: $EDITBTN" ;;
+esac
+if [ "$DOORMENU" = '{open — myed ($EDITOR), in a terminal} {in myed, in a terminal}' ]; then
+    echo "OK: the where-cascade leads with the door and names the editor"
+else
+    fail "FAIL: the cascade offers: $DOORMENU"
+fi
+case $DOORSTATUS in
+    'opening the config — myed ($EDITOR), in a terminal')
+        echo "OK: the press answered with the door it took" ;;
+    *) fail "FAIL: after Edit config… the status says: $DOORSTATUS" ;;
+esac
+case $DOORSPAWN in
+    *'-name tk9wm-edit'*'myed +1 '*'/cfg-config/tk9wm.tcl'*)
+        echo "OK: ...and the config walked the door: +1, the desk's own terminal" ;;
+    *) fail "FAIL: no edit spawn for the config: $DOORSPAWN" ;;
+esac
 if [ -n "$HOSTFONT" ] && [ "$HOSTFONT" = "$WMFONT" ]; then
     echo "OK: the style bridge carried the desk font to the host"
 else
