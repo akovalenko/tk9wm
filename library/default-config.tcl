@@ -597,14 +597,16 @@
 #
 # `dir` is a working directory on any action or Fire spec, beside
 # env: it lands as an `env -C DIR` prefix on whatever Run starts —
-# bare, `env -C … cmd`; through a terminal, `xterm -e env -C … cmd`.
-# The useful process changes directory either way and no adapter
-# learns anything (GNU coreutils >= 8.28). The value is DATA, not a
-# script — nothing expands in it; a dir built from $env(HOME) is a
+# bare, `env -C … cmd`; through a terminal, `xterm -e env -C … cmd` —
+# and it reaches the TERMINAL process itself too: the beast's own
+# flag when it has one (kitty --directory, so its new tabs open
+# there), a plain `env -C` around the emulator when it has not. A
+# run-less terminal deed therefore stands in its dir as well (GNU
+# coreutils >= 8.28). The value is a PATH, not a script: a leading
+# `~` expands, nothing else does — a dir built from $env(HOME) is a
 # spec built with [list], which is ordinary Tcl at declaration time:
 #
-#   action notes [list dir $env(HOME)/notes terminal {name notes} \
-#       run {vi todo}]
+#   action notes {dir ~/notes terminal {name notes} run {vi todo}}
 #
 # A terminal deed says its colours: `bg` and `fg` in the terminal
 # spec, any Tk-legal colour. The adapter normalizes to #rrggbb once

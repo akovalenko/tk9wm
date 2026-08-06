@@ -29,6 +29,7 @@ action mutt {
     key {<Super>m}
 }
 action anyterm {terminal {} key {<Super>n}}
+action dirterm {terminal {name dirx} dir ~ key {<Super>d}}
 action ghost {launch {Run sleep 30} needs no-such-cmd-xyzzy}
 panel-button mutt
 panel-button anyterm
@@ -47,6 +48,7 @@ key super+m            # nothing matches -> spawn xterm -name muttx
 sleep 2                # xterm comes up and is managed
 key super+m            # the derived match finds it on real WM_CLASS
 key super+n            # the nameless button: same window, other predicate
+key super+d            # run-less terminal with a dir: the emulator stands there
 
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-terminal.log" | head -1)
 CLS=$(xprop -id "$AID" WM_CLASS 2>/dev/null | sed 's/.*= //')
@@ -93,6 +95,14 @@ esac
 case $SPAWN in
     "WM: terminal: spawn env TERMTEST=env-arrived"*) echo "OK: env prefixes the binary" ;;
     *) echo "FAIL: no env prefix up front: $SPAWN" ;;
+esac
+# xterm has no dir word of its own, so the dir lands as env -C around
+# the emulator itself, with the ~ already a path
+DSPAWN=$(grep 'terminal: spawn env -C' "$HERE/wm-terminal.log" | head -1)
+case $DSPAWN in
+    *"env -C $HOME "*"-name dirx"*)
+        echo "OK: a run-less terminal stands in its dir — env -C, tilde expanded" ;;
+    *) echo "FAIL: no env -C around the dirx spawn: $DSPAWN" ;;
 esac
 if [ "$CLS" = '"muttx", "XTerm"' ]; then
     echo "OK: the window wears {muttx XTerm}"

@@ -6501,16 +6501,23 @@ proc keyecho-hide {} {
 # with no entry (vanilla st compiles its colours in; konsole and
 # gnome-terminal keep theirs in profiles) gets the standing "has no
 # way to say" line and spawns unpainted.
+# ...and `dir` — where the emulator itself stands. The beasts that
+# have a word for it say it (kitty's matters most: its new tabs open
+# in the terminal's cwd); one that has none (xterm, st) is wrapped in
+# `env -C` by spawn-terminal instead, which inherits the same.
 set terminal_adapters {
     kitty          {name {--name %s}  title {--title %s} cmd {}   class kitty
                     icon kitty
+                    dir {--directory %s}
                     bg {-o background=%s} fg {-o foreground=%s}}
     alacritty      {name {--class Alacritty,%s} title {-T %s} cmd {-e} class Alacritty
                     icon Alacritty
+                    dir {--working-directory %s}
                     bg {-o {colors.primary.background = "%s"}}
                     fg {-o {colors.primary.foreground = "%s"}}}
     urxvt          {name {-name %s}   title {-T %s}      cmd {-e} class URxvt
                     icon urxvt
+                    dir {-cd %s}
                     bg {-bg %s} fg {-fg %s}}
     st             {name {-n %s}      title {-T %s}      cmd {-e} class st-256color
                     icon st}
@@ -6519,9 +6526,11 @@ set terminal_adapters {
                     bg {-xrm {*VT100.background: %s}}
                     fg {-xrm {*VT100.foreground: %s}}}
     konsole        {name {-name %s}   title {--qwindowtitle %s} cmd {-e} class konsole
-                    icon konsole}
+                    icon konsole
+                    dir {--workdir %s}}
     gnome-terminal {name {--class=%s} title {--title %s} cmd {--} class Gnome-terminal
-                    icon org.gnome.Terminal}
+                    icon org.gnome.Terminal
+                    dir {--working-directory=%s}}
 }
 # What every terminal falls back to: the freedesktop standard name for
 # "a terminal", carried by every icon theme worth the name.
@@ -6680,9 +6689,9 @@ proc terminal-resolve {} {
 #          carrying goodies for some.
 proc spawn-terminal {spec} {
     foreach k [dict keys $spec] {
-        if {$k ni {name run title env args bg fg}} {
+        if {$k ni {name run title env args bg fg dir}} {
             error "spawn-terminal: unknown key \"$k\"\
- (name run title env args bg fg)"
+ (name run title env args bg fg dir)"
         }
     }
     lassign [terminal-resolve] beast path
@@ -6690,7 +6699,23 @@ proc spawn-terminal {spec} {
         error "spawn-terminal: no terminal emulator (set-terminal?)"
     }
     set ad [dict get $::terminal_adapters $beast]
+    # WHERE THE EMULATOR STANDS — the action's dir, threaded here by
+    # spec-derive: the beast's own flag when the table has one, and a
+    # plain `env -C` around the process when it has not — cwd is
+    # inherited either way, which is what kitty's new tabs live on.
+    # A `~` is a path said the human way — expand at use time, the
+    # icon-file-of pattern (Tcl 9 dropped the implicit expansion).
+    set dir ""
+    if {[dict exists $spec dir] && [dict get $spec dir] ne ""} {
+        set dir [dict get $spec dir]
+        catch {set dir [file tildeexpand $dir]}
+    }
     set argv [list $path]
+    if {$dir ne "" && [dict exists $ad dir]} {
+        lappend argv {*}[lmap a [dict get $ad dir] {
+            string map [list %s $dir] $a}]
+        set dir ""      ;# said in the beast's own words — no wrap
+    }
     foreach key {name title bg fg} {
         if {![dict exists $spec $key] || [dict get $spec $key] eq ""} continue
         set val [dict get $spec $key]
@@ -6715,6 +6740,7 @@ proc spawn-terminal {spec} {
         lappend argv {*}[dict get $ad cmd] {*}[dict get $spec run]
     }
     set pre [env-argv $spec]
+    if {$dir ne ""} { set pre [list -C $dir {*}$pre] }
     if {[llength $pre]} { set argv [list env {*}$pre {*}$argv] }
     puts "WM: terminal: spawn $argv"
     run-argv $argv
@@ -7972,11 +7998,18 @@ proc run-via {via script} {
 # via. It lands as an `env -C DIR` prefix on the words BEFORE the via
 # sees them, which is the whole trick (the owner, 2026-08-04): bare,
 # the launch becomes `env -C … cmd`; through a terminal it becomes
-# `xterm -e env -C … cmd` — the useful process changes directory in
-# both cases and no adapter learns anything. GNU coreutils ≥ 8.28,
-# which a desk this X11-bound already stands on.
+# `xterm -e env -C … cmd`. GNU coreutils ≥ 8.28, which a desk this
+# X11-bound already stands on. (The terminal adapter hears about dir
+# too, separately — spec-derive threads it so the EMULATOR stands
+# there as well, run or no run.)
+#
+# A `~` in dir is a path said the human way — expanded here, at use
+# time, the icon-file-of pattern (Tcl 9 dropped the implicit
+# expansion). The WORDS of a Run stay unread as ever: dir is a path
+# by its own declaration, the words are not ours to interpret.
 keep run_dir {}
 proc run-at {dir script} {
+    catch {set dir [file tildeexpand $dir]}
     lappend ::run_dir $dir
     try {
         uplevel #0 $script
@@ -8883,7 +8916,7 @@ spec-keys action {
     env-unset {kind words
               doc {variables the launch must NOT have — absent, not empty}}
     dir      {kind text
-              doc {the working directory — env -C around whatever Run starts}}
+              doc {the working directory — for what Run starts and for the terminal itself; ~ expands}}
     terminal {kind subspec of terminal empty value
               doc {settings for a terminal action — saying this word, even empty, is what makes it one}}
     emacs    {kind subspec of emacs
@@ -9284,6 +9317,16 @@ proc spec-derive {who settings} {
     }
     if {$kind eq "terminal"} {
         set t [dict get $settings terminal]
+        # THE ACTION'S DIR REACHES THE TERMINAL PROCESS TOO (the
+        # owner, 2026-08-06): a run-less terminal used to lose it in
+        # silence — its launch never meets Run, where the env -C
+        # prefix is made — and even with a run, the emulator standing
+        # in the dir is the point where new tabs inherit their cwd.
+        # Not a spec key of terminal's own: one dir, said once on the
+        # action, lands on both processes.
+        if {[dict exists $settings dir] && [dict get $settings dir] ne ""} {
+            dict set t dir [dict get $settings dir]
+        }
         if {![dict exists $settings match]} {
             if {[dict exists $t name] && [dict get $t name] ne ""} {
                 dict set settings match \
