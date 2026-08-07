@@ -77,7 +77,7 @@ import -display "$DISPLAY" -window root "$HERE/replace-test.png" 2>/dev/null \
 "$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
 # execv keeps the pid and the log fd: the second life announces
 # itself with a second config line in the SAME file
-wait_for 15 sh -c "[ \$(grep -c 'WM: config' \"$HERE/replace-3.log\") -ge 2 ]" \
+wait_for 15 sh -c "[ \$(grep -c 'WM: config /' \"$HERE/replace-3.log\") -ge 2 ]" \
     || echo "note: no second config line after the in-place restart"
 
 # --- 5. the foreign half. fvwm3 speaks the same ICCCM protocol and is

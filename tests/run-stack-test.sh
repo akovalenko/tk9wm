@@ -26,6 +26,9 @@ sleep 0.5
     > "$HERE/stack-b.log" &
 CB=$!
 wait_client "$HERE/wm-stack.log" 'сосед'
+# ...and the dialog the leader pops on its own 2 s timer — the manage
+# roster below counts on all three being in
+wait_client "$HERE/wm-stack.log" 'диалог'
 
 # Actors by manage order: A (leader), B, D (dialog). Frame positions from
 # the WM's own log; the click offsets below are chosen so each click

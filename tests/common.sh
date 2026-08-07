@@ -104,14 +104,18 @@ wait_for() {   # wait_for SECONDS CMD... — poll until CMD succeeds
 }
 
 # The one condition nearly every suite starts on: the WM has read its
-# config — «WM: config …» in its log — said only after the layers are
-# in and the config's own grabs and buttons are armed. The pid pins
+# config — «WM: config /path/to/it» in its log — said only after the
+# layers are in and the config's own grabs and buttons are armed. The
+# slash is load-bearing: «WM: config vocabulary: …» and «WM: config
+# wishes: …» are said BEFORE the file is read, and a wait that took
+# either of those for the answer let a suite fire keys at a desk
+# whose grabs were not armed yet. The pid pins
 # the answer to THIS boot: the log file is truncated by the server's
 # own redirect, so for a moment after the spawn a log left by the
 # previous run may still be standing, and its stale «WM: config» must
 # not answer for the new desk. The startup banner carries the pid;
 # the previous run's banner carries a different one.
-_wm_config_said() { grep -q "pid $2)" "$1" && grep -q 'WM: config' "$1"; }
+_wm_config_said() { grep -q "pid $2)" "$1" && grep -q 'WM: config /' "$1"; }
 wait_wm() {    # wait_wm LOGFILE WMPID — until that WM has read its config
     wait_for 15 _wm_config_said "$1" "$2" \
         || echo "note: the WM (pid $2) never said its config line in $1"

@@ -3,7 +3,7 @@
 # configuration belongs in tk9wm.tcl, which loads BEFORE this
 # file; on overlap the desk says so in its log.
 action emacs {emacs {frame tk9wm-frame} needs emacs key {<Super>t e}}
-action terminal {type terminal key {<Super>t t}}
+action terminal {terminal {name terminal} key {<Super>t t}}
 action tmux {terminal {name tmux title tmux}
                       run {sh -c {tmux attach || tmux new}}
                       badge t needs tmux key {<Super>t m}}
