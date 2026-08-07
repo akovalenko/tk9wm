@@ -10,12 +10,7 @@
 # reports honored/dropped, bumps the focus time after each honored
 # answer (Wine's menu-like own traffic), and reports every KeyPress.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:72
-rm -f /tmp/.X72-lock /tmp/.X11-unix/X72
-Xvfb :72 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/gafocus-config"
 mkdir -p "$HERE/gafocus-config"

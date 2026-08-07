@@ -5,18 +5,13 @@
 # the live "the app does not know where it is" report (menus, tooltips,
 # combo dropdowns and clicks all offset, until the first drag).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:85
-rm -f /tmp/.X85-lock /tmp/.X11-unix/X85
-Xvfb :85 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-move.log" 2>&1 &
 WM=$!
 sleep 1.5
 
-"$LINUX/whale-cli" "$HERE/client-move.tcl" :85
+"$LINUX/whale-cli" "$HERE/client-move.tcl" "$DISPLAY"
 kill $WM 2>/dev/null
 
 echo "--- what the WM logged:"

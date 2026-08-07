@@ -15,12 +15,7 @@
 #   - EWMH says all of it: _NET_NUMBER_OF_DESKTOPS, _NET_CURRENT_DESKTOP
 #     and _NET_WM_DESKTOP per window.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:91
-rm -f /tmp/.X91-lock /tmp/.X11-unix/X91
-Xvfb :91 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 CONF="$HERE/desk-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
@@ -301,7 +296,7 @@ EOF
 cat > "$CONF/tk9wm.custom.tcl" <<'EOF'
 set-desks 2
 EOF
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :91
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
 sleep 2
 NOW=$(curdesk); COUNT=$(ndesks); SENT=$(deskof "$AID")
 echo "--- after set-desks 2: on $NOW of $COUNT, «первый» (was on the 3rd) -> $SENT"
@@ -324,7 +319,7 @@ xdotool key --clearmodifiers super+1
 sleep 0.6
 xdotool windowactivate "$BID" 2>/dev/null
 sleep 0.6
-"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :91
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
 sleep 3.5
 RSTATE=$(deskof "$AID")
 RCOUNT=$(ndesks)

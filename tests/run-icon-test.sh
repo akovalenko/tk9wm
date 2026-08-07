@@ -8,12 +8,7 @@
 #    letters on a color badge;
 #  - with the icon column in place the numbered hotkeys still pick.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:88
-rm -f /tmp/.X88-lock /tmp/.X11-unix/X88
-Xvfb :88 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 # The config carries the style-icon rule for B: a hand-drawn two-tone
 # photo and a predicate by title.
@@ -47,7 +42,7 @@ key() { xdotool key "$@"; sleep 0.5; }
 key super+t     # the static window list...
 key w
 key w
-import -display :88 -window root "$HERE/icon-list.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/icon-list.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/icon-list.png"
 key 2           # ...still picks by the numbered hotkey (entry 2 = B)
 

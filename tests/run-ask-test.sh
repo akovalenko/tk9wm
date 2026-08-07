@@ -8,12 +8,7 @@
 # Escape answers empty. A reload yanks a standing ask — the waiter is
 # cancelled under its own name and the box is told to go.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:109
-rm -f /tmp/.X109-lock /tmp/.X11-unix/X109
-Xvfb :109 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 key() { xdotool key "$@"; sleep 1; }
 LOG="$HERE/wm-ask.log"

@@ -7,12 +7,7 @@
 # it comes alive by itself on the reload after the command appears;
 # the custom layer refines actions and an erase falls back honestly.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:67
-rm -f /tmp/.X67-lock /tmp/.X11-unix/X67
-Xvfb :67 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/action-config" "$HERE/action-mark"
 mkdir -p "$HERE/action-config" "$HERE/action-config/bin"

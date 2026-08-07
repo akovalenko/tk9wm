@@ -15,12 +15,7 @@
 # holds the pointer. And check the ordinary click still focuses, since
 # the cure was to grab buttons 1-3 instead of all of them.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:88
-rm -f /tmp/.X88-lock /tmp/.X11-unix/X88
-Xvfb :88 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-wheel.log" 2>&1 &
 WM=$!
@@ -32,15 +27,15 @@ sleep 2.5
 # well inside the client area of the first cascade slot (+116+114)
 xdotool mousemove 200 180
 echo "--- before:"
-"$LINUX/whale-cli" "$TOOLS/probe-pointer.tcl" :88 | tee "$HERE/wheel-before.log"
+"$LINUX/whale-cli" "$TOOLS/probe-pointer.tcl" "$DISPLAY" | tee "$HERE/wheel-before.log"
 xdotool click 5
 sleep 1
 echo "--- after a wheel scroll inside the client:"
-"$LINUX/whale-cli" "$TOOLS/probe-pointer.tcl" :88 | tee "$HERE/wheel-after.log"
+"$LINUX/whale-cli" "$TOOLS/probe-pointer.tcl" "$DISPLAY" | tee "$HERE/wheel-after.log"
 xdotool click 1
 sleep 1
 echo "--- after an ordinary click inside the client:"
-"$LINUX/whale-cli" "$TOOLS/probe-pointer.tcl" :88 | tee "$HERE/wheel-click.log"
+"$LINUX/whale-cli" "$TOOLS/probe-pointer.tcl" "$DISPLAY" | tee "$HERE/wheel-click.log"
 
 kill $WM 2>/dev/null
 echo "--- verdict"

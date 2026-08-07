@@ -15,12 +15,7 @@
 # run-script already gives it — and answers the picked row's value, or
 # empty for an Escape.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:104
-rm -f /tmp/.X104-lock /tmp/.X11-unix/X104
-Xvfb :104 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 key() { xdotool key "$@"; sleep 1; }
 

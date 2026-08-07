@@ -3,12 +3,7 @@
 # release its client, exec itself (same pid, same log fd) and adopt the
 # client back — the client survives with its size and stays viewable.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:90
-rm -f /tmp/.X90-lock /tmp/.X11-unix/X90
-Xvfb :90 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-restart.log" 2>&1 &
 WM=$!
@@ -21,7 +16,7 @@ sleep 1.5
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-restart.log" | head -1)
 echo "--- actor: $AID, WM pid $WM"
 
-"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :90
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
 sleep 2.5
 
 STATE=$(xwininfo -id "$AID" 2>/dev/null | awk '/Map State:/ {print $3}')
@@ -63,7 +58,7 @@ fi
 echo "--- phase 2: entry script deleted under the running WM"
 DOOMED="$ROOT/restart-doomed.tcl"
 cp "$WMTCL" "$DOOMED"
-trap 'kill $XVFB 2>/dev/null; rm -f "$DOOMED"' EXIT
+trap 'stop_xservers; rm -f "$DOOMED"' EXIT
 
 "$LINUX/whale" "$DOOMED" > "$HERE/wm-doomed.log" 2>&1 &
 WM2=$!
@@ -76,7 +71,7 @@ BID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-doomed.log" | he
 echo "--- actor: $BID, WM pid $WM2"
 
 rm -f "$DOOMED"                      # the pull, in one line
-"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :90
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
 sleep 2
 
 STATE2=$(xwininfo -id "$BID" 2>/dev/null | awk '/Map State:/ {print $3}')
@@ -130,7 +125,7 @@ RID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-reicon.log" | he
 xdotool key super+d
 sleep 1.5
 ST_MIN=$(xprop -id "$RID" WM_STATE 2>/dev/null | sed -n 's/.*window state: //p')
-"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :90
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
 sleep 3
 ST_AFTER=$(xprop -id "$RID" WM_STATE 2>/dev/null | sed -n 's/.*window state: //p')
 MAP_AFTER=$(xwininfo -id "$RID" 2>/dev/null | sed -n 's/.*Map State: //p')

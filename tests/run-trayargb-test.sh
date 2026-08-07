@@ -16,12 +16,8 @@
 # compositor must run for any of this to mean anything, so one is
 # started, over a magenta desk so a hole is unmistakable.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:94
-rm -f /tmp/.X94-lock /tmp/.X11-unix/X94
-Xvfb :94 -screen 0 800x600x24 +extension Composite +extension RENDER >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB $COMP 2>/dev/null' EXIT
-sleep 1
+start_xvfb 800x600x24 +extension Composite +extension RENDER
+trap 'kill $COMP 2>/dev/null; stop_xservers' EXIT
 # A LOUD desk behind the strip, so a hole through it cannot be mistaken
 # for anything else. hsetroot and not xsetroot: a compositor composites
 # the root PIXMAP (_XROOTPMAP_ID), which xsetroot -solid never publishes
@@ -51,7 +47,7 @@ python3 "$HERE/tray-client-gtk.py" "#729fcf" > "$HERE/trayargb-gtk.log" 2>&1 &
 CB=$!
 sleep 2.5
 
-import -display :94 -window root "$HERE/trayargb-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/trayargb-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/trayargb-test.png"
 
 STRIP=$(sed -n 's/^WM: tray strip \([0-9]*\)x\([0-9]*\)+\([0-9]*\)+\([0-9]*\).*(2 icons)/\1 \2 \3 \4/p' \
@@ -88,12 +84,12 @@ DEPTHS=$(grep -c 'depth 32' "$HERE/wm-trayargb.log")
 DOCKED_BEFORE=$(grep -c '^WM: tray: docked ' "$HERE/wm-trayargb.log")
 CELLS_BEFORE=$(sed -n 's/^WM: tray: docked \(0x[0-9a-f]*\) in slot \(0x[0-9a-f]*\).*/\1 \2/p' \
     "$HERE/wm-trayargb.log")
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :94
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
 sleep 2.5
 DOCKED_AFTER=$(grep -c '^WM: tray: docked ' "$HERE/wm-trayargb.log")
 STOPS=$(grep -c '^WM: tray: stopping' "$HERE/wm-trayargb.log")
 kill -0 $CB 2>/dev/null && GTK_ALIVE=1 || GTK_ALIVE=0
-import -display :94 -window root "$HERE/trayargb-reload.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/trayargb-reload.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/trayargb-reload.png"
 RSTRIP=$(sed -n 's/^WM: tray strip \([0-9]*\)x\([0-9]*\)+\([0-9]*\)+\([0-9]*\).*(2 icons)/\1 \2 \3 \4/p' \
     "$HERE/wm-trayargb.log" | tail -1)

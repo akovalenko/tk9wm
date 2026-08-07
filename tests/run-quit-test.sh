@@ -12,12 +12,7 @@
 # session when .Xsession exec'd it), and it says so rather than dying
 # quietly.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:96
-rm -f /tmp/.X96-lock /tmp/.X11-unix/X96
-Xvfb :96 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-quit.log" 2>&1 &
 WM=$!

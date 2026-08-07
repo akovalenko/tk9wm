@@ -6,12 +6,7 @@
 # and the judgement follows manage, unmanage and title changes —
 # debounced. The body click stays the idempotent fire.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:92
-rm -f /tmp/.X92-lock /tmp/.X11-unix/X92
-Xvfb :92 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/panellive-config"
 mkdir -p "$HERE/panellive-config"
@@ -155,7 +150,7 @@ CB=$!
 sleep 1.5
 key super+3            # two matches, the arrow drop, the pick
 
-import -display :92 -window root "$HERE/panellive-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/panellive-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/panellive-test.png"
 
 kill $CB 2>/dev/null   # unmanage drops multi

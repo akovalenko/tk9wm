@@ -31,12 +31,9 @@
 #                claim — force is how a rule says it outranks the
 #                window's own word after all
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:74
-rm -f /tmp/.X74-lock /tmp/.X11-unix/X74
-Xvfb :74 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 action полка {
     match  {filter -title полочный}
@@ -67,7 +64,7 @@ for spec in "развёрнутый 240x120" "уголок 240x120+300+50" "по
 done
 sleep 2
 
-import -display :74 -window root "$HERE/style-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/style-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/style-test.png"
 
 # the ids in manage order, and the desk's own numbers

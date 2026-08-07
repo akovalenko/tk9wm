@@ -7,12 +7,7 @@
 # named frame closed, another one left — the fire REBUILDS it on the
 # live terminal, re-running the eval).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:92
-rm -f /tmp/.X92-lock /tmp/.X11-unix/X92
-Xvfb :92 -screen 0 1024x768x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb 1024x768x24
 
 rm -rf "$HERE/emacs-config"
 mkdir -p "$HERE/emacs-config/home" "$HERE/emacs-config/rt"

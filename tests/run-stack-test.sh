@@ -7,12 +7,7 @@
 # up ABOVE A (the old code raised A alone and buried the dialog), and
 # the whole group above B. Then click D — the group must stay glued.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:76
-rm -f /tmp/.X76-lock /tmp/.X11-unix/X76
-Xvfb :76 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-stack.log" 2>&1 &
 WM=$!
@@ -49,9 +44,9 @@ echo "--- actors: A=$AID@+$FX1+$FY1 B=$BID@+$FX2+$FY2 D=$DID@+$FX3+$FY3"
 click() { xdotool mousemove "$1" "$2" click 1; sleep 0.4; }
 click $((FX2 + 220)) $((FY2 + 50))      # B: plain raise
 click $((FX1 + 10))  $((FY1 + 215))     # A: must pull D above itself
-"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" :76 > "$HERE/stack-probe1.log"
+"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" "$DISPLAY" > "$HERE/stack-probe1.log"
 click $((FX3 + 110)) $((FY3 + 84))      # D: the group stays glued
-"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" :76 > "$HERE/stack-probe2.log"
+"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" "$DISPLAY" > "$HERE/stack-probe2.log"
 
 # --- bury. A fourth window C, planted in the far corner where it
 # touches NOTHING (its own +x+y is a position claim, so the WM puts it
@@ -79,7 +74,7 @@ click $((FX4 + 100)) $((FY4 + 80))      # C to the top, and focused
 click $((FX3 + 110)) $((FY3 + 84))      # ...and the group back over it
 xdotool key alt+space; sleep 0.5
 xdotool key b; sleep 0.8
-"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" :76 > "$HERE/stack-probe3.log"
+"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" "$DISPLAY" > "$HERE/stack-probe3.log"
 BURIED=$(grep -c '^WM: buried' "$HERE/wm-stack.log")
 FOCUS_AFTER=$(sed -n 's/^WM: focus -> \(0x[0-9a-f]*\).*/\1/p' \
     "$HERE/wm-stack.log" | tail -1)

@@ -4,12 +4,7 @@
 # MOVE so the right edge stays put). Client starts 300x200 and must end
 # exactly 390x228 server-side — synthetic pointer moves are exact.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:74
-rm -f /tmp/.X74-lock /tmp/.X11-unix/X74
-Xvfb :74 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-resize.log" 2>&1 &
 WM=$!
@@ -56,7 +51,7 @@ drag $((FX - 7)) $((FY + 27)) $((FX - 17)) $((FY + 7))
 # DOWN by 8 — the top edge follows, the bottom edge stays: ch 248 -> 240
 drag $((FX + 180)) $((FY - 4)) $((FX + 180)) $((FY + 4))
 
-import -display :74 -window root "$HERE/resize-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/resize-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/resize-test.png"
 GEOM=$(xwininfo -id "$AID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
 POS=$(xwininfo -id "$AID" | awk '/Absolute upper-left X:/ {x=$4} /Absolute upper-left Y:/ {y=$4} END {print x "," y}')

@@ -24,12 +24,9 @@
 # with a title no rule matches, and is the reference for "the size it
 # would have had anyway" — which is the owner's own comparison.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:54
-rm -f /tmp/.X54-lock /tmp/.X11-unix/X54
-Xvfb :54 -screen 0 1000x700x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb 1000x700x24
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 wm-style {filter -title {proba-*}} {place 50%bottom,80%left}
 wm-style {filter -title upryamec} {place {50%bottom 80%left force}}

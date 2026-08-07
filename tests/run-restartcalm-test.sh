@@ -15,12 +15,7 @@
 # both truths: the model's _NET_CLIENT_LIST_STACKING and the server's
 # own tree.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:114
-rm -f /tmp/.X114-lock /tmp/.X11-unix/X114
-Xvfb :114 -screen 0 1024x768x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb 1024x768x24
 
 CONF="$HERE/restartcalm-config"
 rm -rf "$CONF"; mkdir -p "$CONF"

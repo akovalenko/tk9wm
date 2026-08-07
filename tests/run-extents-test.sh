@@ -8,12 +8,7 @@
 # (_NET_REQUEST_FRAME_EXTENTS, sent to the root about a window that has
 # no frame yet).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:95
-rm -f /tmp/.X95-lock /tmp/.X11-unix/X95
-Xvfb :95 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-extents.log" 2>&1 &
 WM=$!

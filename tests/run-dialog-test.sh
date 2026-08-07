@@ -7,12 +7,7 @@
 # Deliberately tight screen (640x480) so a cascade would run off it.
 # Also asserts ICCCM WM_STATE is set on managed clients.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:83
-rm -f /tmp/.X83-lock /tmp/.X11-unix/X83
-Xvfb :83 -screen 0 640x480x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb 640x480x24
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-dialog.log" 2>&1 &
 WM=$!
@@ -36,7 +31,7 @@ for id in $(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-dialog.log
     echo "$id: $(xprop -id "$id" WM_STATE 2>&1 | tr '\n' ' ')"
 done
 
-import -display :83 -window root "$HERE/dialog-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/dialog-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/dialog-test.png"
 
 wait $CP

@@ -7,12 +7,7 @@
 # reads — set-panel-preset stack puts the label under the icon, and
 # set-panel-icon-size re-targets both the geometry and the resample.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:91
-rm -f /tmp/.X91-lock /tmp/.X11-unix/X91
-Xvfb :91 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/panelgeo-config"
 mkdir -p "$HERE/panelgeo-config/icons"
@@ -251,7 +246,7 @@ sleep 1.5
 
 xdotool key super+g
 sleep 1
-import -display :91 -window root "$HERE/panelgeo-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/panelgeo-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/panelgeo-test.png"
 
 kill $WM $TK 2>/dev/null

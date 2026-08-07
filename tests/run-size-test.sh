@@ -7,19 +7,14 @@
 #  C. a client asking 900x300 on an 800x600 screen is shrunk to fit —
 #     no edge starts out beyond the screen (the emacs case).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:86
-rm -f /tmp/.X86-lock /tmp/.X11-unix/X86
-Xvfb :86 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-size.log" 2>&1 &
 WM=$!
 sleep 1.5
 
 # --- A: the kitty case ---
-"$LINUX/whale" "$HERE/client-size.tcl" :86 500x400 > "$HERE/size-raw.log" &
+"$LINUX/whale" "$HERE/client-size.tcl" "$DISPLAY" 500x400 > "$HERE/size-raw.log" &
 CA=$!
 sleep 2
 

@@ -16,12 +16,9 @@
 # rectangles differ: the workarea starts at x=WAX, the screen at 0.
 # Resistance is about the first, the USPosition clamp about the second.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:56
-rm -f /tmp/.X56-lock /tmp/.X11-unix/X56
-Xvfb :56 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 action полка {}
 panel dock {

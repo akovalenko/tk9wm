@@ -20,12 +20,7 @@
 # which no case rule can save; what is being measured is the guard,
 # not the spelling.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:53
-rm -f /tmp/.X53-lock /tmp/.X11-unix/X53
-Xvfb :53 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/badword-config"
 mkdir -p "$HERE/badword-config"

@@ -12,12 +12,7 @@
 #   D (диалог)         transient with its OWN +150+90 — the claim
 #                      beats the centering
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:97
-rm -f /tmp/.X97-lock /tmp/.X11-unix/X97
-Xvfb :97 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$HERE/client.tcl" "старожил" 200x100+430+300 "#ad7fa8" "" "" 20 &
 CP=$!
@@ -37,7 +32,7 @@ sleep 0.5
 CD=$!
 sleep 6      # B's move request fires at its own t+4s; the dialog at t+2s
 
-import -display :97 -window root "$HERE/place-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/place-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/place-test.png"
 
 set -- $(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-place.log")

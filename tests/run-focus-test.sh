@@ -3,12 +3,8 @@
 # type — does the xterm receive the input? (It must NOT.)
 # Real xterm + xclock, adoption path (clients start before the WM).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:80
-rm -f /tmp/.X80-lock /tmp/.X11-unix/X80 "$HERE/typed.txt"
-Xvfb :80 -screen 0 900x700x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+rm -f "$HERE/typed.txt"
+start_xvfb 900x700x24
 
 xterm -geometry 60x16 -e sh -c "cat > '$HERE/typed.txt'" &
 XT=$!

@@ -41,14 +41,10 @@
 #             this one claims its own position and the shell works out
 #             the arithmetic from the published workarea.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:55
-rm -f /tmp/.X55-lock /tmp/.X11-unix/X55
-Xvfb :55 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF=$(mktemp -d)
 CLIENTS=""
-trap 'kill $XVFB $CLIENTS 2>/dev/null; rm -rf "$CONF"' EXIT
-sleep 1
+trap 'kill $CLIENTS 2>/dev/null; stop_xservers; rm -rf "$CONF"' EXIT
 
 RULES='wm-style {filter -title stolb}    {place {top force}}
 wm-style {filter -title ugol}     {place {bottom right force}}
@@ -113,7 +109,7 @@ wa() {
     xprop -root _NET_WORKAREA | sed 's/.*= //; s/,//g' \
         | awk '{print "WAX=" $1 "; WAY=" $2 "; WAW=" $3 "; WAH=" $4}'
 }
-reload() { "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :55 >/dev/null 2>&1; sleep 1.5; }
+reload() { "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1; sleep 1.5; }
 reflows() { grep -c 'WM: reflow' "$LOG"; }
 # Focus the window a chord is meant for by clicking its titlebar, so the
 # run does not depend on who happens to have focus after a reload.

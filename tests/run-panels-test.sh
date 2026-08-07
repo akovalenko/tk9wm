@@ -10,12 +10,7 @@
 # read as a far edge would have lost), and the tray follows the panel
 # it is told to ride.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:69
-rm -f /tmp/.X69-lock /tmp/.X11-unix/X69
-Xvfb :69 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/panels-config"
 mkdir -p "$HERE/panels-config"
@@ -154,7 +149,7 @@ sleep 1.5
 
 xdotool key super+p
 sleep 1
-import -display :69 -window root "$HERE/panels-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/panels-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/panels-test.png"
 
 kill $WM $TK 2>/dev/null

@@ -30,12 +30,7 @@
 # ignores it and frames GTK4 twice). A live X server is where that
 # half gets its last check.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:103
-rm -f /tmp/.X103-lock /tmp/.X11-unix/X103
-Xvfb :103 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 # The config speaks about ONE window, by title: «рулевой» asks for no
 # decoration exactly as the others do, and is given the full frame

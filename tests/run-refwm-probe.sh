@@ -7,12 +7,8 @@
 # activation, which is exactly what a client would send.
 . "$(dirname "$0")/common.sh"
 REFWM="${REFWM:-fvwm3}"
-export DISPLAY=:90
-rm -f /tmp/.X90-lock /tmp/.X11-unix/X90
-Xvfb :90 -screen 0 900x700x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null; "$WINESH" server -k >/dev/null 2>&1' EXIT
-sleep 1
+start_xvfb 900x700x24
+trap 'stop_xservers; "$WINESH" server -k >/dev/null 2>&1' EXIT
 
 $REFWM > "$HERE/refwm.log" 2>&1 &
 WM=$!

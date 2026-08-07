@@ -17,12 +17,9 @@
 #    a prefix also binds stops being reachable inside that prefix, and
 #    that is named out loud rather than left as advice.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:72
-rm -f /tmp/.X72-lock /tmp/.X11-unix/X72
-Xvfb :72 -screen 0 800x500x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb 800x500x24
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 
 LOG="$HERE/wm-chordhold.log"
 OUT="$CONF/fired"

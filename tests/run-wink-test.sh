@@ -8,12 +8,7 @@
 # Both are closed through the ops menu (Alt+Space, hotkey c): C first
 # (it dies, focus falls back to S), then S (it stays, the wink fires).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:94
-rm -f /tmp/.X94-lock /tmp/.X11-unix/X94
-Xvfb :94 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-wink.log" 2>&1 &
 WM=$!

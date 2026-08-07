@@ -11,12 +11,7 @@
 # terminal under the tk9wm-edit name, a bare xedit gets the file with
 # no +line word.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:111
-rm -f /tmp/.X111-lock /tmp/.X11-unix/X111
-Xvfb :111 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 BASE="$HERE/editdoor-config"
 rm -rf "$BASE"

@@ -23,12 +23,9 @@
 # because it is the geometry that is the claim; the drawn colour is
 # run-widget-test's business.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:66
-rm -f /tmp/.X66-lock /tmp/.X11-unix/X66
-Xvfb :66 -screen 0 900x500x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb 900x500x24
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 
 LOG="$HERE/wm-widgetband.log"
 CLOCK='wm-widget clock -type clock -background #4e9a06'
@@ -36,7 +33,7 @@ CLOCK='wm-widget clock -type clock -background #4e9a06'
 # A config, then a reload, then the area it produced — the whole loop.
 conf() { cat > "$CONF/tk9wm.tcl"; }
 reload() {
-    "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :66 >/dev/null 2>&1
+    "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
     sleep 1.5
 }
 # The last area's WxH, as two numbers.
@@ -94,7 +91,7 @@ reload
 NARROW=$(geo)
 NARROWBAND=$(band)
 
-import -display :66 -window root "$HERE/widgetband-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/widgetband-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/widgetband-test.png"
 kill $WM 2>/dev/null
 

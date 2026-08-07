@@ -17,12 +17,7 @@
 # a battery that fired inline would park on the answer it was about to
 # give.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:95
-rm -f /tmp/.X95-lock /tmp/.X11-unix/X95
-Xvfb :95 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/many-config"
 mkdir -p "$HERE/many-config"
@@ -194,7 +189,7 @@ key super+5            # the button's body, on a `choose` deed
 key super+6            # the arrow, on an `mru` deed
 key super+7            # Ctrl over body, arrow, and a deed with no launch
 
-import -display :95 -window root "$HERE/many-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/many-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/many-test.png"
 
 kill $WM $CA $CB 2>/dev/null

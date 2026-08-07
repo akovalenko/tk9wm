@@ -19,12 +19,9 @@
 # Everything is measured on the SCREEN, because a contained widget has
 # no window of its own to find — which is the point of containing it.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:65
-rm -f /tmp/.X65-lock /tmp/.X11-unix/X65
-Xvfb :65 -screen 0 900x500x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb 900x500x24
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 # A colour of its own, so a pixel can say "the clock is here" without
 # arguing with the panel's background.
 cat > "$CONF/tk9wm.tcl" <<'EOF'
@@ -64,7 +61,7 @@ TRAYG=$(traygeom)
 PANELG=$(sed -n 's/^WM: panel default up (.*, \([0-9x+]*\))$/\1/p' "$LOG" | tail -1)
 PANELH=$(echo "$PANELG" | sed 's/^[0-9]*x\([0-9]*\)+.*/\1/')
 BANDH=$(echo "$ON_PANEL" | sed 's/^[0-9]*x\([0-9]*\)+.*/\1/')
-import -display :65 -window root "$HERE/widget-panel.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/widget-panel.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/widget-panel.png"
 
 # --- a client raised over the desk, then a reload: containment means
@@ -73,7 +70,7 @@ import -display :65 -window root "$HERE/widget-panel.png" 2>/dev/null \
     > "$HERE/widget-client.log" &
 CL=$!
 sleep 1.5
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1.5
 STILLPX=$(here "$(area | sed 's/ .*//')")
 kill $CL 2>/dev/null
@@ -86,7 +83,7 @@ action терминал { launch {exec xterm &} }
 panel-button терминал
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1.5
 ON_DESK=$(area)
 DESKPX=$(here "$(echo "$ON_DESK" | sed 's/ .*//')")
@@ -100,7 +97,7 @@ action терминал { launch {exec xterm &} }
 panel-button терминал
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1.5
 NODESK=$(xdotool search --onlyvisible --name '^tk9wm-desk$' | head -1)
 OWNWIN=$(xdotool search --onlyvisible --name '^tk9wm-widget-area' | head -1)
@@ -114,10 +111,10 @@ action терминал { launch {exec xterm &} }
 panel-button терминал
 wm-widget clock -type clock -on screen -place {left top} -background #4e9a06
 EOF
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :65 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1.5
 BIG=$(area)
-import -display :65 -window root "$HERE/widget-desk.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/widget-desk.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/widget-desk.png"
 
 kill $WM $TRAY 2>/dev/null

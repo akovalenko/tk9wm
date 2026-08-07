@@ -19,12 +19,7 @@
 #      how an `exec` or a pipe's `close` starts failing with "no child
 #      processes".
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:63
-rm -f /tmp/.X63-lock /tmp/.X11-unix/X63
-Xvfb :63 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/orphan-config"
 mkdir -p "$HERE/orphan-config"
@@ -61,7 +56,7 @@ sleep 2
 PID1=$(sed -n 1p "$ORPHAN_PIDS")
 
 # --- the restart: same pid, fresh image, PID1 still hanging off it
-"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :63
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
 sleep 3
 PID2=$(sed -n 2p "$ORPHAN_PIDS")
 ORPHANS=$(ask "$HERE/orphan-config/q-orphans.tcl")

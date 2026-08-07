@@ -7,12 +7,8 @@
 # it come back PAINTED when WM_STATE says Normal again? That last step
 # is the same mechanism `set-minimize refuse` leans on.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:92
-rm -f /tmp/.X92-lock /tmp/.X11-unix/X92
-Xvfb :92 -screen 0 900x700x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null; "$WINESH" server -k >/dev/null 2>&1' EXIT
-sleep 1
+start_xvfb 900x700x24
+trap 'stop_xservers; "$WINESH" server -k >/dev/null 2>&1' EXIT
 
 key() { xdotool key "$@"; sleep 0.6; }
 state() { xprop -id "$1" WM_STATE 2>/dev/null | sed -n 's/.*window state: //p'; }

@@ -22,8 +22,6 @@
 # maximize that reached the bounding box's bottom would hang 100 px
 # into the dead zone nobody can see.
 . "$(dirname "$0")/common.sh"
-for n in 78 79 80; do rm -f /tmp/.X$n-lock /tmp/.X11-unix/X$n; done
-
 rm -rf "$HERE/multimon-config"
 mkdir -p "$HERE/multimon-config"
 cat > "$HERE/multimon-config/tk9wm.tcl" <<'EOF'
@@ -54,22 +52,19 @@ ok()  { echo "OK: $1"; }
 bad() { echo "FAIL: $1"; fail=1; }
 
 # ---------------- leg 1: RandR user monitors on Xvfb ----------------
-Xvfb :78 -screen 0 1000x700x24 -noreset >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB $XVFB2 $XEPHYR 2>/dev/null' EXIT
-sleep 1
-xrandr -d :78 --setmonitor left  600/160x700/180+0+0   screen >/dev/null 2>&1
-xrandr -d :78 --setmonitor right 400/110x700/180+600+0 none   >/dev/null 2>&1
+start_xvfb 1000x700x24 -noreset
+xrandr --setmonitor left  600/160x700/180+0+0   screen >/dev/null 2>&1
+xrandr --setmonitor right 400/110x700/180+600+0 none   >/dev/null 2>&1
 
-DISPLAY=:78 XDG_CONFIG_HOME="$HERE/multimon-config" \
+XDG_CONFIG_HOME="$HERE/multimon-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-multimon.log" 2>&1 &
 WM=$!
 sleep 1.5
 
-DISPLAY=:78 "$LINUX/whale" "$HERE/client.tcl" "левый" "" "#8ae234" "" "" 30 &
+"$LINUX/whale" "$HERE/client.tcl" "левый" "" "#8ae234" "" "" 30 &
 CA=$!
 sleep 1
-DISPLAY=:78 "$LINUX/whale" "$HERE/client.tcl" "правый" 240x120+700+50 "#fcaf3e" "" "" 30 &
+"$LINUX/whale" "$HERE/client.tcl" "правый" 240x120+700+50 "#fcaf3e" "" "" 30 &
 CB=$!
 sleep 1
 
@@ -94,7 +89,7 @@ else
     grep 'panel .* up' "$HERE/wm-multimon.log" | sed 's/^/    /'
 fi
 
-WA=$(DISPLAY=:78 xprop -root _NET_WORKAREA | sed 's/.*= //; s/,//g' \
+WA=$(xprop -root _NET_WORKAREA | sed 's/.*= //; s/,//g' \
      | awk '{print $3 "x" $4 "+" $1 "+" $2}')
 if [ "$WA" = "1000x$((700 - PH))+0+0" ]; then
     ok "_NET_WORKAREA keeps the one-rect convention (whole screen minus strip: $WA)"
@@ -102,7 +97,7 @@ else
     bad "_NET_WORKAREA is $WA, wanted 1000x$((700 - PH))+0+0"
 fi
 
-AF=$(frame :78 "$AID")
+AF=$(frame "$DISPLAY" "$AID")
 # right edge of the frame = width + x, both dug out of WxH+X+Y
 ARIGHT=$(( $(echo "$AF" | sed 's/x.*//') + $(echo "$AF" | sed 's/.*+\(-*[0-9]*\)+.*/\1/') ))
 if [ "$ARIGHT" -le 600 ]; then
@@ -111,53 +106,49 @@ else
     bad "the unclaimed client leaked off the primary ($AF)"
 fi
 
-BF=$(frame :78 "$BID")
+BF=$(frame "$DISPLAY" "$BID")
 case $BF in
     *+7[0-9][0-9]+*) ok "the +700+50 claim landed on the right monitor ($BF)" ;;
     *) bad "the claim did not land at x=7xx ($BF)" ;;
 esac
 
-DISPLAY=:78 wmctrl -i -r "$BID" -b add,maximized_vert,maximized_horz
+wmctrl -i -r "$BID" -b add,maximized_vert,maximized_horz
 sleep 1
-BM=$(frame :78 "$BID")
+BM=$(frame "$DISPLAY" "$BID")
 if [ "$BM" = "400x700+600+0" ]; then
     ok "maximize filled the RIGHT monitor's workarea ($BM)"
 else
     bad "maximize gave $BM, wanted 400x700+600+0"
 fi
-DISPLAY=:78 wmctrl -i -r "$BID" -b remove,maximized_vert,maximized_horz
+wmctrl -i -r "$BID" -b remove,maximized_vert,maximized_horz
 sleep 1
 
-DISPLAY=:78 wmctrl -i -r "$BID" -b add,fullscreen
+wmctrl -i -r "$BID" -b add,fullscreen
 sleep 1
-BC=$(client :78 "$BID")
+BC=$(client "$DISPLAY" "$BID")
 if [ "$BC" = "400x700+600+0" ]; then
     ok "fullscreen covered the right monitor's whole glass ($BC)"
 else
     bad "fullscreen client is $BC, wanted 400x700+600+0"
 fi
-DISPLAY=:78 wmctrl -i -r "$BID" -b remove,fullscreen
+wmctrl -i -r "$BID" -b remove,fullscreen
 sleep 1
 
-DISPLAY=:78 import -window root "$HERE/multimon-randr.png" 2>/dev/null \
+import -window root "$HERE/multimon-randr.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/multimon-randr.png"
 check_invariants "$HERE/wm-multimon.log"
 kill $WM $CA $CB 2>/dev/null
 
 # ---------------- leg 2: Xinerama truth inside Xephyr ----------------
-Xvfb :79 -screen 0 1300x600x24 >/dev/null 2>&1 &
-XVFB2=$!
-sleep 1
-DISPLAY=:79 Xephyr :80 -screen 700x500 -screen 500x400 +xinerama >/dev/null 2>&1 &
-XEPHYR=$!
-sleep 1.5
+start_xvfb 1300x600x24
+start_xserver Xephyr -screen 700x500 -screen 500x400 +xinerama
 
-DISPLAY=:80 XDG_CONFIG_HOME="$HERE/multimon-config" \
+XDG_CONFIG_HOME="$HERE/multimon-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-multimon-xin.log" 2>&1 &
 WM2=$!
 sleep 1.5
 
-DISPLAY=:80 "$LINUX/whale" "$HERE/client.tcl" "второй" 240x120+800+50 "#729fcf" "" "" 30 &
+"$LINUX/whale" "$HERE/client.tcl" "второй" 240x120+800+50 "#729fcf" "" "" 30 &
 CC=$!
 sleep 1
 
@@ -178,16 +169,16 @@ else
     grep 'panel .* up' "$HERE/wm-multimon-xin.log" | sed 's/^/    /'
 fi
 
-DISPLAY=:80 wmctrl -i -r "$CID" -b add,maximized_vert,maximized_horz
+wmctrl -i -r "$CID" -b add,maximized_vert,maximized_horz
 sleep 1
-CM=$(frame :80 "$CID")
+CM=$(frame "$DISPLAY" "$CID")
 if [ "$CM" = "500x400+700+0" ]; then
     ok "maximize on the short head stopped at ITS bottom — not 100 px into the dead zone ($CM)"
 else
     bad "maximize on the short head gave $CM, wanted 500x400+700+0"
 fi
 
-DISPLAY=:80 import -window root "$HERE/multimon-xinerama.png" 2>/dev/null \
+import -window root "$HERE/multimon-xinerama.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/multimon-xinerama.png"
 check_invariants "$HERE/wm-multimon-xin.log"
 kill $WM2 $CC 2>/dev/null

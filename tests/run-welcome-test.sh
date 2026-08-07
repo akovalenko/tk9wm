@@ -17,15 +17,10 @@
 # window off, in a toplevel of its own. And the whole of it inside the
 # workarea, which is what "not behind the panel" means.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:95
-rm -f /tmp/.X95-lock /tmp/.X11-unix/X95
-Xvfb :95 -screen 0 1280x1024x24 >/dev/null 2>&1 &
-XVFB=$!
-sleep 1
+start_xvfb 1280x1024x24
 
 CONF="$HERE/welcome-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
-trap 'kill $XVFB 2>/dev/null' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 # a panel at the bottom for the mat to be measured against — and to
 # hide behind, which is the failure this test is about

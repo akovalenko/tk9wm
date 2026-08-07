@@ -9,12 +9,7 @@
 # order, the stacking list bottom-to-top (which must follow a raise),
 # the workarea shrinking under a panel, and the one-desktop statement.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:99
-rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
-Xvfb :99 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/ewmh-config"
 mkdir -p "$HERE/ewmh-config"

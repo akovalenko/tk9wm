@@ -11,16 +11,12 @@
 #               click must
 #   голый       decor none: no titlebar, no border, nothing to grab
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:73
-rm -f /tmp/.X73-lock /tmp/.X11-unix/X73
-Xvfb :73 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 wm-style {filter -title голый} {decor none}
 EOF
-sleep 1
 
 LOG="$HERE/wm-drag.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
@@ -86,7 +82,7 @@ drag "$BARE" 3 -30 -20 super
 BARE_SIZE2=$(size "$BARE")
 BARE_SIZE_WANT=$(echo "$BARE_SIZE" | awk -F x '{print $1 + 30 "x" $2 + 20}')
 
-import -display :73 -window root "$HERE/drag-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/drag-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/drag-test.png"
 kill $WM 2>/dev/null
 pkill -f "$HERE/client-press.tcl" 2>/dev/null

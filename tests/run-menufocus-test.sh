@@ -13,12 +13,7 @@
 # produce no fall at all. The pointer wandering below is what armed it;
 # keep it exactly as it is, or the test proves nothing.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:89
-rm -f /tmp/.X89-lock /tmp/.X11-unix/X89
-Xvfb :89 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-menufocus.log" 2>&1 &
 WM=$!

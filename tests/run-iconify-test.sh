@@ -12,12 +12,7 @@
 # minimized itself internally is told to come back (that is what makes
 # the refusal reach wine's Win32 side), the window still mapped.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:93
-rm -f /tmp/.X93-lock /tmp/.X11-unix/X93
-Xvfb :93 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 key() { xdotool key "$@"; sleep 0.5; }
 state() { xprop -id "$1" WM_STATE 2>/dev/null | sed -n 's/.*window state: //p'; }

@@ -52,8 +52,6 @@
 # the live leg says so instead of pretending, and the in-process
 # battery is what covers those states.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:52
-rm -f /tmp/.X52-lock /tmp/.X11-unix/X52
 # -noreset, and it is the whole reason this test can do its job. An X
 # server RESETS when its last client disconnects, and a reset restores
 # the default keymap — so setxkbmap would set the layout, disconnect,
@@ -62,11 +60,9 @@ rm -f /tmp/.X52-lock /tmp/.X11-unix/X52
 # again. (The owner's diagnosis, 2026-07-30, after two wrong ones of
 # mine — measured by holding an xterm open across the call, which makes
 # the same setxkbmap stick.)
-Xvfb :52 -screen 0 400x300x24 -noreset >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb 400x300x24 -noreset
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
-sleep 1.5
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 
 # A second group if this host will take one — the live leg below needs
 # a group to switch to, and says so when there is none.

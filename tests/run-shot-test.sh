@@ -10,12 +10,7 @@
 # raises, it does not focus). The PNG is loaded back in the WM's own
 # Tk and probed by pixel; its size must be the one the log declared.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:108
-rm -f /tmp/.X108-lock /tmp/.X11-unix/X108
-Xvfb :108 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 key() { xdotool key "$@"; sleep 1.5; }
 LOG="$HERE/wm-shot.log"

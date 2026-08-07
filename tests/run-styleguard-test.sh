@@ -6,12 +6,7 @@
 # measured on the owner's desk: the rule detonates inside style-of on
 # every matching window, and alt-tab becomes an empty 200x200 husk.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:90
-rm -f /tmp/.X90-lock /tmp/.X11-unix/X90
-Xvfb :90 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/styleguard-config"
 mkdir -p "$HERE/styleguard-config"

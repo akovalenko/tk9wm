@@ -24,12 +24,7 @@
 # icons. Each strip carries the same four buttons — icon with a mark,
 # icon without, badge with a mark, badge without.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:101
-rm -f /tmp/.X101-lock /tmp/.X11-unix/X101
-Xvfb :101 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/mark-config"
 mkdir -p "$HERE/mark-config"
@@ -144,7 +139,7 @@ sleep 1.5
 
 xdotool key super+b
 sleep 0.5
-import -display :101 -window root "$HERE/mark-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/mark-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/mark-test.png"
 
 kill $WM 2>/dev/null

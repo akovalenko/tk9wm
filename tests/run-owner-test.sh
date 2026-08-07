@@ -14,12 +14,7 @@
 # bindings family reports the owner from the binding itself, with a
 # REASON on a word that no longer answers.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:68
-rm -f /tmp/.X68-lock /tmp/.X11-unix/X68
-Xvfb :68 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/owner-config"
 mkdir -p "$HERE/owner-config"

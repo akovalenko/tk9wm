@@ -4,12 +4,7 @@
 # window when it does — fired by its chord and by a mouse click — and
 # the workarea carve: maximize must stop above the panel strip.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:89
-rm -f /tmp/.X89-lock /tmp/.X11-unix/X89
-Xvfb :89 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/panel-config"
 mkdir -p "$HERE/panel-config"
@@ -49,7 +44,7 @@ key super+z            # the predicate finds the client -> focus back
 
 # the button by MOUSE: first button sits at the panel's left edge
 xdotool mousemove 25 $((600 - ${PH:-38} / 2)) click 1
-import -display :89 -window root "$HERE/panel-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/panel-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/panel-test.png"
 sleep 0.5
 

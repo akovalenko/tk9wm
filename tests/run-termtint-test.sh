@@ -13,13 +13,8 @@
 # different across names, format honest, -amount 0 is the bare ground,
 # the unsaid -from follows the theme's side.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:106
-rm -f /tmp/.X106-lock /tmp/.X11-unix/X106
-Xvfb :106 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF="$HERE/termtint-config"
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
 
 key() { xdotool key "$@"; sleep 1; }
 ask() {

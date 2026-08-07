@@ -15,12 +15,9 @@
 # chords, frames a new client, still owns its selection, and reloads
 # its config. That is the whole contract.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:62
-rm -f /tmp/.X62-lock /tmp/.X11-unix/X62
-Xvfb :62 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 # The owner's own development binding, by hand — the long way, so that
 # what is tested is the FILES being sourced again and not one proc's
@@ -78,7 +75,7 @@ CB=$!
 sleep 2
 FRAMED=$(grep -c '^WM: managed ' "$LOG")
 
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :62 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1
 key super+d
 RELOAD_CFG=$(grep -c "MARK the config's own chord" "$LOG")

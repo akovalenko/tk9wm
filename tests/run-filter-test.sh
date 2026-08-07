@@ -11,12 +11,7 @@
 # an xterm that declares everything and a whale client that declares
 # almost nothing.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:86
-rm -f /tmp/.X86-lock /tmp/.X11-unix/X86
-Xvfb :86 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/filter-config"
 mkdir -p "$HERE/filter-config"

@@ -12,12 +12,7 @@
 # was given, and the winops rows answer (or refuse to answer) their
 # keys per window.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:107
-rm -f /tmp/.X107-lock /tmp/.X11-unix/X107
-Xvfb :107 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 key() { xdotool key "$@"; sleep 1; }
 LOG="$HERE/wm-winopsitem.log"

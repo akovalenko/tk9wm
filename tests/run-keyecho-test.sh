@@ -13,12 +13,9 @@
 # to prove the restart is the GENERAL rule and not a special case for
 # the prefix key: where the submap binds it, the submap wins.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:57
-rm -f /tmp/.X57-lock /tmp/.X11-unix/X57
-Xvfb :57 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-key-echo-place {left top}
 wm-bind {<Super>t <Super>t} {puts "WM: the submap kept its own Super+t"}
@@ -96,7 +93,7 @@ key super+t
 E1=$(last_echo); ID1=$(echo_id); AT1=$(echo_at)
 key w
 E2=$(last_echo)
-import -display :57 -window root "$HERE/keyecho-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/keyecho-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/keyecho-test.png"
 
 # --- 2. ...and goes away when the sequence resolves
@@ -142,7 +139,7 @@ key super+t
 key super+h
 HELP=$(last_echo)
 IDH=$(echo_id)
-import -display :57 -window root "$HERE/keyecho-help.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/keyecho-help.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/keyecho-help.png"
 key w                     # ...and the prefix still walks on from there
 key m
@@ -154,7 +151,7 @@ key Escape
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-key-echo 900
 EOF
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :57 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1
 key super+t                # key() waits 0.5 s — less than the delay
 ID5=$(echo_id)

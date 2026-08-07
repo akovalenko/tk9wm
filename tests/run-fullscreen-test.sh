@@ -15,7 +15,6 @@
 # question real: both are our own override-redirect top-levels that
 # lift themselves whenever they rebuild or an icon docks.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:96
 # kitty wants both, and refuses to start when it cannot write them.
 # Under /tmp and not next to the test: they hold nothing worth reading
 # afterwards, unlike every other artifact a run leaves here.
@@ -24,11 +23,7 @@ export XDG_RUNTIME_DIR=/tmp/tk9wm-fs-run
 rm -rf "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 mkdir -p "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
-rm -f /tmp/.X96-lock /tmp/.X11-unix/X96
-Xvfb :96 -screen 0 1024x768x24 +extension RENDER >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb 1024x768x24 +extension RENDER
 
 CONF="$HERE/fullscreen-config"
 rm -rf "$CONF"; mkdir -p "$CONF"

@@ -13,12 +13,7 @@
 # declaration survives a reload; and Minimize's predicate answers for
 # the iconified window even though no menu opens over one yet.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:110
-rm -f /tmp/.X110-lock /tmp/.X11-unix/X110
-Xvfb :110 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 key() { xdotool key "$@"; sleep 1; }
 LOG="$HERE/wm-winopsmark.log"

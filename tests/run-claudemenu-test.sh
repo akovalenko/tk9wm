@@ -12,12 +12,7 @@
 # dash), one with none — a project that never held a session is not
 # recent, and drops out.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:106
-rm -f /tmp/.X106-lock /tmp/.X11-unix/X106
-Xvfb :106 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 key() { xdotool key "$@"; sleep 1; }
 

@@ -5,12 +5,7 @@
 # the claim, the dock, the reparent into our cell, the enforced size,
 # the strip's geometry and the undock.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:92
-rm -f /tmp/.X92-lock /tmp/.X11-unix/X92
-Xvfb :92 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/tray-config"
 mkdir -p "$HERE/tray-config"
@@ -42,7 +37,7 @@ if [ -n "$ICON_A" ]; then
     GEOM_A=$(xwininfo -id "$ICON_A" 2>/dev/null | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')
     PARENT_A=$(xwininfo -id "$ICON_A" -children 2>/dev/null | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')
 fi
-import -display :92 -window root "$HERE/tray-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/tray-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/tray-test.png"
 # WHAT IS ACTUALLY ON THE GLASS, measured HERE where both icons are up.
 # Everything else in this file is about ids, parents and geometry — and
@@ -79,7 +74,7 @@ DECOY=$(sed -n 's/^DECOY: window \(0x[0-9a-f]*\)/\1/p' "$HERE/tray-decoy.log")
 # up again by the fresh instance WITHOUT its client doing anything —
 # the client is not obliged to hear the MANAGER announcement, and
 # Chrome does not (live measurement, 2026-07-29).
-"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :92
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
 sleep 3
 PARENT_A2=$(xwininfo -id "$ICON_A" -children 2>/dev/null | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')
 SLOT_A2=$(sed -n 's/^WM: tray: docked 0x[0-9a-f]* in slot \(0x[0-9a-f]*\).*/\1/p' "$HERE/wm-tray.log" | tail -1)

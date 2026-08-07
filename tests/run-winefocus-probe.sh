@@ -13,12 +13,8 @@
 # neighbour. That is the difference between a desk and a test tube.
 . "$(dirname "$0")/common.sh"
 LOG="$HERE/wm-winefocus.log"
-export DISPLAY=:91
-rm -f /tmp/.X91-lock /tmp/.X11-unix/X91
-Xvfb :91 -screen 0 900x700x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null; "$WINESH" server -k >/dev/null 2>&1' EXIT
-sleep 1
+start_xvfb 900x700x24
+trap 'stop_xservers; "$WINESH" server -k >/dev/null 2>&1' EXIT
 
 key() { xdotool key "$@"; sleep 0.6; }
 focusnow() {

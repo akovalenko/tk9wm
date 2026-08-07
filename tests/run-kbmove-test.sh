@@ -9,12 +9,7 @@
 # so the border is sampled at rest, in the mode and after it; the
 # titlebar readout that rides along is for the eye (kbmove-mode.png).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:98
-rm -f /tmp/.X98-lock /tmp/.X11-unix/X98
-Xvfb :98 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-kbmove.log" 2>&1 &
 WM=$!
@@ -77,7 +72,7 @@ key Left
 key Left        # -> would shrink to 300x210
 key Escape      # ...cancelled: stays 320x210
 
-import -display :98 -window root "$HERE/kbmove-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/kbmove-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/kbmove-test.png"
 
 AX2=$(xwininfo -id "$AID" | awk '/Absolute upper-left X/ {print $NF}')
@@ -100,11 +95,11 @@ xdotool mousemove $((AX1 + 150)) $((AY1 + 20)) click 1   # focus and raise A
 sleep 0.5
 key alt+space
 key l           # Lower: A is active, and now at the bottom
-"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" :98 > "$HERE/kbmove-stack1.log"
+"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" "$DISPLAY" > "$HERE/kbmove-stack1.log"
 key alt+space
 key m           # keyboard move on the buried, still-active window
-"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" :98 > "$HERE/kbmove-stack2.log"
-import -display :98 -window root "$HERE/kbmove-raise.png" 2>/dev/null \
+"$LINUX/whale-cli" "$TOOLS/probe-stack.tcl" "$DISPLAY" > "$HERE/kbmove-stack2.log"
+import -display "$DISPLAY" -window root "$HERE/kbmove-raise.png" 2>/dev/null \
     && echo "DRIVER: screenshot (buried window, in the mode) -> $HERE/kbmove-raise.png"
 key Escape
 kill $CB 2>/dev/null

@@ -18,12 +18,7 @@
 # same fixture and the only difference between them is the one the
 # style rule sees.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:95
-rm -f /tmp/.X95-lock /tmp/.X11-unix/X95
-Xvfb :95 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 key() { xdotool key "$@"; sleep 1; }
 state() { xprop -id "$1" WM_STATE 2>/dev/null | sed -n 's/.*window state: //p'; }

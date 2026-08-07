@@ -23,12 +23,9 @@
 # property is ignored by everybody and nothing here would move, which
 # is the compositor's half of the bargain and not the WM's.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:61
-rm -f /tmp/.X61-lock /tmp/.X11-unix/X61
-Xvfb :61 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 set-fade 0.5
 wm-bind {<Super>f} Fade
@@ -81,7 +78,7 @@ xdotool key super+f
 sleep 0.8
 FADED=$(bar)
 kill $XEV 2>/dev/null
-import -display :61 -window root "$HERE/fade-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/fade-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/fade-test.png"
 
 xdotool key super+g

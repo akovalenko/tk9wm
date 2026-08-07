@@ -12,12 +12,7 @@
 # any complaint, and so can every other test in the suite
 # (check_invariants in common.sh).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:58
-rm -f /tmp/.X58-lock /tmp/.X11-unix/X58
-Xvfb :58 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 LOG="$HERE/wm-modes.log"
 "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &

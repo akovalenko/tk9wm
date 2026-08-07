@@ -20,17 +20,14 @@
 #    WORKED OUT to be (the `derived` field the terminal knob already
 #    had), a said one answers the word that was said.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:67
-rm -f /tmp/.X67-lock /tmp/.X11-unix/X67
-Xvfb :67 -screen 0 900x500x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb 900x500x24
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 
 LOG="$HERE/wm-theme.log"
 conf() { cat > "$CONF/tk9wm.tcl"; }
 reload() {
-    "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :67 >/dev/null 2>&1
+    "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
     sleep 1.5
 }
 pix() {
@@ -63,7 +60,7 @@ LSTRIP=$(strip); LDESK=$(desk)
 THICK=$(ask 'panel-thickness default')
 LFACE=$(pix 800 $((500 - THICK))); LUNDER=$(pix 800 $((500 - THICK + 1)))
 LSAID=$(ask 'dict get [knob-table] set-desk-background')
-import -display :67 -window root "$HERE/theme-light.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/theme-light.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/theme-light.png"
 
 conf <<'EOF'
@@ -75,7 +72,7 @@ EOF
 reload
 DSTRIP=$(strip); DDESK=$(desk)
 DFACE=$(pix 800 $((500 - THICK))); DUNDER=$(pix 800 $((500 - THICK + 1)))
-import -display :67 -window root "$HERE/theme-dark.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/theme-dark.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/theme-dark.png"
 
 # The override: a desk colour of one's own under the light theme.

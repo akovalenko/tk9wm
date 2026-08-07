@@ -19,12 +19,7 @@
 # and sits in a rectangle of its own — two actors sharing either makes
 # a pixel unable to say which of them it is looking at.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:92
-rm -f /tmp/.X92-lock /tmp/.X11-unix/X92
-Xvfb :92 -screen 0 1024x768x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb 1024x768x24
 
 CONF="$HERE/layer-config"
 rm -rf "$CONF"; mkdir -p "$CONF"

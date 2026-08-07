@@ -12,12 +12,7 @@
 # 2026-07-28 the compound-text pair came back empty and the frames
 # showed their «клиент 0x…» fallback.)
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:75
-rm -f /tmp/.X75-lock /tmp/.X11-unix/X75
-Xvfb :75 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-title.log" 2>&1 &
 WM=$!
@@ -26,7 +21,7 @@ sleep 1.5
 "$LINUX/whale" "$HERE/client-title.tcl" > "$HERE/title-client.log" &
 CT=$!
 sleep 4
-import -display :75 -window root "$HERE/title-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/title-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/title-test.png"
 wait $CT
 
@@ -42,7 +37,7 @@ echo "--- WM_NAME types the three xterms declared:"
 for id in $(xdotool search --class -- xterm); do
     xprop -id "$id" WM_NAME | sed 's/^/    /'
 done
-import -display :75 -window root "$HERE/title-ct.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/title-ct.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/title-ct.png"
 kill $X1 $X2 $X3 2>/dev/null
 sleep 1

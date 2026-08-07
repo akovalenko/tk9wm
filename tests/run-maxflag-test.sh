@@ -12,12 +12,7 @@
 # and the keyboard cannot drift apart on it. The reload in the middle
 # is how the second config gets in without disturbing the client.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:93
-rm -f /tmp/.X93-lock /tmp/.X11-unix/X93
-Xvfb :93 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 CONF="$HERE/maxflag-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
@@ -63,7 +58,7 @@ maximize;     KEEP_KBD=$(size)        # keep: restores 300x200 again
 maximize                              # leave it maximized for pass 2
 
 echo 'set-maximize drop' > "$CONF/tk9wm.tcl"
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :93 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1
 
 mouse_shrink; DROP_MOUSE_CUT=$(size)

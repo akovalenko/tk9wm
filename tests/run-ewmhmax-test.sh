@@ -13,12 +13,7 @@
 # increments nothing), and a client that sets VERT alone before its
 # first map is BORN tall.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:93
-rm -f /tmp/.X93-lock /tmp/.X11-unix/X93
-Xvfb :93 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/ewmhmax-config"
 mkdir -p "$HERE/ewmhmax-config"

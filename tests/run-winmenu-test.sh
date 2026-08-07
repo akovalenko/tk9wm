@@ -19,14 +19,10 @@
 # The menu's geometry is read off the WM's own log line and the row
 # height derived from it; nothing about the popup is hardcoded here.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:93
-rm -f /tmp/.X93-lock /tmp/.X11-unix/X93
-Xvfb :93 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-sleep 1
+start_xvfb
 
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 : > "$CONF/tk9wm.tcl"   ;# the stock desk: title <3> opens the ops menu
 
 LOG="$HERE/wm-winmenu.log"

@@ -10,12 +10,7 @@
 # panel button face resolves a bare name, and a wm-style icon key
 # rides through winlist-icon.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:84
-rm -f /tmp/.X84-lock /tmp/.X11-unix/X84
-Xvfb :84 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/iconpath-config"
 mkdir -p "$HERE/iconpath-config/icons"

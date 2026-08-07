@@ -6,12 +6,7 @@
 # ineffectual (last wins, custom over config); and the whole view
 # replays the same after a reload.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:66
-rm -f /tmp/.X66-lock /tmp/.X11-unix/X66
-Xvfb :66 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/coll-config"
 mkdir -p "$HERE/coll-config"

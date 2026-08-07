@@ -2,12 +2,7 @@
 # GTK canary: zenity (GTK3) must start, get framed and survive under the
 # WM; optionally poke gimp if it can run in this environment at all.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:82
-rm -f /tmp/.X82-lock /tmp/.X11-unix/X82
-Xvfb :82 -screen 0 900x700x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb 900x700x24
 
 "$LINUX/whale" "$WMTCL" &
 WM=$!
@@ -21,7 +16,7 @@ if kill -0 $ZP 2>/dev/null; then
 else
     wait $ZP; echo "DRIVER: zenity EXITED early, code $?"
 fi
-import -display :82 -window root "$HERE/gtk-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/gtk-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/gtk-test.png"
 
 if command -v gimp >/dev/null; then

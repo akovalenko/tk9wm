@@ -21,14 +21,10 @@
 # can only be if the box grew), and the click is the one that says the
 # hit area went with it.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:64
-rm -f /tmp/.X64-lock /tmp/.X11-unix/X64
-Xvfb :64 -screen 0 900x400x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb 900x400x24
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 echo "set-title-font -size 10" > "$CONF/tk9wm.tcl"
-sleep 1
 
 LOG="$HERE/wm-titlefont.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
@@ -49,11 +45,11 @@ B=$((TOP0 - TH0 - 2))
 echo "--- before: titleh=$TH0 top=$TOP0 btn=$BW0 border=$B"
 
 echo "set-title-font -size 32" > "$CONF/tk9wm.tcl"
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :64 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 2
 set -- $(metrics); TH1=$1; TOP1=$2; BW1=$3
 echo "--- after:  titleh=$TH1 top=$TOP1 btn=$BW1"
-import -display :64 -window root "$HERE/titlefont-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/titlefont-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/titlefont-test.png"
 
 # The frame, from the client inside it, at the NEW decoration size.

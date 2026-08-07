@@ -9,12 +9,7 @@
 . "$(dirname "$0")/common.sh"
 MODE="${1:-key}"
 LOG="$HERE/wm-gesture-$MODE.log"
-export DISPLAY=:88
-rm -f /tmp/.X88-lock /tmp/.X11-unix/X88
-Xvfb :88 -screen 0 900x700x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb 900x700x24
 
 "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!

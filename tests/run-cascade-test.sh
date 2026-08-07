@@ -5,12 +5,7 @@
 # windows left the screen entirely — with no titlebar left to drag them
 # back. Map many windows in a row; every single frame must stay inside.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:84
-rm -f /tmp/.X84-lock /tmp/.X11-unix/X84
-Xvfb :84 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-cascade.log" 2>&1 &
 WM=$!
@@ -23,7 +18,7 @@ while [ $i -le 12 ]; do
     sleep 0.35
 done
 sleep 4
-import -display :84 -window root "$HERE/cascade-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/cascade-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/cascade-test.png"
 sleep 6                  # clients self-exit; a bare `wait` would also wait for Xvfb
 kill $WM 2>/dev/null

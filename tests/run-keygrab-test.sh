@@ -14,12 +14,7 @@
 # under a prefix with two bindings, dropping ONE must not silence the
 # other.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:100
-rm -f /tmp/.X100-lock /tmp/.X11-unix/X100
-Xvfb :100 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/keygrab-config"
 mkdir -p "$HERE/keygrab-config"

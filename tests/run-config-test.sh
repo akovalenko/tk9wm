@@ -12,12 +12,9 @@
 # preset (ignore increments, bold centered titles): the same drag lands
 # RAW at 337; the screenshot shows the restyled titlebar.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:76
-rm -f /tmp/.X76-lock /tmp/.X11-unix/X76
-Xvfb :76 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 mkdir -p "$CONF/empty" "$CONF/dev"
 cat > "$CONF/dev/tk9wm.tcl" <<'EOF'
 set-title-font -weight bold
@@ -57,7 +54,7 @@ sleep 0.5
 GEOM_A=$GEOM
 
 phase dev B
-import -display :76 -window root "$HERE/config-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/config-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/config-test.png"
 GEOM_B=$GEOM
 
@@ -71,7 +68,7 @@ GEOM_B=$GEOM
 # The drag is on the RIGHT edge, so each one grows the client by 37 and
 # the expectation grows with it: 337, then 374, then 411 if the ignore
 # holds; anything snapped to a multiple of 10 is the ignore lost.
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :76 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1.2
 FX=$(xwininfo -id "$AID" | awk '/Absolute upper-left X/ {print $NF - 6}')
 FY=$(xwininfo -id "$AID" | awk '/Absolute upper-left Y/ {print $NF - 34}')
@@ -83,7 +80,7 @@ GEOM_RELOAD=$(xwininfo -id "$AID" \
 # released, the process execs itself, and the survivors are ADOPTED by
 # a fresh instance. If adoption ran before the config were read, or
 # past it, this is where the ignore would go.
-"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :76 >/dev/null 2>&1
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 2.5
 FX=$(xwininfo -id "$AID" | awk '/Absolute upper-left X/ {print $NF - 6}')
 FY=$(xwininfo -id "$AID" | awk '/Absolute upper-left Y/ {print $NF - 34}')

@@ -16,12 +16,9 @@
 #  - a second press says it is already there rather than writing twice;
 #  - and RAISING something does not become "the last thing started".
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:75
-rm -f /tmp/.X75-lock /tmp/.X11-unix/X75
-Xvfb :75 -screen 0 800x500x24 >/dev/null 2>&1 &
-XVFB=$!
+start_xvfb 800x500x24
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 
 LOG="$HERE/wm-pin.log"
 cat > "$CONF/tk9wm.tcl" <<'EOF'

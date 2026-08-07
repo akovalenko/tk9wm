@@ -6,12 +6,7 @@
 # advertises the protocol must be accompanied by the message; a
 # client that does not advertise it must never get one.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:73
-rm -f /tmp/.X73-lock /tmp/.X11-unix/X73
-Xvfb :73 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/takefocus-config"
 mkdir -p "$HERE/takefocus-config"

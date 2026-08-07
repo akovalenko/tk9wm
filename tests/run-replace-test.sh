@@ -17,12 +17,7 @@
 # fvwm3, when present, is the foreign half: it speaks the same protocol
 # and its --replace is a real second opinion about ours.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:60
-rm -f /tmp/.X60-lock /tmp/.X11-unix/X60
-Xvfb :60 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/replace-config"
 mkdir -p "$HERE/replace-config"
@@ -70,14 +65,14 @@ wm_start WM3 "$HERE/replace-3.log" -replace
 sleep 3
 code_of $WM1; FIRST_CODE=$?
 kill -0 $CL  2>/dev/null && CLIENT_ALIVE=yes || CLIENT_ALIVE=no
-import -display :60 -window root "$HERE/replace-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/replace-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/replace-test.png"
 
 # --- 4. restart in place, with the selection in our hands. execv keeps
 # the pid and drops the X connection, so the fresh instance can find the
 # owner window of the manager it IS still holding WM_S<n> — restart-wm
 # passes -replace exactly for that, and this is the check that it does.
-"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" :60
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
 sleep 3
 
 # --- 5. the foreign half. fvwm3 speaks the same ICCCM protocol and is

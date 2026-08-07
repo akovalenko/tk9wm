@@ -23,12 +23,7 @@
 #  - Super+t followed by an unbound key aborts the sequence without
 #    wedging anything (a final Alt+Space still answers).
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:78
-rm -f /tmp/.X78-lock /tmp/.X11-unix/X78
-Xvfb :78 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-key.log" 2>&1 &
 WM=$!
@@ -77,7 +72,7 @@ keyup alt
 key super+t     # the STATIC window list on the Super+t w w sequence...
 key w
 key w
-import -display :78 -window root "$HERE/key-list.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/key-list.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/key-list.png"
 key 2           # ...where a bare numbered hotkey picks entry 2 (B)
 keydown alt     # cycle mode: the hotkey works WITH the modifier held
@@ -88,7 +83,7 @@ keyup alt
 key super+t     # prefix...
 key w           # ...deeper...
 key m           # ...winops on the focused window
-import -display :78 -window root "$HERE/key-test.png" 2>/dev/null \
+import -display "$DISPLAY" -window root "$HERE/key-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/key-test.png"
 key Escape
 key super+t

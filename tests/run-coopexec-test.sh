@@ -26,12 +26,7 @@
 # nothing falls back to the blocking form, and a stream the line
 # already routed is no error.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:102
-rm -f /tmp/.X102-lock /tmp/.X11-unix/X102
-Xvfb :102 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/coop-config"
 mkdir -p "$HERE/coop-config"

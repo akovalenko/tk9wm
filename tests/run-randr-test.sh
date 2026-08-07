@@ -12,14 +12,9 @@
 # workarea reflow that does that, and this is the leg where the cause is
 # the screen rather than a config reload.
 . "$(dirname "$0")/common.sh"
-rm -f /tmp/.X95-lock /tmp/.X11-unix/X95 /tmp/.X96-lock /tmp/.X11-unix/X96
-Xvfb :95 -screen 0 1000x800x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
-DISPLAY=:95 Xephyr :96 -screen 800x600 -resizeable >/dev/null 2>&1 &
-XEPHYR=$!
-sleep 1.5
+start_xvfb 1000x800x24
+OUTER=$DISPLAY     # the desk that holds the resizeable Xephyr window
+start_xserver Xephyr -screen 800x600 -resizeable
 
 rm -rf "$HERE/randr-config"
 mkdir -p "$HERE/randr-config"
@@ -32,14 +27,14 @@ panel-button тест
 wm-style {filter -title жилец} {place {max force}}
 EOF
 
-DISPLAY=:96 XDG_CONFIG_HOME="$HERE/randr-config" \
+XDG_CONFIG_HOME="$HERE/randr-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-randr.log" 2>&1 &
 WM=$!
 sleep 1.5
 
 # a client too: the world must survive the resize, not just the panel —
 # and this one is maximized, so it must FOLLOW it
-DISPLAY=:96 "$LINUX/whale" "$HERE/client.tcl" "жилец" 240x120 "#8ae234" "" "" 30 &
+"$LINUX/whale" "$HERE/client.tcl" "жилец" 240x120 "#8ae234" "" "" 30 &
 CA=$!
 sleep 1
 
@@ -50,29 +45,29 @@ BW=$((TOP - TITLEH - 2))
 # The FRAME's rect, which is what fills a workarea; xwininfo can only be
 # asked about the client inside it.
 frame() {
-    DISPLAY=:96 xwininfo -id "$CID" | awk -v b="$BW" -v t="$TOP" '
+    xwininfo -id "$CID" | awk -v b="$BW" -v t="$TOP" '
         /Width:/ {w=$2} /Height:/ {h=$2}
         /Absolute upper-left X/ {x=$NF} /Absolute upper-left Y/ {y=$NF}
         END {print (w + 2*b) "x" (h + t + b) "+" (x - b) "+" (y - t)}'
 }
 work() {
-    DISPLAY=:96 xprop -root _NET_WORKAREA | sed 's/.*= //; s/,//g' \
+    xprop -root _NET_WORKAREA | sed 's/.*= //; s/,//g' \
         | awk '{print $3 "x" $4 "+" $1 "+" $2}'
 }
 WA_BEFORE=$(work); MAX_BEFORE=$(frame)
 
-XWIN=$(DISPLAY=:95 xdotool search --class Xephyr | head -1)
-DISPLAY=:95 xdotool windowsize "$XWIN" 700 500
+XWIN=$(DISPLAY="$OUTER" xdotool search --class Xephyr | head -1)
+DISPLAY="$OUTER" xdotool windowsize "$XWIN" 700 500
 sleep 1.5   # the debounce (200 ms) plus slack
 
 WA_AFTER=$(work); MAX_AFTER=$(frame)
 echo "--- maximized client $MAX_BEFORE -> $MAX_AFTER;\
  workarea $WA_BEFORE -> $WA_AFTER"
 
-DISPLAY=:96 import -window root "$HERE/randr-test.png" 2>/dev/null \
+import -window root "$HERE/randr-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/randr-test.png"
 
-kill $WM $CA $XEPHYR 2>/dev/null
+kill $WM $CA 2>/dev/null
 
 PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-randr.log" | head -1)
 echo "--- panel h=$PH"

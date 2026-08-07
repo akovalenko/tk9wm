@@ -20,14 +20,10 @@
 # counted from the RIGHT edge, which is the order the catalogue
 # declares them in.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:87
-rm -f /tmp/.X87-lock /tmp/.X11-unix/X87
-Xvfb :87 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-sleep 1
+start_xvfb
 
 CONF=$(mktemp -d)
-trap 'kill $XVFB 2>/dev/null; rm -rf "$CONF"' EXIT
+trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 # layer 2: one more button, with a picture of its own...
 titlebar-button shade -side left -glyph {<svg

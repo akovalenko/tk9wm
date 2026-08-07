@@ -8,12 +8,7 @@
 # client of the desk would see. The empty pass is the important one: it
 # proves the previous config left nothing behind.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:91
-rm -f /tmp/.X91-lock /tmp/.X11-unix/X91
-Xvfb :91 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 CONF="$HERE/reload-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
@@ -62,7 +57,7 @@ panel-button единственный
 set-tray on
 wm-bind {<Super>F2} {puts "WM: CHORD TWO"}
 EOF
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :91
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
 sleep 2
 P2=$(panel); W2=$(work)
 ICON_P2=$(icon_parent "$ICON")
@@ -73,7 +68,7 @@ CH2=$(grep -c 'CHORD TWO' "$HERE/wm-reload.log")
 
 # --- pass 3: an EMPTY config — the desk must fall back to stock
 : > "$CONF/tk9wm.tcl"
-"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" :91
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
 sleep 2
 PANEL3=$(xwininfo -root -children 2>/dev/null | grep -c '"panel"')
 TRAY3=$(xwininfo -root -children 2>/dev/null | grep -c '"tray"')

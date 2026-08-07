@@ -19,12 +19,7 @@
 #     publishes a window as active before it truly is: a client that
 #     believes it is already the foreground never re-asks.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:71
-rm -f /tmp/.X71-lock /tmp/.X11-unix/X71
-Xvfb :71 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 rm -rf "$HERE/gastart-config"
 mkdir -p "$HERE/gastart-config"

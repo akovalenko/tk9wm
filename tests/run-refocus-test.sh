@@ -7,12 +7,7 @@
 # the WM's job). Then A exits, and the focus history must hand focus to
 # B (most recent living window), not an arbitrary managed one.
 . "$(dirname "$0")/common.sh"
-export DISPLAY=:77
-rm -f /tmp/.X77-lock /tmp/.X11-unix/X77
-Xvfb :77 -screen 0 800x600x24 >/dev/null 2>&1 &
-XVFB=$!
-trap 'kill $XVFB 2>/dev/null' EXIT
-sleep 1
+start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-refocus.log" 2>&1 &
 WM=$!
