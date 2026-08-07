@@ -16,7 +16,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-quit.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-quit.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "переживи выход" 260x160 "#729fcf" "" "" 40 \
     > "$HERE/quit-client.log" 2>&1 &
 CL=$!

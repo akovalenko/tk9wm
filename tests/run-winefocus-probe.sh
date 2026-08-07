@@ -36,7 +36,7 @@ open_list_and_pick() {   # $1 = window id to pick
 
 "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 "$WINESH" server -k >/dev/null 2>&1
 WINEDEBUG="${WINEDEBUG:-}" "$WINESH" notepad > "$HERE/winefocus-client.log" 2>&1 &
 sleep 6

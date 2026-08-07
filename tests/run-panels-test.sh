@@ -141,7 +141,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/panels-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-panels.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-panels.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" жилец-A 240x120 "#729fcf" "" "" 30 &
 TK=$!

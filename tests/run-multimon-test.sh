@@ -59,7 +59,7 @@ xrandr --setmonitor right 400/110x700/180+600+0 none   >/dev/null 2>&1
 XDG_CONFIG_HOME="$HERE/multimon-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-multimon.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-multimon.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "левый" "" "#8ae234" "" "" 30 &
 CA=$!
@@ -146,7 +146,7 @@ start_xserver Xephyr -screen 700x500 -screen 500x400 +xinerama
 XDG_CONFIG_HOME="$HERE/multimon-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-multimon-xin.log" 2>&1 &
 WM2=$!
-sleep 1.5
+wait_wm "$HERE/wm-multimon-xin.log" $WM2
 
 "$LINUX/whale" "$HERE/client.tcl" "второй" 240x120+800+50 "#729fcf" "" "" 30 &
 CC=$!

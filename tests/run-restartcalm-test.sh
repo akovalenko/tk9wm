@@ -33,7 +33,7 @@ stacking() {
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 i=0
 for col in '#fce94f' '#8ae234' '#729fcf' '#ad7fa8' '#fcaf3e' '#e9b96e' '#ef2929' '#888a85'; do

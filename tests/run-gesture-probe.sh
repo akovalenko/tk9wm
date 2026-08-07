@@ -13,7 +13,7 @@ start_xvfb 900x700x24
 
 "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" сосед 300x200 "#729fcf" "" "" 40 &
 sleep 1.5
 "$LINUX/whale" "$HERE/client.tcl" жертва 320x200 "#fce94f" "" "" 40 &

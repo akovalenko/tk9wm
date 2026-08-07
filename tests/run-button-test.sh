@@ -42,7 +42,7 @@ EOF
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$HERE/wm-button.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-button.log" $WM
 
 # the empty args skip resizeto/minsize; 90 s outlives every leg below
 # (the stock 8 s died just before the close leg and read as a bug)

@@ -28,7 +28,7 @@ mkdir -p "$HERE/gastart-config"
 XDG_CONFIG_HOME="$HERE/gastart-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-gastart.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-gastart.log" $WM
 
 # A plain client first, and typing INTO it: those keys go to the client,
 # never through the WM's grabs, so a clock the WM keeps of its own is

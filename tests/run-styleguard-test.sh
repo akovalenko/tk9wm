@@ -19,7 +19,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/styleguard-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-styleguard.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-styleguard.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 240x120 "#8ae234" "" "" 30 &
 CA=$!

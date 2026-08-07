@@ -134,7 +134,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/panellive-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-panellive.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-panellive.log" $WM
 
 key() { xdotool key "$@"; sleep 0.4; }
 

@@ -28,7 +28,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/compass-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-compass.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-compass.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" "" "" 60 &
 CA=$!

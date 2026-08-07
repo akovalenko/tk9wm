@@ -17,7 +17,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-menufocus.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-menufocus.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" \
     > /dev/null 2>&1 &

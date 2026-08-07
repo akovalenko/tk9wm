@@ -39,7 +39,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/trayargb-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-trayargb.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-trayargb.log" $WM
 "$LINUX/whale" "$HERE/tray-client.tcl" "#8ae234" > "$HERE/trayargb-tk.log" 2>&1 &
 CA=$!
 sleep 1.5

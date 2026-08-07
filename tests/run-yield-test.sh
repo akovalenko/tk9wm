@@ -36,7 +36,7 @@ sleep 1
 LOG="$HERE/wm-yield.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 term() { xterm -T "$1" ${2:+-geometry} $2 -e sleep 60 >/dev/null 2>&1 & sleep 1.2; }
 term proba-size  20x20

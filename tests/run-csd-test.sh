@@ -53,7 +53,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/csd-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-csd.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-csd.log" $WM
 
 # motif "" type ""      — says nothing, the ordinary framed window
 # motif 0               — GTK's own request: no decoration at all

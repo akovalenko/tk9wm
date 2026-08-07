@@ -29,7 +29,7 @@ echo "set-title-font -size 10" > "$CONF/tk9wm.tcl"
 LOG="$HERE/wm-titlefont.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "шрифт" 400x120 "#fce94f" "" "" 60 \
     > "$HERE/titlefont-client.log" &
 CA=$!

@@ -11,7 +11,7 @@ start_xvfb 640x480x24
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-dialog.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-dialog.log" $WM
 
 # main window plus, 2 s later, a transient dialog
 "$LINUX/whale" "$HERE/client-dlg.tcl" 300x200 260x180 &

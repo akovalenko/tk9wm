@@ -29,7 +29,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/owner-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-owner.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-owner.log" $WM
 
 q() { printf '%s\n' "$1" > "$HERE/owner-config/q.tcl"
       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/owner-config/q.tcl"; }

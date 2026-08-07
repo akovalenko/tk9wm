@@ -11,7 +11,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-stack.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-stack.log" $WM
 
 # leader 300x200 (dialog 220x140 pops after 2 s and stays), then a
 # bystander. Both live 30 s: the bury pass at the end needs every actor

@@ -17,7 +17,7 @@ start_xvfb
 LOG="$HERE/wm-modes.log"
 "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" "" "" 120 &
 CA=$!
 sleep 1.5

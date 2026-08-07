@@ -41,7 +41,7 @@ EOF
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "обычный-A" 200x100 "#fce94f" "" "" 90 \
     > "$HERE/woi-a.log" 2>&1 &

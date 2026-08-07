@@ -11,7 +11,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-refocus.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-refocus.log" $WM
 
 "$LINUX/whale" "$HERE/client-refocus.tcl" > "$HERE/refocus-leader.log" &
 CA=$!

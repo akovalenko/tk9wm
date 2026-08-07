@@ -36,7 +36,7 @@ EOF
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
     > "$HERE/wm-fullscreen.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-fullscreen.log" $WM
 
 SUPPORTED=$(xprop -root _NET_SUPPORTED | tr ',' '\n' | grep -c _NET_WM_STATE_FULLSCREEN)
 

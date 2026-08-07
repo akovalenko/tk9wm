@@ -9,7 +9,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-cascade.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-cascade.log" $WM
 
 i=1
 while [ $i -le 12 ]; do

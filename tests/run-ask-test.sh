@@ -34,7 +34,7 @@ px() {
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "аск-окно" 240x120 "#fce94f" "" "" 90 \
     > "$HERE/ask-c.log" 2>&1 &

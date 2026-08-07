@@ -70,7 +70,7 @@ conf bottom
 LOG="$HERE/wm-reflow.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 tkclient() {
     "$LINUX/whale" "$HERE/client.tcl" "$1" "$2" "$3" "" "" 120 &

@@ -34,7 +34,7 @@ EOF
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
     > "$HERE/wm-fslayer.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-fslayer.log" $WM
 
 px() { import -window root "$HERE/fslayer-shot.png" 2>/dev/null
        convert "$HERE/fslayer-shot.png" -format "%[pixel:p{$1,$2}]" info:; }

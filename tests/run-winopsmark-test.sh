@@ -56,7 +56,7 @@ EOF
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 240x120 "#8ae234" "" "" 90 \
     > "$HERE/wmark-a.log" 2>&1 &

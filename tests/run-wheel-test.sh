@@ -19,7 +19,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-wheel.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-wheel.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "колесо" 300x200 "#ad7fa8" "" "" 25 \
     > "$HERE/wheel-client.log" 2>&1 &
 sleep 2.5

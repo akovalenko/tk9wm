@@ -53,17 +53,12 @@ EOF
 XDG_CONFIG_HOME="$HERE/emacs-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-emacs.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-emacs.log" $WM
 
 key() { xdotool key "$@"; sleep 0.5; }
 ec() { emacsclient -s emtest -e "$1" 2>/dev/null; }
 q() { printf '%s\n' "$1" > "$HERE/emacs-config/q.tcl"
       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/emacs-config/q.tcl"; }
-wait_for() { # wait_for SECONDS CMD... — poll until CMD succeeds
-    n=$(( $1 * 2 )); shift
-    while [ $n -gt 0 ]; do "$@" >/dev/null 2>&1 && return 0; sleep 0.5; n=$((n-1)); done
-    return 1
-}
 
 echo "--- gui path"
 key super+g

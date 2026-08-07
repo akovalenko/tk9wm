@@ -31,7 +31,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/keygrab-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-keygrab.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-keygrab.log" $WM
 
 q() { printf '%s\n' "$1" > "$HERE/keygrab-config/q.tcl"
       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/keygrab-config/q.tcl"; }

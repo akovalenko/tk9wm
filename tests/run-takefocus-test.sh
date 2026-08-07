@@ -26,7 +26,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/takefocus-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-takefocus.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-takefocus.log" $WM
 
 "$LINUX/whale" "$HERE/takefocus-config/tf-client.tcl" \
     > "$HERE/takefocus-client.log" 2>&1 &

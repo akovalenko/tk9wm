@@ -238,7 +238,7 @@ sed -i "s|__ICONS__|$HERE/panelgeo-config/icons|g" "$HERE/panelgeo-config/tk9wm.
 XDG_CONFIG_HOME="$HERE/panelgeo-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-panelgeo.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-panelgeo.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" геометрия-жилец 240x120 "#729fcf" "" "" 30 &
 TK=$!

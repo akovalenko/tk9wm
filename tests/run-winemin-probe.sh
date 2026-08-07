@@ -16,7 +16,7 @@ mapstate() { xwininfo -id "$1" 2>/dev/null | sed -n 's/.*Map State: //p'; }
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-winemin.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-winemin.log" $WM
 "$WINESH" server -k >/dev/null 2>&1
 "$WINESH" notepad > "$HERE/winemin-client.log" 2>&1 &
 sleep 6

@@ -40,7 +40,7 @@ sleep 1
 LOG="$HERE/wm-keyecho.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "окно" 300x200 "#fce94f" "" "" 120 &
 CA=$!
 sleep 1.5

@@ -79,7 +79,7 @@ sed -i "s|__ICONS__|$HERE/iconpath-config/icons|g" "$HERE/iconpath-config/tk9wm.
 XDG_CONFIG_HOME="$HERE/iconpath-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-iconpath.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-iconpath.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" проба-иконок 240x120 "#729fcf" "" "" 20 &
 TK=$!

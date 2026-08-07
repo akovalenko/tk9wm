@@ -31,7 +31,7 @@ sleep 1
 LOG="$HERE/wm-carry.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 # A: the carried one. B: the one that asks for +0-2, like Qt Creator.
 "$LINUX/whale" "$HERE/client.tcl" "ноша" 300x200 "#fce94f" "" "" 60 &

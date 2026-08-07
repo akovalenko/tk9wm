@@ -58,7 +58,7 @@ EOF
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
     > "$HERE/wm-menu.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-menu.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "менюА-окно" 200x100 "#fce94f" "" "" 90 \
     > "$HERE/menu-a.log" 2>&1 &

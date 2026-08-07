@@ -8,7 +8,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-resize.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-resize.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" \
     > "$HERE/resize-client.log" &

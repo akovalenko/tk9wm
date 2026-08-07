@@ -7,7 +7,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-restart.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-restart.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "переживи рестарт" 320x240 "#8ae234" \
     > "$HERE/restart-client.log" &
@@ -62,7 +62,7 @@ trap 'stop_xservers; rm -f "$DOOMED"' EXIT
 
 "$LINUX/whale" "$DOOMED" > "$HERE/wm-doomed.log" 2>&1 &
 WM2=$!
-sleep 1.5
+wait_wm "$HERE/wm-doomed.log" $WM2
 "$LINUX/whale" "$HERE/client.tcl" "переживи отказ" 300x200 "#fcaf3e" \
     > "$HERE/doomed-client.log" &
 CB=$!
@@ -116,7 +116,7 @@ echo 'wm-bind {<Super>d} {Apply-To-Matching always Minimize}' \
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
     > "$HERE/wm-reicon.log" 2>&1 &
 WM3=$!
-sleep 1.5
+wait_wm "$HERE/wm-reicon.log" $WM3
 "$LINUX/whale" "$HERE/client.tcl" "свернусь и переживу" 260x150 "#ad7fa8" \
     "" "" 40 > "$HERE/reicon-client.log" 2>&1 &
 CC=$!

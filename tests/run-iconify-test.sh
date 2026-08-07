@@ -24,7 +24,7 @@ hidden() {
 # ---- phase 1: honored ----
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-iconify.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-iconify.log" $WM
 "$LINUX/whale" "$HERE/client-iconify.tcl" свёртыш 16 3 \
     > "$HERE/iconify-client.log" 2>&1 &
 CL=$!
@@ -59,7 +59,7 @@ echo 'set-minimize refuse' > "$HERE/refuse-config/tk9wm.tcl"
 XDG_CONFIG_HOME="$HERE/refuse-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-iconrefuse.log" 2>&1 &
 WM2=$!
-sleep 1.5
+wait_wm "$HERE/wm-iconrefuse.log" $WM2
 "$LINUX/whale" "$HERE/client-iconify.tcl" отказыш 9 3 \
     > "$HERE/iconrefuse-client.log" 2>&1 &
 CL2=$!
@@ -78,7 +78,7 @@ echo 'wm-style {filter -class {client-iconify.tcl *}} {minimize refuse}' \
 XDG_CONFIG_HOME="$HERE/refuse-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-iconstyle.log" 2>&1 &
 WM3=$!
-sleep 1.5
+wait_wm "$HERE/wm-iconstyle.log" $WM3
 "$LINUX/whale" "$HERE/client-iconify.tcl" стилевой 9 3 \
     > "$HERE/iconstyle-client.log" 2>&1 &
 CL3=$!

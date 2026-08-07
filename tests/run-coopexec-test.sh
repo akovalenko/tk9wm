@@ -54,7 +54,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/coop-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-coop.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-coop.log" $WM
 
 xdotool key super+1
 sleep 0.5

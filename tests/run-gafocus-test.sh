@@ -19,7 +19,7 @@ mkdir -p "$HERE/gafocus-config"
 XDG_CONFIG_HOME="$HERE/gafocus-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-gafocus.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-gafocus.log" $WM
 
 "$LINUX/whale" "$HERE/ga-client.tcl" > "$HERE/gafocus-client.log" 2>&1 &
 GA=$!

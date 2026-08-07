@@ -40,7 +40,7 @@ EOF
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$HERE/wm-sweep.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-sweep.log" $WM
 
 # The refuser goes up FIRST, so the focus ends on an ordinary client
 # and the bare-Minimize phase measures what it means to.

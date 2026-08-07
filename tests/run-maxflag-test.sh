@@ -20,7 +20,7 @@ echo 'set-maximize keep' > "$CONF/tk9wm.tcl"
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$HERE/wm-maxflag.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-maxflag.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" "" "" 120 &
 CA=$!
 sleep 1.5

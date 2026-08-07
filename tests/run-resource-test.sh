@@ -45,7 +45,7 @@ sleep 1
 LOG="$HERE/wm-resource.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "старое" 300x200 "#fce94f" "" "" 60 &
 CA=$!
 sleep 1.5

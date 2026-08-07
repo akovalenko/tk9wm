@@ -19,7 +19,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/applet-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-applet.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-applet.log" $WM
 
 q() { printf '%s\n' "$1" > "$HERE/applet-config/q.tcl"
       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/applet-config/q.tcl"; }

@@ -21,7 +21,7 @@ EOF
 LOG="$HERE/wm-drag.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 "$LINUX/whale" "$HERE/client-press.tcl" таскаемый 240x120 "#729fcf" 30 \
     > "$HERE/drag-client.log" 2>&1 &

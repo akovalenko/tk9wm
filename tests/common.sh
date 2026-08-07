@@ -84,6 +84,39 @@ start_xvfb() {      # start_xvfb [GEOMETRY [EXTRA...]] — sets XVFB too
     XVFB=$XSERVER
 }
 
+# ---- waiting for a said thing instead of sleeping a guessed time ----
+# The suites used to sleep out constants — 953 literal sleeps, 53
+# minutes of wall clock, most of it spent on desks that were long
+# ready (styleguard: 5.5 s of sleep in a 5.6 s run). A guessed
+# constant is wrong in both directions at once: too long on an idle
+# machine, too short on a loaded one — and the second kind reads as a
+# red battery nobody can reproduce. So: poll for the condition the
+# sleep was standing in for, and let the timeout be a ceiling rather
+# than a cost every run pays in full.
+wait_for() {   # wait_for SECONDS CMD... — poll until CMD succeeds
+    _wf=$(( $1 * 2 )); shift
+    while [ $_wf -gt 0 ]; do
+        "$@" >/dev/null 2>&1 && return 0
+        sleep 0.5
+        _wf=$((_wf - 1))
+    done
+    return 1
+}
+
+# The one condition nearly every suite starts on: the WM has read its
+# config — «WM: config …» in its log — said only after the layers are
+# in and the config's own grabs and buttons are armed. The pid pins
+# the answer to THIS boot: the log file is truncated by the server's
+# own redirect, so for a moment after the spawn a log left by the
+# previous run may still be standing, and its stale «WM: config» must
+# not answer for the new desk. The startup banner carries the pid;
+# the previous run's banner carries a different one.
+_wm_config_said() { grep -q "pid $2)" "$1" && grep -q 'WM: config' "$1"; }
+wait_wm() {    # wait_wm LOGFILE WMPID — until that WM has read its config
+    wait_for 15 _wm_config_said "$1" "$2" \
+        || echo "note: the WM (pid $2) never said its config line in $1"
+}
+
 # The WM checks its own modal invariants — a mode left standing with no
 # router, a compass with no mode, a frame still wearing the modal amber,
 # the keyboard grabbed for nobody — and says so in the log. That makes

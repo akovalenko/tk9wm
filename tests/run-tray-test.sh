@@ -18,7 +18,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/tray-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-tray.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-tray.log" $WM
 
 "$LINUX/whale" "$HERE/tray-client.tcl" "#8ae234" > "$HERE/tray-client-A.log" 2>&1 &
 CA=$!

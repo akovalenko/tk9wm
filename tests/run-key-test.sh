@@ -27,7 +27,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-key.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-key.log" $WM
 
 # the empty args skip resizeto/minsize; 60 s of lifetime outlives the
 # whole key script (the stock 8 s died mid-test and read as a wedge)

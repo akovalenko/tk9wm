@@ -61,7 +61,7 @@ EOF
 XDG_CONFIG_HOME="$BASE" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-editdoor.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-editdoor.log" $WM
 
 q() { printf '%s\n' "$1" > "$BASE/q.tcl"
       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$BASE/q.tcl"; }

@@ -28,7 +28,7 @@ EOF
 LOG="$HERE/wm-desk.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 FAIL=0
 ok()  { echo "OK: $1"; }

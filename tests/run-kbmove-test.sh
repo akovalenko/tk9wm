@@ -13,7 +13,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-kbmove.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-kbmove.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" "" "" 40 &
 CA=$!

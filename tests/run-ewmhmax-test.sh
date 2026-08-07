@@ -75,7 +75,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/ewmhmax-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-ewmhmax.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-ewmhmax.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 240x120 "#8ae234" "" "" 30 &
 CA=$!

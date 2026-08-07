@@ -22,7 +22,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/reread-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-reread.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-reread.log" $WM
 
 cat > "$HERE/reread-config/q-weight.tcl" <<'EOF'
 font actual TitleFont -weight

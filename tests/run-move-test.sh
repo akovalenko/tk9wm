@@ -9,7 +9,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-move.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-move.log" $WM
 
 "$LINUX/whale-cli" "$HERE/client-move.tcl" "$DISPLAY"
 kill $WM 2>/dev/null

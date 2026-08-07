@@ -21,7 +21,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/ewmh-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-ewmh.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-ewmh.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "первый" 240x120 "#8ae234" "" "" 30 \
     > "$HERE/ewmh-a.log" 2>&1 &

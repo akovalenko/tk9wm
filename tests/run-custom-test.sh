@@ -37,7 +37,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/custom-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-custom.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-custom.log" $WM
 
 q() { printf '%s\n' "$1" > "$HERE/custom-config/q.tcl"
       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/custom-config/q.tcl"; }
@@ -146,7 +146,7 @@ mkdir -p "$HERE/custom-fresh"
 XDG_CONFIG_HOME="$HERE/custom-fresh" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-fresh.log" 2>&1 &
 WM2=$!
-sleep 1.5
+wait_wm "$HERE/wm-fresh.log" $WM2
 qf() { printf '%s\n' "$1" > "$HERE/custom-fresh/q.tcl"
        "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/custom-fresh/q.tcl"; }
 WELCOME=$(qf 'dict exists $::widgets __welcome')

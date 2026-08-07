@@ -36,7 +36,7 @@ EOF
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$HERE/wm-termtint.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-termtint.log" $WM
 
 key super+1
 sleep 2.5

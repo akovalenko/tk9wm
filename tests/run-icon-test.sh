@@ -25,7 +25,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/icon-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-icon.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-icon.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "первое-окно" 240x120 "#8ae234" "" "" 30 "#4e9a06" &
 CA=$!

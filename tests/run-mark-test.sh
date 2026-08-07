@@ -135,7 +135,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/mark-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-mark.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-mark.log" $WM
 
 xdotool key super+b
 sleep 0.5

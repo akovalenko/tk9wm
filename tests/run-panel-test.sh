@@ -25,7 +25,7 @@ sed -i "s|__LINUX__|$LINUX|; s|__HERE__|$HERE|" "$HERE/panel-config/tk9wm.tcl"
 XDG_CONFIG_HOME="$HERE/panel-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-panel.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-panel.log" $WM
 
 key() { xdotool key "$@"; sleep 0.5; }
 

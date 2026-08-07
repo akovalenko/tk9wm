@@ -15,7 +15,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/tophelp-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-tophelp.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-tophelp.log" $WM
 
 key() { xdotool key "$@"; sleep 0.6; }
 

@@ -28,7 +28,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/emptydesk-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-emptydesk.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-emptydesk.log" $WM
 
 xdotool key super+w          # fresh empty desk
 sleep 0.5

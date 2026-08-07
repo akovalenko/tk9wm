@@ -11,7 +11,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-size.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-size.log" $WM
 
 # --- A: the kitty case ---
 "$LINUX/whale" "$HERE/client-size.tcl" "$DISPLAY" 500x400 > "$HERE/size-raw.log" &

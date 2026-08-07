@@ -30,7 +30,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/randr-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-randr.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-randr.log" $WM
 
 # a client too: the world must survive the resize, not just the panel —
 # and this one is maximized, so it must FOLLOW it

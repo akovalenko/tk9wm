@@ -37,7 +37,7 @@ rm -rf /tmp/tk9wm-fire-dir; mkdir -p /tmp/tk9wm-fire-dir
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$HERE/wm-fire.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-fire.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "фаерА-окно" 200x100 "#fce94f" "" "" 90 \
     > "$HERE/fire-a.log" 2>&1 &

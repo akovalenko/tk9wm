@@ -28,7 +28,7 @@ trap 'stop_xservers; rm -rf "$CONF"' EXIT
 LOG="$HERE/wm-winmenu.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "меню" 300x200 "#729fcf" "" "" 90 \
     > "$HERE/winmenu-client.log" &

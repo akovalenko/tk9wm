@@ -52,7 +52,7 @@ sleep 1
 LOG="$HERE/wm-style.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 
 for spec in "развёрнутый 240x120" "уголок 240x120+300+50" "полочный 240x120" \
             "свойразмер 240x120" "безрамочный 240x120" "кривой 240x120" \

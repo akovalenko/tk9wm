@@ -13,7 +13,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-transient.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-transient.log" $WM
 
 "$LINUX/whale" "$HERE/client-retrans.tcl" &
 CP=$!

@@ -36,7 +36,7 @@ sleep 1
 LOG="$HERE/wm-widget.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/tray-client.tcl" "#729fcf" > "$HERE/widget-tray.log" &
 TRAY=$!
 sleep 2

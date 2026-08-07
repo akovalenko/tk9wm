@@ -35,7 +35,7 @@ sed -i "s|__HERE__|$HERE|" "$HERE/terminal-config/tk9wm.tcl"
 XDG_CONFIG_HOME="$HERE/terminal-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-terminal.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-terminal.log" $WM
 
 key() { xdotool key "$@"; sleep 0.5; }
 

@@ -34,7 +34,7 @@ mkdir -p "$HERE/gareset-config"
 XDG_CONFIG_HOME="$HERE/gareset-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-gareset.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-gareset.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" обычный 240x120 "#729fcf" "" "" 40 &
 CB=$!

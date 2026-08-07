@@ -20,7 +20,7 @@ sleep 1                                   # maps wild, no WM yet
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-place.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-place.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "верхний-правый" 240x120+500+50 "#8ae234" "" "" 20 &
 CA=$!

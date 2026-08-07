@@ -105,7 +105,7 @@ EOF
 XDG_CONFIG_HOME="$HERE/filter-config" \
     "$LINUX/whale" "$WMTCL" > "$HERE/wm-filter.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-filter.log" $WM
 
 xterm -name ff -title "Browser Window" -e sleep 60 &
 XTPID=$!

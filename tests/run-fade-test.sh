@@ -43,7 +43,7 @@ sleep 0.7
 LOG="$HERE/wm-fade.log"
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "плотное" 300x200 "#fce94f" "" "" 60 &
 CA=$!
 sleep 1.5

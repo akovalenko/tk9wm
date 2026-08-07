@@ -25,7 +25,7 @@ EOF
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
     > "$HERE/wm-reload.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-reload.log" $WM
 
 # a client and a tray icon, both of which must survive every reload
 "$LINUX/whale" "$HERE/client.tcl" "живучий" 240x120 "#8ae234" "" "" 60 \

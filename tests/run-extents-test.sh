@@ -12,7 +12,7 @@ start_xvfb
 
 "$LINUX/whale" "$WMTCL" > "$HERE/wm-extents.log" 2>&1 &
 WM=$!
-sleep 1.5
+wait_wm "$HERE/wm-extents.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "рамочный" 240x120 "#8ae234" "" "" 30 \
     > "$HERE/extents-framed.log" 2>&1 &
