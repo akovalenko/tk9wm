@@ -44,11 +44,11 @@ ndesks()  { xprop -root _NET_NUMBER_OF_DESKTOPS | sed 's/.*= //'; }
 "$LINUX/whale" "$HERE/client.tcl" "первый" 240x120+60+60 "#8ae234" "" "" 60 \
     > "$HERE/desk-a.log" 2>&1 &
 CA=$!
-sleep 1.2
+wait_client "$LOG" 'первый'
 "$LINUX/whale" "$HERE/client.tcl" "липкий" 200x100+400+60 "#fcaf3e" "" "" 60 \
     > "$HERE/desk-b.log" 2>&1 &
 CB=$!
-sleep 1.5
+wait_client "$LOG" 'липкий'
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | sed -n 1p)
 BID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | sed -n 2p)
 echo "--- actors: обычный $AID, липкий $BID; desks $(ndesks), on $(curdesk)"
@@ -135,11 +135,11 @@ sleep 0.8
 "$LINUX/whale" "$HERE/client.tcl" "нижний" 260x200+100+200 "#3465a4" "" "" 40 \
     > "$HERE/desk-c.log" 2>&1 &
 CC=$!
-sleep 1.2
+wait_client "$LOG" 'нижний'
 "$LINUX/whale" "$HERE/client.tcl" "верхний" 260x200+160+260 "#ef2929" "" "" 40 \
     > "$HERE/desk-d.log" 2>&1 &
 CD=$!
-sleep 1.5
+wait_client "$LOG" 'верхний'
 px() { import -window root "$HERE/desk-shot.png" 2>/dev/null
        convert "$HERE/desk-shot.png" -format "%[pixel:p{$1,$2}]" info:; }
 OVER="200 300"     # where the two of them overlap

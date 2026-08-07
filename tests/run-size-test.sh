@@ -22,7 +22,7 @@ sleep 2
 "$LINUX/whale" "$HERE/client.tcl" "минимум" 300x200 "#fce94f" "" 200x150 \
     > "$HERE/size-min.log" &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-size.log" 'минимум'
 BID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-size.log" | sed -n 2p)
 eval "$(awk '/frame \.f[0-9]+ for/ {
     if (match($0, /\+(-?[0-9]+)\+(-?[0-9]+)$/)) {
@@ -41,7 +41,7 @@ sleep 0.5
 "$LINUX/whale" "$HERE/client.tcl" "широкое" 900x300 "#ad7fa8" \
     > "$HERE/size-wide.log" &
 CC=$!
-sleep 2
+wait_client "$HERE/wm-size.log" 'широкое'
 
 RAWID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-size.log" | sed -n 1p)
 WIDEID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-size.log" | sed -n 3p)

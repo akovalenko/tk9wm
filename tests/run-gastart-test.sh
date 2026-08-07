@@ -36,7 +36,7 @@ wait_wm "$HERE/wm-gastart.log" $WM
 # typed in an xterm launches the app.
 "$LINUX/whale" "$HERE/client.tcl" обычный 240x120 "#729fcf" "" "" 30 &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-gastart.log" 'обычный'
 xdotool key a b c
 sleep 0.3
 

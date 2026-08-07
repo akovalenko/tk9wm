@@ -23,7 +23,7 @@ WM=$!
 wait_wm "$HERE/wm-maxflag.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" "" "" 120 &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-maxflag.log" 'жертва'
 
 VID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-maxflag.log" | head -1)
 key() { xdotool key "$@"; sleep 0.4; }

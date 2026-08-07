@@ -42,11 +42,11 @@ wait_wm "$HERE/wm-fire.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "фаерА-окно" 200x100 "#fce94f" "" "" 90 \
     > "$HERE/fire-a.log" 2>&1 &
 CA=$!
-sleep 1
+wait_client "$HERE/wm-fire.log" 'фаерА-окно'
 "$LINUX/whale" "$HERE/client.tcl" "фаерБ-окно" 220x120 "#8ae234" "" "" 90 \
     > "$HERE/fire-b.log" 2>&1 &
 CB=$!
-sleep 2
+wait_client "$HERE/wm-fire.log" 'фаерБ-окно'
 
 key super+1           # the name form: the action's own machinery
 key super+2           # inline, found -> reached

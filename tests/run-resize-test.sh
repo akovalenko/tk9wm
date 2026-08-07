@@ -13,7 +13,7 @@ wait_wm "$HERE/wm-resize.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" \
     > "$HERE/resize-client.log" &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-resize.log" 'жертва'
 
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-resize.log")
 eval "$(awk '/frame \.f[0-9]+ for/ {

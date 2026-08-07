@@ -43,7 +43,7 @@ WM=$!
 wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "окно" 300x200 "#fce94f" "" "" 120 &
 CA=$!
-sleep 1.5
+wait_client "$LOG" 'окно'
 
 key() { xdotool key "$@"; sleep 0.5; }
 # The box, from OUTSIDE this process: its own log saying it drew

@@ -79,7 +79,7 @@ wait_wm "$HERE/wm-ewmhmax.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 240x120 "#8ae234" "" "" 30 &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-ewmhmax.log" 'жертва'
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-ewmhmax.log" | head -1)
 PH=$(sed -n 's/^WM: panel [^ ]* up (1 buttons, \([0-9]*\) px.*/\1/p' "$HERE/wm-ewmhmax.log" | head -1)
 TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-ewmhmax.log" | head -1)

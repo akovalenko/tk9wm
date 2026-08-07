@@ -38,7 +38,7 @@ wait_wm "$HERE/wm-gareset.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" обычный 240x120 "#729fcf" "" "" 40 &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-gareset.log" 'обычный'
 
 "$LINUX/whale" "$HERE/ga-client.tcl" сброс-га > "$HERE/gareset-client.log" 2>&1 &
 GA=$!

@@ -25,7 +25,7 @@ sleep 0.5
 "$LINUX/whale" "$HERE/client.tcl" "сосед" 240x120 "#8ae234" "" "" 30 \
     > "$HERE/stack-b.log" &
 CB=$!
-sleep 2.5
+wait_client "$HERE/wm-stack.log" 'сосед'
 
 # Actors by manage order: A (leader), B, D (dialog). Frame positions from
 # the WM's own log; the click offsets below are chosen so each click
@@ -61,7 +61,7 @@ click $((FX3 + 110)) $((FY3 + 84))      # D: the group stays glued
 "$LINUX/whale" "$HERE/client.tcl" "далёкий" 200x110+560+430 "#ad7fa8" \
     "" "" 30 > "$HERE/stack-c.log" &
 CC=$!
-sleep 1.5
+wait_client "$HERE/wm-stack.log" 'далёкий'
 CID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-stack.log" | sed -n 4p)
 eval "$(awk '/frame \.f[0-9]+ for/ {
     if (match($0, /\+(-?[0-9]+)\+(-?[0-9]+)$/)) {

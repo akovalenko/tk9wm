@@ -52,7 +52,7 @@ bad() { echo "FAIL: $1"; FAIL=1; }
 "$LINUX/whale" "$HERE/client.tcl" "вожак" 300x120+50+660 "#8ae234" "" "" 60 \
     > "$HERE/layer-a.log" 2>&1 &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-layer.log" 'вожак'
 # сосед and подвал: top RIGHT, overlapping each other and nothing else.
 # сосед is born TALL, reaching down into the panel's band. Born and
 # not grown: a window that grows is pulled back inside the workarea by
@@ -62,11 +62,11 @@ sleep 1.5
 "$LINUX/whale" "$HERE/client.tcl" "сосед" 300x660+600+80 "#3465a4" "" "" 60 \
     > "$HERE/layer-b.log" 2>&1 &
 CB=$!
-sleep 1.2
+wait_client "$HERE/wm-layer.log" 'сосед'
 "$LINUX/whale" "$HERE/client.tcl" "подвал" 300x200+650+150 "#fcaf3e" "" "" 60 \
     > "$HERE/layer-c.log" 2>&1 &
 CC=$!
-sleep 1.5
+wait_client "$HERE/wm-layer.log" 'подвал'
 
 # --- 1: layer 10 over the panel -----------------------------------
 P=$(px 150 750)
@@ -94,7 +94,7 @@ esac
 "$LINUX/whale" "$HERE/client.tcl" "гость" 300x200+650+400 "#ef2929" "" "" 40 \
     > "$HERE/layer-d.log" 2>&1 &
 CE=$!
-sleep 1.5
+wait_client "$HERE/wm-layer.log" 'гость'
 red='srgb(239,41,41)'
 OVERLAP="700 450"
 NID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-layer.log" | sed -n 2p)

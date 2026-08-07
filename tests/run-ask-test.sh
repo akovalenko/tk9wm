@@ -39,7 +39,7 @@ wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "аск-окно" 240x120 "#fce94f" "" "" 90 \
     > "$HERE/ask-c.log" 2>&1 &
 CA=$!
-sleep 2
+wait_client "$LOG" 'аск-окно'
 
 # ---- cold: the host is spawned, the box answers the typing ----
 key super+1
@@ -120,7 +120,7 @@ set -- $BOXGEO
 "$LINUX/whale" "$HERE/client.tcl" "поверх-окно" 240x100+190+530 "#8ae234" "" "" 60 \
     > "$HERE/ask-r.log" 2>&1 &
 CR=$!
-sleep 2
+wait_client "$LOG" 'поверх-окно'
 ONTOP=$(px $(($1 + 6)) $(($2 + 6)))
 xdotool type ontop     # no tabbing back: the focus never left the box
 sleep 1

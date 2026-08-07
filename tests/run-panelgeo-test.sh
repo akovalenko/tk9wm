@@ -242,7 +242,7 @@ wait_wm "$HERE/wm-panelgeo.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" геометрия-жилец 240x120 "#729fcf" "" "" 30 &
 TK=$!
-sleep 1.5
+wait_client "$HERE/wm-panelgeo.log" 'геометрия-жилец'
 
 xdotool key super+g
 sleep 1

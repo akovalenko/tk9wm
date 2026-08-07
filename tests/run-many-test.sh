@@ -176,10 +176,11 @@ key() { xdotool key "$@"; sleep 0.5; }
 
 "$LINUX/whale" "$HERE/client.tcl" клиент-A 240x120 "#729fcf" "" "" 90 &
 CA=$!
-sleep 1.2
+wait_client "$HERE/wm-many.log" 'клиент-A'
 "$LINUX/whale" "$HERE/client.tcl" клиент-B 240x120 "#8ae234" "" "" 90 &
 CB=$!
-sleep 1.5              # both managed, past the 200ms match debounce
+wait_client "$HERE/wm-many.log" 'клиент-B'
+sleep 0.5              # ...and past the 200ms match debounce
 
 key super+1            # shown deed: anchored chooser + «run another»
 key super+2            # unshown deed: centred chooser

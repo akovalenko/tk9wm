@@ -117,6 +117,20 @@ wait_wm() {    # wait_wm LOGFILE WMPID — until that WM has read its config
         || echo "note: the WM (pid $2) never said its config line in $1"
 }
 
+# ...and the condition right behind it: a client the suite just
+# spawned is up once the WM says so — «WM: title 0x… -> «NAME»» is
+# printed on the heels of the managed line, so the window is framed
+# and known by the time the title is in the log. Freshness was
+# wait_wm's problem, already solved: by the time a suite waits for a
+# client, the log has answered for this boot with its pid. A suite
+# that gives two clients one name cannot use this — the first
+# client's line would answer for the second.
+_client_titled() { grep -q "WM: title .*«$2»" "$1"; }
+wait_client() { # wait_client LOGFILE TITLE — until a client wearing TITLE is managed
+    wait_for 15 _client_titled "$1" "$2" \
+        || echo "note: no client titled «$2» showed up in $1"
+}
+
 # The WM checks its own modal invariants — a mode left standing with no
 # router, a compass with no mode, a frame still wearing the modal amber,
 # the keyboard grabbed for nobody — and says so in the log. That makes

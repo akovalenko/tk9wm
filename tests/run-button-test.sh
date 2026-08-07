@@ -49,7 +49,7 @@ wait_wm "$HERE/wm-button.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "кнопки" 300x200 "#fce94f" "" "" 90 \
     > "$HERE/button-client.log" &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-button.log" 'кнопки'
 
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-button.log")
 TH=$(sed -n 's/^WM: titlebar h=\([0-9]*\) .*/\1/p' "$HERE/wm-button.log" | head -1)
@@ -104,7 +104,7 @@ xdotool key 1; sleep 0.8
 "$LINUX/whale" "$HERE/client.tcl" "стойкое" 300x200+340+300 "#ad7fa8" \
     > "$HERE/button-firm.log" &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-button.log" 'стойкое'
 eval "$(awk '/frame \.f[0-9]+ for/ {
     if (match($0, /\+(-?[0-9]+)\+(-?[0-9]+)$/)) {
         n++; if (n == 2) { split(substr($0, RSTART + 1), a, "+")

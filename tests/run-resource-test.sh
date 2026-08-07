@@ -48,7 +48,7 @@ WM=$!
 wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "старое" 300x200 "#fce94f" "" "" 60 &
 CA=$!
-sleep 1.5
+wait_client "$LOG" 'старое'
 
 key() { xdotool key "$@"; sleep 0.5; }
 
@@ -72,7 +72,7 @@ AFTER_CFG=$(grep -c "MARK the config's own chord" "$LOG")
 
 "$LINUX/whale" "$HERE/client.tcl" "новое" 300x200+380+300 "#8ae234" "" "" 20 &
 CB=$!
-sleep 2
+wait_client "$LOG" 'новое'
 FRAMED=$(grep -c '^WM: managed ' "$LOG")
 
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1

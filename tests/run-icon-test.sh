@@ -29,13 +29,13 @@ wait_wm "$HERE/wm-icon.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "первое-окно" 240x120 "#8ae234" "" "" 30 "#4e9a06" &
 CA=$!
-sleep 0.5
+wait_client "$HERE/wm-icon.log" 'первое-окно'
 "$LINUX/whale" "$HERE/client.tcl" "второе-окно" 240x120 "#fcaf3e" "" "" 30 &
 CB=$!
-sleep 0.5
+wait_client "$HERE/wm-icon.log" 'второе-окно'
 "$LINUX/whale" "$HERE/client.tcl" "третье-окно" 240x120 "#ad7fa8" "" "" 30 &
 CC=$!
-sleep 1
+wait_client "$HERE/wm-icon.log" 'третье-окно'
 
 key() { xdotool key "$@"; sleep 0.5; }
 

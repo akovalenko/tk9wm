@@ -36,7 +36,7 @@ wait_wm "$HERE/wm-randr.log" $WM
 # and this one is maximized, so it must FOLLOW it
 "$LINUX/whale" "$HERE/client.tcl" "жилец" 240x120 "#8ae234" "" "" 30 &
 CA=$!
-sleep 1
+wait_client "$HERE/wm-randr.log" 'жилец'
 
 CID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-randr.log" | head -1)
 eval "$(sed -n 's/^WM: titlebar h=\([0-9]*\) top=\([0-9]*\).*/TITLEH=\1; TOP=\2/p' \

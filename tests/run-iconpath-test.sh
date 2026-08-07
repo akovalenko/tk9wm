@@ -83,7 +83,7 @@ wait_wm "$HERE/wm-iconpath.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" проба-иконок 240x120 "#729fcf" "" "" 20 &
 TK=$!
-sleep 1.5
+wait_client "$HERE/wm-iconpath.log" 'проба-иконок'
 
 xdotool key super+f
 sleep 0.5

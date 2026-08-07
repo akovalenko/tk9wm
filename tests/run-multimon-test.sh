@@ -63,10 +63,10 @@ wait_wm "$HERE/wm-multimon.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "левый" "" "#8ae234" "" "" 30 &
 CA=$!
-sleep 1
+wait_client "$HERE/wm-multimon.log" 'левый'
 "$LINUX/whale" "$HERE/client.tcl" "правый" 240x120+700+50 "#fcaf3e" "" "" 30 &
 CB=$!
-sleep 1
+wait_client "$HERE/wm-multimon.log" 'правый'
 
 chrome "$HERE/wm-multimon.log"
 # Client ids from the WM's own log, IN START ORDER — xdotool's --name
@@ -150,7 +150,7 @@ wait_wm "$HERE/wm-multimon-xin.log" $WM2
 
 "$LINUX/whale" "$HERE/client.tcl" "второй" 240x120+800+50 "#729fcf" "" "" 30 &
 CC=$!
-sleep 1
+wait_client "$HERE/wm-multimon-xin.log" 'второй'
 
 chrome "$HERE/wm-multimon-xin.log"
 CID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-multimon-xin.log" | sed -n 1p)

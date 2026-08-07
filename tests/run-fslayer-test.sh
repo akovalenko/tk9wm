@@ -60,7 +60,7 @@ echo "--- dialog up: middle pixel $DLG_MID"
 "$LINUX/whale" "$HERE/client.tcl" "сосед" 400x300+120+120 "#3465a4" "" "" 30 \
     > "$HERE/fslayer-b.log" 2>&1 &
 CB=$!
-sleep 2
+wait_client "$HERE/wm-fslayer.log" 'сосед'
 NB_MID=$(px $MIDPX)
 NB_PANEL=$(px $PANELPX)
 echo "--- neighbour up: middle $NB_MID, panel $NB_PANEL"

@@ -46,11 +46,11 @@ wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "обычный-A" 200x100 "#fce94f" "" "" 90 \
     > "$HERE/woi-a.log" 2>&1 &
 CA=$!
-sleep 1
+wait_client "$LOG" 'обычный-A'
 "$LINUX/whale" "$HERE/client.tcl" "безмин-B" 220x120 "#8ae234" "" "" 90 \
     > "$HERE/woi-b.log" 2>&1 &
 CB=$!
-sleep 1
+wait_client "$LOG" 'безмин-B'
 xterm -T терм -e sleep 90 > "$HERE/woi-x.log" 2>&1 &
 CX=$!
 sleep 2

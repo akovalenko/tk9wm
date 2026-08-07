@@ -23,7 +23,7 @@ wait_wm "$HERE/wm-styleguard.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 240x120 "#8ae234" "" "" 30 &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-styleguard.log" 'жертва'
 xdotool key alt+Tab
 sleep 1
 xdotool key Escape

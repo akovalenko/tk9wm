@@ -20,7 +20,7 @@ WM=$!
 wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" "" "" 120 &
 CA=$!
-sleep 1.5
+wait_client "$LOG" 'жертва'
 
 VID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | head -1)
 TITLEH=$(sed -n 's/^WM: titlebar h=\([0-9]*\) top=.*/\1/p' "$LOG" | head -1)
@@ -72,7 +72,7 @@ sleep 1
 # answers the chord that opens its menu.
 "$LINUX/whale" "$HERE/client.tcl" "второй" 240x120 "#8ae234" "" "" 30 &
 CB=$!
-sleep 1.5
+wait_client "$LOG" 'второй'
 key alt+space
 key Escape
 sleep 0.5

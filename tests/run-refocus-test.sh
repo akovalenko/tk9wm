@@ -19,7 +19,7 @@ sleep 0.5
 "$LINUX/whale" "$HERE/client.tcl" "ранний" 240x120 "#8ae234" \
     > "$HERE/refocus-early.log" &
 CC=$!
-sleep 0.5
+wait_client "$HERE/wm-refocus.log" 'ранний'
 "$LINUX/whale" "$HERE/client.tcl" "поздний" 240x120 "#fcaf3e" \
     > "$HERE/refocus-late.log" &
 CB=$!

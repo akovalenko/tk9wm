@@ -38,11 +38,11 @@ wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "шотБ-окно" 240x120+100+100 "#204a87" "" "" 90 \
     > "$HERE/shot-b.log" 2>&1 &
 CB=$!
-sleep 1
+wait_client "$LOG" 'шотБ-окно'
 "$LINUX/whale" "$HERE/client.tcl" "шотА-окно" 240x120+100+100 "#cc0000" "" "" 90 \
     > "$HERE/shot-a.log" 2>&1 &
 CA=$!
-sleep 2
+wait_client "$LOG" 'шотА-окно'
 
 key super+1
 key super+2

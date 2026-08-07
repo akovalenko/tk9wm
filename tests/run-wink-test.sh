@@ -19,7 +19,7 @@ CS=$!
 sleep 0.5
 "$LINUX/whale" "$HERE/client.tcl" "закрывашка" 240x120 "#8ae234" "" "" 30 &
 CC=$!
-sleep 1
+wait_client "$HERE/wm-wink.log" 'закрывашка'
 
 key() { xdotool key "$@"; sleep 0.5; }
 

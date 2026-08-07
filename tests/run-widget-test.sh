@@ -69,7 +69,7 @@ import -display "$DISPLAY" -window root "$HERE/widget-panel.png" 2>/dev/null \
 "$LINUX/whale" "$HERE/client.tcl" "поверх" 400x200 "#fce94f" "" "" 30 \
     > "$HERE/widget-client.log" &
 CL=$!
-sleep 1.5
+wait_client "$LOG" 'поверх'
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
 sleep 1.5
 STILLPX=$(here "$(area | sed 's/ .*//')")

@@ -46,7 +46,7 @@ WM=$!
 wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "плотное" 300x200 "#fce94f" "" "" 60 &
 CA=$!
-sleep 1.5
+wait_client "$LOG" 'плотное'
 
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | head -1)
 eval "$(awk '/frame \.f[0-9]+ for/ {
@@ -88,7 +88,7 @@ BACK=$(bar)
 # --- and a client that is born translucent, by style
 "$LINUX/whale" "$HERE/client.tcl" "призрак" 300x200+380+300 "#8ae234" "" "" 20 &
 CB=$!
-sleep 2
+wait_client "$LOG" 'призрак'
 GHOST=$(sed -n 's/^WM: opacity 0x[0-9a-f]* -> //p' "$LOG" | tail -1)
 
 kill $WM $CA $CB $COMP 2>/dev/null

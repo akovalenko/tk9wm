@@ -36,12 +36,12 @@ wait_wm "$LOG" $WM
 # A: the carried one. B: the one that asks for +0-2, like Qt Creator.
 "$LINUX/whale" "$HERE/client.tcl" "ноша" 300x200 "#fce94f" "" "" 60 &
 CA=$!
-sleep 1.2
+wait_client "$LOG" 'ноша'
 # +0+-2, not +0-2: in an X geometry a bare -2 counts from the far edge,
 # and what Qt Creator actually asks for is the coordinate minus two.
 "$LINUX/whale" "$HERE/client.tcl" "выскочка" 240x120+0+-2 "#8ae234" "" "" 60 &
 CB=$!
-sleep 1.5
+wait_client "$LOG" 'выскочка'
 
 set -- $(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG")
 AID=$1; BID=$2

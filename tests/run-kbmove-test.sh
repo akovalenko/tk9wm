@@ -17,7 +17,7 @@ wait_wm "$HERE/wm-kbmove.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" "" "" 40 &
 CA=$!
-sleep 1
+wait_client "$HERE/wm-kbmove.log" 'жертва'
 
 key() { xdotool key "$@"; sleep 0.4; }
 
@@ -90,7 +90,7 @@ SZ2=$(xwininfo -id "$AID" | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "
 # raise, and no pixel arithmetic on the decoration is needed for it.
 "$LINUX/whale" "$HERE/client.tcl" "верхнее" 400x300+150+260 "#729fcf" "" "" 20 &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-kbmove.log" 'верхнее'
 xdotool mousemove $((AX1 + 150)) $((AY1 + 20)) click 1   # focus and raise A
 sleep 0.5
 key alt+space

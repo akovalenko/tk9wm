@@ -63,11 +63,11 @@ wait_wm "$HERE/wm-menu.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "менюА-окно" 200x100 "#fce94f" "" "" 90 \
     > "$HERE/menu-a.log" 2>&1 &
 CA=$!
-sleep 1
+wait_client "$HERE/wm-menu.log" 'менюА-окно'
 "$LINUX/whale" "$HERE/client.tcl" "менюБ-окно" 220x120 "#8ae234" "" "" 90 \
     > "$HERE/menu-b.log" 2>&1 &
 CB=$!
-sleep 2
+wait_client "$HERE/wm-menu.log" 'менюБ-окно'
 
 # ---- the static menu: hotkeys explicit, automatic, and skipped-over
 key super+m

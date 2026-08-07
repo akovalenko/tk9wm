@@ -33,7 +33,7 @@ wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "шрифт" 400x120 "#fce94f" "" "" 60 \
     > "$HERE/titlefont-client.log" &
 CA=$!
-sleep 1.5
+wait_client "$LOG" 'шрифт'
 
 metrics() {   # the LAST metrics line — h, top and the button cell
     sed -n 's/^WM: titlebar h=\([0-9]*\) top=\([0-9]*\) btn=\([0-9]*\).*/\1 \2 \3/p' \

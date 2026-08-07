@@ -31,7 +31,7 @@ wait_wm "$HERE/wm-reload.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "живучий" 240x120 "#8ae234" "" "" 60 \
     > "$HERE/reload-client.log" 2>&1 &
 CA=$!
-sleep 1.2
+wait_client "$HERE/wm-reload.log" 'живучий'
 "$LINUX/whale" "$HERE/tray-client.tcl" "#729fcf" > "$HERE/reload-tray.log" 2>&1 &
 CB=$!
 sleep 1.5

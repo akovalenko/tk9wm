@@ -48,21 +48,23 @@ code_of() {
 
 # --- 1. the first manager, with a client on its desk
 wm_start WM1 "$HERE/replace-1.log"
-sleep 1.5
+wait_wm "$HERE/replace-1.log" $WM1
 "$LINUX/whale" "$HERE/client.tcl" сменщик 240x120 "#729fcf" "" "" 40 \
     > "$HERE/replace-client.log" 2>&1 &
 CL=$!
-sleep 1.5
+wait_client "$HERE/replace-1.log" 'сменщик'
 
-# --- 2. a newcomer with no -replace must refuse and change nothing
+# --- 2. a newcomer with no -replace must refuse and change nothing —
+# the refusal is its own word in its own log, so wait for that
 wm_start WM2 "$HERE/replace-2.log"
-sleep 1.5
+wait_for 15 grep -q 'already owns' "$HERE/replace-2.log" \
+    || echo "note: the newcomer never said its refusal"
 kill -0 $WM1 2>/dev/null && FIRST_ALIVE=yes || FIRST_ALIVE=no
 code_of $WM2; SECOND_CODE=$?
 
 # --- 3. ...and one with -replace must take the desk
 wm_start WM3 "$HERE/replace-3.log" -replace
-sleep 3
+wait_wm "$HERE/replace-3.log" $WM3
 code_of $WM1; FIRST_CODE=$?
 kill -0 $CL  2>/dev/null && CLIENT_ALIVE=yes || CLIENT_ALIVE=no
 import -display "$DISPLAY" -window root "$HERE/replace-test.png" 2>/dev/null \
@@ -73,7 +75,10 @@ import -display "$DISPLAY" -window root "$HERE/replace-test.png" 2>/dev/null \
 # owner window of the manager it IS still holding WM_S<n> — restart-wm
 # passes -replace exactly for that, and this is the check that it does.
 "$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
-sleep 3
+# execv keeps the pid and the log fd: the second life announces
+# itself with a second config line in the SAME file
+wait_for 15 sh -c "[ \$(grep -c 'WM: config' \"$HERE/replace-3.log\") -ge 2 ]" \
+    || echo "note: no second config line after the in-place restart"
 
 # --- 5. the foreign half. fvwm3 speaks the same ICCCM protocol and is
 # not ours, which is the only kind of agreement about a protocol worth
@@ -94,7 +99,7 @@ FVEOF
     code_of $WM3; THIRD_CODE=$?
     kill -0 $CL  2>/dev/null && CLIENT_AFTER_FVWM=yes || CLIENT_AFTER_FVWM=no
     wm_start WM4 "$HERE/replace-4.log" -replace
-    sleep 4
+    wait_wm "$HERE/replace-4.log" $WM4
     kill -0 $FV 2>/dev/null && FVWM_STILL=yes || FVWM_STILL=no
     kill -0 $CL 2>/dev/null && CLIENT_AFTER_US=yes || CLIENT_AFTER_US=no
     kill $WM4 $FV 2>/dev/null

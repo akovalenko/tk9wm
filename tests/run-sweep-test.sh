@@ -47,15 +47,15 @@ wait_wm "$HERE/wm-sweep.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "стойкий-C" 200x100 "#ef2929" "" "" 40 \
     > "$HERE/sweep-c.log" 2>&1 &
 CC=$!
-sleep 1
+wait_client "$HERE/wm-sweep.log" 'стойкий-C'
 "$LINUX/whale" "$HERE/client.tcl" "клиент-A" 220x120 "#fce94f" "" "" 40 \
     > "$HERE/sweep-a.log" 2>&1 &
 CA=$!
-sleep 1
+wait_client "$HERE/wm-sweep.log" 'клиент-A'
 "$LINUX/whale" "$HERE/client.tcl" "клиент-B" 240x140 "#8ae234" "" "" 40 \
     > "$HERE/sweep-b.log" 2>&1 &
 CB=$!
-sleep 2
+wait_client "$HERE/wm-sweep.log" 'клиент-B'
 
 IDS=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-sweep.log")
 CID=$(echo "$IDS" | sed -n 1p)

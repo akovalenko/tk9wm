@@ -26,11 +26,11 @@ wait_wm "$HERE/wm-ewmh.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "первый" 240x120 "#8ae234" "" "" 30 \
     > "$HERE/ewmh-a.log" 2>&1 &
 CA=$!
-sleep 1.2
+wait_client "$HERE/wm-ewmh.log" 'первый'
 "$LINUX/whale" "$HERE/client.tcl" "второй" 240x120 "#729fcf" "" "" 30 \
     > "$HERE/ewmh-b.log" 2>&1 &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-ewmh.log" 'второй'
 
 set -- $(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-ewmh.log")
 AID=$1; BID=$2

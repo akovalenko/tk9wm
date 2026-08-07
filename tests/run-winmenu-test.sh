@@ -33,7 +33,7 @@ wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "меню" 300x200 "#729fcf" "" "" 90 \
     > "$HERE/winmenu-client.log" &
 CA=$!
-sleep 1.5
+wait_client "$LOG" 'меню'
 
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG")
 TH=$(sed -n 's/^WM: titlebar h=\([0-9]*\) .*/\1/p' "$LOG" | head -1)

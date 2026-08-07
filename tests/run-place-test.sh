@@ -24,10 +24,10 @@ wait_wm "$HERE/wm-place.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "верхний-правый" 240x120+500+50 "#8ae234" "" "" 20 &
 CA=$!
-sleep 0.5
+wait_client "$HERE/wm-place.log" 'верхний-правый'
 "$LINUX/whale" "$HERE/client.tcl" "кочевник" 240x120 "#fce94f" 260x140+120+200 "" 20 &
 CB=$!
-sleep 0.5
+wait_client "$HERE/wm-place.log" 'кочевник'
 "$LINUX/whale" "$HERE/client-dlg.tcl" 300x200 260x180+150+90 &
 CD=$!
 sleep 6      # B's move request fires at its own t+4s; the dialog at t+2s

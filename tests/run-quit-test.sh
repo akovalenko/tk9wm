@@ -20,7 +20,7 @@ wait_wm "$HERE/wm-quit.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "переживи выход" 260x160 "#729fcf" "" "" 40 \
     > "$HERE/quit-client.log" 2>&1 &
 CL=$!
-sleep 2
+wait_client "$HERE/wm-quit.log" 'переживи выход'
 WID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-quit.log" | head -1)
 FRAMED=$(xwininfo -id "$WID" -children 2>/dev/null \
     | sed -n 's/^  Parent window id: \(0x[0-9a-f]*\).*/\1/p')

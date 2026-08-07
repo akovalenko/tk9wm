@@ -61,7 +61,7 @@ wait_wm "$LOG" $WM
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 240x120 "#8ae234" "" "" 90 \
     > "$HERE/wmark-a.log" 2>&1 &
 CA=$!
-sleep 1.5
+wait_client "$LOG" 'жертва'
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | head -1)
 
 # ---- a plain window: rows in order, nothing marked ----

@@ -17,7 +17,7 @@ wait_wm "$HERE/wm-extents.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "рамочный" 240x120 "#8ae234" "" "" 30 \
     > "$HERE/extents-framed.log" 2>&1 &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-extents.log" 'рамочный'
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-extents.log" | head -1)
 FRAMED=$(xprop -id "$AID" _NET_FRAME_EXTENTS 2>/dev/null | sed 's/.*= //')
 

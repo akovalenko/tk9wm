@@ -145,7 +145,7 @@ wait_wm "$HERE/wm-panels.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" жилец-A 240x120 "#729fcf" "" "" 30 &
 TK=$!
-sleep 1.5
+wait_client "$HERE/wm-panels.log" 'жилец-A'
 
 xdotool key super+p
 sleep 1

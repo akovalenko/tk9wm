@@ -32,7 +32,7 @@ wait_wm "$HERE/wm-compass.log" $WM
 
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" "" "" 60 &
 CA=$!
-sleep 1
+wait_client "$HERE/wm-compass.log" 'жертва'
 
 key() { xdotool key "$@"; sleep 0.4; }
 # One pixel off the root, as ImageMagick names colors: srgb(r,g,b).
@@ -124,7 +124,7 @@ key Escape
 # B: full width, short — only the vertical cells have anywhere to go
 "$LINUX/whale" "$HERE/client.tcl" "широкое" 300x200 "#8ae234" "" "" 20 &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-compass.log" 'широкое'
 key alt+space; key m
 WIDECENTER=$(pixel 400 300)       # cell 5 — drawn (amber box, white digit)
 WIDELEFT=$(pixel 10 300)          # cell 4 — nowhere to go, not drawn

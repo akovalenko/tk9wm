@@ -22,7 +22,7 @@ wait_wm "$HERE/wm-menufocus.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "жертва" 300x200 "#fce94f" \
     > /dev/null 2>&1 &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-menufocus.log" 'жертва'
 
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-menufocus.log")
 TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-menufocus.log" | head -1)

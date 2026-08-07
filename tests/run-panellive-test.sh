@@ -142,12 +142,13 @@ key super+1            # empty desk
 
 "$LINUX/whale" "$HERE/client.tcl" жилец-A 240x120 "#729fcf" "" "" 60 &
 CA=$!
-sleep 1.5              # manage + the 200ms debounce
+wait_client "$HERE/wm-panellive.log" 'жилец-A'
+sleep 0.5              # ...and the 200ms debounce
 key super+2            # one match
 
 "$LINUX/whale" "$HERE/client.tcl" жилец-B 240x120 "#8ae234" "" "" 60 &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-panellive.log" 'жилец-B'
 key super+3            # two matches, the arrow drop, the pick
 
 import -display "$DISPLAY" -window root "$HERE/panellive-test.png" 2>/dev/null \

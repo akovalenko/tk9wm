@@ -12,7 +12,7 @@ wait_wm "$HERE/wm-restart.log" $WM
 "$LINUX/whale" "$HERE/client.tcl" "переживи рестарт" 320x240 "#8ae234" \
     > "$HERE/restart-client.log" &
 CA=$!
-sleep 1.5
+wait_client "$HERE/wm-restart.log" 'переживи рестарт'
 AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-restart.log" | head -1)
 echo "--- actor: $AID, WM pid $WM"
 
@@ -66,7 +66,7 @@ wait_wm "$HERE/wm-doomed.log" $WM2
 "$LINUX/whale" "$HERE/client.tcl" "переживи отказ" 300x200 "#fcaf3e" \
     > "$HERE/doomed-client.log" &
 CB=$!
-sleep 1.5
+wait_client "$HERE/wm-doomed.log" 'переживи отказ'
 BID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-doomed.log" | head -1)
 echo "--- actor: $BID, WM pid $WM2"
 
@@ -120,7 +120,7 @@ wait_wm "$HERE/wm-reicon.log" $WM3
 "$LINUX/whale" "$HERE/client.tcl" "свернусь и переживу" 260x150 "#ad7fa8" \
     "" "" 40 > "$HERE/reicon-client.log" 2>&1 &
 CC=$!
-sleep 2
+wait_client "$HERE/wm-reicon.log" 'свернусь и переживу'
 RID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-reicon.log" | head -1)
 xdotool key super+d
 sleep 1.5

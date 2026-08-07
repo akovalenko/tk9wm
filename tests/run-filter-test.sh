@@ -111,7 +111,7 @@ xterm -name ff -title "Browser Window" -e sleep 60 &
 XTPID=$!
 "$LINUX/whale" "$HERE/client.tcl" проба-фильтра 240x120 "#729fcf" "" "" 30 &
 TKPID=$!
-sleep 1.5
+wait_client "$HERE/wm-filter.log" 'проба-фильтра'
 
 key() { xdotool key "$@"; sleep 0.5; }
 
