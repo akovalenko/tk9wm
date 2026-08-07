@@ -2136,7 +2136,7 @@ proc cfg-apply {name value} {
     # here and a value written in a config file are the same value, and
     # they used to meet two different judges — this switch, and
     # whatever the setter's author wrote. One judge now, living where
-    # the value is FOR (knob-check in policy.tcl), asked over the same
+    # the value is FOR (knob-check in policy/80-custom.tcl), asked over the same
     # wire everything else here is asked over.
     #
     # Standalone — no desk to ask — keeps a thin local copy: better a

@@ -2,7 +2,8 @@
 # layer (one Tcl config file, re-readable on a live desk) and the entry
 # point that starts dispatching.
 #
-# Sourced THIRD, by pkgIndex.tcl, after substrate.tcl and policy.tcl:
+# Sourced THIRD, by pkgIndex.tcl, after substrate.tcl and the policy
+# parts (library/policy/, numbered — the names carry the load order):
 # the snapshot below has to happen with both layers in and before the
 # config has said a word. Sourcing order matters for a plainer reason
 # than it used to (the error handler no longer has to beat Tk to the
@@ -19,7 +20,7 @@ set ::tk9wm_library [file dirname [file normalize [info script]]]
 # The defaults a reload puts back are taken FROM THE CODE, right here —
 # after both layers are in and before the config has said a word. So
 # they cannot drift from what the code actually does: nothing is
-# written down twice (see policy.tcl, the config layer).
+# written down twice (see policy/85-config.tcl, the config layer).
 # The one setup step in this file, and it must not run twice: the
 # snapshot is taken from the CODE's own values a moment before a config
 # is first read, and a second one — taken on a live desk — would freeze
@@ -132,7 +133,7 @@ proc load-custom {} {
 # on that clean floor, exactly as it does at startup. What makes it
 # sound is that the config is declarative; the reset knows where every
 # knob's state lives, and cannot know about a monkey-patched proc (see
-# policy.tcl, the config layer).
+# policy/85-config.tcl, the config layer).
 #
 # A broken config leaves the desk on defaults plus whatever it managed
 # to set before it threw — the same rule as at startup, and the reason
@@ -198,9 +199,13 @@ proc reload-config {} {
 # same list the same way, and the order is explained there.
 proc library-files {} {
     set l {}
-    foreach f {fut.tcl elisp.tcl treesync.tcl substrate.tcl policy.tcl widget.tcl} {
+    foreach f {fut.tcl elisp.tcl treesync.tcl substrate.tcl} {
         lappend l [file join $::tk9wm_library $f]
     }
+    foreach p [lsort [glob -nocomplain [file join $::tk9wm_library policy *.tcl]]] {
+        lappend l $p
+    }
+    lappend l [file join $::tk9wm_library widget.tcl]
     foreach w [lsort [glob -nocomplain [file join $::tk9wm_library widgets *.tcl]]] {
         lappend l $w
     }

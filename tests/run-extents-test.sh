@@ -33,7 +33,7 @@ sleep 0.5
 # The decoration's own numbers, from the WM's own metric line
 set -- $(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-extents.log" | head -1)
 TOP=$1
-B=6                       # the border, all four sides (policy.tcl)
+B=6                       # the border, all four sides (policy/00-prologue.tcl)
 WANT="$B, $B, $TOP, $B"
 WANTL="$B $B $TOP $B"
 

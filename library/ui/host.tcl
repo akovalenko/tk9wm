@@ -1,5 +1,5 @@
 # tk9wm-ui — the applet host: ONE process, one Tk, every applet a
-# toplevel of its own. Run by the WM (see `applet` in policy.tcl) with
+# toplevel of its own. Run by the WM (see `applet` in policy/80-custom.tcl) with
 #
 #     <interpreter> host.tcl WMAPP ?APPLET ...?
 #
@@ -1206,7 +1206,7 @@ proc ui-open {name} {
 # with, against a desk whose dictionary may have moved — the owner's
 # Alt-Up case (2026-07-31), cured that day by destroying the window
 # by hand. So the desk nudges the resident host to LOOK (see
-# ui-freshen-push in policy.tcl); a current host shrugs it off, a
+# ui-freshen-push in policy/80-custom.tcl); a current host shrugs it off, a
 # stale one restarts itself: it retires the name, execs a successor
 # carrying every applet that stands open (they ride argv into
 # ui-open, and the claim is clean because the name is already free),

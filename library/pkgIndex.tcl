@@ -12,11 +12,13 @@
 # an ::apply wrapper would quietly make every `set` at their top level
 # a local variable.
 # The order is the dependency order and it is not alphabetical: the
-# substrate first (the policy calls into it AT LOAD), then the policy,
-# then the widget frame, then each widget — a widget declares fonts and
-# a type, both of which the frame and the policy must already offer —
-# and main.tcl last, since it calls into all of them. reread-layers
-# walks the same order for the same reason.
+# substrate first (the policy calls into it AT LOAD), then the policy —
+# a directory of numbered parts, contiguous cuts of what was one file,
+# where the NN- prefix in the names IS the load order and the sorted
+# glob walks it — then the widget frame, then each widget — a widget
+# declares fonts and a type, both of which the frame and the policy
+# must already offer — and main.tcl last, since it calls into all of
+# them. reread-layers walks the same order for the same reason.
 set _tk9wm_load [list source -encoding utf-8 [file join $dir fut.tcl]]
 append _tk9wm_load \n \
     [list source -encoding utf-8 [file join $dir elisp.tcl]]
@@ -24,7 +26,11 @@ append _tk9wm_load \n \
     [list source -encoding utf-8 [file join $dir treesync.tcl]]
 append _tk9wm_load \n \
     [list source -encoding utf-8 [file join $dir substrate.tcl]]
-set _tk9wm_files [list policy.tcl widget.tcl]
+set _tk9wm_files {}
+foreach _p [lsort [glob -nocomplain -tails -directory [file join $dir policy] *.tcl]] {
+    lappend _tk9wm_files [file join policy $_p]
+}
+lappend _tk9wm_files widget.tcl
 foreach _w [lsort [glob -nocomplain -tails -directory [file join $dir widgets] *.tcl]] {
     lappend _tk9wm_files [file join widgets $_w]
 }
@@ -37,6 +43,7 @@ append _tk9wm_load \n [list package provide tk9wm 0.1]
 package ifneeded tk9wm 0.1 $_tk9wm_load
 unset _tk9wm_load _f _tk9wm_files
 catch {unset _w}
+catch {unset _p}
 
 # tcllib's json rides THIS index rather than its own: the package
 # unknown handler reads an auto_path directory's children for

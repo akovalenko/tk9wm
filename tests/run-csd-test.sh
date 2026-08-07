@@ -81,7 +81,7 @@ ext() { xprop -id "$1" _NET_FRAME_EXTENTS 2>/dev/null | sed 's/.*= //'; }
 # The decoration's own numbers, from the WM's own metric line — the
 # same source the extents regression trusts.
 TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-csd.log" | head -1)
-B=6                       # the border, all four sides (policy.tcl)
+B=6                       # the border, all four sides (policy/00-prologue.tcl)
 FULL="$B, $B, $TOP, $B"
 BORDER="$B, $B, $B, $B"
 NONE="0, 0, 0, 0"

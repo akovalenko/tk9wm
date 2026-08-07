@@ -386,7 +386,7 @@ keep desk_window 1
 keep desk_background #14181b
 # ...and the word a layer spoke about it, empty while nobody has: what
 # the configurator reads, and what tells theme-derive-said whether this
-# colour still follows the theme (see the theme section in policy.tcl).
+# colour still follows the theme (see the theme section in policy/10-look.tcl).
 keep desk_background_said {}
 proc set-desk-window {on} {
     if {![string is boolean -strict $on]} {

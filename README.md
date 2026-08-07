@@ -16,7 +16,7 @@ surgery (save-set, reparent, map) and hands the redirect events
 ```
 configure  Makefile.in   build the shim, static and shared
 generic/tkwmx.c          the shim itself
-library/                 the WM proper: substrate.tcl, policy.tcl,
+library/                 the WM proper: substrate.tcl, policy/,
                          main.tcl, default-config.tcl (package tk9wm)
 tk9wm.tcl                the entry point
 tests/                   the WM regressions (run-*.sh) and their
@@ -134,27 +134,27 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 | any X call at all | `x-*` (one proc = one shim call) | `substrate.tcl` |
 | an error meant to be outlived | `soft` | `substrate.tcl` |
 | focus, and its dead ends | `focus-repair`, `::focused` | `substrate.tcl` |
-| a frame being built or dressed | `policy-attach`, `title-metrics`, `frame-focus-color` | `policy.tcl` |
-| how a strip reserves screen | `strip-bands`, `carve-band`, `workarea` | `policy.tcl` |
-| what a panel measures up to | `panel-geometry`, `panel-measure`, `panel-thickness` | `policy.tcl` |
-| what a panel button IS | `panel-resolve`, `action`, `action_spec` | `policy.tcl` |
-| the system tray | `tray-extent`, `tray-thickness`, `tray-layout` | `policy.tcl` |
+| a frame being built or dressed | `policy-attach`, `title-metrics`, `frame-focus-color` | `policy/10-look.tcl`, `policy/20-geometry.tcl` |
+| how a strip reserves screen | `strip-bands`, `carve-band`, `workarea` | `policy/30-stack.tcl` |
+| what a panel measures up to | `panel-geometry`, `panel-measure`, `panel-thickness` | `policy/65-registry.tcl` |
+| what a panel button IS | `panel-resolve`, `action`, `action_spec` | `policy/60-actions.tcl` |
+| the system tray | `tray-extent`, `tray-thickness`, `tray-layout` | `policy/70-tray.tcl` |
 | the desk's own furniture | `widgets-build`, `widget-measure`, `widget-band-opts` | `widget.tcl` |
 | a widget KIND | one file per kind | `library/widgets/` |
-| fonts, and what descends from them | `DeskFont`, `font_kin`, `wm-font`, `fonts-derive` | `policy.tcl` |
-| colours | `themed`, `theme_palette`, `theme-apply`, `gripof` | `policy.tcl` |
-| chords, prefixes, the echo | `wm-bind`, `wm-keys`, `grab-keys-to`, `policy-key-echo` | `policy.tcl`, `substrate.tcl` |
-| a menu or any transient popup | `popup-shell`, `grab-keys-to` | `policy.tcl` |
-| the window list | `winlist-open` | `policy.tcl` |
-| a menu of the config's own | `wm-menu`, `menu-open`, `Choose` | `policy.tcl` |
-| run-or-raise as a word | `Fire`, `action-fire`, `fire-spec` | `policy.tcl` |
-| a colour from a name | `name-tint`, `pseudo-badge`, `color-hex` | `policy.tcl` |
-| where a deed runs | `run-at`, `run_dir`, `env -C` | `policy.tcl` |
-| the window menu's own rows | `winops-item`, `winops-rows` | `policy.tcl` |
-| a screenshot of a window | `Window-Shot`, `x-shot`, `rgba-png` | `policy.tcl`, `substrate.tcl` |
-| a line of text from the person | `Ask`, `ask-answer`, `ui-ask` | `policy.tcl`, `ui/host.tcl` |
-| what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy.tcl` |
-| the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy.tcl` |
+| fonts, and what descends from them | `DeskFont`, `font_kin`, `wm-font`, `fonts-derive` | `policy/10-look.tcl` |
+| colours | `themed`, `theme_palette`, `theme-apply`, `gripof` | `policy/10-look.tcl` |
+| chords, prefixes, the echo | `wm-bind`, `wm-keys`, `grab-keys-to`, `policy-key-echo` | `policy/50-input.tcl`, `substrate.tcl` |
+| a menu or any transient popup | `popup-shell`, `grab-keys-to` | `policy/40-popups.tcl` |
+| the window list | `winlist-open` | `policy/40-popups.tcl` |
+| a menu of the config's own | `wm-menu`, `menu-open`, `Choose` | `policy/45-menus.tcl` |
+| run-or-raise as a word | `Fire`, `action-fire`, `fire-spec` | `policy/60-actions.tcl` |
+| a colour from a name | `name-tint`, `pseudo-badge`, `color-hex` | `policy/40-popups.tcl` |
+| where a deed runs | `run-at`, `run_dir`, `env -C` | `policy/60-actions.tcl` |
+| the window menu's own rows | `winops-item`, `winops-rows` | `policy/45-menus.tcl` |
+| a screenshot of a window | `Window-Shot`, `x-shot`, `rgba-png` | `policy/60-actions.tcl`, `substrate.tcl` |
+| a line of text from the person | `Ask`, `ask-answer`, `ui-ask` | `policy/60-actions.tcl`, `ui/host.tcl` |
+| what the configurator can even show | `knob`, `knob-table`, `knob-said`, `knob-owner` | `policy/80-custom.tcl` |
+| the three layers, and whose word wins | `custom-write`, `custom-erase`, `layer_knobs` | `policy/80-custom.tcl` |
 | the applet host and the door to it | `ui-open`, `ui-style`, `ui-restyle` | `ui/host.tcl` |
 | the configurator itself | `cfg-*` | `ui/applets/configurator.tcl` |
 | restart, replacement, self-exec | `reexec-head` | `substrate.tcl` |
@@ -363,7 +363,10 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 
   Calls the policy-* hooks.
 
-- `library/policy.tcl` — our local decisions: decorations made of Tk
+- `library/policy/` — our local decisions, one layer in numbered
+  parts: contiguous cuts of what was one `policy.tcl`, where the `NN-`
+  prefix in the names is the load order and the sorted glob
+  (pkgIndex.tcl, `library-files`) walks it. Decorations made of Tk
   widgets — a treectrl titlebar (an ellipsized title plus
   maximize/close buttons: white outlined squares with svg glyphs,
   fvwm-style, release-inside), a canvas backing with a 1px outline and

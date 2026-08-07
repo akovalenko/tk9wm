@@ -1,6 +1,6 @@
 #!/bin/sh
 # Regression for RE-SOURCING THE LIBRARY ON A LIVE DESK — the
-# development affordance: edit substrate.tcl or policy.tcl, press a
+# development affordance: edit substrate.tcl or a policy/ part, press a
 # key, and the running window manager is the new code, with every
 # client, frame, grab and mode where it was.
 #
@@ -28,9 +28,10 @@ cat > "$CONF/tk9wm.tcl" <<'EOF'
 wm-bind {<Super>s} {
     puts "WM: MARK re-sourcing"
     if {[catch {
-        foreach f {substrate.tcl policy.tcl main.tcl} {
-            source [file join $::tk9wm_library $f]
-        }
+        set files [list [file join $::tk9wm_library substrate.tcl]]
+        lappend files {*}[lsort [glob [file join $::tk9wm_library policy *.tcl]]]
+        lappend files [file join $::tk9wm_library main.tcl]
+        foreach f $files { source $f }
     } err]} {
         puts "WM: MARK re-source FAILED: $err"
     } else {

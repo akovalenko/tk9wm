@@ -5,7 +5,7 @@
 # from across the room, and both are DERIVED from the desk font rather
 # than stated in points: 1.6 times the desk font and 0.8 times it stay
 # in proportion when the desk font moves, which a pair of hard numbers
-# would not (see the typography section in policy.tcl).
+# would not (see the typography section in policy/10-look.tcl).
 #
 # It is also the WORKED EXAMPLE of the other half of the contract: the
 # two lines go one above the other or side by side, and the clock
@@ -27,7 +27,7 @@
 # be a client -> the popup. A calendar one glances at and dismisses is
 # exactly that. A calendar one keeps open, moves and switches to is a
 # window, and should be a real client rather than something pretending.
-# Keep-fashion, like the stock kin in policy.tcl: a re-source must
+# Keep-fashion, like the stock kin in policy/10-look.tcl: a re-source must
 # not overwrite what a config wrote into these entries (шаг 84's
 # disease, same cure).
 unless-already {[dict exists $::font_kin ClockFont]} {
