@@ -330,6 +330,43 @@ else
     bad "after the restart the window is on desk $RSTATE, want 1"
 fi
 
+# --- a window minimized ACROSS a restart has a desk too ------------
+# The sharpest way to arrive deskless: a window adopted back minimized
+# is managed INTO iconic, which skips policy-managed (the initial-focus
+# choreography) — and with it skipped the desk declaration. Restored,
+# it followed every switch and camped at the head of the focus history,
+# taking the focus on every desk return from UNDER other windows (the
+# owner's live desk, 2026-08-08: a PDF minimized across a restart). The
+# cure is desks-apply re-declaring whoever has no desk when the count
+# settles; the restore here is again the client's own hand, the road
+# with no desk-follow to hide the bug.
+DID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | sed -n 4p)
+xdotool key --clearmodifiers super+1
+sleep 0.6
+xdotool windowminimize "$DID"
+sleep 1
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
+sleep 3.5
+xdotool key --clearmodifiers super+2
+sleep 0.8
+xdotool windowmap "$DID"        ;# the client comes back by itself
+sleep 1.2
+MAWAY=$(viewable "$DID")
+xdotool key --clearmodifiers super+1
+sleep 1.2
+MHOME=$(viewable "$DID")
+echo "--- minimized across a restart: restored on the wrong desk: $MAWAY; back home: $MHOME"
+case $MAWAY in
+    IsUnMapped|IsUnviewable)
+        ok "a window minimized across a restart still knows its desk" ;;
+    *) bad "the adopted-minimized window came back deskless — implicit sticky ($MAWAY)" ;;
+esac
+if [ "$MHOME" = "IsViewable" ]; then
+    ok "...and is waiting on its own desk"
+else
+    bad "the adopted-minimized window is not on its own desk either ($MHOME)"
+fi
+
 kill $WM $CA $CB $CC $CD 2>/dev/null
 check_invariants "$LOG" || FAIL=1
 if grep -q 'handler error' "$LOG"; then

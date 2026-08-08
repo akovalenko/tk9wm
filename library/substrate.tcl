@@ -55,6 +55,10 @@
 #                           must NOT see the click, 0 = not ours
 #   policy-client-click w   a click landed inside managed client w
 #   policy-managed w        w was just managed (initial-focus decision)
+#   policy-booked w         the model bookkeeping half of policy-managed
+#                           (stack seat, layer, desk) — called instead of
+#                           it, after the iconify, for a window managed
+#                           INTO iconic; optional (guarded) hook
 #   policy-pick-refocus w   choose a window to refocus after w's unmanage;
 #                           called BEFORE policy-detach w (the pick may
 #                           need per-frame facts that detach cleans up);
@@ -2270,7 +2274,28 @@ proc desks-apply {} {
         set d $::deskof($w)
         if {$d ne "all" && $d >= $n} { set ::deskof($w) [expr {$n - 1}] }
     }
+    # ...and NOBODY IS LEFT DESKLESS. Every road into ::managed now
+    # declares a desk (policy-booked covers the one that used to skip
+    # it — a window managed INTO iconic), but a LIVE desk can still be
+    # carrying windows from before that was true: procs are replaced
+    # under a running desk and its state is kept (Reread, and the
+    # restart keeps the windows), so a window managed by yesterday's
+    # code has no ::deskof entry, desk-of answers "wherever you are",
+    # and it follows every switch — worse, it CAMPS at the head of the
+    # focus history, always «here», refocused and re-crowned most
+    # recent by every switch, a loop nothing on the desk could break
+    # (the owner's live desk, 2026-08-08: a PDF minimized across a
+    # restart stole the focus on every return, from UNDER other
+    # windows). So the invariant is also SEALED here, where the count
+    # settles: whoever has no desk gets one, and the declaration reads
+    # the window's own _NET_WM_DESKTOP first — the desk it remembers is
+    # the desk it gets.
     foreach w [array names ::managed] {
+        if {![info exists ::deskof($w)]
+                && [llength [info commands client-desk-declare-and-paint]]} {
+            soft "declare a desk for the deskless" \
+                [list client-desk-declare-and-paint $w]
+        }
         publish-desk-of $w
         desk-visibility $w
     }
@@ -2752,6 +2777,12 @@ proc manage {w {asiconic 0}} {
         # client, and it applies to a window arriving minimized as much
         # as to one being minimized now.
         policy-minimize-request $w
+        # Skipping policy-managed must not skip the MODEL: without this
+        # the window had no desk (it followed every switch once
+        # restored, and camped at the head of the focus history) and no
+        # seat in the stack (the desk sweep could not even show it).
+        # After the minimize on purpose — see policy-booked.
+        if {[llength [info commands policy-booked]]} { policy-booked $w }
     }
     # ...and "start me fullscreen", the EWMH spelling of the same idea.
     # After the frame, for the same reason: there has to be a frame for

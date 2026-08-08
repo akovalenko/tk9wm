@@ -416,7 +416,21 @@ proc frame-show {w} {
         update idletasks
     }
 }
-proc policy-managed {w} {
+# The MODEL'S bookkeeping of an arrival, and nothing the eye can see:
+# a seat in the stack, a layer, a desk. policy-managed opens with this
+# and goes on to the showing and the focus — and a window managed INTO
+# iconic gets ONLY this, called by manage AFTER the iconify. It used to
+# get nothing: skipping policy-managed (the initial-focus choreography
+# is not for a window leaving the screen) skipped the bookkeeping too,
+# and the window came back from a restore with no desk — following
+# every switch, camping at the head of the focus history — and no seat
+# in the stack, so the desk sweep could not even show it (the owner's
+# live desk, 2026-08-08: a PDF minimized across a restart). After the
+# iconify on purpose: the desk declaration ends in desk-visibility, and
+# «iconic outranks» is what keeps that inert — run before, it would
+# unmap an elsewhere-window on its own and the iconify's unmap echo
+# arithmetic (skip_unmap) would count an echo that never comes.
+proc policy-booked {w} {
     if {$::adopting} {
         # The adoption sweep walks TOPMOST FIRST (adopt-existing), so
         # the model seats each arrival at the BOTTOM — the same
@@ -428,6 +442,9 @@ proc policy-managed {w} {
     }
     client-layer-declare $w
     client-desk-declare-and-paint $w
+}
+proc policy-managed {w} {
+    policy-booked $w
     if {!$::adopting} { raise-group $w }
     frame-show $w
     if {$::adopting} {
