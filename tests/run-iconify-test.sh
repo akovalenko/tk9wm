@@ -86,6 +86,28 @@ sleep 6
 WID3=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-iconstyle.log" | head -1)
 S4=$(state "$WID3"); M4=$(mapstate "$WID3")
 kill $WM3 $CL3 2>/dev/null
+sleep 1
+
+# ---- phase 4: born minimized, said by a style rule ----
+# `start iconic` is the config's word for what a client asks with
+# WM_HINTS initial_state (xterm -iconic, wine's `start /min`) — here
+# the client asks for NOTHING and arrives minimized anyway.
+rm -rf "$HERE/refuse-config"
+mkdir -p "$HERE/refuse-config"
+echo 'wm-style {filter -title зачаток} {start iconic}' \
+    > "$HERE/refuse-config/tk9wm.tcl"
+XDG_CONFIG_HOME="$HERE/refuse-config" \
+    "$LINUX/whale" "$WMTCL" > "$HERE/wm-iconstart.log" 2>&1 &
+WM4=$!
+wait_wm "$HERE/wm-iconstart.log" $WM4
+"$LINUX/whale" "$HERE/client.tcl" "зачаток" 240x120 "#729fcf" "" "" 20 \
+    > "$HERE/iconstart-client.log" 2>&1 &
+CL4=$!
+wait_client "$HERE/wm-iconstart.log" 'зачаток'
+sleep 1
+WID4=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-iconstart.log" | head -1)
+S5=$(state "$WID4"); M5=$(mapstate "$WID4"); H5=$(hidden "$WID4")
+kill $WM4 $CL4 2>/dev/null
 
 echo "--- WM saw (phase 1):"
 grep -E 'iconif|winlist pick|focus ->|parking' "$HERE/wm-iconify.log"
@@ -142,7 +164,15 @@ if grep -q 'iconify refused' "$HERE/wm-iconstyle.log" \
 else
     echo "FAIL: the style rule left the window $S4/$M4"; BAD=1
 fi
+echo "--- WM saw (phase 4, born minimized by style):"
+grep -E 'styled to start|iconif' "$HERE/wm-iconstart.log"
+if grep -q 'styled to start iconic' "$HERE/wm-iconstart.log" \
+        && [ "$S5" = "Iconic" ] && [ "$M5" = "IsUnMapped" ] && [ "$H5" = "1" ]; then
+    echo "OK: a «start iconic» style bore the window minimized — Iconic, unmapped, hidden"
+else
+    echo "FAIL: the style-born window is $S5/$M5 (hidden=$H5)"; BAD=1
+fi
 if grep -q 'handler error' "$HERE/wm-iconify.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-iconify.log"; BAD=1
 fi
-[ $BAD -eq 0 ] && echo "OK: iconification honored, reversible, and refusable"
+[ $BAD -eq 0 ] && echo "OK: iconification honored, reversible, refusable — and a window can be born into it"

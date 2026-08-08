@@ -33,6 +33,7 @@ cat > "$CONF/tk9wm.tcl" <<'EOF'
 action терм {}
 panel-button терм
 set-tray on
+wm-style {filter -title стилевой} {start fullscreen}
 EOF
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
@@ -100,6 +101,20 @@ PM_SIZE=""
 [ -n "$PMWIN" ] && PM_SIZE=$(size "$PMWIN")
 kill $CP 2>/dev/null
 sleep 1
+
+# --- pass 3b: the same birth, said by the CONFIG. `start fullscreen`
+# is the style's word for the clients that have no flag of their own;
+# this client asks for nothing at all and is framed fullscreen anyway.
+"$LINUX/whale" "$HERE/client.tcl" "стилевой" 240x120 "#fcaf3e" "" "" 25 \
+    > "$HERE/fullscreen-styled.log" 2>&1 &
+CS=$!
+wait_client "$HERE/wm-fullscreen.log" 'стилевой'
+STWIN=$(sed -n 's/^WM: \(0x[0-9a-f]*\) styled to start fullscreen/\1/p' \
+    "$HERE/wm-fullscreen.log" | tail -1)
+ST_SIZE=""
+if [ -n "$STWIN" ]; then sleep 1; ST_SIZE=$(size "$STWIN"); fi
+kill $CS 2>/dev/null
+sleep 0.5
 
 # --- pass 4: the real terminals, unmodified, each asking as it does
 timeout 30 xterm -fullscreen -geometry 40x10 -e sh -c 'sleep 25' \
@@ -215,6 +230,11 @@ if [ "$PREMAP" = 1 ] && [ "$PM_SIZE" = "1024x768+0+0" ]; then
     echo "OK: a window that asked BEFORE its map was framed fullscreen at once"
 else
     echo "FAIL: pre-map client is «$PM_SIZE» ($PREMAP manage-time requests seen)"
+fi
+if [ -n "$STWIN" ] && [ "$ST_SIZE" = "1024x768+0+0" ]; then
+    echo "OK: a «start fullscreen» style framed its window fullscreen, unasked"
+else
+    echo "FAIL: the styled client is «$ST_SIZE» (window «$STWIN»)"
 fi
 if [ "$XT_SIZE" = "1024x768+0+0" ]; then
     echo "OK: xterm -fullscreen came up fullscreen, by itself"

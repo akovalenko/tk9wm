@@ -229,6 +229,17 @@
 #   opacity N                  rests translucent, 0 < N <= 1 (needs a
 #                              compositor); Unfade returns here
 #   desk N|sticky              born on that desk, or on every one
+#   layer N|below|normal|above|dock|top
+#                              its rung in the stack: above floats
+#                              over the desk yet under the panel
+#                              (dock); a NUMBER (0..12) says what no
+#                              word can — «over the panel AND over a
+#                              fullscreen window» is 10 or more
+#   start iconic|fullscreen    born minimized, or born fullscreen —
+#                              the config's word for what a client
+#                              asks with WM_HINTS initial_state or a
+#                              pre-map _NET_WM_STATE; `normal` is the
+#                              blank a later rule may answer with
 #   place TERMS                the geometry it is born with (below)
 #   icon IMAGE                 window-list face, over _NET_WM_ICON —
 #                              a Tk image name, a file path (png/svg),

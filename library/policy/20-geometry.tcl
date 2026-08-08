@@ -1085,6 +1085,30 @@ proc policy-minimize-request {w} {
         iconify-client $w
     }
 }
+
+# ---- start: the state a window is BORN in ----
+# The style key `start` — iconic|fullscreen|normal. The two words are
+# the config's spelling of what a client may ask about itself (WM_HINTS
+# initial_state = IconicState; _NET_WM_STATE_FULLSCREEN set before the
+# map) — for the world's clients that have no flag to say it: an xterm
+# has -iconic and -fullscreen, most programs have neither. `normal`
+# says nothing, which is what a later rule needs to cancel an earlier
+# one (later rules win per-key). The substrate asks at manage time and
+# ORs the answer with the client's own voice; a `minimize refuse` style
+# still overrules a `start iconic`, exactly as it overrules the client
+# asking — the standing word is judged where the request lands
+# (policy-minimize-request), whoever raised it.
+proc policy-start-state {w} {
+    set st [style-of $w]
+    if {![dict exists $st start]} { return "" }
+    set v [dict get $st start]
+    switch -- $v {
+        iconic - fullscreen { return $v }
+        normal { return "" }
+    }
+    puts "WM: start «$v» on 0x[format %x $w]: iconic|fullscreen|normal — ignored"
+    return ""
+}
 proc policy-iconified {w} {
     if {![info exists ::frameof($w)]} return
     wm withdraw $::frameof($w)

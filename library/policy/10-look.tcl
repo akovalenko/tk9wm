@@ -727,6 +727,11 @@ proc set-title-justify {j} {
 # say the thing no state can: «over the panel AND over a fullscreen
 # window» is layer 10 or more, and nothing else on the desk has to know
 # about it.
+# opacity (0 < N <= 1) — the translucency the frame rests at (needs a
+# compositor); see rest-opacity.
+# start (iconic|fullscreen|normal) — the state it is born in, the
+# config's word for what a client asks with WM_HINTS initial_state or a
+# pre-map _NET_WM_STATE; see policy-start-state.
 keep style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {

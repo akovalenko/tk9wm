@@ -2762,11 +2762,14 @@ proc manage {w {asiconic 0}} {
     x-sync 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
     refresh-title $w
-    # Is this window going to end up minimized? Two ways in: a client
+    # Is this window going to end up minimized? Three ways in: a client
     # that ASKED to start that way — ICCCM 4.1.4 spells it WM_HINTS
     # initial_state = IconicState, which is what `start /min` under wine
-    # sets — and a window ADOPTED back into the state a previous
-    # instance of us left it in. Framed and mapped first either way: the
+    # sets — a window ADOPTED back into the state a previous instance
+    # of us left it in, and the config's own word about this kind of
+    # window (the style key `start`, a policy answer — asked through
+    # the guarded hook so a bare-substrate spike, having no styles,
+    # simply has no word). Framed and mapped first any which way: the
     # frame has to exist for the window list to have anything to bring
     # back.
     #
@@ -2779,12 +2782,16 @@ proc manage {w {asiconic 0}} {
     # which is what a click does. Only clients that track focus
     # themselves are hit, which is exactly why xterm and emacs looked
     # fine while the rest did not (owner's report, 2026-07-29).
-    set toiconic [expr {$asiconic || [client-initial-iconic $w]}]
+    set styled [expr {[llength [info commands policy-start-state]]
+                      ? [policy-start-state $w] : ""}]
+    set askiconic [client-initial-iconic $w]
+    set toiconic [expr {$asiconic || $askiconic || $styled eq "iconic"}]
     if {!$toiconic} { policy-managed $w }
     tell-where-you-are $w
     if {$toiconic} {
-        puts "WM: 0x[format %x $w] [expr {$asiconic ? {adopted minimized}
-                                                   : {asked to start iconic}}]"
+        puts "WM: 0x[format %x $w] [expr {$asiconic  ? {adopted minimized}
+                                        : $askiconic ? {asked to start iconic}
+                                                     : {styled to start iconic}}]"
         # Through the policy, not straight to iconify-client: a
         # `minimize refuse` style is the user's standing word about this
         # client, and it applies to a window arriving minimized as much
@@ -2797,11 +2804,14 @@ proc manage {w {asiconic 0}} {
         # After the minimize on purpose — see policy-booked.
         if {[llength [info commands policy-booked]]} { policy-booked $w }
     }
-    # ...and "start me fullscreen", the EWMH spelling of the same idea.
+    # ...and "start me fullscreen", the EWMH spelling of the same idea
+    # — or the style's, for the clients with no flag of their own.
     # After the frame, for the same reason: there has to be a frame for
     # the state to re-lay out, and one to come back to.
-    if {[client-initial-fullscreen $w]} {
-        puts "WM: 0x[format %x $w] asked to start fullscreen"
+    set askfs [client-initial-fullscreen $w]
+    if {$askfs || $styled eq "fullscreen"} {
+        puts "WM: 0x[format %x $w] [expr {$askfs ? {asked to start fullscreen}
+                                                 : {styled to start fullscreen}}]"
         fullscreen-client $w
     } elseif {[llength [set _born [client-initial-maximized $w]]]
               && ![info exists ::maxsaved($w)]
