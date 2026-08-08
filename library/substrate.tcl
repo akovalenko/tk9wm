@@ -2073,13 +2073,39 @@ proc publish-workarea {} {
 # reads the property on the way back would learn it had been taken out
 # of a state we are still holding it in. So every publisher says "what
 # is true of w now" and nothing else has to remember the rest.
+#
+# The ORDER of the list is the EWMH spec's own listing order (STICKY,
+# MAXIMIZED_VERT, MAXIMIZED_HORZ, HIDDEN, FULLSCREEN, ABOVE/BELOW),
+# and it is load-bearing, not tidiness. The property is a SET, but
+# emacs folds it left to right into ONE size-state slot (xterm.c,
+# x_get_current_wm_state): a MAXIMIZED atom read AFTER the FULLSCREEN
+# one overwrites it, the frame concludes it is merely maximized, and
+# toggle-frame-fullscreen keeps asking for fullscreen instead of out
+# of it — the owner's desk, 2026-08-08: emacs born maximized could
+# enter fullscreen and never leave, because we published FULLSCREEN
+# first and the maximized pair right after. The desktops emacs grew
+# up under publish in the spec's order, so the strongest word lands
+# last; now so does ours.
 proc net-wm-state-atoms {w} {
     set atoms {}
-    if {[info exists ::iconic($w)]} { lappend atoms $::NET_WM_STATE_HIDDEN }
-    if {[info exists ::fullscreen($w)]} { lappend atoms $::NET_WM_STATE_FULLSCREEN }
     if {[llength [info commands desk-sticky-p]] && [desk-sticky-p $w]} {
         lappend atoms $::NET_WM_STATE_STICKY
     }
+    # The maximized mark is the policy's (::maxsaved the saved way
+    # back, ::maxaxes the axes held), and this builder only READS it:
+    # what is published is what the maximize machinery believes,
+    # wherever it changed hands — per axis, so a window maximized tall
+    # answers MAXIMIZED_VERT alone.
+    if {[info exists ::maxaxes($w)]} {
+        if {"v" in $::maxaxes($w)} {
+            lappend atoms $::NET_WM_STATE_MAXIMIZED_VERT
+        }
+        if {"h" in $::maxaxes($w)} {
+            lappend atoms $::NET_WM_STATE_MAXIMIZED_HORZ
+        }
+    }
+    if {[info exists ::iconic($w)]} { lappend atoms $::NET_WM_STATE_HIDDEN }
+    if {[info exists ::fullscreen($w)]} { lappend atoms $::NET_WM_STATE_FULLSCREEN }
     # ...and where the window sits in the stack, when that is a thing
     # it asked for rather than the ordinary place (see layer-declared).
     if {[llength [info commands layer-declared]]} {
@@ -2088,19 +2114,6 @@ proc net-wm-state-atoms {w} {
             lappend atoms $::NET_WM_STATE_ABOVE
         } elseif {$n < $::LAYER_NORMAL && $n >= $::LAYER_BELOW} {
             lappend atoms $::NET_WM_STATE_BELOW
-        }
-    }
-    # The maximized mark is the policy's (::maxsaved the saved way
-    # back, ::maxaxes the axes held), and this builder only READS it:
-    # what is published is what the maximize machinery believes,
-    # wherever it changed hands — per axis, so a window maximized tall
-    # answers MAXIMIZED_VERT alone.
-    if {[info exists ::maxaxes($w)]} {
-        if {"h" in $::maxaxes($w)} {
-            lappend atoms $::NET_WM_STATE_MAXIMIZED_HORZ
-        }
-        if {"v" in $::maxaxes($w)} {
-            lappend atoms $::NET_WM_STATE_MAXIMIZED_VERT
         }
     }
     return $atoms

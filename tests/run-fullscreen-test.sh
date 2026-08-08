@@ -9,7 +9,9 @@
 # both look for _NET_WM_STATE_FULLSCREEN in _NET_SUPPORTED and, before
 # this existed, went fullscreen by NOT ASKING — measured, they sent
 # nothing at all and stayed their old size. They are here so the answer
-# to "does it work" is not a mock of what they do.
+# to "does it work" is not a mock of what they do. And emacs, the
+# client whose OFF depends on how it reads our _NET_WM_STATE property
+# back (pass 5) — the round trip nobody else on this list drives.
 #
 # The desk carries a panel AND a tray, which is what makes the stacking
 # question real: both are our own override-redirect top-levels that
@@ -114,6 +116,38 @@ KTWIN=$(xdotool search --class kitty 2>/dev/null | tail -1)
 KT_SIZE=""; KT_STATE=""
 [ -n "$KTWIN" ] && KT_SIZE=$(size "$KTWIN") && KT_STATE=$(state "$KTWIN")
 
+# --- pass 5: emacs, the live client that could enter but never leave.
+# Born maximized (-mm), it toggles fullscreen ON at t+4 and OFF at
+# t+12 BY ITSELF — the round trip rides on ITS OWN idea of its state,
+# which it folds out of our _NET_WM_STATE property left to right into
+# one slot (xterm.c, x_get_current_wm_state). Published
+# FULLSCREEN-first, the fold ended «maximized», the frame never
+# believed it was fullscreen, and the second toggle asked for
+# fullscreen AGAIN (the owner's desk, 2026-08-08). The property now
+# lists maximized before fullscreen; the fold ends on the stronger
+# word and the way back exists — and leads to MAXIMIZED, the state
+# emacs held underneath all along.
+EMWIN=""; EM0=""; EM1=""; EM2=""; EMST2=""
+if command -v emacs >/dev/null 2>&1; then
+    PRE=$(grep -c '^WM: managed' "$HERE/wm-fullscreen.log")
+    emacs -Q -mm --eval '(progn
+      (run-at-time 4 nil #'\''toggle-frame-fullscreen)
+      (run-at-time 12 nil #'\''toggle-frame-fullscreen)
+      (run-at-time 22 nil #'\''kill-emacs))' \
+        > "$HERE/fullscreen-emacs.log" 2>&1 &
+    EMPID=$!
+    _one_more_managed() { [ "$(grep -c '^WM: managed' "$1")" -gt "$2" ]; }
+    wait_for 15 _one_more_managed "$HERE/wm-fullscreen.log" "$PRE"
+    EMWIN=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' \
+        "$HERE/wm-fullscreen.log" | tail -1)
+    EM0=$(size "$EMWIN")
+    sleep 8                      # past the ON toggle (t+4)
+    EM1=$(size "$EMWIN")
+    sleep 8                      # past the OFF toggle (t+12)
+    EM2=$(size "$EMWIN"); EMST2=$(state "$EMWIN")
+    kill $EMPID 2>/dev/null
+fi
+
 import -window root "$HERE/fullscreen-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/fullscreen-test.png"
 
@@ -191,6 +225,26 @@ if [ "$KT_SIZE" = "1024x768+0+0" ]; then
     echo "OK: kitty --start-as fullscreen came up fullscreen, by itself"
 else
     echo "FAIL: kitty is «$KT_SIZE», want 1024x768+0+0"
+fi
+if [ -n "$EMWIN" ]; then
+    echo "--- emacs $EMWIN: born=$EM0 on=$EM1 off=$EM2 «$EMST2»"
+    if [ "$EM1" = "1024x768+0+0" ]; then
+        echo "OK: emacs took itself fullscreen"
+    else
+        echo "FAIL: after its ON toggle emacs is «$EM1»"
+    fi
+    if [ "$EM2" = "$EM0" ] && [ "$EM2" != "1024x768+0+0" ]; then
+        echo "OK: ...and brought itself BACK — to the maximized frame it was born with"
+    else
+        echo "FAIL: after its OFF toggle emacs is «$EM2», born «$EM0» — no way back"
+    fi
+    case "$EMST2" in
+        *FULLSCREEN*) echo "FAIL: the property still says fullscreen after the OFF toggle" ;;
+        *MAXIMIZED*)  echo "OK: ...and the property agrees — maximized, not fullscreen" ;;
+        *) echo "FAIL: after the OFF toggle the property is «$EMST2», want maximized" ;;
+    esac
+else
+    echo "note: no emacs on this machine — the fold-order pass ran nowhere"
 fi
 if grep -q 'handler error' "$HERE/wm-fullscreen.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-fullscreen.log"
