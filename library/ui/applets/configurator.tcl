@@ -2050,6 +2050,11 @@ proc cfg-font-dialog {name} {
                     [dict get $seed -weight]] \
         -command [list cfg-font-picked $name]
     tk fontchooser show
+    # ...and dressed for today: the chooser is built lazily by the
+    # show, its plain-Tk lists off the option database of that moment
+    # — the walk (ui-redress-tk-dialogs) tells them the palette that
+    # stands now, whichever theme this desk has been through since.
+    after idle ui-redress-tk-dialogs
 }
 proc cfg-font-picked {name spec} {
     # picked by hand means stated whole — family, size and weight
@@ -3334,7 +3339,8 @@ proc cfg-problems-show {all} {
     listbox $w.list -font DeskFont -height [expr {max(3, min(12, [llength $all]))}] \
         -exportselection 0 \
         -background [ui-color field] -foreground [ui-color fg] \
-        -selectbackground [ui-color select]
+        -selectbackground [ui-color select] \
+        -selectforeground [ui-color selectfg]
     ui-focusable $w.list
     foreach p $all {
         $w.list insert end "[dict get $p what] — [problem-one-line [dict get $p text]]"

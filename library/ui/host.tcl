@@ -163,10 +163,16 @@ proc ui-style-sync {} {
         [ui-tint [dict get $::ui_palette trough] \
                  [dict get $::ui_palette select] 0.22]
     set st $::ui_palette
+    # ...and the PAIR goes into the option database. selectForeground
+    # was not written here, so every plain entry and listbox that had
+    # not dressed it by hand fell back on Tk's own black — dark
+    # letters on the dark selection band, in both themes (the owner,
+    # 2026-08-10, in the examples dialog's entry).
     foreach {opt key} {
         background bg foreground fg activeBackground select
         activeForeground selectfg
-        selectBackground select highlightBackground bg
+        selectBackground select selectForeground selectfg
+        highlightBackground bg
         troughColor trough insertBackground fg
     } {
         option add *$opt [dict get $st $key] widgetDefault
@@ -175,7 +181,41 @@ proc ui-style-sync {} {
     option add *Entry.background [dict get $st field] widgetDefault
     option add *Text.background [dict get $st field] widgetDefault
     option add *Listbox.background [dict get $st field] widgetDefault
+    ui-redress-tk-dialogs
     ui-style-announce
+}
+# ---- Tk's own dialogs, told the palette by hand ----
+# The fontchooser is ttk down to its lists — and the lists are plain
+# listboxes, dressed once at birth from whatever the option database
+# said that day. The ttk half follows a live theme flip; the plain
+# half kept its birth colours on the owner's desk (light→dark→light
+# left the lists dark, 2026-08-10). The database cannot reach a
+# widget that already exists, so the standing dialogs are walked and
+# re-dressed by name — the same move cfg-restyle makes for the tree,
+# for the same reason. Every TkFontDialog wherever it hangs (the
+# chooser builds under its -parent, not under the root), and only the
+# plain widgets in it: ttk needs nothing here.
+proc ui-redress-tk-dialogs {{root .}} {
+    foreach w [winfo children $root] {
+        if {[winfo class $w] eq "TkFontDialog"} {
+            catch {$w configure -background [ui-color bg]}
+            ui-redress-plain $w
+        } else {
+            ui-redress-tk-dialogs $w
+        }
+    }
+}
+proc ui-redress-plain {w} {
+    switch -- [winfo class $w] {
+        Listbox - Entry - Text - Spinbox {
+            catch {$w configure -background [ui-color field] \
+                       -foreground [ui-color fg] \
+                       -selectbackground [ui-color select] \
+                       -selectforeground [ui-color selectfg]}
+            catch {$w configure -insertbackground [ui-color fg]}
+        }
+    }
+    foreach c [winfo children $w] { ui-redress-plain $c }
 }
 # ...AND THE APPLETS ALREADY ON THE SCREEN, which is the other half
 # and was missing. `option add` dresses what is created NEXT and
@@ -563,10 +603,20 @@ proc ui-pick-dialog {w parent wtitle title choices entrylabel commit {check {}}}
     # dialog that asks for a pick AND a name was unusable because of
     # it: the owner found that the only way through was to type the
     # name first and then click the list, in that order (2026-08-02).
+    # ...and WIDE ENOUGH TO READ: left to the toolkit's twenty
+    # characters, the examples dialog showed the head of every row and
+    # nothing of what made a row worth offering (the owner,
+    # 2026-08-10). The list asks for its longest row, within reason —
+    # a character count is an estimate under a proportional font, and
+    # the cap keeps a long-winded example from opening a wall.
+    set wch 20
+    foreach c $choices { set wch [expr {max($wch, [string length $c])}] }
     listbox $w.list -font DeskFont -height [expr {max(3, min(10,
         [llength $choices]))}] -exportselection 0 \
+        -width [expr {min($wch, 80)}] \
         -background [ui-color field] -foreground [ui-color fg] \
-        -selectbackground [ui-color select]
+        -selectbackground [ui-color select] \
+        -selectforeground [ui-color selectfg]
     ui-focusable $w.list
     foreach c $choices { $w.list insert end $c }
     label $w.el -takefocus 0 -anchor w -text $entrylabel
