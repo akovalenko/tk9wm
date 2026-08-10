@@ -97,12 +97,12 @@ array set compass_cells {
     4 {start center}  5 {center center}  6 {end center}
     1 {start end}     2 {center end}     3 {end end}
 }
-# Which keysym names name a cell. The numpad arrives by its LEVEL-0
-# names and not as digits at all — the key router reads keysym level 0
-# (handle-key), where an ordinary pc105 keymap has KP_Home/KP_Up/…
-# whatever NumLock is doing, which is why the mode does not care about
-# NumLock. KP_1..KP_9 are listed too, for the layouts that do put the
-# digit on level 0; on a normal one they simply never arrive.
+# Which keysym names name a cell. The numpad arrives through the
+# router's lock exception (router-key): NumLock on says the digits,
+# off says the level-0 names an ordinary pc105 keymap keeps there —
+# KP_Home/KP_Up/… Both rows are listed below, which is why this mode
+# still does not care about NumLock: either face lands on the same
+# cell. KP_1..KP_9 stay for the layouts that put the digit on level 0.
 array set compass_key {
     KP_Home 7  KP_Up 8     KP_Prior 9
     KP_Left 4  KP_Begin 5  KP_Right 6

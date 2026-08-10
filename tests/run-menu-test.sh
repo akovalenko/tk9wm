@@ -97,6 +97,15 @@ key End
 key Home              # ...and Home leads back up
 key Return
 
+# ---- the keypad: bare it walks, locked it says digits
+key super+m
+key KP_Down           # NumLock off: the arrow face — down to «сказать»
+key KP_Enter
+key Num_Lock
+key super+m
+key KP_3              # NumLock on: the digit face — beta's hotkey
+key Num_Lock
+
 # ---- the dynamic menu: the body answers at open time
 key super+t
 key s
@@ -137,10 +146,10 @@ if grep -q 'soft failure\|handler error' "$HERE/wm-menu.log"; then
 fi
 
 OPENS=$(grep -c 'WM: menu m1 open (4 items)' "$HERE/wm-menu.log")
-if [ "$OPENS" = "10" ]; then
-    echo "OK: the static menu opened 10 times, 4 rows of 6 declared each time"
+if [ "$OPENS" = "12" ]; then
+    echo "OK: the static menu opened 12 times, 4 rows of 6 declared each time"
 else
-    echo "FAIL: m1 opened with 4 rows $OPENS times, want 10"; BAD=1
+    echo "FAIL: m1 opened with 4 rows $OPENS times, want 12"; BAD=1
 fi
 # the ends: End and PgDn each landed on инлайн, Ctrl+E/Ctrl+A and
 # End-then-Home each came back to alpha — counted, so a dead key
@@ -151,6 +160,15 @@ if [ "$INL" = "3" ] && [ "$ALP" = "3" ]; then
     echo "OK: End, Ctrl+E/Ctrl+A, PgDn and Home all found their ends"
 else
     echo "FAIL: end-navigation picks: инлайн=$INL (want 3) alpha=$ALP (want 3)"; BAD=1
+fi
+# the keypad's two faces, counted the same way: KP_Down walked to the
+# do row bare, KP_3 said beta's digit locked
+DOF=$(grep -c 'TEST: do fired' "$HERE/wm-menu.log")
+BETA=$(grep -c 'WM: menu m1 pick «beta»' "$HERE/wm-menu.log")
+if [ "$DOF" = "2" ] && [ "$BETA" = "2" ]; then
+    echo "OK: the keypad walks bare and says its digit locked"
+else
+    echo "FAIL: keypad picks: do=$DOF (want 2) beta=$BETA (want 2)"; BAD=1
 fi
 if grep -q 'WM: menu m1: «ghost» is waiting — not shown' "$HERE/wm-menu.log" \
         && grep -q 'WM: menu m1: «nosuch» is not a deed this desk knows' \

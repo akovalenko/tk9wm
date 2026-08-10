@@ -1532,7 +1532,8 @@ proc dispatch-event {ev} {
             if {$::keyrouter eq "" || [dict get $ev window] != $::root} return
             set ::evtime [dict get $ev time]
             route-key release \
-                [keysym-name [x-keysym-at [dict get $ev keycode] 0 0]] \
+                [keysym-name [router-key [dict get $ev state] \
+                                  [dict get $ev keycode]]] \
                 [expr {[dict get $ev state] & ~(2 | 16)}]
         }
         mapping-notify { # 2 (pointer) is not ours
@@ -4119,6 +4120,27 @@ proc chord-key {kc ks} {
     }
     return $ks
 }
+# The modal ROUTER hears the keypad with the lock read — the one
+# deliberate exception to the non-modified world. A chord must fire
+# whatever the locks are doing, so chord-key above folds the keypad
+# to its digit unconditionally; but a menu standing under
+# grab-keys-to is the one place both faces of a keypad key mean
+# something — KP_Down walks the list and KP_2 picks row 2 — and
+# NumLock is how the hand says which it meant (the owner,
+# 2026-08-10). So with NumLock on a keypad key is its digit, and
+# with it off it keeps its level-0 name — KP_Up, KP_Home — for the
+# routers' navigation tables.
+proc router-key {state kc} {
+    set ks [x-keysym-at $kc 0 0]
+    if {($state & 16) && [string match KP_* [keysym-name $ks]]} {
+        set lvl1 [x-keysym-at $kc 0 1]
+        if {[regexp {^KP_([0-9])$} [keysym-name $lvl1] -> d]
+                && [set alt [x-keysym $d]] != 0} {
+            return $alt
+        }
+    }
+    return $ks
+}
 # ...and the same four, given back (see keys-drop-orphan).
 proc ungrab-chord {chord} {
     lassign $chord mods ks
@@ -4481,12 +4503,14 @@ proc modifier-held {mask} {
 # too.
 set CHORD_IGNORE [expr {2 | 16 | 0x6000}]
 proc handle-key {state kc time} {
-    set ks [chord-key $kc [x-keysym-at $kc 0 0]]
     set mods [expr {$state & ~$::CHORD_IGNORE}]
     if {$::keyrouter ne ""} {
-        route-key press [keysym-name $ks] $mods
+        # the router reads the keypad through the lock — router-key,
+        # the deliberate exception the chord fold must not make
+        route-key press [keysym-name [router-key $state $kc]] $mods
         return
     }
+    set ks [chord-key $kc [x-keysym-at $kc 0 0]]
     if {[info exists ::ismodks($ks)]} return
     set k "$mods,$ks"
     set node $::keymap

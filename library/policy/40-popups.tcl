@@ -596,8 +596,10 @@ proc wm-invariants {} {
 # them, Ctrl+A / Ctrl+E as emacs hands expect — unconditional, like
 # their p/n kin — and PgUp/PgDn land on the same ends: these lists
 # stand on the glass whole, so a page up is the top and a page down
-# is the bottom. Returns -1/1 for a step, first/last for the ends,
-# 0 = not a navigation key.
+# is the bottom. The KP_* spellings are the keypad with NumLock off;
+# with it on the same keys arrive as digits and mean the hotkeys
+# (router-key, the router's own lock exception). Returns -1/1 for a
+# step, first/last for the ends, 0 = not a navigation key.
 proc popup-nav {name mods} {
     if {$mods & 4} {
         switch -- $name {
@@ -608,10 +610,10 @@ proc popup-nav {name mods} {
     }
     if {$mods != 0} { return 0 }
     switch -- $name {
-        Up - k - p          { return -1 }
-        Down - j - n        { return 1 }
-        Home - Prior        { return first }
-        End - Next          { return last }
+        Up - k - p - KP_Up            { return -1 }
+        Down - j - n - KP_Down        { return 1 }
+        Home - Prior - KP_Home - KP_Prior { return first }
+        End - Next - KP_End - KP_Next     { return last }
     }
     return 0
 }
