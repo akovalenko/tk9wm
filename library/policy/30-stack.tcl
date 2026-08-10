@@ -324,6 +324,29 @@ proc lower-group {w} {
     restack-soon
 }
 
+# A client's own restack request — the CWStackMode bit of a
+# ConfigureRequest, handed over by the substrate. XRaiseWindow and
+# XLowerWindow are the `above` and `below` spellings, and between them
+# they are every request a real toolkit sends; both land on the same
+# verbs the user's gestures use, group and layer discipline included —
+# a request can no more escape its layer than a click can. Stacking
+# only: the focus is a different conversation (_NET_ACTIVE_WINDOW),
+# and a window that wants both knows to ask twice, as emacs does. The
+# three conditional modes are heard and named rather than silently
+# dropped; the first client ever seen sending one will announce
+# itself in the log.
+proc policy-restack-request {w mode} {
+    switch -- $mode {
+        above { raise-group $w }
+        below { lower-group $w }
+        default {
+            puts "WM: restack 0x[format %x $w] $mode: unimplemented, ignored"
+            return
+        }
+    }
+    puts "WM: restack 0x[format %x $w] $mode honored"
+}
+
 # ---- bury: lower, and hand the focus to whatever that uncovered ----
 # Lower is a PEEK. It drops the window to the floor and deliberately
 # keeps the focus on it, so a glance at what is underneath costs one

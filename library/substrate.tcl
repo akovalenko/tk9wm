@@ -1095,6 +1095,26 @@ proc dispatch-event {ev} {
                     if {$vmask & 3} { move-client-request $B $x $y $vmask }
                     resize-client $B $w $h $vmask
                 }
+                # The stacking bit, orthogonal to the geometry above and
+                # heard in every state — a fullscreen window's geometry
+                # is not its own, but its place in the stack still is.
+                # XRaiseWindow IS a ConfigureRequest: CWStackMode is how
+                # Tk's `raise .` arrives, and how emacs surfaces a frame
+                # for its own minibuffer question (minibuffer-auto-raise
+                # on "revert from disk?" — the prompt nobody saw). For a
+                # managed window the bit used to be dropped on the floor
+                # unread; it goes to the policy's own verbs — group and
+                # layers intact — never to a raw X restack. The sibling
+                # half (CWSibling) names a place in a stacking the
+                # policy does not promise to keep; EWMH lets a WM ignore
+                # the sibling, and saying so beats half-honoring it.
+                if {$vmask & (1 << 6)} {
+                    set mode [lindex $::stackmodes [dict get $ev detail]]
+                    if {$vmask & (1 << 5)} {
+                        puts "WM: restack 0x[format %x $B]: sibling ignored"
+                    }
+                    soft "restack request" { policy-restack-request $B $mode }
+                }
                 # ICCCM 4.1.5: "If a client's ConfigureWindow request is
                 # denied in whole or in part, the window manager must send
                 # the client a synthetic ConfigureNotify". A position
