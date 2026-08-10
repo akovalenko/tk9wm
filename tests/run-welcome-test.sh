@@ -39,10 +39,10 @@ qf() { printf '%s\n' "$1" > "$CONF/q.tcl"
 # What the mat is, wherever it lives: the reserved size, the size it
 # actually asks for, its rectangle in root coordinates, and whether
 # every wrapped line of it is on screen.
-STATE='set c $::widget_win(__welcome)
+STATE='set c $::widget_win(welcome)
 set t $c.t
 list reserved [list [winfo reqwidth $c] [winfo reqheight $c]] \
-     measured $::widget_size(__welcome) \
+     measured $::widget_size(welcome) \
      lines [list [$t cget -height] [expr {[$t count -displaylines 1.0 end] + 1}]] \
      rect [list [winfo rootx $c] [winfo rooty $c] \
                 [winfo width $c] [winfo height $c]] \
@@ -54,7 +54,7 @@ qf 'set-desk-window off' >/dev/null
 sleep 1
 OFF=$(qf "$STATE")
 OFFTOP=$(qf 'list [wm geometry $::widget_top(area1)] \
-                  [winfo reqheight $::widget_win(__welcome)]')
+                  [winfo reqheight $::widget_win(welcome)]')
 echo "--- desk window off: $OFF"
 echo "--- its own toplevel: $OFFTOP"
 

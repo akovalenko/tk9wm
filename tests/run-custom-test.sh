@@ -149,7 +149,7 @@ WM2=$!
 wait_wm "$HERE/wm-fresh.log" $WM2
 qf() { printf '%s\n' "$1" > "$HERE/custom-fresh/q.tcl"
        "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/custom-fresh/q.tcl"; }
-WELCOME=$(qf 'dict exists $::widgets __welcome')
+WELCOME=$(qf 'dict exists $::widgets welcome')
 # ...AND THE SET IT OFFERS TO WRITE — «set up the basics», furnishing
 # a bare desk in one click. Every word of it goes through the ordinary
 # layer, so a key nobody registered would die at apply time and leave
@@ -178,7 +178,7 @@ FURNITURE=$(qf 'list tray $::tray_on clock [expr {
     [dict exists $::widgets clock] ? [dict get $::widgets clock -on] : "none"}]')
 qf welcome-hide >/dev/null
 sleep 0.5
-AFTERHIDE=$(qf 'list $::welcome [dict exists $::widgets __welcome]')
+AFTERHIDE=$(qf 'list $::welcome [dict exists $::widgets welcome]')
 kill $WM2 2>/dev/null
 
 echo "--- states: start={$S0} reload={$S1} fade=$FADE welcome=$WELCOME afterhide={$AFTERHIDE}"

@@ -1699,10 +1699,21 @@ proc contrast-link {bg} {
 # very first: the invitation dogfoods the layer it invites you to
 # use. A config may also just say set-welcome off.
 keep welcome on
+# The mat's widget is named `welcome`, plainly: it used to be
+# __welcome, and the underscores read as machinery for no reason a
+# reader could find (the owner, 2026-08-11) — the widgets tree is
+# where the mat shows, and it should show under the name one would
+# say. The off-path checks the TYPE before it unsets: a user's own
+# widget that happens to be called welcome is not the mat, and
+# set-welcome off must not swallow it (welcome-inject already yields
+# the name — its guard is existence, not type).
 proc set-welcome {mode} {
     if {$mode ni {on off}} { error "set-welcome: on or off" }
     set ::welcome $mode
-    if {$mode eq "off"} { dict unset ::widgets __welcome }
+    if {$mode eq "off" && [dict exists $::widgets welcome]
+            && [dict get $::widgets welcome -type] eq "welcome"} {
+        dict unset ::widgets welcome
+    }
     # ...and ON puts the mat back, through the settler that does it —
     # which also rebuilds the widgets it lives among.
     settle-soon welcome
@@ -1710,13 +1721,13 @@ proc set-welcome {mode} {
 }
 proc welcome-inject {} {
     if {$::welcome ne "on"} return
-    if {[dict exists $::widgets __welcome]} return
+    if {[dict exists $::widgets welcome]} return
     # No colours in the DECLARATION: they would be frozen at the
     # moment of injection, and the mat then kept the old ground while
     # the desk changed under it (the owner, mid-experiment with
     # set-desk-background). The build reads the desk's colour when it
     # runs, and a rebuild is what every colour change already does.
-    wm-widget __welcome -type welcome -on workarea -place center
+    wm-widget welcome -type welcome -on workarea -place center
 }
 
 # ---- applets: the ui host and the door to it ----
