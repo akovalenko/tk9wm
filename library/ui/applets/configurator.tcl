@@ -742,6 +742,16 @@ proc cfg-field-nodes {cname key e} {
     dict for {f fmeta} $fields {
         if {![cfg-slot-shown? $f $fmeta $said $fields]} continue
         set addr [list @field $cname $key $f]
+        # A CLOSED DICT WITH NO KEYS IS NO ROW AT ALL. `members fixed`
+        # already withholds the «Add a key…» row — the schema is the
+        # declaration's and a hand adds nothing to it — so a bundle
+        # that declares no parameters (windows) hung an openable
+        # branch with nothing inside: nothing to read, nothing to do
+        # (the owner, 2026-08-10). No keys standing, none pending,
+        # none derived — no row.
+        if {[dict getdef $fmeta members {}] eq "fixed"
+                && ![catch {dict size [cfg-cur $addr]} mn] && $mn == 0
+                && [cfg-field-derived $addr] eq ""} continue
         set node [dict create what field key $f label $f \
             addr $addr coll $cname elkey $key \
             field $f meta $fmeta \

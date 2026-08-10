@@ -675,7 +675,7 @@ collection keys {
     fields {
         state  {kind {choice on off} doc {the whole family, present or not}}
         params {kind dict members fixed
-                doc {the bundle's own parameters (prefix, help, …)}}
+                doc {the bundle's own parameters — the rows under this one name them}}
     }
 }
 # The menus' fields are the spec registry's, exactly as the actions':
