@@ -12,13 +12,17 @@
 #     highlight ring on the tree and the buttons, an outlined bar on
 #     the selected row;
 #   - arrows (and k/j, p/n, Ctrl+p/Ctrl+n) walk the rows; Return or
-#     F2 ACTIVATES — a bool toggles, a choice drops a menu, the
-#     free-form kinds open the overlay entry, color and font their
-#     dialogs; Left/Right fold and unfold a group; F3 switches a
-#     SLOT between its two spellings (a menu's items and body — an
-#     action's run hides behind its face, launch, and has no switch);
+#     F2 EDITS — a bool toggles, a choice drops a menu, everything
+#     else opens the overlay entry; F4 PICKS — color, font and list
+#     dialogs, and the examples, where the cell has one (the owner,
+#     2026-08-10: the keyboard's Enter is the typing gesture, the
+#     dialogs answer to F4 and the mouse); Left/Right fold and unfold
+#     a group; F3 switches a SLOT between its two spellings (a menu's
+#     items and body — an action's run hides behind its face, launch,
+#     and has no switch);
 #   - the mouse follows the same grammar: a single click only SELECTS
-#     (and focuses the tree); activation is the double click;
+#     (and focuses the tree); the double click is F4's gesture — the
+#     picker where one stands, the editor elsewhere;
 #   - Save and Revert wear Alt accelerators (ui-accel, the generic
 #     support), and Tab reaches them with their rings showing.
 #
@@ -47,11 +51,11 @@ set cfg_fresh {}     ;# elements born in this refresh — folded once attached
 set cfg_member_into "" ;# which dict an Insert is about to grow
 set cfg_cursor ""  ;# what the pointer is wearing over the tree
 set cfg_T ""
-set cfg_hint "Return or F4 opens the picker · F2 types · F3 switches a\
- slot's spelling · F8 what you have changed · F9 what went wrong ·\
- Ins adds, Del drops · Alt+↑/↓ move a button · Ctrl+Enter takes ·\
- m (or a click on the badge) opens the row's own menu ·\
- Save makes it stick"
+set cfg_hint "Return or F2 types · F4 or a double click opens the\
+ picker · F3 switches a slot's spelling · F8 what you have changed ·\
+ F9 what went wrong · Ins adds, Del drops · Alt+↑/↓ move a button ·\
+ Ctrl+Enter takes · m (or a click on the badge) opens the row's own\
+ menu · Save makes it stick"
 
 # A REFUSAL MUST SAY WHY (the owner: a bad place value simply did not
 # commit and explained nothing). Every rejection — ours by kind, or
@@ -328,7 +332,12 @@ proc cfg-build {W} {
     # for help» on the way (cfg-status), so the way back is written
     # on whatever covered it.
     bind $T <KeyPress-F1>     {cfg-status ""; break}
-    bind $T <KeyPress-Return> {cfg-activate primary; break}
+    # RETURN TYPES (the owner, 2026-08-10): the keyboard's activation
+    # is the editor, exactly as F2 — a bool still toggles and a choice
+    # still drops its menu, but a picker dialog no longer stands
+    # between the hand and the text. The dialogs keep their own
+    # doors: F4, and the mouse's double click.
+    bind $T <KeyPress-Return> {cfg-activate text; break}
     bind $T <KeyPress-F4>     {cfg-activate primary; break}
     bind $T <KeyPress-F2>     {cfg-activate text; break}
     bind $T <KeyPress-F3>     {cfg-slot-menu; break}
