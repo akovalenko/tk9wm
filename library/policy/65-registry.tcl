@@ -128,7 +128,8 @@ spec-keys action {
                   {Run tail -f $env(HOME)/log} {words are data: $env(HOME), not ~}}}
     match    {kind predicate doc {a Tcl predicate, asked per window id — which window counts as already-running}
               examples {
-                  {filter -class TELEGA} {either half of WM_CLASS, glob allowed}
+                  {filter -class TELEGA} {one pattern matches either half of WM_CLASS, glob allowed}
+                  {filter -class {telega Emacs}} {two patterns are positional — instance then class, as xprop prints them}
                   terminal-window {any terminal emulator's window}}}
     activate {kind script    doc {run on the found window instead of just focusing it — for raises that need ceremony}}
     many     {kind {choice mru choose}
