@@ -591,24 +591,41 @@ proc wm-invariants {} {
 # Popup navigation keys (the owner's spec): arrows always; vi (k/j)
 # and emacs (p/n) letters on a BARE press — a bare letter that is some
 # item's hotkey never reaches here, the hotkey matched first; Ctrl+P /
-# Ctrl+N run the menu unconditionally, hotkeys or not. Returns -1/1
-# for up/down, 0 = not a navigation key.
+# Ctrl+N run the menu unconditionally, hotkeys or not. The ends of the
+# list too (the owner, 2026-08-10): Home and End as every list has
+# them, Ctrl+A / Ctrl+E as emacs hands expect — unconditional, like
+# their p/n kin — and PgUp/PgDn land on the same ends: these lists
+# stand on the glass whole, so a page up is the top and a page down
+# is the bottom. Returns -1/1 for a step, first/last for the ends,
+# 0 = not a navigation key.
 proc popup-nav {name mods} {
     if {$mods & 4} {
-        switch -- $name { p { return -1 } n { return 1 } }
+        switch -- $name {
+            p { return -1 }    n { return 1 }
+            a { return first } e { return last }
+        }
         return 0
     }
     if {$mods != 0} { return 0 }
     switch -- $name {
-        Up - k - p   { return -1 }
-        Down - j - n { return 1 }
+        Up - k - p          { return -1 }
+        Down - j - n        { return 1 }
+        Home - Prior        { return first }
+        End - Next          { return last }
     }
     return 0
 }
+# A step WRAPS — walking off either end of a short list is the fastest
+# way to the other — and an end is an address, not a walk: Home on the
+# first row stays put instead of visiting the last.
 proc popup-move {T n d} {
     set cur [lindex [$T selection get] 0]
     if {$cur eq ""} { set cur 1 }
-    set i [expr {($cur - 1 + $d + $n) % $n + 1}]
+    switch -- $d {
+        first   { set i 1 }
+        last    { set i $n }
+        default { set i [expr {($cur - 1 + $d + $n) % $n + 1}] }
+    }
     $T selection clear
     $T selection add $i
 }

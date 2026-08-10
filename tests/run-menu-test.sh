@@ -81,6 +81,22 @@ key 4                 # the inline spec, fired through Fire's door
 key super+m
 key Escape            # dismissal leaves nothing standing
 
+# ---- the ends of the list, in every dialect
+key super+m
+key End               # the last row: инлайн
+key Return
+key super+m
+key ctrl+e            # emacs's end...
+key ctrl+a            # ...and its way back to the top: alpha
+key Return
+key super+m
+key Next              # a page down is the bottom here
+key Return
+key super+m
+key End
+key Home              # ...and Home leads back up
+key Return
+
 # ---- the dynamic menu: the body answers at open time
 key super+t
 key s
@@ -121,10 +137,20 @@ if grep -q 'soft failure\|handler error' "$HERE/wm-menu.log"; then
 fi
 
 OPENS=$(grep -c 'WM: menu m1 open (4 items)' "$HERE/wm-menu.log")
-if [ "$OPENS" = "6" ]; then
-    echo "OK: the static menu opened 6 times, 4 rows of 6 declared each time"
+if [ "$OPENS" = "10" ]; then
+    echo "OK: the static menu opened 10 times, 4 rows of 6 declared each time"
 else
-    echo "FAIL: m1 opened with 4 rows $OPENS times, want 6"; BAD=1
+    echo "FAIL: m1 opened with 4 rows $OPENS times, want 10"; BAD=1
+fi
+# the ends: End and PgDn each landed on инлайн, Ctrl+E/Ctrl+A and
+# End-then-Home each came back to alpha — counted, so a dead key
+# cannot hide behind the picks the hotkeys already made
+INL=$(grep -c 'WM: menu m1 pick «инлайн»' "$HERE/wm-menu.log")
+ALP=$(grep -c 'WM: menu m1 pick «alpha»' "$HERE/wm-menu.log")
+if [ "$INL" = "3" ] && [ "$ALP" = "3" ]; then
+    echo "OK: End, Ctrl+E/Ctrl+A, PgDn and Home all found their ends"
+else
+    echo "FAIL: end-navigation picks: инлайн=$INL (want 3) alpha=$ALP (want 3)"; BAD=1
 fi
 if grep -q 'WM: menu m1: «ghost» is waiting — not shown' "$HERE/wm-menu.log" \
         && grep -q 'WM: menu m1: «nosuch» is not a deed this desk knows' \
