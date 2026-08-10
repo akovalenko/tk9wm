@@ -1609,6 +1609,9 @@ SAIDSPAWN=$(grep -c 'terminal: spawn' "$HERE/wm-cfg.log")
 qu '[winfo toplevel $::cfg_T].b.edit invoke; list pressed' >/dev/null
 sleep 1
 DOORSTATUS=$(qu '[winfo toplevel $::cfg_T].b.note cget -text')
+# ...and F1 clears whatever the line was saying back to the key hint
+F1BACK=$(qu 'event generate $::cfg_T <KeyPress-F1> -when now
+    [winfo toplevel $::cfg_T].b.note cget -text')
 DOORSPAWN=$(grep 'terminal: spawn' "$HERE/wm-cfg.log" | tail -1)
 
 kill $WM 2>/dev/null
@@ -1645,9 +1648,13 @@ case "$DOORMENU" in
     *) fail "FAIL: the said row offers: $DOORMENU" ;;
 esac
 case $DOORSTATUS in
-    'opening the config — myed ($EDITOR), in a terminal')
-        echo "OK: the press answered with the door it took" ;;
+    'opening the config — myed ($EDITOR), in a terminal · F1 for help')
+        echo "OK: the press answered with the door it took, way home appended" ;;
     *) fail "FAIL: after Edit config… the status says: $DOORSTATUS" ;;
+esac
+case $F1BACK in
+    *"Save makes it stick") echo "OK: F1 brings the hint back over whatever replaced it" ;;
+    *) fail "FAIL: after F1 the status says: $F1BACK" ;;
 esac
 case $DOORSPAWN in
     *'-name tk9wm-edit'*'myed +1 '*'/cfg-config/tk9wm.tcl'*)

@@ -123,7 +123,11 @@ proc cfg-restyle {} {
 proc cfg-status {msg {how note}} {
     set l [winfo toplevel $::cfg_T].b.note
     if {![winfo exists $l]} return
-    $l configure -text [expr {$msg eq "" ? $::cfg_hint : $msg}] \
+    # Whatever replaces the hint says how to get it back (the owner,
+    # 2026-08-10): every message ends in «F1 for help», and F1 is
+    # bound to exactly this proc with nothing to say.
+    $l configure -text [expr {$msg eq "" ? $::cfg_hint
+                                         : "$msg · F1 for help"}] \
         -foreground [expr {$how eq "error" ? "#cc4040" : [ui-color link]}]
 }
 proc cfg-refuse {msg} {
@@ -319,6 +323,11 @@ proc cfg-build {W} {
     foreach k {<KeyPress-End> <Alt-greater> <Alt-Key-period>} {
         bind $T $k {cfg-end last; break}
     }
+    # F1 is the way back to the crib: the status line opens on the
+    # key hint, anything the applet says replaces it — and says «F1
+    # for help» on the way (cfg-status), so the way back is written
+    # on whatever covered it.
+    bind $T <KeyPress-F1>     {cfg-status ""; break}
     bind $T <KeyPress-Return> {cfg-activate primary; break}
     bind $T <KeyPress-F4>     {cfg-activate primary; break}
     bind $T <KeyPress-F2>     {cfg-activate text; break}
