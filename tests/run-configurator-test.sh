@@ -1574,8 +1574,8 @@ fi
 
 # ---- THE EDIT DOOR, PRESSED ----
 # The window's own «Edit config…» opens the user's config through the
-# desk's edit door; the where-cascade leads with that same door and
-# names the terminal editor instead of guessing «$EDITOR». Driven on
+# desk's edit door; a «Said at …» row in the menu is one press and
+# walks that same door — no cascade asking which way in. Driven on
 # stub binaries so the machine's own editors cannot vote. Last scene
 # on purpose: it takes the WM's PATH.
 mkdir -p "$HERE/cfg-config/doorbin"
@@ -1594,7 +1594,18 @@ EDITBTN=$(qu 'set b [winfo toplevel $::cfg_T].b.edit
     list exists [winfo exists $b] label [$b cget -text]')
 DOORMENU=$(qu 'cfg-select [dict get $::cfg_item set-edge-resist]
     set m [cfg-row-menu-build]
-    list [$m.p1 entrycget 0 -label] [$m.p1 entrycget 2 -label]')
+    set r {}
+    for {set i 0} {$i <= [$m index end]} {incr i} {
+        if {[$m type $i] eq "separator"} continue
+        if {[string match {Said at *} [$m entrycget $i -label]]} {
+            set r [list [$m type $i] [$m entrycget $i -label]]
+            $m invoke $i
+            break
+        }
+    }
+    set r')
+sleep 1
+SAIDSPAWN=$(grep -c 'terminal: spawn' "$HERE/wm-cfg.log")
 qu '[winfo toplevel $::cfg_T].b.edit invoke; list pressed' >/dev/null
 sleep 1
 DOORSTATUS=$(qu '[winfo toplevel $::cfg_T].b.note cget -text')
@@ -1624,11 +1635,15 @@ case $EDITBTN in
         echo "OK: Edit config… stands in the window's own row" ;;
     *) fail "FAIL: the Edit config… button: $EDITBTN" ;;
 esac
-if [ "$DOORMENU" = '{open — myed ($EDITOR), in a terminal} {in myed, in a terminal}' ]; then
-    echo "OK: the where-cascade leads with the door and names the editor"
-else
-    fail "FAIL: the cascade offers: $DOORMENU"
-fi
+case "$DOORMENU" in
+    "command {Said at "*)
+        if [ "${SAIDSPAWN:-0}" -ge 1 ]; then
+            echo "OK: a said place is one press and walks the door — no cascade asking again"
+        else
+            fail "FAIL: the said row invoked but nothing walked the door (spawns=$SAIDSPAWN)"
+        fi ;;
+    *) fail "FAIL: the said row offers: $DOORMENU" ;;
+esac
 case $DOORSTATUS in
     'opening the config — myed ($EDITOR), in a terminal')
         echo "OK: the press answered with the door it took" ;;

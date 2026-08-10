@@ -2721,55 +2721,34 @@ proc cfg-row-menu-where {s} {
     set T $::cfg_T
     $T.rowpop add separator
     set i 0
-    # one ask for the whole menu: the door's own verdict and the
-    # terminal editor's name, so every item below says what it will
-    # DO — «open — vim (probed), in a terminal» is a promise, the old
-    # «in $EDITOR» was a guess that stood even with no $EDITOR set
-    lassign [cfg-door-names] doorlbl edlbl
     foreach place [dict get $s where] {
         incr i
-        cfg-where-item $i $place [expr {$i == 1
+        cfg-where-item $place [expr {$i == 1
             ? "Said at [cfg-place-brief $place]"
-            : "…called from [cfg-place-brief $place]"}] $doorlbl $edlbl
+            : "…called from [cfg-place-brief $place]"}]
     }
     # ...and the word underneath, if a click of ours covers one: only
     # its head, because what a reader wants there is the line, not the
     # buried word's own call chain.
     foreach place [cfg-dict-get $s under] {
         incr i
-        cfg-where-item $i $place "…over the config's [cfg-place-brief $place]" \
-            $doorlbl $edlbl
+        cfg-where-item $place "…over the config's [cfg-place-brief $place]"
         break
     }
     if {!$i} {
         $T.rowpop add command -state disabled -label [cfg-where-none $s]
     }
 }
-proc cfg-door-names {} {
-    if {[catch {wm-call {list [edit-door-name [edit-door-resolve]] \
-            [lindex [editor-resolve] 0 0]}} r]} {
-        return {{} {}}
-    }
-    return $r
-}
-# The first item is the DOOR — the desk's own pick (set-edit-door and
-# its resolution); the named ways stay below for a hand that means
-# one in particular.
-proc cfg-where-item {i place label doorlbl edlbl} {
-    set T $::cfg_T
-    set m $T.rowpop.p$i
-    ui-menu $m
-    $m add command -label [expr {$doorlbl eq ""
-            ? "open" : "open — $doorlbl"}] \
+# A place opens THROUGH THE DOOR, and only through it (the owner,
+# 2026-08-10). Each of these rows used to be a cascade asking «which
+# way in — the door, emacs by name, the terminal editor by name?»,
+# and that ask was the set-edit-door knob asked again, one storey
+# deeper and on every line. The knob has already answered; a hand
+# that means another door for once flips the knob, which is one
+# gesture where the cascades were one question each.
+proc cfg-where-item {place label} {
+    $::cfg_T.rowpop add command -label $label \
         -command [list cfg-open-place door $place]
-    $m add command -label "in emacs" -command [list cfg-open-place emacs $place]
-    if {$edlbl eq ""} {
-        $m add command -label "in a terminal" -state disabled
-    } else {
-        $m add command -label "in $edlbl, in a terminal" \
-            -command [list cfg-open-place terminal $place]
-    }
-    $T.rowpop add cascade -menu $m -label $label
 }
 # NO FILE POINTS AT IT — and there are three different reasons for
 # that, which "the config does not mention it" said as one. A click
