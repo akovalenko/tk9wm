@@ -377,11 +377,21 @@ proc vocabulary-audit {} {
 # the edit door first). Declaring is curating: a group's first
 # declaration is its first row.
 knob set-desk-font   {var {} settle {titles} group fonts kind {font DeskFont}  get {font actual DeskFont}
-                      doc {the font this desk is set in; everything derives from it}}
+                      doc {the font this desk is set in; everything derives from it}
+                      examples {
+                          {DejaVu Sans 13} {a whole spec — family and size, bare words welcome}
+                          {-size 13} {one option alone — the rest of the font stays}
+                          {-weight bold} {a bolder desk, family and size untouched}}}
 knob set-title-font  {var {} settle {titles} group fonts kind {font TitleFont} get {font-kin-opts TitleFont}
-                      doc {the titlebar font, as a delta from the desk font}}
+                      doc {the titlebar font, as a delta from the desk font}
+                      examples {
+                          {-weight bold} {the classic delta — bold titles over the desk font}
+                          {-size 10} {smaller titles, same family}}}
 knob set-panel-font  {var {} settle {panels} group fonts kind {font PanelFont} get {font-kin-opts PanelFont}
-                      doc {the panel buttons' font, as a delta from the desk font}}
+                      doc {the panel buttons' font, as a delta from the desk font}
+                      examples {
+                          {-size 10} {smaller buttons, same family}
+                          {-family {DejaVu Sans Mono}} {a family of its own, the size still the desk's}}}
 knob set-title-justify {var {titlejust} settle {titles} group fonts kind {choice left center right}
                       get {set ::titlejust} doc {where the title sits in its bar}}
 knob set-minimize    {var {minimize} settle {} group windows kind {choice iconify refuse}

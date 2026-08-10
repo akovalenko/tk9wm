@@ -1813,16 +1813,24 @@ proc cfg-cell-opts {name {how primary}} {
 # Which kinds have a picker behind the ▾ — and what it is. A slot's
 # switch is NOT here on purpose: editing the command is the everyday
 # thing and keeps the everyday gestures; changing which spelling the
-# slot wears is rare and has a key of its own (F3). A field whose
-# registry entry declared EXAMPLES gets the examples dialog — unless
-# its kind already earns a real editor dialog, which wins.
+# slot wears is rare and has a key of its own (F3). A row that
+# declared EXAMPLES opens on them, and a kind whose editor is a real
+# dialog keeps it one press away — the Chooser… button on the
+# examples dialog itself. It used to be the other way around (the
+# dialog won), and the fonts are why it flipped (the owner,
+# 2026-08-11): the chooser can only say a whole font, and «-weight
+# bold» over a derived font — a partial spec, the thing one actually
+# writes — is exactly what examples are for.
 proc cfg-picker-of {name} {
+    if {[dict size [cfg-examples-of $name]]} { return cfg-examples-dialog }
+    return [cfg-kind-dialog-of $name]
+}
+proc cfg-kind-dialog-of {name} {
     switch -- [lindex [cfg-kind-of $name] 0] {
         color { return cfg-color-dialog }
         font  { return cfg-font-dialog }
         list  { return cfg-list-dialog }
     }
-    if {[dict size [cfg-examples-of $name]]} { return cfg-examples-dialog }
     return ""
 }
 # The declared examples of this row, wherever its meta lives: a
@@ -1858,6 +1866,22 @@ proc cfg-examples-dialog {name} {
         $rows "as it will be said" \
         [list cfg-example-picked $name]
     bind $w.list <<ListboxSelect>> [list cfg-example-fill $w]
+    # ...and the kind's own instrument one press away, where there is
+    # one: the examples are words to bend, the chooser is the whole
+    # keyboard — its pick commits down the same road, so which door
+    # was taken makes no difference to what lands.
+    set dlg [cfg-kind-dialog-of $name]
+    if {$dlg ne ""} {
+        ttk::button $w.b.chooser -text "C&hooser…" \
+            -command [list cfg-example-chooser $w $dlg $name]
+        ui-focusable $w.b.chooser
+        ui-accel $w.b.chooser
+        pack $w.b.chooser -side left -padx 4 -pady 4
+    }
+}
+proc cfg-example-chooser {w dlg name} {
+    destroy $w
+    {*}$dlg $name
 }
 proc cfg-example-fill {w} {
     if {![llength [$w.list curselection]]} return
