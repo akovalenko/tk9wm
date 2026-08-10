@@ -53,7 +53,7 @@ set cfg_cursor ""  ;# what the pointer is wearing over the tree
 set cfg_T ""
 set cfg_hint "Return or F2 types · F4 or a double click opens the\
  picker · F3 switches a slot's spelling · F8 what you have changed ·\
- F9 what went wrong · Ins adds, Del drops · Alt+↑/↓ move a button ·\
+ F9 what went wrong · Ins adds, Del drops · Alt+↑/↓ move an item ·\
  Ctrl+Enter takes · m (or a click on the badge) opens the row's own\
  menu · Save makes it stick"
 
@@ -3092,11 +3092,16 @@ proc cfg-delete-family {coll} {
 proc cfg-move-elem {dir} {
     set d [cfg-elem-of [cfg-selected]]
     if {$d eq ""} return
-    if {[dict get $d coll] ne "panel"} {
-        cfg-status "only the panel's buttons move today: a widget's\
- place follows the layers' declaration order"
-        return
+    switch -- [dict get $d coll] {
+        panel   { cfg-move-button $d $dir }
+        widgets { cfg-move-widget $d $dir }
+        default {
+            cfg-status "the panel's buttons and the widgets move today:\
+ everything else follows the layers' declaration order"
+        }
     }
+}
+proc cfg-move-button {d dir} {
     set key [dict get $d key]
     set order [lmap e [dict get $::cfg_coll panel elements] \
                    {dict get $e key}]
@@ -3112,6 +3117,39 @@ proc cfg-move-elem {dir} {
     wm-call reload-config
     cfg-refresh
     cfg-status "$key moved — the set's order is the custom layer's now"
+}
+# The widgets' move is the LIGHT model, on purpose (the owner,
+# 2026-08-11: the panel-style takeover of the whole set is a design
+# still cooking — widgets are half a panel editor already, and what
+# happens when the room runs out is unanswered). A widget the custom
+# layer both declared and SEATED (no config word under it — a custom
+# override of a config widget keeps the config's seat, and the code's
+# mat takes its own only when no layer sat it first) moves among its
+# custom neighbours by permuting the file's lines; anything else says
+# whose declaration holds its place.
+proc cfg-move-widget {d dir} {
+    set key [dict get $d key]
+    set order [lmap e [dict get $::cfg_coll widgets elements] \
+                   {dict get $e key}]
+    set i [lsearch -exact $order $key]
+    set j [expr {$dir eq "above" ? $i - 1 : $i + 1}]
+    if {$i < 0 || $j < 0 || $j >= [llength $order]} return   ;# the edge
+    set other [lindex $order $j]
+    foreach n [list $key $other] {
+        if {![wm-call [list widget-seat-custom? $n]]} {
+            cfg-status "«$n» sits where its declaration put it — only\
+ widgets added by you (and neighbouring ones) move today"
+            return
+        }
+    }
+    set pair [expr {$dir eq "above" ? [list $key $other]
+                                    : [list $other $key]}]
+    wm-call [list custom-reorder \
+                 [lmap l $pair {string cat "wm-widget " $l}]]
+    wm-call reload-config
+    cfg-refresh
+    cfg-status "$key moved — the order of your widgets is the custom\
+ layer's word"
 }
 
 # Ctrl+Enter. On the panel family (its node or any element): take

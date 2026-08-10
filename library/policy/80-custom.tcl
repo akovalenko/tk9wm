@@ -824,6 +824,18 @@ proc collection-widgets {} {
     # catalogue, which for widgets has existed all along
     dict create elements $out types [dict keys $::widget_types]
 }
+# WHOSE is a widget's SEAT in the row — not whose are its options.
+# The order is first-declaration order: a custom override of a config
+# widget keeps the config's seat, and the code's own mat (the
+# welcome) takes its injected place only when no layer sat it first —
+# welcome-inject fills absence, it never moves what stands. So the
+# seat is the custom layer's exactly when custom declared the widget
+# and config did not; that is what the editor's Alt-move may permute
+# (the light model — the owner, 2026-08-11).
+proc widget-seat-custom? {name} {
+    expr {[dict exists $::layer_knobs custom "wm-widget $name"]
+          && ![dict exists $::layer_knobs config "wm-widget $name"]}
+}
 proc collection-keys {} {
     set out {}
     dict for {name def} $::key_bundle_defs {
