@@ -858,6 +858,23 @@ EXAMPLES=$(qu 'set n {@field actions probe key}
     after 300; update
     lappend r cur [cfg-cur $n]
     set r')
+# ...and a picker that closes WITHOUT committing sends the focus home:
+# the toplevel's focus memory pointed at the overlay editor, the
+# editor died when the dialog opened, and a cancel then left the keys
+# on the toplevel itself until Alt+K (the owner, 2026-08-11, off the
+# F2 → ▾ → Chooser… road). The editor is closed by hand here — the
+# exact death the memory cannot survive — and the dialog destroyed
+# the way Escape does it.
+PICKHOME=$(qu 't-knob set-desk-font
+    cfg-entry [dict get $::cfg_item set-desk-font] set-desk-font
+    after 250; update
+    ui-cell-pick $::cfg_T set-desk-font [cfg-cell-opts set-desk-font]
+    after 250; update
+    set had [winfo exists .cfg-examples]
+    cfg-entry-close
+    destroy .cfg-examples
+    after 300; update
+    list dlg $had focus [expr {[focus] eq $::cfg_T}]')
 # A DEED THE CONFIG DECLARES can be dropped now — the family had no
 # word for it at all before, so the applet could only refuse. The
 # removal is a customization like any other: it shows where the deed
@@ -2325,6 +2342,11 @@ case $EXAMPLES in
     "pick cfg-examples-dialog n 2 seed {<Super>t r f} cur <Super>F8")
         echo "OK: the examples dialog seeds the entry, and the bent words commit" ;;
     *) fail "FAIL: the examples dialog: $EXAMPLES" ;;
+esac
+case $PICKHOME in
+    "dlg 1 focus 1")
+        echo "OK: a picker that closes without committing sends the focus home" ;;
+    *) fail "FAIL: after the cancelled picker: $PICKHOME" ;;
 esac
 case $CROSS in
     "plain {xclock -update 1} subst {} other {} two {}")

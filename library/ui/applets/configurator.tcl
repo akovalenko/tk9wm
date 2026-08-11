@@ -1878,6 +1878,7 @@ proc cfg-examples-dialog {name} {
         ui-accel $w.b.chooser
         pack $w.b.chooser -side left -padx 4 -pady 4
     }
+    cfg-dialog-homing $w
 }
 proc cfg-example-chooser {w dlg name} {
     destroy $w
@@ -1933,6 +1934,28 @@ proc cfg-picked {name value} {
     cfg-entry-close
     cfg-set $name $value
     focus $::cfg_T
+}
+# ---- one road home from every dialog ----
+# A dialog that COMMITS lands the focus (cfg-picked above); the ones
+# that merely close — Escape, Cancel, the font chooser's own Done —
+# left it nowhere: the widget the toplevel's focus memory pointed at
+# was the overlay editor, and it died when the dialog opened, so the
+# keys went to the toplevel itself until Alt+K or Tab (the owner,
+# 2026-08-11, off the F2 → ▾ → Chooser… road). The way back rides the
+# dialog's own Destroy, whatever road closes it: the editor when one
+# still stands, the tree otherwise. after idle, so a commit's own
+# focusing (or the next dialog on a Chooser… hop) is not fought over.
+proc cfg-refocus {} {
+    if {![info exists ::cfg_T] || ![winfo exists $::cfg_T]} return
+    focus [expr {[winfo exists $::cfg_T.edit.t] ? "$::cfg_T.edit.t"
+                                                : $::cfg_T}]
+}
+proc cfg-dialog-gone {who w} {
+    if {$who ne $w} return
+    after idle cfg-refocus
+}
+proc cfg-dialog-homing {w} {
+    bind $w <Destroy> +[list cfg-dialog-gone %W $w]
 }
 # The sub-editor a list deserves: one entry per line, which is the
 # only shape in which a path list is readable and editable at all.
@@ -2037,6 +2060,7 @@ proc cfg-list-dialog {name} {
     pack $w.t -expand 1 -fill both -padx 6
     pack $w.b -fill x
     bind $w <Escape> [list destroy $w]
+    cfg-dialog-homing $w
     focus $w.t
 }
 proc cfg-list-commit {name} {
@@ -2070,7 +2094,9 @@ proc cfg-color-dialog {name} {
     set c [tk_chooseColor -parent [winfo toplevel $::cfg_T] \
         {*}[expr {$seed ne "" ? [list -initialcolor $seed] : {}}] \
         -title "tk9wm: $name"]
-    if {$c ne ""} { cfg-picked $name $c }
+    # modal, so the road home is simply after the wait: a cancel used
+    # to leave the focus on the toplevel (see cfg-refocus)
+    if {$c ne ""} { cfg-picked $name $c } else { cfg-refocus }
 }
 # The dialog seeds from the COMPUTED font — what the desk actually
 # draws with — even when the configured value is a two-word delta: a
@@ -2093,11 +2119,24 @@ proc cfg-font-dialog {name} {
                     [dict get $seed -weight]] \
         -command [list cfg-font-picked $name]
     tk fontchooser show
-    # ...and dressed for today: the chooser is built lazily by the
-    # show, its plain-Tk lists off the option database of that moment
-    # — the walk (ui-redress-tk-dialogs) tells them the palette that
-    # stands now, whichever theme this desk has been through since.
-    after idle ui-redress-tk-dialogs
+    after idle cfg-font-dressed
+}
+# ...and dressed for today, once it stands: the chooser is built
+# lazily by the show, its plain-Tk lists off the option database of
+# that moment — the walk (ui-redress-tk-dialogs) tells them the
+# palette that stands now, whichever theme this desk has been through
+# since. The Destroy hook is the road home (cfg-refocus): Tk destroys
+# the chooser on OK and Cancel alike, and only OK speaks back through
+# the command — a cancel left the focus on the toplevel. Guarded, so
+# an Apply-then-show on the same standing dialog does not stack the
+# binding twice.
+proc cfg-font-dressed {} {
+    ui-redress-tk-dialogs
+    set fc [winfo toplevel $::cfg_T].__tk__fontchooser
+    if {[winfo exists $fc]
+            && ![string match *cfg-dialog-gone* [bind $fc <Destroy>]]} {
+        cfg-dialog-homing $fc
+    }
 }
 proc cfg-font-picked {name spec} {
     # picked by hand means stated whole — family, size and weight
@@ -3600,6 +3639,7 @@ proc cfg-button-trouble {choice typed} {
 proc cfg-pick-dialog {title choices entrylabel commit {check {}}} {
     ui-pick-dialog .cfg-insert [winfo toplevel $::cfg_T] \
         "tk9wm: $title" $title $choices $entrylabel $commit $check
+    cfg-dialog-homing .cfg-insert
 }
 # THE LAZILY BUILT THINGS, DECLARED. A run with ui-build-all behind it
 # opens every one of them once — which is how a clash or a typo in a
@@ -3638,6 +3678,7 @@ proc cfg-insert-binding-dialog {} {
     pack $w.b -fill x
     bind $w <Escape> [list destroy $w]
     bind $w.script <Return> [list cfg-bind-commit $w]
+    cfg-dialog-homing $w
     focus $w.chord
 }
 # REFUSED WHERE IT WAS TYPED. The commit used to close the dialog
