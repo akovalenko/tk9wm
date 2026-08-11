@@ -739,6 +739,12 @@ proc cfg-field-nodes {cname key e} {
     set said [cfg-elem-values $cname $key]
     set lint [expr {[dict exists $e lint] ? [dict get $e lint] : {}}]
     set fields [dict get $::cfg_coll $cname fields]
+    # ...and the element's OWN half of the schema, after the family's:
+    # a widget's rows depend on what it IS (its type's params), which a
+    # static family table cannot say.
+    if {[dict exists $e fields]} {
+        set fields [dict merge $fields [dict get $e fields]]
+    }
     dict for {f fmeta} $fields {
         if {![cfg-slot-shown? $f $fmeta $said $fields]} continue
         set addr [list @field $cname $key $f]
@@ -1352,7 +1358,16 @@ proc cfg-member-drop {name} {
 # the file (the owner, 2026-08-06). A pair without a face (a menu's
 # items/body) shows the spelling in effect, with the switch on F3.
 proc cfg-field-meta {name} {
-    dict get $::cfg_coll [lindex $name 1] fields [lindex $name 3]
+    set fields [dict get $::cfg_coll [lindex $name 1] fields]
+    set f [lindex $name 3]
+    if {[dict exists $fields $f]} { return [dict get $fields $f] }
+    # the element's own words — a widget type's params live on the
+    # element rather than on the family
+    set rec [cfg-elem-rec [lindex $name 1] [lindex $name 2]]
+    if {$rec ne "" && [dict exists $rec fields $f]} {
+        return [dict get $rec fields $f]
+    }
+    return {}
 }
 proc cfg-slot-shown? {f fmeta said fields} {
     if {[dict exists $fmeta face]} { return 0 }
@@ -1370,7 +1385,7 @@ proc cfg-kind-of {name} {
     if {[cfg-member? $name]} { return text }
     if {[cfg-field? $name]} {
         set coll [lindex $name 1]
-        set fmeta [dict get $::cfg_coll $coll fields [lindex $name 3]]
+        set fmeta [cfg-field-meta $name]
         # A CATALOGUE IS THE FAMILY'S OWN. Some choices are known only
         # to the live desk — what a widget may BE is whatever
         # wm-widget-type has declared by now — so the field says WHERE

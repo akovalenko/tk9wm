@@ -9,10 +9,9 @@
 # "you are on desk 2" has no moment at which it stops being true. A
 # standing fact belongs in a standing place.
 #
-# Its own options, on top of the ones every widget takes:
-#   -style  dots (default) — one mark per desk, the current one filled;
-#           text — «2/4», for a strip too thin or too crowded for marks
-#   -gap    air between the marks, default 4
+# Its own options are declared in the type's params below (kind, doc
+# and default in one place — the configurator and the vocabulary gate
+# both read them, see widget.tcl).
 #
 # It ticks on nothing: there is no clock in it, and the desk changing
 # is an event the WM already has (policy-desk-changed calls
@@ -26,12 +25,18 @@ wm-widget-type desks {
     build desks-widget-build
     tick  desks-widget-tick
     prefers panel
+    params {
+        -style {kind {choice dots text} default dots
+                doc {a mark per desk, the current one filled — or «2/4» in words}}
+        -gap   {kind {int 0} default 4
+                doc {air between the marks, px}}
+    }
 }
 
 proc desks-widget-build {w opts} {
     set fg [dict get $opts -foreground]
     set bg [dict get $opts -background]
-    if {[desks-widget-style $opts] eq "text"} {
+    if {[dict get $opts -style] eq "text"} {
         label $w.n -font DeskNumFont -foreground $fg -background $bg \
             -anchor center
         pack $w.n -expand 1 -fill both
@@ -47,9 +52,6 @@ proc desks-widget-build {w opts} {
         pack $w.d -expand 1
     }
     desks-widget-tick $w $opts
-}
-proc desks-widget-style {opts} {
-    expr {[dict exists $opts -style] ? [dict get $opts -style] : "dots"}
 }
 # WHICH WAY THE MARKS GO — one rule, both strips, and it is the
 # clock's own reasoning (-band and -across, see widget.tcl): a strip
@@ -84,7 +86,7 @@ proc desks-widget-tick {w opts} {
     if {![winfo exists $w.d]} return
     set c $w.d
     set fg [dict get $opts -foreground]
-    set gap [expr {[dict exists $opts -gap] ? [dict get $opts -gap] : 4}]
+    set gap [dict get $opts -gap]
     # The mark's size comes from the FONT, like everything else on this
     # desk: a dot the height of a lowercase letter sits right beside
     # text of the same size, whatever the desk font is set to.

@@ -14,9 +14,9 @@
 # shape for the place — which is the whole point of telling the type
 # instead of asking it.
 #
-# Its own options, on top of the ones every widget takes:
-#   -time-format   a `clock format` string, default %H:%M
-#   -date-format   ...and the smaller line, default %a %d %b
+# Its own options are DECLARED in the type's params below — kind,
+# doc and default in one place, which is what puts them in the
+# configurator and behind the vocabulary gate (see widget.tcl).
 #
 # The click that opens a calendar is not here yet, and the fork it
 # faces is worth writing down while the widget is small: an in-process
@@ -42,6 +42,15 @@ wm-widget-type clock {
     tick  clock-widget-tick
     every 1000
     prefers panel
+    params {
+        -time-format {kind text default %H:%M
+                      doc {a `clock format` string — the big line}
+                      examples {%H:%M {the classic} %H:%M:%S {seconds too}}}
+        -date-format {kind text default {%a %d %b}
+                      doc {the smaller line — a `clock format` string too}
+                      examples {{%a %d %b} {day, date, month}
+                                %d.%m.%Y {numbers all the way}}}
+    }
 }
 
 proc clock-widget-build {w opts} {
@@ -117,11 +126,11 @@ proc clock-widget-width {font text} {
 }
 
 proc clock-widget-tick {w opts} {
+    # No fallbacks here: the params' defaults arrive merged into the
+    # opts (widget-opts), so the declaration is the one place they live.
     set now [clock seconds]
-    set tf %H:%M
-    set df {%a %d %b}
-    if {[dict exists $opts -time-format]} { set tf [dict get $opts -time-format] }
-    if {[dict exists $opts -date-format]} { set df [dict get $opts -date-format] }
-    $w.time configure -text [clock format $now -format $tf]
-    $w.date configure -text [clock format $now -format $df]
+    $w.time configure -text \
+        [clock format $now -format [dict get $opts -time-format]]
+    $w.date configure -text \
+        [clock format $now -format [dict get $opts -date-format]]
 }

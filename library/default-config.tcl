@@ -614,11 +614,15 @@
 #   wm-widget clock -type clock -on screen -place center -layer desk
 # Options: -on workarea|screen|{panel NAME}; -place (edge words,
 # sizeless; ignored on a panel — the strip hands out the slot);
-# -padding (default 4); -background, -foreground. Same host and
-# corner share an area in declaration order. A reload rebuilds every
-# widget — that is how a widget changes its mind. The clock takes
-# -time-format and -date-format (`clock format` strings) and is set
-# in ClockFont and DateFont, 1.6x and 0.8x of the desk font.
+# -padding (default 4); -background, -foreground; -every (ms between
+# beats, for a type with a heartbeat). Same host and corner share an
+# area in declaration order. A reload rebuilds every widget — that is
+# how a widget changes its mind. Beyond those, a TYPE declares its own
+# params — the configurator shows them per widget, and a word the type
+# does not take is refused by name. The clock takes -time-format and
+# -date-format (`clock format` strings) and is set in ClockFont and
+# DateFont, 1.6x and 0.8x of the desk font; the desk indicator (type
+# desks) takes -style dots|text and -gap.
 #
 # =====================================================================
 # 6. MENUS, AND THE PROGRAMMABLE DESK

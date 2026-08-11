@@ -84,8 +84,12 @@
 # scrolling, that is the moment to change engines, and only area-layout
 # would change.
 
-keep widget_types {}   ;# TYPE -> {build CMD ?tick CMD? ?every MS?}
+keep widget_types {}   ;# TYPE -> {build CMD ?tick CMD? ?every MS? ?params D?}
 keep widgets {}        ;# NAME -> options, in declaration order
+# What EVERY declaration may say, whatever its type. The configurator's
+# family fields (80-custom.tcl) are the subset worth a row; this list is
+# the gate's — see the vocabulary check in wm-widget.
+set widget_generic {-type -on -place -layer -padding -background -foreground}
 array set widget_win {}    ;# NAME -> the content frame, wherever it lives
 array set widget_top {}    ;# ...and its own toplevel, if it needed one
 array set widget_size {}   ;# ...and the content size it was last placed at
@@ -98,7 +102,58 @@ proc wm-widget-type {name spec} {
             && [dict get $spec prefers] ni {panel desktop}} {
         error "wm-widget-type $name: prefers is panel or desktop"
     }
+    # THE TYPE'S OWN WORDS, DECLARED — kind/doc/default/examples in the
+    # registry's field language, so the configurator's editors and the
+    # gate in wm-widget come free. Before this a type's options rode to
+    # it verbatim and nobody else knew them: a typo'd -time-fromat was
+    # a clock that quietly kept its default.
+    if {[dict exists $spec params]} {
+        dict for {o pmeta} [dict get $spec params] {
+            if {![string match -* $o]} {
+                error "wm-widget-type $name: a parameter is an option\
+ and spells with a dash, not «$o»"
+            }
+            if {$o in $::widget_generic || $o in {-every -band -across}} {
+                error "wm-widget-type $name: $o is every widget's word\
+ already, not this type's to declare"
+            }
+            if {[catch {dict size $pmeta}]} {
+                error "wm-widget-type $name: $o wants a meta dict\
+ (kind/doc/default), not «$pmeta»"
+            }
+        }
+    }
     dict set ::widget_types $name $spec
+}
+# The type's editable words beyond the generic set: its declared
+# params, and — for a type with a heartbeat — the pace itself. `-every`
+# is machinery (widget-tick reads it), so it is added HERE rather than
+# declared by anybody: a type either has a beat to pace or it does not,
+# and a desk indicator that ticks on events alone takes no -every.
+proc widget-type-fields {type} {
+    if {![dict exists $::widget_types $type]} { return {} }
+    set spec [dict get $::widget_types $type]
+    set out {}
+    if {[dict exists $spec params]} { set out [dict get $spec params] }
+    if {[dict exists $spec every]} {
+        dict set out -every [dict create kind {int 100} \
+            default [dict get $spec every] \
+            doc {milliseconds between beats — the type's own pace when unsaid}]
+    }
+    return $out
+}
+# ...and what those words amount to unsaid. Merged under the stored
+# declaration at READ time (widget-opts) and served as `derived` to the
+# configurator — never written into ::widgets, so a default stays a
+# derived value and nobody's word.
+proc widget-type-defaults {type} {
+    set out {}
+    dict for {o pmeta} [widget-type-fields $type] {
+        if {[dict exists $pmeta default]} {
+            dict set out $o [dict get $pmeta default]
+        }
+    }
+    return $out
 }
 # WHERE A TYPE BELONGS BY NATURE, for a declaration that did not say.
 # A clock and a desk indicator are strip furniture; a welcome mat is a
@@ -165,6 +220,33 @@ proc wm-widget {name args} {
     # -layer is now a consequence of the HOST — a panel is over the
     # clients, the desk window is under them — and is kept only so an
     # old config does not fail. Where a widget lives is -on.
+    #
+    # THE VOCABULARY CHECK — the reason params are declared at all.
+    # Anything beyond the generic set must be a word of the TYPE, and
+    # its value must pass the kind the type stated (kind-check, the
+    # same judge the knobs stand before). An UNKNOWN type gets no
+    # judgement: the build will say «no type» soon enough, and refusing
+    # its options here would judge them against nothing.
+    foreach o {-band -across} {
+        if {[dict exists $args $o]} {
+            error "wm-widget $name: $o is told by the desk, never\
+ declared (see widget-band-opts)"
+        }
+    }
+    set type [dict get $opts -type]
+    if {[dict exists $::widget_types $type]} {
+        set tf [widget-type-fields $type]
+        dict for {o v} $args {
+            if {$o in $::widget_generic} continue
+            if {![dict exists $tf $o]} {
+                error "wm-widget $name: «$o» is not a word of type\
+ «$type» — it takes: [concat $::widget_generic [dict keys $tf]]"
+            }
+            set bad [kind-check [dict getdef [dict get $tf $o] kind text] \
+                         $v "$name $o"]
+            if {$bad ne ""} { error "wm-widget $name: $bad" }
+        }
+    }
     dict set ::widgets $name $opts
     widgets-rebuild-soon
 }
@@ -266,9 +348,14 @@ proc widget-band-opts {name opts} {
         -band [expr {$vert ? "vertical" : "horizontal"}] -across $paid]
 }
 # The declaration as the TYPE sees it — the only form that should ever
-# reach a build or a tick.
+# reach a build or a tick. The type's defaults go UNDER the stored
+# word here, at read time, so a type declared with `params` never
+# reaches for a fallback in its own code — and the stored declaration
+# stays the layers' word alone.
 proc widget-opts {name} {
-    widget-band-opts $name [dict get $::widgets $name]
+    set opts [dict get $::widgets $name]
+    set opts [dict merge [widget-type-defaults [dict get $opts -type]] $opts]
+    widget-band-opts $name $opts
 }
 
 # Only an area with a WINDOW of its own has a layer to lose — which is
@@ -625,12 +712,16 @@ proc widget-tick-once {name} {
 }
 # The heartbeat. It reschedules itself from the WIDGET's own existence,
 # so a rebuild does not need to chase timers: the tick of a widget that
-# is gone simply stops.
+# is gone simply stops. The pace is -every — the declaration's word
+# when one was said, the type's own otherwise (widget-type-fields puts
+# the type's `every` under that key) — and it is re-read every beat, so
+# an edited pace takes hold on the next one.
 proc widget-tick {name} {
     if {![widget-tick-once $name]} return
-    set spec [dict get $::widget_types [dict get [widget-opts $name] -type]]
+    set opts [widget-opts $name]
+    set spec [dict get $::widget_types [dict get $opts -type]]
     if {[dict exists $spec every]} {
-        after [dict get $spec every] [list widget-tick $name]
+        after [dict get $opts -every] [list widget-tick $name]
     }
 }
 # Everything that can be told, told now: what the desk uses when a

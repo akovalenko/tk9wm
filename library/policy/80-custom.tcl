@@ -816,8 +816,18 @@ proc collection-widgets {} {
         # right, which is what the merged options hold — and the tree
         # has a way to show exactly that (a derived value, marked as
         # not written). The owner, 2026-08-02: «placement виджета по
-        # умолчанию нигде, на самом деле на workarea справа».
-        lappend out [dict create key $name values $values derived $opts \
+        # умолчанию нигде, на самом деле на workarea справа». The
+        # type's param defaults are the same kind of answer and ride
+        # the same key.
+        #
+        # `fields` is the element's OWN half of the schema — the words
+        # of its type (params, and -every where the type ticks) — which
+        # the family's static table cannot carry: what rows an element
+        # grows depends on what it IS.
+        set type [dict get $opts -type]
+        lappend out [dict create key $name values $values \
+                         derived [dict merge [widget-type-defaults $type] $opts] \
+                         fields [widget-type-fields $type] \
                          owner [knob-owner "wm-widget $name"]]
     }
     # ...and the TYPES: what a new widget can be — the Insert dialog's
