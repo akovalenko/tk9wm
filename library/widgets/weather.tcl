@@ -459,15 +459,15 @@ proc weather-cloud {ink dy} {
 # The calendar's manners exactly: a toggle, the corner the panel's
 # side names, no keyboard, no grab, deliberately NOT in popups-close's
 # modal set (no router to give back), a click anywhere on the sheet
-# dismisses it. It draws the days already standing in the state — a
-# glance works offline, in yesterday's ink.
+# dismisses it — and one sheet on the desk at a time: opening this one
+# puts the calendar away, and the other way round (widget-sheets-close).
+# It draws the days already standing in the state — a glance works
+# offline, in yesterday's ink.
 proc weather-sheet-toggle {src on label} {
     popups-close
-    if {[winfo exists .wxsheet]} {
-        set was $::weather_sheet_key
-        weather-sheet-close
-        if {$was eq [list $src $on $label]} return
-    }
+    set was [expr {[winfo exists .wxsheet] ? $::weather_sheet_key : ""}]
+    widget-sheets-close
+    if {$was eq [list $src $on $label]} return
     weather-sheet-open $src $on $label
 }
 proc weather-sheet-close {} {
@@ -475,6 +475,7 @@ proc weather-sheet-close {} {
     destroy .wxsheet
     puts "WM: weather sheet closed"
 }
+widget-sheet-closer weather-sheet-close
 proc weather-sheet-open {src on label} {
     set ::weather_sheet_key [list $src $on $label]
     set st [expr {[info exists ::weather_state($src)] \

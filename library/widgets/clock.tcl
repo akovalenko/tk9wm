@@ -165,16 +165,16 @@ proc clock-widget-tick {w opts} {
 # keyboard-modal by construction (the invariants insist), and this
 # sheet holds no router to give back — putting it there would also
 # release a router it never took, aborting whoever's key sequence was
-# in flight.
+# in flight. It IS in the glance-sheets' own set: one sheet on the
+# desk at a time, so opening the calendar puts the weather's forecast
+# away, and the other way round (widget-sheets-close).
 proc calendar-toggle {on} {
     popups-close
-    if {[winfo exists .calendar]} {
-        set was $::calendar_on
-        calendar-close
-        # the same clock's click is a toggle; another clock's MOVES the
-        # sheet to its own corner
-        if {$was eq $on} return
-    }
+    set was [expr {[winfo exists .calendar] ? $::calendar_on : ""}]
+    widget-sheets-close
+    # the same clock's click is a toggle; another clock's MOVES the
+    # sheet to its own corner
+    if {$was eq $on} return
     calendar-open $on
 }
 proc calendar-close {} {
@@ -182,6 +182,7 @@ proc calendar-close {} {
     destroy .calendar
     puts "WM: calendar closed"
 }
+widget-sheet-closer calendar-close
 proc calendar-open {on} {
     set today [clock format [clock seconds] -format %Y-%m-%d]
     set first [clock scan [clock format [clock seconds] -format %Y-%m-01] \

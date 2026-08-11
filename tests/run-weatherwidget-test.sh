@@ -2,11 +2,12 @@
 # Regression for the WEATHER widget: a command source speaking
 # Open-Meteo's JSON drives the strip (temperature, the sky's glyph,
 # the place's word), the forecast sheet opens and closes like the
-# calendar and holds seven days, a dead source leaves the OLD reading
-# standing in a dimmer ink, and the transport ladder's low rungs —
-# bare core-http and curl — are walked for real against a localhost
-# httpd, geocoding included. No sky is consulted: every answer is
-# canned here.
+# calendar, holds seven days and displaces the calendar — one
+# glance-sheet on the desk at a time — a dead source leaves the OLD
+# reading standing in a dimmer ink, and the transport ladder's low
+# rungs — bare core-http and curl — are walked for real against a
+# localhost httpd, geocoding included. No sky is consulted: every
+# answer is canned here.
 . "$(dirname "$0")/common.sh"
 start_xvfb 900x500x24
 CONF=$(mktemp -d)
@@ -37,6 +38,7 @@ action терминал { launch {exec xterm &} }
 panel-button терминал
 wm-widget wx -type weather -on {panel default} \
     -source [list command [list sh $WXCMD]] -label T -every 400
+wm-widget clk -type clock -on {panel default}
 EOF
 
 LOG="$HERE/wm-weatherwidget.log"
@@ -70,7 +72,6 @@ FIRST=$(q "$PROBE"'
         stale [dict get $::weather_state($src) stale]')
 
 # ---- the sheet: open by the widget, seven days, close by the sheet ----
-area()   { sed -n 's/^WM: widget area \([0-9x+]*\) .*/\1/p' "$LOG" | tail -1; }
 sheet()  { sed -n 's/^WM: weather sheet open \([0-9x+]*\) .*/\1/p' "$LOG" | tail -1; }
 opens()  { grep -c '^WM: weather sheet open '  "$LOG"; }
 closes() { grep -c '^WM: weather sheet closed' "$LOG"; }
@@ -79,15 +80,31 @@ click() {   # click WxH+X+Y — one press on the middle of that rectangle
     xdotool mousemove $(($3 + $1 / 2)) $(($4 + $2 / 2)) click 1
     sleep 1
 }
-click "$(area)"
+wclick() {  # one press on the middle of a widget's own window
+    set -- $(q "set c \$::widget_win($1)
+        list [winfo width \$c] [winfo height \$c] [winfo rootx \$c] [winfo rooty \$c]")
+    xdotool mousemove $(($3 + $1 / 2)) $(($4 + $2 / 2)) click 1
+    sleep 1
+}
+wclick wx
 DAYS=$(sed -n 's/^WM: weather sheet open [0-9x+]* (\(.*\) days)$/\1/p' "$LOG" | tail -1)
 import -display "$DISPLAY" -window root "$HERE/weather-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/weather-test.png"
-click "$(area)"
+wclick wx
 TOGGLED="$(opens) $(closes)"
-click "$(area)"
+wclick wx
 click "$(sheet)"
 DISMISSED="$(opens) $(closes)"
+
+# ---- one sheet on the desk: the forecast and the calendar displace
+# each other, and a widget's own click still toggles its own away ----
+wclick wx
+wclick clk
+SOLO_CAL=$(q 'list wx [winfo exists .wxsheet] cal [winfo exists .calendar]')
+wclick wx
+SOLO_WX=$(q 'list wx [winfo exists .wxsheet] cal [winfo exists .calendar]')
+wclick wx
+SOLO_OFF=$(q 'list wx [winfo exists .wxsheet] cal [winfo exists .calendar]')
 
 # ---- a colder sky, by night, snowing ----
 cat > "$WX" <<'EOF'
@@ -176,6 +193,7 @@ kill $WM 2>/dev/null
 
 echo "--- first: $FIRST"
 echo "--- sheet days: $DAYS  toggled: $TOGGLED  dismissed: $DISMISSED"
+echo "--- solo: cal-over-wx {$SOLO_CAL} / wx-back {$SOLO_WX} / off {$SOLO_OFF}"
 echo "--- cold: $COLD"
 echo "--- dead: $DEAD  back: $BACK"
 echo "--- http rung: $HTTPRUNG  geocoded: $GEOSAID"
@@ -198,6 +216,12 @@ esac
 case "$DISMISSED" in
     "2 2") echo "OK: a click on the sheet dismisses it" ;;
     *) echo "FAIL: dismissal counts open/close = $DISMISSED"; FAIL=1 ;;
+esac
+case "$SOLO_CAL/$SOLO_WX/$SOLO_OFF" in
+    "wx 0 cal 1/wx 1 cal 0/wx 0 cal 0")
+        echo "OK: one sheet on the desk — the forecast and the calendar\
+ displace each other" ;;
+    *) echo "FAIL: solo sheets: $SOLO_CAL / $SOLO_WX / $SOLO_OFF"; FAIL=1 ;;
 esac
 case "$COLD" in
     "temp -3° code 71 days 2")

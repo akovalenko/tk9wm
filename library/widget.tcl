@@ -817,6 +817,24 @@ proc widget-popup-vertical {on} {
     if {$p eq ""} { set p default }
     expr {[panel-cfg $p side] in {left right}}
 }
+# One glance-sheet on the desk at a time. The sheets are modeless by
+# design and outside popups-close's modal set (no router to give
+# back) — but they all take the corner their panel names, so two
+# standing at once lie one over the other and read as neither (the
+# owner, 2026-08-11). The rule: whoever opens a sheet puts the
+# standing ones away first. A type hands in its closer at source
+# time — the same word twice is counted once, so a re-source is
+# free — and every closer shrugs at a sheet that is not up, so
+# closing everybody is the opener's one cheap call.
+keep widget_sheet_closers {}
+proc widget-sheet-closer {cmd} {
+    if {$cmd ni $::widget_sheet_closers} {
+        lappend ::widget_sheet_closers $cmd
+    }
+}
+proc widget-sheets-close {} {
+    foreach cmd $::widget_sheet_closers { {*}$cmd }
+}
 
 # All of them, from nothing — the panels' own pattern, and for the same
 # reason: what a reload changes about a widget can be anything at all.
