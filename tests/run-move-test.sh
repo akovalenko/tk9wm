@@ -11,11 +11,21 @@ start_xvfb
 WM=$!
 wait_wm "$HERE/wm-move.log" $WM
 
-"$LINUX/whale-cli" "$HERE/client-move.tcl" "$DISPLAY"
+OUT=$("$LINUX/whale-cli" "$HERE/client-move.tcl" "$DISPLAY")
+printf '%s\n' "$OUT"
 kill $WM 2>/dev/null
 
 echo "--- what the WM logged:"
 grep -E 'managed 0x|ConfigureRequest|resize 0x' "$HERE/wm-move.log" | head -5
+echo "--- verdict"
 if grep -q 'BadAccess request=2' "$HERE/wm-move.log"; then
     echo "FAIL: another WM owns this display — this run measured nothing"
 fi
+# The client asks the protocol question and answers PASS/FAIL in its
+# own words; the battery reads OK/FAIL, so the driver translates —
+# this suite predated the dialect and read as forever-red (2026-08-11).
+case $OUT in
+    *"CLIENT: PASS"*)
+        echo "OK: the WM answered the move request (ICCCM 4.1.5)" ;;
+    *)  echo "FAIL: no synthetic ConfigureNotify — the client's words above" ;;
+esac
