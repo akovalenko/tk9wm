@@ -78,17 +78,6 @@ lassign [tkwmx::window geometry $wrap] gx gy gw gh
 ok "configure moved x and width" [list $gx $gw] {70 260}
 ok "and left y and height alone" [list $gy $gh] {10 120}
 
-# --- restack takes a whole order at once
-toplevel .u
-wm geometry .u 100x100+120+10
-update
-set wrap2 [lindex [tkwmx::window tree [winfo id .u]] 1]
-tkwmx::window restack [list $wrap $wrap2]
-tkwmx::server sync
-set kids [lindex [tkwmx::window tree $root] 2]
-ok "both windows are still on the root" \
-    [expr {$wrap in $kids && $wrap2 in $kids}] 1
-
 # --- attributes, read: what adoption tells a manageable window by
 set own [tkwmx::window create $root -50 -50 30 20 -override]
 set at [tkwmx::window attrs $own]

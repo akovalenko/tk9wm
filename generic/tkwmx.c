@@ -215,11 +215,11 @@ WindowObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 {
     static const char *const subs[] = {
 	"map", "unmap", "reparent", "move", "resize", "geometry",
-	"saveset", "tree", "configure", "restack", "create", "attrs",
+	"saveset", "tree", "configure", "create", "attrs",
 	"kill", "clear", "shot", NULL
     };
     enum { W_MAP, W_UNMAP, W_REPARENT, W_MOVE, W_RESIZE, W_GEOMETRY, W_SAVESET,
-	   W_TREE, W_CONFIGURE, W_RESTACK, W_CREATE, W_ATTRS, W_KILL,
+	   W_TREE, W_CONFIGURE, W_CREATE, W_ATTRS, W_KILL,
 	   W_CLEAR, W_SHOT };
     Tk_Window tkMain = (Tk_Window)clientData;
     Display *dpy;
@@ -536,34 +536,6 @@ WindowObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 	if (mask != 0) {
 	    XConfigureWindow(dpy, win, mask, &ch);
 	}
-	return TCL_OK;
-    }
-
-    case W_RESTACK: {
-	/* A whole stacking order in one request — top of the list ends up
-	 * on top. Doing it window by window makes the desk flicker. */
-	Tcl_Size count, i;
-	Tcl_Obj **elems;
-	Window *wins;
-	if (n != 1) {
-	    Tcl_WrongNumArgs(interp, 2, objv, "?-displayof window? windowList");
-	    return TCL_ERROR;
-	}
-	if (Tcl_ListObjGetElements(interp, av[0], &count, &elems) != TCL_OK) {
-	    return TCL_ERROR;
-	}
-	if (count == 0) {
-	    return TCL_OK;
-	}
-	wins = (Window *)ckalloc(sizeof(Window) * count);
-	for (i = 0; i < count; i++) {
-	    if (WindowFromObj(interp, tkMain, elems[i], &wins[i]) != TCL_OK) {
-		ckfree(wins);
-		return TCL_ERROR;
-	    }
-	}
-	XRestackWindows(dpy, wins, (int)count);
-	ckfree(wins);
 	return TCL_OK;
     }
 
