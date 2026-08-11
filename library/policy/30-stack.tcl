@@ -137,6 +137,21 @@ proc stack-desired {} {
 # before it: only windows the model KNOWS are touched, so anything
 # else on the display (a client's own override-redirect popup, a
 # screensaver) keeps whatever place it took for itself.
+#
+# NOT XRestackWindows, and the choice is deliberate (the owner asked,
+# 2026-08-11). Two halves to the answer. First, the transaction it
+# seems to offer does not exist: Xlib's RstWins.c unrolls it into the
+# same N-1 ConfigureWindow requests a loop makes — core X has no
+# atomic multi-window restack — and OUR loop batches identically
+# (raise on an override toplevel is one buffered ConfigureWindow,
+# CWSibling|Above, no roundtrip; the server draws nothing for the
+# no-op pairs). Second, and decisive: XRestackWindows anchors the TOP
+# window and tucks the rest BELOW it, so a foreign window standing
+# between two of ours — a client's own menu, exactly the neighbour
+# the paragraph above protects — comes out UNDER our block. The
+# bottom-up Above chain squeezes the same block together while the
+# strangers surface ABOVE it, which is where an override popup wants
+# to be. Same requests, opposite courtesy.
 proc restack {} {
     set prev ""
     foreach path [stack-desired] {
