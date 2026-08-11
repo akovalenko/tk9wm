@@ -3129,19 +3129,33 @@ proc cfg-move-button {d dir} {
 # whose declaration holds its place.
 proc cfg-move-widget {d dir} {
     set key [dict get $d key]
+    if {![wm-call [list widget-seat-custom? $key]]} {
+        cfg-status "«$key» sits where its declaration put it — only\
+ widgets added by you move today"
+        return
+    }
     set order [lmap e [dict get $::cfg_coll widgets elements] \
                    {dict get $e key}]
     set i [lsearch -exact $order $key]
-    set j [expr {$dir eq "above" ? $i - 1 : $i + 1}]
-    if {$i < 0 || $j < 0 || $j >= [llength $order]} return   ;# the edge
-    set other [lindex $order $j]
-    foreach n [list $key $other] {
-        if {![wm-call [list widget-seat-custom? $n]]} {
-            cfg-status "«$n» sits where its declaration put it — only\
- widgets added by you (and neighbouring ones) move today"
-            return
+    if {$i < 0} return
+    # THE PARTNER IS THE NEXT CUSTOM SEAT, NOT THE NEXT ROW. A config
+    # widget — or the injected mat — standing between two of yours
+    # holds a seat no permutation of the custom file can move, and
+    # demanding plain adjacency made it a wall: the owner re-added
+    # his widgets just to get them side by side of it (2026-08-11).
+    # So the move steps over what it could never move — the two
+    # custom lines trade places, the foreign seat stays its own — and
+    # the reload below parks the mat after the layers' words anyway.
+    set step [expr {$dir eq "above" ? -1 : 1}]
+    set other ""
+    for {set j [expr {$i + $step}]} {$j >= 0 && $j < [llength $order]} \
+        {incr j $step} {
+        if {[wm-call [list widget-seat-custom? [lindex $order $j]]]} {
+            set other [lindex $order $j]
+            break
         }
     }
+    if {$other eq ""} return          ;# the edge of what is yours
     set pair [expr {$dir eq "above" ? [list $key $other]
                                     : [list $other $key]}]
     wm-call [list custom-reorder \

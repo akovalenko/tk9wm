@@ -485,6 +485,24 @@ qu 't-sel panel probe; cfg-move-elem above; list moved' >/dev/null
 sleep 1
 ORDER1=$(q 'lmap b [panel-cfg default shown] {lindex $b 0}')
 FILEORD=$(awk '/^panel-button /{printf "%s ",$2}' "$HERE/cfg-config/tk9wm.custom.tcl")
+# ...and a WIDGET of yours moves too, stepping over a foreign seat:
+# the injected mat lands between a reload-parked custom widget and a
+# freshly added one, and the move may not demand adjacency — it
+# trades the two custom lines and leaves the mat its seat (the
+# owner, 2026-08-11, after re-adding widgets just to get them side
+# by side of it). A foreign widget itself refuses to move at all.
+qu 'cfg-insert-widget wa clock' >/dev/null
+sleep 0.5
+q 'reload-config' >/dev/null
+sleep 0.5
+qu 'cfg-refresh; cfg-insert-widget wb clock' >/dev/null
+sleep 0.5
+WORDER0=$(q 'dict keys $::widgets')
+qu 't-sel widgets wb; cfg-move-elem above; list moved' >/dev/null
+sleep 1
+WORDER1=$(q 'dict keys $::widgets')
+WFOREIGN=$(qu 't-sel widgets часы; cfg-move-elem above; after 200
+    wm-call {dict keys $::widgets}')
 # A REFUSED WORD LEAVES THE STANDING INSTANCE ALONE: one bad
 # parameter name used to take the whole family down while the tree
 # went on showing it on (the owner, 2026-08-03). Asked of chords
@@ -2003,6 +2021,11 @@ case "$ORDER0|$ORDER1|$FILEORD" in
     "dummy probe|probe dummy|probe dummy ")
         echo "OK: Alt moved the button — the file order IS the panel order" ;;
     *) fail "FAIL: move: $ORDER0 -> $ORDER1, file: $FILEORD" ;;
+esac
+case "$WORDER0|$WORDER1|$WFOREIGN" in
+    "часы wa welcome wb|часы wb wa welcome|часы wb wa welcome")
+        echo "OK: a widget of yours moves, stepping over the foreign seat" ;;
+    *) fail "FAIL: widget move: $WORDER0 -> $WORDER1 (foreign: $WFOREIGN)" ;;
 esac
 case $TAKEN in
     "chords 0 quit {Super+t q} winops {} help Super+h")
