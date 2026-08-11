@@ -23,7 +23,14 @@ wait_wm "$HERE/wm-applet.log" $WM
 
 q() { printf '%s\n' "$1" > "$HERE/applet-config/q.tcl"
       "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$HERE/applet-config/q.tcl"; }
-hosts() { pgrep -fc 'ui/host.tcl' || true; }
+# The count is THE DISPLAY's, not the machine's: a parallel battery
+# runs another suite's host beside this one, pgrep saw them all, and
+# six phantom FAILs said hosts=2 with nothing wrong here (2026-08-11).
+# The X server keeps the register of its own interps; the probe asks
+# it — and the teardown asks the hosts to leave the same way, where a
+# machine-wide pkill used to shoot the neighbour's host mid-scene.
+hosts()   { "$LINUX/whale" "$HERE/probe-hosts.tcl" | awk '{print $1}'; }
+hostpid() { "$LINUX/whale" "$HERE/probe-hosts.tcl" | awk '{print $2}'; }
 
 q 'applet about' >/dev/null
 sleep 3
@@ -202,19 +209,19 @@ CID=$(xdotool search --classname '^tk9wm-about$' | head -1)
 # leaves — new host, the window back by itself, nobody pressed
 # anything. And a second Reread with NOTHING touched must change
 # nothing: a current host shrugs the nudge off, no needless blink.
-HPID0=$(pgrep -f 'ui/host.tcl' | head -1)
+HPID0=$(hostpid)
 touch "$ROOT/library/ui/applets/about.tcl"
 q 'Reread' >/dev/null
 sleep 4
-HPID1=$(pgrep -f 'ui/host.tcl' | head -1)
+HPID1=$(hostpid)
 H6=$(hosts)
 DID=$(xdotool search --classname '^tk9wm-about$' | head -1)
 q 'Reread' >/dev/null
 sleep 2
-HPID2=$(pgrep -f 'ui/host.tcl' | head -1)
+HPID2=$(hostpid)
 
 kill $WM 2>/dev/null
-pkill -f 'ui/host.tcl' 2>/dev/null
+"$LINUX/whale" "$HERE/probe-hosts.tcl" kill 2>/dev/null
 
 echo "--- applet lines:"
 grep -aE 'applet|UI:' "$HERE/wm-applet.log"
