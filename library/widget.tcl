@@ -161,6 +161,17 @@ proc widget-type-font {type fname fmeta} {
         examples {
             {-size 1.2x} {a factor of the desk font — stays in step when it moves}
             {-weight bold} {bolder, family and size untouched}}]
+    # FULL CITIZENSHIP, not just a row: the verb registry's plain-knob
+    # entry, the guard-and-precheck wrapper, and a seat in the traced
+    # vocabulary. The registry walked all three FOR the knobs it could
+    # see at its own load — this knob arrives later, with the widget
+    # files, and without these lines it would be a word the layers do
+    # not record, a typo in it would kill the config file, and the
+    # vocabulary audit would (rightly) name it loose.
+    config-verb $setter [list at [list knobs $setter] key $setter \
+                             value word kind [list font $fname]]
+    config-instrument $setter
+    if {$setter ni $::knob_vocab} { lappend ::knob_vocab $setter }
 }
 # TitleFont -> set-title-font: the CamelCase name split at its humps —
 # the very rule the hand-written setters follow, so a generated name

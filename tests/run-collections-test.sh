@@ -148,7 +148,7 @@ if [ "$T2" = "$T1" ]; then
 else
     echo "FAIL: after reload {$T2}"
 fi
-if [ "$META" = "cards {} types {clock desks welcome} bundle windows" ]; then
+if [ "$META" = "cards {} types {battery clock desks welcome} bundle windows" ]; then
     echo "OK: cards, the type catalogue and bundle membership are served"
 else
     echo "FAIL: meta is {$META}"
