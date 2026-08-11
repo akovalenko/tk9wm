@@ -523,11 +523,16 @@ proc elisp-read {args} {
 # silently change the expression's shape. Hole-free by the grammar
 # above: inside "…" elisp gives a meaning to exactly two characters,
 # backslash and the quote, and everything else — newlines and
-# control characters included — stands verbatim. Escaping those two
-# IS the whole spelling; the one thing it cannot carry is a NUL,
-# and that is the transport's limit (an argv ends there), not this
-# word's. Not named elisp-quote: quote already means (quote …) one
-# storey up, and what this writes is a STRING.
+# control characters included — stands verbatim. The one exception
+# is the desk's, not elisp's: a raw NUL cannot ride an argv, so it
+# goes as its octal escape instead (the owner's point, 2026-08-11 —
+# emacs can read what the transport cannot carry). Always \000,
+# three digits exactly, so a digit following it in the text cannot
+# stretch the escape (measured: "a\0001b" is a NUL and then "1",
+# and \000 in a multibyte string stays character zero — the
+# raw-byte gotcha starts at \200). Not named elisp-quote: quote
+# already means (quote …) one storey up, and what this writes is a
+# STRING.
 proc elisp-string {text} {
-    return "\"[string map {\\ \\\\ \" \\\"} $text]\""
+    return "\"[string map {\\ \\\\ \" \\\" \x00 {\000}} $text]\""
 }

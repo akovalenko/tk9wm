@@ -105,6 +105,10 @@ is "an emoji roundtrips" \
     [elisp-read [elisp-string [format %c 0x1F44D]]] [format %c 0x1F44D]
 is "a windows path roundtrips" \
     [elisp-read [elisp-string {C:\dir\new\file}]] {C:\dir\new\file}
+is "a NUL goes as its octal escape — argv could not carry it raw" \
+    [elisp-string "a\x00b"] {"a\000b"}
+is "…three digits always, so a digit after it stays itself" \
+    [elisp-read [elisp-string "a\x001b"]] "a\x001b"
 
 # ---- the refusals
 dies "a cycle"        {elisp-read {#1=(a . #1#)}} cycle
