@@ -5,7 +5,10 @@
 # terminal path (named terminal running emacsclient -t -F, a hit
 # raises the named tty frame, and after the C-x 5 2 scenario — the
 # named frame closed, another one left — the fire REBUILDS it on the
-# live terminal, re-running the eval).
+# live terminal, re-running the eval). Plus the frameless PURE EVAL
+# (frame {}): daemon + form, no window — every press says the form,
+# no match derives, and the gate refuses framelessness by accident
+# (no eval / frame words beside frame {}).
 . "$(dirname "$0")/common.sh"
 start_xvfb 1024x768x24
 
@@ -163,6 +166,28 @@ key super+l
 sleep 1
 BENV=$(cat "$HERE/emacs-config/benv-out" 2>/dev/null)
 
+echo "--- a pure eval: frame {} — no window, every press says the form"
+ec '(setq pe-fired 0)' >/dev/null
+q 'action pe {emacs {daemon emtest frame {} eval {(setq pe-fired (1+ pe-fired))}}
+              key {<Super>o}}' >/dev/null
+key super+o
+key super+o
+wait_for 10 sh -c '[ "$(emacsclient -s emtest -e pe-fired 2>/dev/null)" = 2 ]' \
+    || echo "note: wait for the pure evals ran out"
+PEFIRED=$(ec 'pe-fired')
+PEMATCH=$(q 'dict exists $::action_spec pe match')
+PEWIN=$(xdotool search --classname '^pe$' | wc -l)
+# the gate: framelessness is said, never arrived at by omission — a
+# pure eval with nothing to say, or wearing frame words, is refused
+# at its declaration; an INLINE pure eval works, frame {} said out
+PEGATE=$(q 'list \
+    [catch {action bad1 {emacs {daemon emtest frame {}}}}] \
+    [catch {action bad2 {emacs {daemon emtest frame {} eval {(ignore)} via terminal}}}] \
+    [catch {Fire {emacs {daemon emtest frame {} eval {(setq pe-inline t)}}}}]')
+wait_for 10 sh -c '[ "$(emacsclient -s emtest -e pe-inline 2>/dev/null)" = t ]' \
+    || echo "note: wait for the inline pure eval ran out"
+PEINLINE=$(ec 'pe-inline')
+
 # THE EDIT DOOR — the other emacs verb. Not an identity: any frame of
 # the right server will do, and the only question is whether the file
 # lands in one that stands or in a fresh one. Driven through the proc
@@ -300,6 +325,24 @@ if [ "$BENV" = yes ]; then
     echo "OK: a button's env wrapped its plain launch"
 else
     echo "FAIL: benv-out says '$BENV'"
+fi
+echo "--- pure eval: fired=$PEFIRED match=$PEMATCH windows=$PEWIN\
+ gate={$PEGATE} inline=$PEINLINE"
+if [ "$PEFIRED" = 2 ] && [ "$PEWIN" = 0 ]; then
+    echo "OK: the pure eval ran per press and made no window"
+else
+    echo "FAIL: pure eval: pe-fired=$PEFIRED windows=$PEWIN"
+fi
+if [ "$PEMATCH" = 0 ]; then
+    echo "OK: a pure eval derives no match"
+else
+    echo "FAIL: the pure deed grew a match"
+fi
+if [ "$PEGATE" = "1 1 0" ] && [ "$PEINLINE" = t ]; then
+    echo "OK: framelessness is said on purpose — no eval and frame\
+ words refused, the inline pure eval works"
+else
+    echo "FAIL: pure gate={$PEGATE} inline=$PEINLINE"
 fi
 if grep -q 'handler error' "$HERE/wm-emacs.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-emacs.log"

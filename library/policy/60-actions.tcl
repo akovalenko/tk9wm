@@ -711,7 +711,8 @@ proc fire-spec-gate {who raw} {
     spec-check $who action $raw
     if {[action-type $raw] eq "emacs" && ![dict exists $raw emacs frame]} {
         error "$who: an inline emacs deed needs a frame name —\
- it has no name of its own to lend"
+ it has no name of its own to lend (frame {} said on purpose is the\
+ frameless pure eval)"
     }
 }
 proc fire-spec {raw mode} {

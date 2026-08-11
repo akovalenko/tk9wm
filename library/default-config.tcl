@@ -528,6 +528,20 @@
 # keep-frame-name on|off, env, env-unset. Desk-wide answers: the
 # set-emacs-* knobs (§1).
 #
+# A FRAME SAID EMPTY — `frame {}` — is the frameless deed: a PURE
+# EVAL. No window, no match, no raise: every press just says the
+# form to the daemon — «tell telega to X» as a button.
+#   action tg-mute {
+#       emacs {daemon telega frame {} eval (telega-mute-all)}
+#       key {<Super>m}
+#   }
+# Said on purpose, never fallen into: an unsaid frame still lends
+# the deed's name. It wants an eval (a frameless deed with nothing
+# to say is nothing) and refuses the frame words — via,
+# keep-frame-name, a match — out loud. set-emacs-daemons off
+# empties it: no server means nobody to talk to, and the press says
+# so in the log instead of pretending.
+#
 # In terminal mode the desk stays honest against C-x 5 2: a hit
 # focuses the terminal window immediately and asks the daemon, in
 # the background, to put the named frame back on top of its tty —

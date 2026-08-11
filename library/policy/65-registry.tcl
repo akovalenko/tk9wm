@@ -168,8 +168,8 @@ spec-keys terminal {
 }
 spec-keys emacs {
     daemon     {kind text doc {which daemon (-s); unsaid is the default one}}
-    frame      {kind text
-                doc {the frame name — the match hangs off it; unsaid, the deed lends its own}}
+    frame      {kind text empty value
+                doc {the frame name — the match hangs off it; unsaid, the deed lends its own; empty on purpose — no frame at all, a pure eval said to the daemon}}
     eval       {kind text doc {elisp for the frame it makes}}
     via        {kind {choice gui terminal} doc {a gui frame, or one in a terminal}}
     autodaemon {kind {choice on off} doc {start a missing daemon, or refuse}}
@@ -651,6 +651,42 @@ proc spec-derive {who settings} {
     # on top of its tty.
     if {$kind eq "emacs" && [dict exists $settings emacs]} {
         set e [dict get $settings emacs]
+        # A FRAME SAID EMPTY is said ON PURPOSE (the owner's ask,
+        # 2026-08-11): the deed is a PURE EVAL — daemon and form, no
+        # frame anywhere. No frame means no window: nothing to match,
+        # nothing to activate, and every press is the launch, which
+        # just says the form to the daemon. The marking is deliberately
+        # explicit — an unsaid frame still lends the deed's own name,
+        # so nobody arrives at framelessness by omission. And a pure
+        # eval that carries frame words, or nothing to say, is a
+        # contradiction refused at its declaration, not a silence.
+        if {[dict exists $e frame] && [dict get $e frame] eq ""} {
+            if {![dict exists $e eval]} {
+                error "$who: frame {} is a pure eval — it needs an eval"
+            }
+            foreach k {via keep-frame-name} {
+                if {[dict exists $e $k]} {
+                    error "$who: frame {} makes no frame —\
+ $k has nothing to govern"
+                }
+            }
+            if {[dict exists $e daemon] && [dict get $e daemon] eq "none"} {
+                error "$who: frame {} is a pure eval — daemon none\
+ leaves it nobody to talk to"
+            }
+            foreach k {match activate} {
+                if {[dict exists $settings $k]} {
+                    error "$who: frame {} owns no window —\
+ $k has nothing to hang on"
+                }
+            }
+            if {[dict exists $settings launch]} {
+                error "$who: frame {} IS the launch — a pure eval\
+ cannot carry another"
+            }
+            dict set settings launch [list emacs-eval-fire $e]
+            return $settings
+        }
         if {![dict exists $settings match]} {
             dict set settings match \
                 [list filter -class [dict get $e frame]]

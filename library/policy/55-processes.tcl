@@ -912,6 +912,32 @@ proc emacs-launch {spec} {
         exec {*}$cmd &
     }
 }
+# THE FRAMELESS DEED — `frame {}` — is a PURE EVAL (the owner's ask,
+# 2026-08-11): no frame made, no window matched, the press just says
+# the form to the daemon and the daemon does the thing. The use is
+# real — «tell telega to X», «toggle the theme» — deeds whose whole
+# meaning is a form, not a window. Every press is a launch (there is
+# nothing to find), the daemon's verdict lands in the log like every
+# eval's, and autodaemon governs the socket exactly as it does for a
+# frame — the spec's env riding an auto-started daemon the same way.
+# set-emacs-daemons off is the one word that empties it: a pure eval
+# has nobody else to talk to, and says so instead of pretending.
+proc emacs-eval-fire {spec} {
+    if {[emacs-plain? $spec]} {
+        problem-record "emacs" "a pure eval (frame {}) needs a daemon —\
+ set-emacs-daemons off leaves it nobody to talk to"
+        return
+    }
+    set pre [env-argv $spec]
+    if {[llength $pre]} { set pre [list env {*}$pre] }
+    set cmd [concat $pre [emacs-client-cmd $spec]]
+    set auto $::emacs_autodaemon
+    if {[dict exists $spec autodaemon]} { set auto [dict get $spec autodaemon] }
+    if {$auto eq "on"} { lappend cmd -a {} }
+    lappend cmd -e [dict get $spec eval]
+    puts "WM: emacs: eval $cmd"
+    wm-errand "emacs eval" [list emacs-eval-run $cmd]
+}
 # The activate half, replacing the plain focus for a hit of an emacs
 # button. The window comes up IMMEDIATELY — no fire waits on a daemon —
 # and what the round-trip then does depends on what the hit is: an
