@@ -64,7 +64,14 @@ stop_xservers() {
 }
 start_xserver() {   # start_xserver CMD [ARGS...] — sets XSERVER, DISPLAY
     _fd=$(mktemp)
-    "$@" -displayfd 3 3>"$_fd" >/dev/null 2>&1 &
+    # -noreset on EVERY server raised here (the owner, 2026-08-11):
+    # an X server resets when its last client disconnects, and the
+    # reset restores the default keymap — so a setxkbmap or xmodmap a
+    # suite does between clients silently unravels (the chordstate
+    # lesson, 2026-07-30; that suite and multimon carried the flag
+    # per-suite, and there is no server here it could hinder — every
+    # one dies with its suite).
+    "$@" -displayfd 3 -noreset 3>"$_fd" >/dev/null 2>&1 &
     XSERVER=$!
     XSERVERS="$XSERVERS $XSERVER"
     trap stop_xservers EXIT
