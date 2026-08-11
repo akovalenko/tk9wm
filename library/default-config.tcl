@@ -791,6 +791,30 @@
 #   }
 #   wm-menu telega {key {<Super>t t} body {telega-chats}}
 #
+# ---- the telega-say model task: arguments ride a funcall ----
+#
+# Say a phrase into a chat from any script of the desk — a pure
+# eval (`frame {}`, §4): no window anywhere, the daemon does the
+# thing. And the pattern that keeps elisp NATURAL as it grows (the
+# owner's, 2026-08-11): the body is a lambda in one static braced
+# block, and the Tcl values arrive as funcall ARGUMENTS at the end
+# — the id a bare number, the phrase through elisp-string — instead
+# of being substituted into the middle of a long elisp sheet. One
+# boundary, and every quoting question is answered at it.
+#
+#   proc telega-say {id phrase} {
+#       set elisp {
+#           (lambda (id phrase)
+#             (with-current-buffer
+#                 (telega-chatbuf--get-create (telega-chat-get id) nil)
+#               (end-of-buffer)
+#               (insert phrase)
+#               (telega-chatbuf-input-send nil)))
+#       }
+#       Fire [list emacs [list daemon telega frame {} eval \
+#                 "(funcall $elisp $id [elisp-string $phrase])"]]
+#   }
+#
 # =====================================================================
 # 7. LAYERS, RELOADING, AND WORKING ON THE DESK
 # =====================================================================
