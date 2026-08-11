@@ -18,20 +18,19 @@
 # doc and default in one place, which is what puts them in the
 # configurator and behind the vocabulary gate (see widget.tcl).
 #
-# The click that opens a calendar is not here yet, and the fork it
-# faces is worth writing down while the widget is small: an in-process
-# popup (popup-shell and grab-keys-to, the way the window menus work)
-# or the first "mini-application" — a thread with its own Tk and its
-# own X connection, which the WM would then frame like any client. The
-# line wm-window already draws answers it: modal, short-lived, must not
-# be a client -> the popup. A calendar one glances at and dismisses is
-# exactly that. A calendar one keeps open, moves and switches to is a
-# window, and should be a real client rather than something pretending.
-# The two faces are DECLARED with the type (fonts below): the kin
-# entry, the set-clock-font/set-date-font setters and the knobs in the
-# configurator's fonts group all come from that one word — keep-fashion
-# against a config's own wm-font included (шаг 84's disease, the cure
-# now lives in widget-type-font).
+# The click that opens the CALENDAR (the end of this file) took the
+# fork this paragraph used to hold open: an in-process popup, not the
+# first "mini-application". The line wm-window already draws answers
+# it — modal, short-lived, must not be a client -> the popup; a
+# calendar one glances at and dismisses is exactly that. A calendar
+# one KEEPS — moves, switches to, feeds a day's click into org-mode —
+# would be a window and should be a real client; if that day comes it
+# is a different thing, not this one grown.
+# The faces are DECLARED with the type (fonts below): the kin
+# entry, the set-clock-font/set-date-font/set-calendar-font setters
+# and the knobs in the configurator's fonts group all come from that
+# one word — keep-fashion against a config's own wm-font included
+# (шаг 84's disease, the cure now lives in widget-type-font).
 wm-widget-type clock {
     build clock-widget-build
     tick  clock-widget-tick
@@ -42,6 +41,8 @@ wm-widget-type clock {
                    doc {the time's face, as a delta from the desk font}}
         DateFont  {default {-size 0.8x}
                    doc {the date line's face, as a delta from the desk font}}
+        CalendarFont {default {-size 0.9x}
+                      doc {the calendar sheet's face, as a delta from the desk font}}
     }
     params {
         -time-format {kind text default %H:%M
@@ -68,6 +69,10 @@ proc clock-widget-build {w opts} {
         pack $w.time -side top -fill x
         pack $w.date -side top -fill x
     }
+    # The click the header promised: the calendar, a toggle. Bound on
+    # both labels as well as the frame — together they tile the face.
+    set open [list calendar-toggle [dict get $opts -on]]
+    foreach t [list $w $w.time $w.date] { bind $t <ButtonPress-1> $open }
 }
 
 # Air between the two lines when they lie side by side.
@@ -134,4 +139,165 @@ proc clock-widget-tick {w opts} {
         [clock format $now -format [dict get $opts -time-format]]
     $w.date configure -text \
         [clock format $now -format [dict get $opts -date-format]]
+    # The calendar rides this beat: redrawn whenever what it was drawn
+    # from has moved (see calendar-signature).
+    if {[winfo exists .calendar]
+            && [calendar-signature] ne $::calendar_sig} {
+        set on $::calendar_on
+        calendar-close
+        calendar-open $on
+    }
+}
+
+# ---- the calendar: the click the header promised ----
+#
+# Three months on one sheet — the current one flanked by both its
+# neighbours — in the workarea corner nearest the clock. The strip
+# seats its widget area at the far end of the band (before the tray),
+# so the corner is read off the panel's SIDE and nobody asks where the
+# pointer is: a bottom or right panel's clock answers bottom right, a
+# top panel's top right, a left panel's bottom left. A clock off any
+# panel takes the default far corner, bottom right.
+#
+# No keyboard and no grab — a glance, not a conversation: the clock's
+# click opens and closes it, a click on the sheet closes it too, and
+# it is deliberately NOT in popups-close's modal set. That list is
+# keyboard-modal by construction (the invariants insist), and this
+# sheet holds no router to give back — putting it there would also
+# release a router it never took, aborting whoever's key sequence was
+# in flight.
+proc calendar-toggle {on} {
+    popups-close
+    if {[winfo exists .calendar]} {
+        set was $::calendar_on
+        calendar-close
+        # the same clock's click is a toggle; another clock's MOVES the
+        # sheet to its own corner
+        if {$was eq $on} return
+    }
+    calendar-open $on
+}
+proc calendar-close {} {
+    if {![winfo exists .calendar]} return
+    destroy .calendar
+    puts "WM: calendar closed"
+}
+proc calendar-open {on} {
+    set today [clock format [clock seconds] -format %Y-%m-%d]
+    set first [clock scan [clock format [clock seconds] -format %Y-%m-01] \
+                   -format %Y-%m-%d]
+    set ::calendar_on $on
+    toplevel .calendar -background $::OUTLINE
+    wm overrideredirect .calendar 1
+    frame .calendar.f -background [themed raised]
+    # a row of months along a horizontal strip, a column beside a
+    # vertical one — the sheet lies the way its band runs
+    set vert [calendar-vertical $on]
+    set i 0
+    foreach delta {-1 0 1} {
+        set c [calendar-month .calendar.f.m$i \
+                   [clock add $first $delta months] $today]
+        if {$vert} {
+            grid $c -row $i -column 0 -padx 4 -pady 4
+        } else {
+            grid $c -row 0 -column $i -padx 4 -pady 4
+        }
+        incr i
+    }
+    update idletasks
+    set W [expr {[winfo reqwidth .calendar.f] + 2}]
+    set H [expr {[winfo reqheight .calendar.f] + 2}]
+    place .calendar.f -x 1 -y 1
+    lassign [workarea] wx wy ww wh
+    lassign [calendar-corner $on] halign valign
+    set g $::widget_gap
+    set X [place-axis [expr {$wx + $g}] [expr {$ww - 2*$g}] $W $halign]
+    set Y [place-axis [expr {$wy + $g}] [expr {$wh - 2*$g}] $H $valign]
+    wm geometry .calendar ${W}x${H}+${X}+${Y}
+    stack-layer .calendar $::LAYER_POPUP
+    update idletasks
+    bind .calendar <ButtonPress-1> calendar-close
+    set ::calendar_sig [calendar-signature]
+    puts "WM: calendar open ${W}x${H}+${X}+${Y}\
+ ([clock format [clock add $first -1 months] -format %Y-%m] ..\
+ [clock format [clock add $first 1 months] -format %Y-%m])"
+}
+# The workarea corner the sheet lands in, from the panel's side alone
+# (see the header above).
+proc calendar-corner {on} {
+    if {[lindex $on 0] eq "panel"} {
+        set p [lindex $on 1]
+        if {$p eq ""} { set p default }
+        switch -- [panel-cfg $p side] {
+            top  { return {end start} }
+            left { return {start end} }
+        }
+    }
+    return {end end}
+}
+proc calendar-vertical {on} {
+    if {[lindex $on 0] ne "panel"} { return 0 }
+    set p [lindex $on 1]
+    if {$p eq ""} { set p default }
+    expr {[panel-cfg $p side] in {left right}}
+}
+# What the standing sheet was drawn FROM. The clock's tick reads it
+# back — a calendar has a ticking clock by construction, it is its
+# passenger — and redraws on any change: midnight, a theme flip, a
+# workarea reshaped. Deliberately not a <Destroy> hook on the widget:
+# the strip rebuilds whenever the time's own width moves a pixel,
+# which with a proportional face is about once a minute, and a
+# calendar that vanished with each rebuild would never survive a
+# glance.
+proc calendar-signature {} {
+    list $::calendar_on [clock format [clock seconds] -format %Y-%m-%d] \
+        [themed raised] [themed ink] [workarea]
+}
+# One month on one canvas: a title, the weekday header, the days —
+# Monday first. Today wears the selection ground; the weekend columns
+# write in the dim ink. Six day-rows ALWAYS, so the three sheets come
+# out one height whatever their months span. The names come from the
+# locale (-locale current follows LANG), the arithmetic from nothing
+# but the first of the month.
+proc calendar-month {c first today} {
+    set cw [expr {[font measure CalendarFont 00] + 10}]
+    set rh [expr {[font metrics CalendarFont -linespace] + 4}]
+    set pad 8
+    set W [expr {7*$cw + 2*$pad}]
+    set H [expr {8*$rh + 2*$pad + 4}]
+    canvas $c -background [themed raised] -highlightthickness 0 \
+        -borderwidth 0 -width $W -height $H
+    $c create text [expr {$W / 2}] [expr {$pad + $rh/2}] \
+        -font CalendarFont -fill [themed ink] \
+        -text [clock format $first -format {%B %Y} -locale current]
+    # the header names the week's days off any Monday whatever
+    set monday [clock add $first \
+                    [expr {1 - [clock format $first -format %u]}] days]
+    for {set i 0} {$i < 7} {incr i} {
+        $c create text [expr {$pad + $i*$cw + $cw/2}] \
+            [expr {$pad + $rh + 4 + $rh/2}] -font CalendarFont \
+            -fill [themed dim] -text [clock format \
+                [clock add $monday $i days] -format %a -locale current]
+    }
+    set dow0 [expr {[clock format $first -format %u] - 1}]
+    set ndays [scan [clock format [clock add \
+        [clock add $first 1 months] -1 days] -format %d] %d]
+    set thismonth [expr {[string range $today 0 6] eq
+                         [clock format $first -format %Y-%m]}]
+    set daynow [scan [string range $today 8 9] %d]
+    set y0 [expr {$pad + 2*$rh + 4}]
+    for {set d 1} {$d <= $ndays} {incr d} {
+        set cell [expr {$dow0 + $d - 1}]
+        set x [expr {$pad + ($cell % 7)*$cw + $cw/2}]
+        set y [expr {$y0 + ($cell / 7)*$rh + $rh/2}]
+        set ink [expr {$cell % 7 >= 5 ? [themed dim] : [themed ink]}]
+        if {$thismonth && $d == $daynow} {
+            $c create rectangle [expr {$x - $cw/2 + 1}] \
+                [expr {$y - $rh/2 + 1}] [expr {$x + $cw/2 - 1}] \
+                [expr {$y + $rh/2 - 1}] -fill [themed select] -outline {}
+            set ink [contrast-fg [themed select]]
+        }
+        $c create text $x $y -font CalendarFont -fill $ink -text $d
+    }
+    return $c
 }
