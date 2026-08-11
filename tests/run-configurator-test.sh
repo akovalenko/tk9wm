@@ -1056,6 +1056,23 @@ DERIVED=$(qu 'cfg-refresh
          terminal-shown [expr {[$::cfg_T item element cget $t Cval eVal -text] ne ""}] \
          terminal-flag [$::cfg_T item element cget $t Cflag eFlag -text]')
 
+# ---- A WIDGET'S OWN WORDS IN THE TREE (widget-params, step A) ----
+# The clock's -time-format is a row like any field: the type declared
+# it, so the tree grew it on this element alone. The default shows as
+# a derived value, the examples ride the meta, an edit re-states the
+# wm-widget word live on the desk, and a value the kind refuses (-every
+# wants a whole number) is refused in the applet.
+WPARAM=$(qu 'cfg-refresh
+    after 300; update
+    set tf [dict get $::cfg_fitem {@field widgets пробка -time-format}]
+    list shown [$::cfg_T item element cget $tf Cval eVal -text] \
+         flag [$::cfg_T item element cget $tf Cflag eFlag -text] \
+         examples [expr {[dict size [cfg-examples-of \
+             {@field widgets пробка -time-format}]] > 0}] \
+         set [cfg-set {@field widgets пробка -time-format} %H:%M:%S] \
+         live [dict get [wm-call [list widget-opts пробка]] -time-format] \
+         bad [cfg-set {@field widgets пробка -every} шаг]')
+
 # ---- THE DESK SAYS A WORD OF ITS OWN, AND THE LIST CATCHES UP ----
 # There is one writer for the custom layer and both sides call it —
 # but only the writer knew. The owner hid the welcome mat from the
@@ -2169,6 +2186,11 @@ case "$DERIVED" in
         echo "OK: an unsaid field and an unsaid knob show what they amount to" ;;
     *) fail "FAIL: derived values: $DERIVED" ;;
 esac
+if [ "$WPARAM" = "shown %H:%M flag derived examples 1 set 1 live %H:%M:%S bad 0" ]; then
+    echo "OK: a type's param is a row of its element — derived default, examples, live edit, kind gate"
+else
+    fail "FAIL: the widget param row: $WPARAM"
+fi
 if [ "$NOOP" = "saved 0 same 0 changed 1 back 0" ]; then
     echo "OK: typing back our own saved word is no edit, and a real one still is"
 else

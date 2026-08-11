@@ -85,6 +85,52 @@ META=$(q 'set t [collection-table]
     list cards [dict get $t panel cards] \
          types [lsort [dict get $t widgets types]] bundle $ab')
 
+# ---- a type's params ride the element (widget-params plan, step A) --
+# The clock's -time-format arrives as the element's OWN field — kind,
+# default, and the default as a derived value, never a said one; -every
+# stands beside it carrying the type's pace.
+PARAMS=$(q 'set t [collection-table]
+    set out {}
+    foreach e [dict get $t widgets elements] {
+        if {[dict get $e key] ne "часы"} continue
+        set f [dict get $e fields]
+        set out [list kind [dict get $f -time-format kind] \
+            def [dict get $f -time-format default] \
+            said [dict exists [dict get $e values] -time-format] \
+            derived [dict get $e derived -time-format] \
+            every [dict get $f -every default]]
+    }
+    set out')
+
+# ...and the GATE: a word the type does not take is refused by name, a
+# value its kind refuses is refused, -every on a type with no heartbeat
+# is nobody's word, -band is told and never declared — and none of the
+# refused declarations stand.
+GATE=$(q 'set r1 [catch {wm-widget типо -type clock -time-fromat %H} e1]
+    set r2 [catch {wm-widget типо -type desks -gap мимо} e2]
+    set r3 [catch {wm-widget типо -type welcome -every 500} e3]
+    set r4 [catch {wm-widget типо -type clock -band vertical} e4]
+    list $r1 [string match {*not a word of type*} $e1] \
+         $r2 [string match {*whole number*} $e2] \
+         $r3 [string match {*not a word of type*} $e3] \
+         $r4 [string match {*told by the desk*} $e4] \
+         ghost [dict exists $::widgets типо]')
+
+# ...and a param SAID lands in values, wins over the default on the
+# read path, and -every paces a declaration of its own
+q 'custom-write {wm-widget часы -type clock -time-format %H:%M:%S -every 250}' >/dev/null
+sleep 0.5
+SAIDP=$(q 'set t [collection-table]
+    set out {}
+    foreach e [dict get $t widgets elements] {
+        if {[dict get $e key] ne "часы"} continue
+        set out [list owner [dict get $e owner] \
+            said [dict get $e values -time-format] \
+            merged [dict get [widget-opts часы] -time-format] \
+            pace [dict get [widget-opts часы] -every]]
+    }
+    set out')
+
 kill $WM 2>/dev/null
 
 echo "--- table: $T1"
@@ -106,5 +152,23 @@ if [ "$META" = "cards {} types {clock desks welcome} bundle windows" ]; then
     echo "OK: cards, the type catalogue and bundle membership are served"
 else
     echo "FAIL: meta is {$META}"
+fi
+echo "--- params: $PARAMS"
+echo "--- gate: $GATE"
+echo "--- said: $SAIDP"
+if [ "$PARAMS" = "kind text def %H:%M said 0 derived %H:%M every 1000" ]; then
+    echo "OK: the type's params ride the element — default derived, not said"
+else
+    echo "FAIL: params served as {$PARAMS}"
+fi
+if [ "$GATE" = "1 1 1 1 1 1 1 1 ghost 0" ]; then
+    echo "OK: the vocabulary gate refuses by name, kind, beat and band"
+else
+    echo "FAIL: gate answered {$GATE}"
+fi
+if [ "$SAIDP" = "owner custom said %H:%M:%S merged %H:%M:%S pace 250" ]; then
+    echo "OK: a said param lands in values and wins on the read path"
+else
+    echo "FAIL: said param served as {$SAIDP}"
 fi
 check_invariants "$HERE/wm-coll.log"
