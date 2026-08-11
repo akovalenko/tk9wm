@@ -6,9 +6,9 @@
 #
 #  - a click on the clock opens it, the same click again closes it —
 #    a toggle, and both say so in the log;
-#  - the sheet lands in the corner the panel's SIDE names — bottom
-#    right for a bottom panel, top right for a top one — inset by the
-#    widget gap from the workarea's edges;
+#  - the sheet lands FLUSH in the corner the panel's SIDE names —
+#    bottom right for a bottom panel, top right for a top one (an air
+#    gap read as a resize border, and the sheet does not resize);
 #  - a click on the sheet itself dismisses it: a glance, not a
 #    conversation.
 . "$(dirname "$0")/common.sh"
@@ -89,26 +89,24 @@ else
     echo "FAIL: open/close counts after the sheet was clicked: $DISMISSED"
     FAIL=1
 fi
-# The corner arithmetic, against the workarea the band leaves: the
-# widget gap (6) off the right edge both times, off the strip's own
-# edge vertically.
+# The corner arithmetic, against the workarea the band leaves: flush
+# on the workarea's edges both ways.
 geom() { echo "$1" | sed 's/[x+]/ /g'; }
 set -- $(geom "$CAL");     CW=$1 CH=$2 CX=$3 CY=$4
 set -- $(geom "$BOTTOMBAND"); BY=$4
-if [ -n "$CW" ] && [ $((CX + CW + 6)) -eq 900 ] \
-        && [ $((CY + CH + 6)) -eq "${BY:-0}" ]; then
-    echo "OK: bottom panel -> the sheet sits in the bottom right of the\
- workarea ($CAL against a band at y=$BY)"
+if [ -n "$CW" ] && [ $((CX + CW)) -eq 900 ] \
+        && [ $((CY + CH)) -eq "${BY:-0}" ]; then
+    echo "OK: bottom panel -> the sheet sits flush in the bottom right of\
+ the workarea ($CAL against a band at y=$BY)"
 else
     echo "FAIL: bottom panel put the sheet at «$CAL» (band $BOTTOMBAND)"
     FAIL=1
 fi
 set -- $(geom "$TOPCAL");  TW=$1 TH=$2 TX=$3 TY=$4
 set -- $(geom "$TOPBAND"); TBH=$2
-if [ -n "$TW" ] && [ $((TX + TW + 6)) -eq 900 ] \
-        && [ "$TY" = "$((${TBH:-0} + 6))" ]; then
-    echo "OK: top panel -> the sheet moved to the top right, under the strip\
- ($TOPCAL under a ${TBH}px band)"
+if [ -n "$TW" ] && [ $((TX + TW)) -eq 900 ] && [ "$TY" = "${TBH:-0}" ]; then
+    echo "OK: top panel -> the sheet moved flush to the top right, under\
+ the strip ($TOPCAL under a ${TBH}px band)"
 else
     echo "FAIL: top panel put the sheet at «$TOPCAL» (band $TOPBAND)"; FAIL=1
 fi

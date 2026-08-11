@@ -189,6 +189,11 @@ proc calendar-open {on} {
     set ::calendar_on $on
     toplevel .calendar -background $::OUTLINE
     wm overrideredirect .calendar 1
+    # Withdrawn until it is measured AND placed: a fresh toplevel maps
+    # on the first idle round, and the measuring update below runs one
+    # — the sheet flashed up square at +0+0 before its geometry was
+    # said (the owner, 2026-08-11).
+    wm withdraw .calendar
     frame .calendar.f -background [themed raised]
     # a row of months along a horizontal strip, a column beside a
     # vertical one — the sheet lies the way its band runs
@@ -208,13 +213,17 @@ proc calendar-open {on} {
     set W [expr {[winfo reqwidth .calendar.f] + 2}]
     set H [expr {[winfo reqheight .calendar.f] + 2}]
     place .calendar.f -x 1 -y 1
+    # FLUSH into the corner, no air: a gap there read as exactly a
+    # client window's resize border, and this sheet does not resize
+    # (the owner, 2026-08-11). The months' own grid padding is margin
+    # enough for the eye.
     lassign [workarea] wx wy ww wh
     lassign [calendar-corner $on] halign valign
-    set g $::widget_gap
-    set X [place-axis [expr {$wx + $g}] [expr {$ww - 2*$g}] $W $halign]
-    set Y [place-axis [expr {$wy + $g}] [expr {$wh - 2*$g}] $H $valign]
+    set X [place-axis $wx $ww $W $halign]
+    set Y [place-axis $wy $wh $H $valign]
     wm geometry .calendar ${W}x${H}+${X}+${Y}
     stack-layer .calendar $::LAYER_POPUP
+    wm deiconify .calendar
     update idletasks
     bind .calendar <ButtonPress-1> calendar-close
     set ::calendar_sig [calendar-signature]
