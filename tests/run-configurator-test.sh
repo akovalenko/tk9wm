@@ -765,6 +765,14 @@ BLINK=$(qu 'set ::blinked 0
     ui-accel .blinkprobe.b
     pack .blinkprobe.b
     update                              ;# a keyboard event needs a mapped window
+    # ...and the FOCUS: Tk hands a generated key event to the focus
+    # window and DROPS it when the application holds none — the scene
+    # used to race the desk for the focus grant on the fresh toplevel
+    # and always lost on a loaded rig (chronically red, diagnosed
+    # 2026-08-11). The probe takes the focus itself; the WM is not
+    # what this scene measures.
+    focus -force .blinkprobe
+    update
     event generate .blinkprobe <Alt-Key-g> -when now
     set during [.blinkprobe.b instate pressed]
     after 200; update
