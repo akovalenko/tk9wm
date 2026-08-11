@@ -787,6 +787,37 @@ proc widgets-tick-all {} {
     foreach name [array names ::widget_win] { widget-tick-once $name }
 }
 
+# ---- the glance-sheet's corner: every widget's question ----
+# WHERE A WIDGET'S CLICK-SHEET LANDS — the workarea corner nearest the
+# widget, read off the panel's SIDE alone. The strip seats its widget
+# area at the far end of the band (before the tray), so nobody has to
+# ask where the pointer is: a bottom or right panel's widget answers
+# bottom right, a top panel's top right, a left panel's bottom left,
+# and a widget off any panel takes the default far corner. Grown in
+# the clock's calendar, moved here the day the weather's forecast
+# wanted the same answer — the sheet stays each type's own; only the
+# corner is everybody's.
+proc widget-popup-corner {on} {
+    if {[lindex $on 0] eq "panel"} {
+        set p [lindex $on 1]
+        if {$p eq ""} { set p default }
+        switch -- [panel-cfg $p side] {
+            top  { return {end start} }
+            left { return {start end} }
+        }
+    }
+    return {end end}
+}
+# ...and which way a sheet of several panes lies: a row of them along
+# a horizontal strip, a column beside a vertical one — the sheet lies
+# the way its band runs.
+proc widget-popup-vertical {on} {
+    if {[lindex $on 0] ne "panel"} { return 0 }
+    set p [lindex $on 1]
+    if {$p eq ""} { set p default }
+    expr {[panel-cfg $p side] in {left right}}
+}
+
 # All of them, from nothing — the panels' own pattern, and for the same
 # reason: what a reload changes about a widget can be anything at all.
 # Measure them all, let the strips grow if they must, then build them

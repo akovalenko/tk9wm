@@ -197,7 +197,7 @@ proc calendar-open {on} {
     frame .calendar.f -background [themed raised]
     # a row of months along a horizontal strip, a column beside a
     # vertical one — the sheet lies the way its band runs
-    set vert [calendar-vertical $on]
+    set vert [widget-popup-vertical $on]
     set i 0
     foreach delta {-1 0 1} {
         set c [calendar-month .calendar.f.m$i \
@@ -218,7 +218,7 @@ proc calendar-open {on} {
     # (the owner, 2026-08-11). The months' own grid padding is margin
     # enough for the eye.
     lassign [workarea] wx wy ww wh
-    lassign [calendar-corner $on] halign valign
+    lassign [widget-popup-corner $on] halign valign
     set X [place-axis $wx $ww $W $halign]
     set Y [place-axis $wy $wh $H $valign]
     wm geometry .calendar ${W}x${H}+${X}+${Y}
@@ -231,25 +231,9 @@ proc calendar-open {on} {
  ([clock format [clock add $first -1 months] -format %Y-%m] ..\
  [clock format [clock add $first 1 months] -format %Y-%m])"
 }
-# The workarea corner the sheet lands in, from the panel's side alone
-# (see the header above).
-proc calendar-corner {on} {
-    if {[lindex $on 0] eq "panel"} {
-        set p [lindex $on 1]
-        if {$p eq ""} { set p default }
-        switch -- [panel-cfg $p side] {
-            top  { return {end start} }
-            left { return {start end} }
-        }
-    }
-    return {end end}
-}
-proc calendar-vertical {on} {
-    if {[lindex $on 0] ne "panel"} { return 0 }
-    set p [lindex $on 1]
-    if {$p eq ""} { set p default }
-    expr {[panel-cfg $p side] in {left right}}
-}
+# The corner and the lie of the sheet come from the shared answer
+# (widget-popup-corner, widget-popup-vertical in widget.tcl) — grown
+# here, moved out the day the weather's forecast asked the same.
 # What the standing sheet was drawn FROM. The clock's tick reads it
 # back — a calendar has a ticking clock by construction, it is its
 # passenger — and redraws on any change: midnight, a theme flip, a
