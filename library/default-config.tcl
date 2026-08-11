@@ -633,6 +633,16 @@
 #   wm-widget батарея -type battery -letter L
 #   wm-widget телефон -type battery -letter P \
 #       -source {command {ssh phone termux-battery-status}} -every 60000
+# The weather reads Open-Meteo — free, no key. Its -source is {name
+# PLACE} (geocoded once through the API's gazetteer), {latlon LAT
+# LON}, or {command {argv…}} whose stdout is the API's own JSON;
+# unsaid, it is {name Tbilisi}. -label puts a word beside the
+# temperature; a click opens a seven-day sheet in the panel's corner,
+# drawn from what is already known — offline it stands, in a dimmer
+# ink. The sky is reached by tcltls, curl or bare http, whichever the
+# machine carries:
+#   wm-widget погода -type weather -label Тб
+#   wm-widget дома -type weather -source {name Москва} -label М
 #
 # =====================================================================
 # 6. MENUS, AND THE PROGRAMMABLE DESK
