@@ -702,7 +702,9 @@
 # `Exec cmd…` runs a command and reads its output without holding
 # the desk (a future underneath — script use only); `elisp-read`
 # turns printed elisp into Tcl shapes (plist → dict, propertized
-# string → its string, nil → empty; -all for a text of many forms).
+# string → its string, nil → empty; -all for a text of many forms);
+# `elisp-string` spells a Tcl string as the elisp literal — the word
+# for a file name or a title going INTO an eval.
 #
 # ---- the ask-claude model task, whole ----
 #

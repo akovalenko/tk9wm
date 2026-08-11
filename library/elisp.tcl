@@ -7,6 +7,8 @@
 # hash-tables among them, #N=/#N# shared structure. This file reads
 # that grammar whole, plus the cheap source sugar (comments, quotes,
 # ?chars, radix integers) — enough to read a .el form off a file too.
+# One writer word rides along: `elisp-string` spells a Tcl string as
+# the literal this reader — and emacs — read back.
 #
 # TWO LAYERS, BY DESIGN (the owner's condition, 2026-08-06): the
 # parser builds a TYPED TREE and knows nothing of what a consumer
@@ -512,4 +514,20 @@ proc elisp-read {args} {
         lappend out [elisp::project $node]
     }
     return $out
+}
+
+# ---- ...and the word that writes one back ------------------------
+# `elisp-string TEXT` — the text spelled as an elisp string literal,
+# for the forms the desk itself authors (frame parameters, file
+# names in evals): a quote or backslash in the text must not
+# silently change the expression's shape. Hole-free by the grammar
+# above: inside "…" elisp gives a meaning to exactly two characters,
+# backslash and the quote, and everything else — newlines and
+# control characters included — stands verbatim. Escaping those two
+# IS the whole spelling; the one thing it cannot carry is a NUL,
+# and that is the transport's limit (an argv ends there), not this
+# word's. Not named elisp-quote: quote already means (quote …) one
+# storey up, and what this writes is a STRING.
+proc elisp-string {text} {
+    return "\"[string map {\\ \\\\ \" \\\"} $text]\""
 }

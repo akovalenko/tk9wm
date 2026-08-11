@@ -92,6 +92,20 @@ is "radix integers" [elisp-read {(#x1F #o17 #b101)}] {31 15 5}
 is "-all reads every form" \
     [elisp-read -all "1 (two) \"три\""] {1 two три}
 
+# ---- the writer's word: elisp-string spells, the reader agrees
+is "the writer spells a plain word" [elisp-string abc] {"abc"}
+is "…and empty as empty quotes"     [elisp-string {}] {""}
+is "the spelling itself escapes the two that mean something" \
+    [elisp-string {a"b\c}] {"a\"b\\c"}
+is "quote, backslash and «guillemets» roundtrip" \
+    [elisp-read [elisp-string {a"b\c \\ «x»}]] {a"b\c \\ «x»}
+is "a newline rides verbatim" \
+    [elisp-read [elisp-string "a\nb"]] "a\nb"
+is "an emoji roundtrips" \
+    [elisp-read [elisp-string [format %c 0x1F44D]]] [format %c 0x1F44D]
+is "a windows path roundtrips" \
+    [elisp-read [elisp-string {C:\dir\new\file}]] {C:\dir\new\file}
+
 # ---- the refusals
 dies "a cycle"        {elisp-read {#1=(a . #1#)}} cycle
 dies "an unreadable"  {elisp-read {(frame #<frame F1>)}} unreadable

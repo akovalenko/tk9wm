@@ -801,11 +801,6 @@ proc env-argv {spec} {
     }
     return $out
 }
-# The name, spelled into elisp. Config-authored, so sane — but a quote
-# or backslash must not silently change the expression's shape.
-proc emacs-lisp-string {s} {
-    return "\"[string map {\\ \\\\ \" \\\"} $s]\""
-}
 proc emacs-client-cmd {spec} {
     set cmd [list emacsclient]
     if {[dict exists $spec daemon] && [dict get $spec daemon] ne ""} {
@@ -890,7 +885,7 @@ proc emacs-launch {spec} {
     # one the lookup asks for. Emacs leaves parameters it does not
     # know alone; a frame made before this line still answers by name
     # (see activate-frame.el).
-    set F "((name . [emacs-lisp-string $frame]) (tk9wm-frame . [emacs-lisp-string $frame]))"
+    set F "((name . [elisp-string $frame]) (tk9wm-frame . [elisp-string $frame]))"
     set auto $::emacs_autodaemon
     if {[dict exists $spec autodaemon]} { set auto [dict get $spec autodaemon] }
     set cmd [emacs-client-cmd $spec]
@@ -980,7 +975,7 @@ proc emacs-activate {spec w} {
         set fix "(with-demoted-errors \"%S\" [dict get $spec eval])"
     }
     emacs-eval-bg $spec [emacs-template activate-frame.el \
-        "(tk9wm-name [emacs-lisp-string [dict get $spec frame]])\
+        "(tk9wm-name [elisp-string [dict get $spec frame]])\
  (tk9wm-keep [expr {[emacs-keep-name? $spec] ? "t" : "nil"}])\
  (tk9wm-fix (lambda () $fix))"]
 }
@@ -1195,12 +1190,12 @@ proc emacs-edit-open {file line} {
         puts "WM: emacs: edit in $name 0x[format %x $hit]"
         panel-focus-hit $hit
         emacs-eval-bg $spec [emacs-template open-place.el \
-            "(tk9wm-name [emacs-lisp-string $name])\
- (tk9wm-file [emacs-lisp-string $file]) (tk9wm-line $line)"]
+            "(tk9wm-name [elisp-string $name])\
+ (tk9wm-file [elisp-string $file]) (tk9wm-line $line)"]
         return
     }
-    set F "((name . [emacs-lisp-string $name])\
- (tk9wm-frame . [emacs-lisp-string $name]))"
+    set F "((name . [elisp-string $name])\
+ (tk9wm-frame . [elisp-string $name]))"
     spawn-terminal [list name $name title $name \
         run [concat $cmd [list -t -F $F] $place]]
 }
