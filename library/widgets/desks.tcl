@@ -17,14 +17,14 @@
 # is an event the WM already has (policy-desk-changed calls
 # widgets-tick-all). A widget that polled for this would be a widget
 # that is wrong for up to a second every time.
-unless-already {[dict exists $::font_kin DeskNumFont]} {
-    wm-font DeskNumFont -size 0.9x -weight bold
-}
-
 wm-widget-type desks {
     build desks-widget-build
     tick  desks-widget-tick
     prefers panel
+    fonts {
+        DeskNumFont {default {-size 0.9x -weight bold}
+                     doc {the marks' measure and the «2/4» lettering}}
+    }
     params {
         -style {kind {choice dots text} default dots
                 doc {a mark per desk, the current one filled — or «2/4» in words}}

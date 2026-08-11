@@ -123,7 +123,51 @@ proc wm-widget-type {name spec} {
             }
         }
     }
+    # THE TYPE'S FONTS, EXPOSED. A type set in named faces declares
+    # them — default delta and doc — and three things follow from the
+    # one declaration: the kin entry (keep-fashion — a word a config
+    # already wrote into it is never stomped, шаг 84's disease), a
+    # setter in the hand-written trio's image, and the knob that puts
+    # the face in the configurator's fonts group, live preview
+    # included. Shared per TYPE, never per instance: a named font is
+    # one on the desk (the owner's call, 2026-08-11 — two batteries
+    # differ by their letter, not by their face).
+    if {[dict exists $spec fonts]} {
+        dict for {fname fmeta} [dict get $spec fonts] {
+            widget-type-font $name $fname $fmeta
+        }
+    }
     dict set ::widget_types $name $spec
+}
+proc widget-type-font {type fname fmeta} {
+    if {[catch {dict size $fmeta}]} {
+        error "wm-widget-type $type: font $fname wants a meta dict\
+ (default/doc), not «$fmeta»"
+    }
+    if {![dict exists $::font_kin $fname]} {
+        wm-font $fname {*}[dict getdef $fmeta default {}]
+    }
+    set setter [widget-font-setter $fname]
+    if {![llength [info commands $setter]]} {
+        proc $setter args [string map [list %F $fname] {
+            wm-font %F {*}$args
+            widgets-rebuild-soon
+        }]
+    }
+    knob $setter [dict create var {} settle {widgets} group fonts \
+        kind [list font $fname] get [list font-kin-opts $fname] \
+        doc [dict getdef $fmeta doc \
+                 "the $fname face, as a delta from the desk font"] \
+        examples {
+            {-size 1.2x} {a factor of the desk font — stays in step when it moves}
+            {-weight bold} {bolder, family and size untouched}}]
+}
+# TitleFont -> set-title-font: the CamelCase name split at its humps —
+# the very rule the hand-written setters follow, so a generated name
+# reads like one of theirs.
+proc widget-font-setter {fname} {
+    return set-[join [lmap w [regexp -all -inline {[A-Z][a-z0-9]*} \
+        $fname] {string tolower $w}] -]
 }
 # The type's editable words beyond the generic set: its declared
 # params, and — for a type with a heartbeat — the pace itself. `-every`

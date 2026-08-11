@@ -27,21 +27,22 @@
 # be a client -> the popup. A calendar one glances at and dismisses is
 # exactly that. A calendar one keeps open, moves and switches to is a
 # window, and should be a real client rather than something pretending.
-# Keep-fashion, like the stock kin in policy/10-look.tcl: a re-source must
-# not overwrite what a config wrote into these entries (шаг 84's
-# disease, same cure).
-unless-already {[dict exists $::font_kin ClockFont]} {
-    wm-font ClockFont -size 1.6x -weight bold
-}
-unless-already {[dict exists $::font_kin DateFont]} {
-    wm-font DateFont -size 0.8x
-}
-
+# The two faces are DECLARED with the type (fonts below): the kin
+# entry, the set-clock-font/set-date-font setters and the knobs in the
+# configurator's fonts group all come from that one word — keep-fashion
+# against a config's own wm-font included (шаг 84's disease, the cure
+# now lives in widget-type-font).
 wm-widget-type clock {
     build clock-widget-build
     tick  clock-widget-tick
     every 1000
     prefers panel
+    fonts {
+        ClockFont {default {-size 1.6x -weight bold}
+                   doc {the time's face, as a delta from the desk font}}
+        DateFont  {default {-size 0.8x}
+                   doc {the date line's face, as a delta from the desk font}}
+    }
     params {
         -time-format {kind text default %H:%M
                       doc {a `clock format` string — the big line}

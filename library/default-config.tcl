@@ -30,10 +30,13 @@
 # The panel strip's font, same idea; `wm-font` derives any named
 # font, and a size may be a FACTOR of the base's, which is what keeps
 # a desk in proportion when the base changes (`-from` picks another
-# base; declaration order is derivation order):
+# base; declaration order is derivation order). A widget type's faces
+# get setters of the same shape from their declaration — the clock's
+# set-clock-font and set-date-font, the desk indicator's
+# set-desk-num-font:
 #   set-panel-font -size 10
 #   wm-font PanelFont -size 0.85x
-#   wm-font ClockFont -size 1.6x -weight bold
+#   set-clock-font -size 2x
 #
 # Title alignment in the bar — left (default), center, right:
 #   set-title-justify center

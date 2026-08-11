@@ -117,6 +117,25 @@ BIG=$(area)
 import -display "$DISPLAY" -window root "$HERE/widget-desk.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/widget-desk.png"
 
+# --- the clock's faces are the desk's knobs (widget-params, step B):
+# declared with the type, they stand in the fonts group; a set
+# re-derives the face on the spot and the widget rebuilds for it; and
+# a face already written into the kin survives the declaration running
+# again (keep-fashion — the re-source case).
+q() { printf '%s\n' "$1" > "$CONF/q.tcl"
+      "$LINUX/whale" "$TOOLS/send-eval.tcl" tk9wm.tcl "$CONF/q.tcl"; }
+FONTKNOB=$(q 'set m [dict get [knob-registry] set-clock-font]
+    set was [font configure ClockFont -size]
+    set-clock-font -size 2.5x
+    update
+    widget-type-font clock ClockFont {default {-size 1.6x -weight bold}}
+    list kind [dict get $m kind] group [dict get $m group] \
+         grew [expr {abs([font configure ClockFont -size]) > abs($was)}] \
+         kept [dict get $::font_kin ClockFont opts] \
+         kin [llength [info commands set-desk-num-font]]')
+sleep 1.5
+FONTAREA=$(area)
+
 kill $WM $TRAY 2>/dev/null
 
 echo "--- areas:"
@@ -185,6 +204,20 @@ if [ -n "$BIGW" ] && [ -n "$SMALLW" ] && [ "$BIGW" -gt "$SMALLW" ]; then
  wide), nothing about the widget edited"
 else
     echo "FAIL: the desk font grew and the clock did not ($SMALLW -> $BIGW)"
+    FAIL=1
+fi
+echo "--- font knob: $FONTKNOB  area after set-clock-font: $FONTAREA"
+if [ "$FONTKNOB" = "kind {font ClockFont} group fonts grew 1 kept {-size 2.5x} kin 1" ]; then
+    echo "OK: the clock's face is a knob — declared with the type, re-derived\
+ on set, and the kin keeps a written word over the declaration's default"
+else
+    echo "FAIL: the font knob answered {$FONTKNOB}"; FAIL=1
+fi
+FONTW=$(echo "$FONTAREA" | sed 's/x.*//')
+if [ -n "$FONTW" ] && [ -n "$BIGW" ] && [ "$FONTW" -gt "$BIGW" ]; then
+    echo "OK: ...and the widget rebuilt wider for it ($BIGW -> $FONTW px)"
+else
+    echo "FAIL: set-clock-font did not rebuild the clock ($BIGW -> $FONTW)"
     FAIL=1
 fi
 if grep -qE 'build failed|handler error' "$LOG"; then
