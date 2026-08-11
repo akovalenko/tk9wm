@@ -166,6 +166,24 @@ ZONED=$(q 'widget-tick-once туда
          small [expr {[font metrics ClockLabelFont -linespace] \
                           < [font metrics DateFont -linespace]}]')
 
+# --- ONE heartbeat per widget, however many rebuilds: the beat's
+#     script is its own name (after cancel by the very words `after`
+#     took), so a rebuild supersedes the pending chain instead of
+#     stacking one more beside it — the owner's after queue held
+#     eight per widget, one per rebuild (2026-08-11).
+BEATS=$(q 'widgets-build; widgets-build; widgets-build
+    set n {}
+    foreach w {туда тихо} {
+        set c 0
+        foreach id [after info] {
+            if {[lindex [after info $id] 0] eq [list widget-tick $w]} {
+                incr c
+            }
+        }
+        lappend n $w $c
+    }
+    set n')
+
 kill $WM $TRAY 2>/dev/null
 
 echo "--- areas:"
@@ -257,6 +275,14 @@ if [ "$ZONED" = "zone 1 label ОКЛ shown 1 mute 0 small 1" ]; then
  nothing onto the mute one"
 else
     echo "FAIL: the zoned clock answered {$ZONED}"; FAIL=1
+fi
+echo "--- heartbeats after three rebuilds: $BEATS"
+if [ "$BEATS" = "туда 1 тихо 1" ]; then
+    echo "OK: one heartbeat per widget — a rebuild supersedes the pending\
+ chain, it does not stack one more"
+else
+    echo "FAIL: pending widget-tick per widget after three rebuilds:\
+ {$BEATS}"; FAIL=1
 fi
 if grep -qE 'build failed|handler error' "$LOG"; then
     echo "FAIL: errors in the log:"; grep -E 'build failed|handler error' "$LOG"

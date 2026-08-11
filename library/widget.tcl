@@ -765,13 +765,23 @@ proc widget-tick-once {name} {
     }
     return 1
 }
-# The heartbeat. It reschedules itself from the WIDGET's own existence,
-# so a rebuild does not need to chase timers: the tick of a widget that
-# is gone simply stops. The pace is -every — the declaration's word
-# when one was said, the type's own otherwise (widget-type-fields puts
-# the type's `every` under that key) — and it is re-read every beat, so
+# The heartbeat. The tick of a widget that is GONE simply stops —
+# widget-tick-once answers 0 and nothing is rescheduled. But a rebuild
+# is not a death: the NAME survives it, pointing at the fresh frame,
+# so the old chain finds a live widget and beats on while the build
+# starts a chain of its own — one more per rebuild (the owner's after
+# queue, 2026-08-11: eight beats per widget, one per rebuild since
+# the session began). The cure is the script being its OWN name:
+# `after cancel` takes the very words `after` took, so entering here
+# first cancels the beat still pending under this name — whoever
+# calls widget-tick BECOMES the chain, no after-id is kept anywhere,
+# and a queue already stacked thins by one at every beat until one
+# chain remains. The pace is -every — the declaration's word when one
+# was said, the type's own otherwise (widget-type-fields puts the
+# type's `every` under that key) — and it is re-read every beat, so
 # an edited pace takes hold on the next one.
 proc widget-tick {name} {
+    after cancel [list widget-tick $name]
     if {![widget-tick-once $name]} return
     set opts [widget-opts $name]
     set spec [dict get $::widget_types [dict get $opts -type]]
