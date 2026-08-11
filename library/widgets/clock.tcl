@@ -260,7 +260,20 @@ proc calendar-signature {} {
 # locale (-locale current follows LANG), the arithmetic from nothing
 # but the first of the month.
 proc calendar-month {c first today} {
+    # the header names the week's days off any Monday whatever — and
+    # the CELL is as wide as the widest of them wants: two digits fit
+    # a Russian «Ср», not an English «Wed»
+    set monday [clock add $first \
+                    [expr {1 - [clock format $first -format %u]}] days]
+    set names {}
+    for {set i 0} {$i < 7} {incr i} {
+        lappend names [clock format [clock add $monday $i days] \
+                           -format %a -locale current]
+    }
     set cw [expr {[font measure CalendarFont 00] + 10}]
+    foreach n $names {
+        set cw [expr {max($cw, [font measure CalendarFont $n] + 4)}]
+    }
     set rh [expr {[font metrics CalendarFont -linespace] + 4}]
     set pad 8
     set W [expr {7*$cw + 2*$pad}]
@@ -270,14 +283,12 @@ proc calendar-month {c first today} {
     $c create text [expr {$W / 2}] [expr {$pad + $rh/2}] \
         -font CalendarFont -fill [themed ink] \
         -text [clock format $first -format {%B %Y} -locale current]
-    # the header names the week's days off any Monday whatever
-    set monday [clock add $first \
-                    [expr {1 - [clock format $first -format %u]}] days]
-    for {set i 0} {$i < 7} {incr i} {
+    set i 0
+    foreach n $names {
         $c create text [expr {$pad + $i*$cw + $cw/2}] \
             [expr {$pad + $rh + 4 + $rh/2}] -font CalendarFont \
-            -fill [themed dim] -text [clock format \
-                [clock add $monday $i days] -format %a -locale current]
+            -fill [themed dim] -text $n
+        incr i
     }
     set dow0 [expr {[clock format $first -format %u] - 1}]
     set ndays [scan [clock format [clock add \
