@@ -625,7 +625,14 @@
 # does not take is refused by name. The clock takes -time-format and
 # -date-format (`clock format` strings) and is set in ClockFont and
 # DateFont, 1.6x and 0.8x of the desk font; the desk indicator (type
-# desks) takes -style dots|text and -gap.
+# desks) takes -style dots|text and -gap. The battery takes -source
+# ({sys ?NAME|path?} for /sys/class/power_supply, or {command {argv…}}
+# whose stdout is a bare percent or termux-battery-status JSON — a
+# phone over ssh), -letter to tell several apart, and -low; a dead
+# command shows grey with a dash until an answer returns:
+#   wm-widget батарея -type battery -letter L
+#   wm-widget телефон -type battery -letter P \
+#       -source {command {ssh phone termux-battery-status}} -every 60000
 #
 # =====================================================================
 # 6. MENUS, AND THE PROGRAMMABLE DESK
