@@ -44,15 +44,20 @@ wait_wm "$HERE/wm-sweep.log" $WM
 
 # The refuser goes up FIRST, so the focus ends on an ordinary client
 # and the bare-Minimize phase measures what it means to.
-"$LINUX/whale" "$HERE/client.tcl" "стойкий-C" 200x100 "#ef2929" "" "" 40 \
+# 120 s of client, not 40: under a loaded rig (a parallel battery) the
+# run outlived its own actors — the sweep phase read WM_STATE off
+# windows that had already left on their own, and the empty answers
+# read as a red sweep (2026-08-11). The driver kills them at the end
+# either way; the lifetime is only the safety net under the net.
+"$LINUX/whale" "$HERE/client.tcl" "стойкий-C" 200x100 "#ef2929" "" "" 120 \
     > "$HERE/sweep-c.log" 2>&1 &
 CC=$!
 wait_client "$HERE/wm-sweep.log" 'стойкий-C'
-"$LINUX/whale" "$HERE/client.tcl" "клиент-A" 220x120 "#fce94f" "" "" 40 \
+"$LINUX/whale" "$HERE/client.tcl" "клиент-A" 220x120 "#fce94f" "" "" 120 \
     > "$HERE/sweep-a.log" 2>&1 &
 CA=$!
 wait_client "$HERE/wm-sweep.log" 'клиент-A'
-"$LINUX/whale" "$HERE/client.tcl" "клиент-B" 240x140 "#8ae234" "" "" 40 \
+"$LINUX/whale" "$HERE/client.tcl" "клиент-B" 240x140 "#8ae234" "" "" 120 \
     > "$HERE/sweep-b.log" 2>&1 &
 CB=$!
 wait_client "$HERE/wm-sweep.log" 'клиент-B'
