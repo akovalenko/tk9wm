@@ -246,9 +246,12 @@ proc weather-redraw {src} {
         if {[winfo exists $c]} { catch {weather-draw $c $opts} }
     }
     # a standing sheet shows this sky: redraw it from the fresh state
-    # NOW, not on the next quarter-hour tick
+    # NOW, not on the next quarter-hour tick — but only when the
+    # answer actually MOVED something, or a steady poll would blink
+    # the sheet once per beat
     if {[winfo exists .wxsheet]
-            && [lindex $::weather_sheet_key 0] eq $src} {
+            && [lindex $::weather_sheet_key 0] eq $src
+            && [weather-sheet-signature] ne $::weather_sheet_sig} {
         set k $::weather_sheet_key
         weather-sheet-close
         weather-sheet-open {*}$k
