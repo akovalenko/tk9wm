@@ -162,7 +162,9 @@ else
     echo "FAIL: after add the client is $SZ_ADD, want $WANTMAX"
 fi
 case $ST_ADD in
-    *_NET_WM_STATE_MAXIMIZED_HORZ*_NET_WM_STATE_MAXIMIZED_VERT*)
+    *_NET_WM_STATE_MAXIMIZED_VERT*_NET_WM_STATE_MAXIMIZED_HORZ*)
+        # VERT before HORZ — the EWMH listing order the publisher
+        # deliberately keeps since the emacs fold fix (31d5098)
         echo "OK: the maximized pair is published while it holds" ;;
     *) echo "FAIL: published state after add: $ST_ADD" ;;
 esac

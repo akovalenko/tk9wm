@@ -53,8 +53,12 @@ sleep 0.3
 AFTEROFF="$(origin '<Super>t w m') $(answers '<Super>t w m') $(answers '<Super>t q')"
 LEFT=$(grep -c "leaves 1 chord(s) — not its own any more" "$HERE/wm-owner.log")
 
-# ...and the family coming back takes its chord back, saying so —
-# which is a claim the tree can now SHOW instead of a mystery
+# ...and the family coming back STANDS ASIDE: rank holds the map
+# (a1193c1, 2026-08-03 — a lower layer does not take a higher one's
+# chord, whenever it arrives), so the custom word keeps the chord and
+# the family's own lands under it as the claimant the tree shows.
+# This scene used to expect the family to take its chord back — the
+# pre-rank model, and the suite lagged the redesign until 2026-08-11.
 q 'wm-keys chords' >/dev/null
 sleep 0.3
 BACK="$(origin '<Super>t w m') $(answers '<Super>t w m')"
@@ -132,8 +136,9 @@ else
     echo "FAIL: after the toggle: $AFTEROFF (left-lines: $LEFT)"
 fi
 case "$BACK|$WHY" in
-    "bundle chords winops|custom said list mine-now,"*)
-        echo "OK: the family taking it back is a claim the tree can explain" ;;
+    "custom list mine-now|code said winops, and your word answers")
+        echo "OK: the family come back stands aside, and the tree says\
+ whose word waits under yours" ;;
     *) echo "FAIL: back={$BACK} why={$WHY}" ;;
 esac
 if [ "$WHERE" = "tk9wm.tcl:1" ]; then

@@ -126,7 +126,11 @@ if [ "$TURNS" = "out hello kept-turning 1" ]; then
 else
     echo "FAIL: turns: $TURNS"
 fi
-if [ "$FAILED" = "nope" ]; then
+# ...followed by exec's own constant tail: since 82fc922 the shim
+# mimics the real exec's habit — the child's words first, «child
+# process exited abnormally» after — and this check lagged it.
+if [ "$FAILED" = "nope
+child process exited abnormally" ]; then
     echo "OK: a failure carries what stderr said, not a number"
 else
     echo "FAIL: failure said «$FAILED»"

@@ -65,8 +65,13 @@ last_echo() { sed -n 's/^WM: key echo ([a-z]*) «\(.*\)»$/\1/p' "$LOG" | tail -
 #        jumps to ours a heartbeat later (the owner saw it in a corner,
 #        2026-07-30). A screenshot cannot be relied on to catch
 #        something that short — the SERVER's own event order can, and
-#        xev is the witness: for one chord and one Escape there must be
-#        no ConfigureNotify at all between the map and the unmap.
+#        xev is the witness: for one chord and one Escape no
+#        ConfigureNotify between the map and the unmap may CHANGE THE
+#        GEOMETRY. Not «no ConfigureNotify at all»: the desk reseats a
+#        fresh gadget in the stack a beat after it maps, a restack
+#        says ConfigureNotify too (only `above` differs), and a
+#        restack moves no pixels — counting it read the layer
+#        machinery as a flash (2026-08-11).
 XEVLOG="$HERE/keyecho-xev.log"
 stdbuf -oL xev -root -event substructure > "$XEVLOG" 2>&1 &
 XEV=$!
@@ -80,7 +85,12 @@ FLASH=$(awk -v id="$(printf '0x%x,' "${EID:-0}")" '
     index($0, "window " id) && type != "" {
         if (type == "MapNotify")     { up = 1; next }
         if (type == "UnmapNotify")   { up = 0; next }
-        if (up && type == "ConfigureNotify") { n++ }
+        if (type == "ConfigureNotify" \
+                && match($0, /\([-0-9]+,[-0-9]+\), width [0-9]+, height [0-9]+/)) {
+            g = substr($0, RSTART, RLENGTH)
+            if (up && g != last) { n++ }
+            last = g
+        }
     }
     END { print n + 0 }' "$XEVLOG")
 MAPS=$(awk -v id="$(printf '0x%x,' "${EID:-0}")" '
@@ -257,7 +267,9 @@ else
     echo "FAIL: <Shift>slash never fired"
 fi
 case "$HELP" in
-    "Super+t …"*"q → Quit"*"w m → winops"*"w w → winlist"*)
+    "Super+t …"*"q → Quit"*"w m → winops"*"w w → every window there is"*)
+        # w w is winlist-all since the desks came — its help name says
+        # what it shows now, and the glob follows the declaration
         echo "OK: the help expanded the whole subtree under Super+t" ;;
     *)  echo "FAIL: the help read «$HELP»" ;;
 esac
