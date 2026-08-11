@@ -136,6 +136,36 @@ FONTKNOB=$(q 'set m [dict get [knob-registry] set-clock-font]
 sleep 1.5
 FONTAREA=$(area)
 
+# --- a clock told a ZONE tells the zone's time, wears its tiny label,
+#     and a zone alone glues NO label on (the owner, 2026-08-11): the
+#     naming word is only ever SAID. Two clocks, one strip: «туда» is
+#     zoned and named, «тихо» is zoned and mute.
+cat > "$CONF/tk9wm.tcl" <<'EOF'
+set-welcome off
+action терминал { launch {exec xterm &} }
+panel-button терминал
+wm-widget туда -type clock -on {panel default} \
+    -timezone Pacific/Auckland -label ОКЛ
+wm-widget тихо -type clock -on {panel default} -timezone Pacific/Auckland
+EOF
+"$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
+sleep 1.5
+# The minute may roll between the widget's tick and the reading here,
+# so the answer a beat ago is accepted too.
+ZONED=$(q 'widget-tick-once туда
+    set c $::widget_win(туда)
+    set n [clock seconds]
+    set want [clock format $n -format %H:%M -timezone Pacific/Auckland]
+    set ago [clock format [expr {$n - 60}] -format %H:%M \
+                 -timezone Pacific/Auckland]
+    set got [$c.time cget -text]
+    list zone [expr {$got eq $want || $got eq $ago}] \
+         label [$c.label cget -text] \
+         shown [winfo ismapped $c.label] \
+         mute [winfo ismapped $::widget_win(тихо).label] \
+         small [expr {[font metrics ClockLabelFont -linespace] \
+                          < [font metrics DateFont -linespace]}]')
+
 kill $WM $TRAY 2>/dev/null
 
 echo "--- areas:"
@@ -219,6 +249,14 @@ if [ -n "$FONTW" ] && [ -n "$BIGW" ] && [ "$FONTW" -gt "$BIGW" ]; then
 else
     echo "FAIL: set-clock-font did not rebuild the clock ($BIGW -> $FONTW)"
     FAIL=1
+fi
+echo "--- zoned clock: $ZONED"
+if [ "$ZONED" = "zone 1 label ОКЛ shown 1 mute 0 small 1" ]; then
+    echo "OK: a zoned clock tells the zone's time in the zone's own words,\
+ and the tiny label is worn only where it was SAID — the zone glued\
+ nothing onto the mute one"
+else
+    echo "FAIL: the zoned clock answered {$ZONED}"; FAIL=1
 fi
 if grep -qE 'build failed|handler error' "$LOG"; then
     echo "FAIL: errors in the log:"; grep -E 'build failed|handler error' "$LOG"

@@ -69,6 +69,35 @@ click "$(area)"
 TOPCAL=$(calgeom)
 TOPBAND=$(bandgeom)
 
+# --- a ZONED clock's sheet rings the zone's today, not the machine's.
+#     The zone is picked live so its date really differs right now:
+#     UTC+14 and UTC-12 are 26 hours apart, so one of them always
+#     disagrees with local about what day it is.
+q() { printf '%s\n' "$1" > "$CONF/q.tcl"
+      "$WHALE" "$TOOLS/send-eval.tcl" tk9wm.tcl "$CONF/q.tcl"; }
+ZPICK=$(q 'set n [clock seconds]
+    set d [clock format $n -format %Y-%m-%d]
+    set pick {}
+    foreach z {Pacific/Kiritimati Etc/GMT+12} {
+        if {[clock format $n -format %Y-%m-%d -timezone $z] ne $d} {
+            set pick $z; break } }
+    set pick')
+cat > "$CONF/tk9wm.tcl" <<EOF
+set-welcome off
+action терминал { launch {exec xterm &} }
+panel-button терминал
+wm-widget clock -type clock -on {panel default} -timezone $ZPICK
+EOF
+"$WHALE_CLI" "$TOOLS/send-reload.tcl" "$DISPLAY" >/dev/null 2>&1
+sleep 1.5
+click "$(area)"
+ZONECAL=$(q 'set n [clock seconds]
+    set d [clock format $n -format %Y-%m-%d]
+    set zd [clock format $n -format %Y-%m-%d -timezone $::calendar_tz]
+    list up [winfo exists .calendar] tz $::calendar_tz \
+         rings [expr {[lindex [calendar-signature] 2] eq $zd}] \
+         differs [expr {$zd ne $d}]')
+
 kill $WM 2>/dev/null
 
 echo "--- calendar lines:"
@@ -109,5 +138,12 @@ if [ -n "$TW" ] && [ $((TX + TW)) -eq 900 ] && [ "$TY" = "${TBH:-0}" ]; then
  the strip ($TOPCAL under a ${TBH}px band)"
 else
     echo "FAIL: top panel put the sheet at «$TOPCAL» (band $TOPBAND)"; FAIL=1
+fi
+echo "--- zoned sheet: picked $ZPICK -> $ZONECAL"
+if [ "$ZONECAL" = "up 1 tz $ZPICK rings 1 differs 1" ]; then
+    echo "OK: a zoned clock's sheet rings the ZONE's today — a date the\
+ machine itself disagrees with right now ($ZPICK)"
+else
+    echo "FAIL: the zoned sheet answered {$ZONECAL} (zone $ZPICK)"; FAIL=1
 fi
 exit $FAIL

@@ -18,6 +18,16 @@
 # doc and default in one place, which is what puts them in the
 # configurator and behind the vocabulary gate (see widget.tcl).
 #
+# WHERE IT LIVES IN TIME became the clock's own word the day the desk
+# wanted a second zone on the strip (the owner, 2026-08-11): -timezone
+# names any zone the runtime knows, and unsaid it stays this machine's
+# own. With a second clock comes the question of which is which, and
+# the answer is -label — a third label in the smallest face on the
+# strip, and ONLY ever said: no rule shortens «America/New_York» into
+# the word its owner actually calls that clock, so no rule tries. The
+# click's calendar rides the same zone — across a date line its ring
+# is that clock's today, not the machine's.
+#
 # The click that opens the CALENDAR (the end of this file) took the
 # fork this paragraph used to hold open: an in-process popup, not the
 # first "mini-application". The line wm-window already draws answers
@@ -41,6 +51,8 @@ wm-widget-type clock {
                    doc {the time's face, as a delta from the desk font}}
         DateFont  {default {-size 0.8x}
                    doc {the date line's face, as a delta from the desk font}}
+        ClockLabelFont {default {-size 0.6x}
+                        doc {the naming word's face — the smallest type on the strip}}
         CalendarFont {default {-size 0.9x}
                       doc {the calendar sheet's face, as a delta from the desk font}}
     }
@@ -52,6 +64,15 @@ wm-widget-type clock {
                       doc {the smaller line — a `clock format` string too}
                       examples {{%a %d %b} {day, date, month}
                                 %d.%m.%Y {numbers all the way}}}
+        -timezone {kind text default {}
+                   doc {the zone this clock tells time in — unsaid, the
+                        machine's own}
+                   examples {Europe/Moscow {a zone by its IANA name}
+                             UTC {the reference itself}}}
+        -label {kind text default {}
+                doc {a tiny word telling this clock from its neighbours —
+                     only ever said, never derived from the zone}
+                examples {NYC {a city's word} МСК {a zone's nickname}}}
     }
 }
 
@@ -60,19 +81,31 @@ proc clock-widget-build {w opts} {
     set bg [dict get $opts -background]
     label $w.time -font ClockFont -foreground $fg -background $bg -anchor center
     label $w.date -font DateFont  -foreground $fg -background $bg -anchor center
+    label $w.label -font ClockLabelFont -foreground $fg -background $bg \
+        -anchor center -text [dict get $opts -label]
     # The text first, because the shape is decided on what it will say.
     clock-widget-tick $w $opts
+    # The naming word rides LAST in either shape (the battery's letter,
+    # the weather's word — the family's seat), and an unnamed clock
+    # never shows the row at all: nothing is derived to fill it.
+    set named [expr {[dict get $opts -label] ne ""}]
     if {[clock-widget-shape $w $opts] eq "row"} {
         pack $w.time -side left
         pack $w.date -side left -padx [list $::clock_gap 0]
+        if {$named} { pack $w.label -side left -padx [list $::clock_gap 0] }
     } else {
         pack $w.time -side top -fill x
         pack $w.date -side top -fill x
+        if {$named} { pack $w.label -side top -fill x }
     }
     # The click the header promised: the calendar, a toggle. Bound on
-    # both labels as well as the frame — together they tile the face.
-    set open [list calendar-toggle [dict get $opts -on]]
-    foreach t [list $w $w.time $w.date] { bind $t <ButtonPress-1> $open }
+    # the labels as well as the frame — together they tile the face.
+    # The widget's zone rides the click, so the sheet rings ITS today.
+    set open [list calendar-toggle [dict get $opts -on] \
+                  [dict get $opts -timezone]]
+    foreach t [list $w $w.time $w.date $w.label] {
+        bind $t <ButtonPress-1> $open
+    }
 }
 
 # Air between the two lines when they lie side by side.
@@ -97,17 +130,28 @@ keep clock_gap 6
 proc clock-widget-shape {w opts} {
     # what the strip is charged for this widget besides the text: the
     # frame's own padding, and the border widget-claims-band counts.
+    # The naming word, when there is one, is measured AS ITSELF — it
+    # never changes with the minute, so the digit-fattening below is
+    # nobody's worry here.
     set edges [expr {2 * [dict get $opts -padding] + 2}]
+    set label [dict get $opts -label]
     switch -- [dict get $opts -band] {
         horizontal {
             set stack [expr {[font metrics ClockFont -linespace]
                            + [font metrics DateFont -linespace] + $edges}]
+            if {$label ne ""} {
+                incr stack [font metrics ClockLabelFont -linespace]
+            }
             return [expr {[dict get $opts -across] >= $stack ? "stack" : "row"}]
         }
         vertical {
             set row [expr {[clock-widget-width ClockFont [$w.time cget -text]]
                          + [clock-widget-width DateFont [$w.date cget -text]]
                          + $::clock_gap + $edges}]
+            if {$label ne ""} {
+                incr row [expr {$::clock_gap
+                              + [font measure ClockLabelFont $label]}]
+            }
             return [expr {[dict get $opts -across] >= $row ? "row" : "stack"}]
         }
     }
@@ -131,21 +175,41 @@ proc clock-widget-width {font text} {
     font measure $font [string map $map $text]
 }
 
+# One asking for both lines and the calendar too: format in the
+# widget's zone when one was said, in the machine's own when not. A
+# zone the runtime cannot load is complained about ONCE, not per beat
+# (the battery's discipline for a wrong source), and the clock stands
+# in local time rather than dying on the strip every second.
+array set clock_zone_moaned {}
+proc clock-widget-format {now fmt tz} {
+    if {$tz ne ""} {
+        if {![catch {clock format $now -format $fmt -timezone $tz} out]} {
+            return $out
+        }
+        if {![info exists ::clock_zone_moaned($tz)]} {
+            set ::clock_zone_moaned($tz) 1
+            puts "WM: clock: $out — local time instead"
+        }
+    }
+    clock format $now -format $fmt
+}
+
 proc clock-widget-tick {w opts} {
     # No fallbacks here: the params' defaults arrive merged into the
     # opts (widget-opts), so the declaration is the one place they live.
     set now [clock seconds]
+    set tz [dict get $opts -timezone]
     $w.time configure -text \
-        [clock format $now -format [dict get $opts -time-format]]
+        [clock-widget-format $now [dict get $opts -time-format] $tz]
     $w.date configure -text \
-        [clock format $now -format [dict get $opts -date-format]]
+        [clock-widget-format $now [dict get $opts -date-format] $tz]
     # The calendar rides this beat: redrawn whenever what it was drawn
     # from has moved (see calendar-signature).
     if {[winfo exists .calendar]
             && [calendar-signature] ne $::calendar_sig} {
-        set on $::calendar_on
+        set again [list $::calendar_on $::calendar_tz]
         calendar-close
-        calendar-open $on
+        calendar-open {*}$again
     }
 }
 
@@ -168,14 +232,16 @@ proc clock-widget-tick {w opts} {
 # in flight. It IS in the glance-sheets' own set: one sheet on the
 # desk at a time, so opening the calendar puts the weather's forecast
 # away, and the other way round (widget-sheets-close).
-proc calendar-toggle {on} {
+proc calendar-toggle {on tz} {
     popups-close
-    set was [expr {[winfo exists .calendar] ? $::calendar_on : ""}]
+    set was [expr {[winfo exists .calendar]
+                       ? [list $::calendar_on $::calendar_tz] : ""}]
     widget-sheets-close
     # the same clock's click is a toggle; another clock's MOVES the
-    # sheet to its own corner
-    if {$was eq $on} return
-    calendar-open $on
+    # sheet — to its own corner, or only to its own zone's today when
+    # the two share a strip
+    if {$was eq [list $on $tz]} return
+    calendar-open $on $tz
 }
 proc calendar-close {} {
     if {![winfo exists .calendar]} return
@@ -183,11 +249,15 @@ proc calendar-close {} {
     puts "WM: calendar closed"
 }
 widget-sheet-closer calendar-close
-proc calendar-open {on} {
-    set today [clock format [clock seconds] -format %Y-%m-%d]
-    set first [clock scan [clock format [clock seconds] -format %Y-%m-01] \
-                   -format %Y-%m-%d]
+proc calendar-open {on tz} {
+    # TODAY is the CLOCK's, not the machine's: the zone rode the click
+    # here, so across a date line the ring and the months follow the
+    # face that was clicked. The dates themselves are then plain local
+    # strings — a calendar's arithmetic is on days, not on hours.
+    set today [clock-widget-format [clock seconds] %Y-%m-%d $tz]
+    set first [clock scan "[string range $today 0 6]-01" -format %Y-%m-%d]
     set ::calendar_on $on
+    set ::calendar_tz $tz
     toplevel .calendar -background $::OUTLINE
     wm overrideredirect .calendar 1
     # Withdrawn until it is measured AND placed: a fresh toplevel maps
@@ -237,14 +307,16 @@ proc calendar-open {on} {
 # here, moved out the day the weather's forecast asked the same.
 # What the standing sheet was drawn FROM. The clock's tick reads it
 # back — a calendar has a ticking clock by construction, it is its
-# passenger — and redraws on any change: midnight, a theme flip, a
-# workarea reshaped. Deliberately not a <Destroy> hook on the widget:
+# passenger — and redraws on any change: midnight (the ZONE's own — a
+# New York sheet turns its page on New York's midnight), a theme flip,
+# a workarea reshaped. Deliberately not a <Destroy> hook on the widget:
 # the strip rebuilds whenever the time's own width moves a pixel,
 # which with a proportional face is about once a minute, and a
 # calendar that vanished with each rebuild would never survive a
 # glance.
 proc calendar-signature {} {
-    list $::calendar_on [clock format [clock seconds] -format %Y-%m-%d] \
+    list $::calendar_on $::calendar_tz \
+        [clock-widget-format [clock seconds] %Y-%m-%d $::calendar_tz] \
         [themed raised] [themed ink] [workarea]
 }
 # One month on one canvas: a title, the weekday header, the days —
