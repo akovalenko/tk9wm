@@ -484,7 +484,7 @@ proc weather-sheet-open {src on label} {
     toplevel .wxsheet -background $::OUTLINE
     wm overrideredirect .wxsheet 1
     wm withdraw .wxsheet
-    frame .wxsheet.f -background [themed raised]
+    frame .wxsheet.f -background [themed raised] -borderwidth 5
     set vert [widget-popup-vertical $on]
     # the title: the label's word, or the name the source spoke
     set title $label
@@ -496,10 +496,10 @@ proc weather-sheet-open {src on label} {
         label .wxsheet.f.title -font WeatherSheetFont -foreground $ink \
             -background [themed raised] -text $title
         if {$vert} {
-            grid .wxsheet.f.title -row 0 -column 0 -pady {6 0}
+            grid .wxsheet.f.title -row 0 -column 0 -columnspan 5 -pady {0 3}
         } else {
             grid .wxsheet.f.title -row 0 -column 0 \
-                -columnspan [expr {max(1, [llength $days])}] -pady {6 0}
+                -columnspan [expr {max(1, [llength $days])}] -pady {0 3}
         }
         set r0 1
     }
@@ -511,13 +511,14 @@ proc weather-sheet-open {src on label} {
     }
     set i 0
     foreach day $days {
-        set c [weather-sheet-day .wxsheet.f.d$i $day $ink $vert]
-        if {$vert} {
-            grid $c -row [expr {$i + $r0}] -column 0 -sticky ew -padx 6 -pady 3
-        } else {
-            grid $c -row $r0 -column $i -padx 3 -pady 6
-        }
+        weather-sheet-day .wxsheet.f $i $r0 $day $ink $vert
         incr i
+    }
+    # a row of days reads as a table when the cells agree on a width
+    if {!$vert} {
+        for {set c 0} {$c < $i} {incr c} {
+            grid columnconfigure .wxsheet.f $c -uniform day
+        }
     }
     update idletasks
     set W [expr {[winfo reqwidth .wxsheet.f] + 2}]
@@ -535,47 +536,53 @@ proc weather-sheet-open {src on label} {
     set ::weather_sheet_sig [weather-sheet-signature]
     puts "WM: weather sheet open ${W}x${H}+${X}+${Y} ([llength $days] days)"
 }
-# One day, one pane: the weekday in the calendar's manner (locale
-# names, weekend in the dim ink), the sky's glyph, the high, the low,
-# and the chance of rain when the API said one. A pane lies down when
-# the sheet does.
-proc weather-sheet-day {c day ink vert} {
-    frame $c -background [themed raised]
+# One day, one line of the sheet's ONE grid: the weekday in the
+# calendar's manner (locale names, weekend in the dim ink), the sky's
+# glyph, the high, the low, and the chance of rain when the API said
+# one. A line lies down when the sheet does. One grid and not a pane
+# per day, because a pane packed its fields to its own measure and
+# the sheet's columns stood ragged — a shared grid is what makes a
+# column a column. Lying down, the names take the left edge and the
+# numbers the right, so the degree signs stand in file.
+proc weather-sheet-day {f i r0 day ink vert} {
     set t [clock scan [dict get $day date] -format %Y-%m-%d]
     set wkend [expr {[clock format $t -format %u] >= 6}]
     set dayink [expr {$wkend ? [themed dim] : $ink}]
-    label $c.name -font WeatherSheetFont -foreground $dayink \
+    label $f.n$i -font WeatherSheetFont -foreground $dayink \
         -background [themed raised] \
         -text [clock format $t -format %a -locale current]
     set ih [expr {[font metrics WeatherSheetFont -linespace] * 3 / 2}]
-    label $c.icon -background [themed raised]
-    bind $c.icon <Destroy> {catch {image delete weather-day:%W}}
-    image create photo weather-day:$c.icon \
+    label $f.i$i -background [themed raised]
+    bind $f.i$i <Destroy> {catch {image delete weather-day:%W}}
+    image create photo weather-day:$f.i$i \
         -format [list svg -scaletoheight $ih] \
         -data [weather-svg [weather-group [dict get $day code] 1] $ink \
                    [themed raised]]
-    $c.icon configure -image weather-day:$c.icon
-    label $c.hi -font WeatherSheetFont -foreground $ink \
+    $f.i$i configure -image weather-day:$f.i$i
+    label $f.h$i -font WeatherSheetFont -foreground $ink \
         -background [themed raised] \
         -text [weather-degrees [dict get $day hi]]
-    label $c.lo -font WeatherSheetFont -foreground [themed dim] \
+    label $f.l$i -font WeatherSheetFont -foreground [themed dim] \
         -background [themed raised] \
         -text [weather-degrees [dict get $day lo]]
+    set parts [list $f.n$i $f.i$i $f.h$i $f.l$i]
     set rain [dict get $day rain]
     if {$rain ne ""} {
-        label $c.rain -font WeatherSheetFont -foreground [themed dim] \
+        label $f.r$i -font WeatherSheetFont -foreground [themed dim] \
             -background [themed raised] -text "$rain%"
+        lappend parts $f.r$i
     }
-    set parts [list $c.name $c.icon $c.hi $c.lo]
-    if {$rain ne ""} { lappend parts $c.rain }
-    foreach p $parts {
+    set j 0
+    foreach p $parts s {w {} e e e} {
+        if {$p eq ""} break
         if {$vert} {
-            pack $p -side left -padx 3
+            grid $p -row [expr {$r0 + $i}] -column $j -sticky $s \
+                -padx 3 -pady 2
         } else {
-            pack $p -side top -pady 1
+            grid $p -row [expr {$r0 + $j}] -column $i -padx 5 -pady 1
         }
+        incr j
     }
-    return $c
 }
 proc weather-sheet-signature {} {
     set src [lindex $::weather_sheet_key 0]
