@@ -2239,13 +2239,19 @@ proc iconify-client {w} {
         refocus-soon
     }
     incr ::skip_unmap($w)      ;# our own unmap is not the client withdrawing
+    # WM_STATE SPEAKS BEFORE THE WINDOW GOES (experiment): with
+    # IconicState already read, wine's UnmapNotify handler does not
+    # take the unmap for a reparent (its condition is literally
+    # «current wm_state == NormalState») — it knows this is a
+    # minimize, processes the loss honestly, and the return
+    # invitation activates for real.
+    set-wm-state $w 3          ;# IconicState
+    publish-net-wm-state $w
     # XSync between the client's unmap and the frame going down on
     # Tk's side: the round trip guarantees the server processed the
     # client unmap before the decoration speaks.
     x-unmap $w
     x-sync 0
-    set-wm-state $w 3          ;# IconicState
-    publish-net-wm-state $w
     policy-iconified $w        ;# the decoration goes with it
     x-sync 0
     puts "WM: iconified 0x[format %x $w]"
