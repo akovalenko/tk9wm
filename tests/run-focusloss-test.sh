@@ -17,6 +17,15 @@
 # idle, instead of a park-and-aim per window — and nothing falls to
 # None: the stale-fall reports the revert used to generate are gone
 # with the revert itself.
+#
+# Phase D (its own WM): the GLOBALLY ACTIVE model wants the OPPOSITE
+# order — the loss hidden behind the UnmapNotify, never a FocusOut
+# while still mapped. Wine's Win32 half reads a mapped FocusOut as a
+# real focus kill while the minimize keeps its foreground, and the
+# return invitation becomes a no-op SetForegroundWindow: keyboard
+# dead, unrecoverable (measured on smsrc, 2026-08-12). ga-client.tcl
+# answers invitations and reports keys, so the round is provable
+# end-to-end: minimize by chord, return by alt-tab, a key must flow.
 . "$(dirname "$0")/common.sh"
 start_xvfb
 
@@ -75,6 +84,36 @@ echo "--- WM saw (C, minimize-all):"
 echo "$WM_C" | grep -E 'parking|iconified|focus ->' | sed 's/^/    /'
 
 kill $WM $CL1 $CL2 2>/dev/null
+sleep 1
+
+# ---- phase D: the globally-active round, in a desk of its own ----
+"$LINUX/whale" "$WMTCL" > "$HERE/wm-focusloss-ga.log" 2>&1 &
+WM2=$!
+wait_wm "$HERE/wm-focusloss-ga.log" $WM2
+"$LINUX/whale" "$HERE/client.tcl" сосед-га 240x120+400+80 "#729fcf" "" "" 40 \
+    > "$HERE/focusloss-ga-neighbor.log" 2>&1 &
+CL3=$!
+wait_client "$HERE/wm-focusloss-ga.log" сосед-га
+"$LINUX/whale" "$HERE/ga-client.tcl" га-жертва > "$HERE/focusloss-ga.log" 2>&1 &
+CL4=$!
+wait_client "$HERE/wm-focusloss-ga.log" га-жертва
+sleep 1                      # the manage invitation lands and is answered
+xdotool key y
+sleep 0.5
+K0=$(grep -c 'GACLIENT: key' "$HERE/focusloss-ga.log")
+key alt+space                # the winops menu on the focused ga window...
+key i                        # ...and its minimize entry
+sleep 1
+key alt+Tab                  # and bring it back
+sleep 1
+xdotool key x                # the proof: a key must flow after the round
+sleep 0.8
+K1=$(grep -c 'GACLIENT: key' "$HERE/focusloss-ga.log")
+kill $WM2 $CL3 $CL4 2>/dev/null
+echo "--- ga client said (D):"
+grep GACLIENT "$HERE/focusloss-ga.log" | sed 's/^/    /'
+echo "--- WM saw (D):"
+grep -E 'parking|iconified|invitation' "$HERE/wm-focusloss-ga.log" | sed 's/^/    /'
 
 echo "--- verdict"
 BAD=0
@@ -150,5 +189,20 @@ if grep -q 'soft failure\|handler error' "$HERE/wm-focusloss.log"; then
     grep 'soft failure\|handler error' "$HERE/wm-focusloss.log" | sed 's/^/    /'
     BAD=1
 fi
+
+# D: the globally-active round — keys flow after it, and the loss was
+# parked AFTER the unmap («was iconified»), never before it
+if [ -n "$K0" ] && [ -n "$K1" ] && [ "$K0" -ge 1 ] && [ "$K1" -gt "$K0" ]; then
+    echo "OK: the ga window answers keys before and after the minimize round"
+else
+    echo "FAIL: ga keys before=$K0 after=$K1 — the round killed its keyboard"; BAD=1
+fi
+if grep -q 'was iconified' "$HERE/wm-focusloss-ga.log" \
+        && ! grep -q 'is being iconified' "$HERE/wm-focusloss-ga.log"; then
+    echo "OK: the ga loss stayed hidden behind the unmap (parked after)"
+else
+    echo "FAIL: the ga window was parked before its unmap"; BAD=1
+fi
+
 check_invariants "$HERE/wm-focusloss.log"
-[ $BAD -eq 0 ] && echo "OK: the focus leaves before the window does — parked, bounced, never reverted"
+[ $BAD -eq 0 ] && echo "OK: the focus leaves before the window does — and behind it for the globally active"
