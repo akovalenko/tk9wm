@@ -1292,8 +1292,33 @@ proc dispatch-event {ev} {
                 # lie: whatever the mode, the real focus is (or just
                 # became) PointerRoot/None — the grab pseudo-events
                 # only replay that same fact at grab boundaries.
-                focus-repair [expr {$detail == 6 ?
-                    "focus fell to PointerRoot" : "focus fell to None"}]
+                #
+                # ...cannot lie about THEN — but it routinely lies
+                # about NOW. The fall it reports happens at the moment
+                # a frame is destroyed or unmapped, BEFORE the repair
+                # that same teardown runs; by the time this event is
+                # read the focus is already parked and re-aimed, and a
+                # second repair would yank it off the freshly focused
+                # client and hand it back — two focus transitions on an
+                # innocent window per iconify/unmanage (358 of them in
+                # one session's log, 2026-08-12; flap like that is what
+                # chews through a client's async activation
+                # bookkeeping). So the server is asked whether the
+                # focus is a dead end NOW: root, PointerRoot or None
+                # want the repair, anything else makes this event a
+                # line in the log. Our own decoration is not skipped
+                # here by accident — a revert onto a frame reports
+                # itself with its own FocusIn, and that branch below
+                # repairs it.
+                lassign [x-focus-get] curf -
+                if {$curf ne "" && $curf > 1 && $curf != $::root} {
+                    puts "WM: stale [expr {$detail == 6 ?
+                        "PointerRoot" : "None"}]-fall report — the focus\
+ already stands on [format 0x%x $curf]"
+                } else {
+                    focus-repair [expr {$detail == 6 ?
+                        "focus fell to PointerRoot" : "focus fell to None"}]
+                }
             } elseif {$mode == 0} {
                 set is_focus_win [expr {$detail == 0 || $detail == 2 || $detail == 3}]
                 if {[info exists ::managed($win)] && $detail < 5} {
@@ -1384,11 +1409,14 @@ proc dispatch-event {ev} {
                 # itself, when it next has a reason to. Wine does
                 # exactly this — which is why _NET_ACTIVE_WINDOW must
                 # never lie that the client is already active. Honored
-                # as a click would be: raise the group, focus (which
-                # invites a globally active window).
+                # as a click would be — raise the group, focus (which
+                # invites a globally active window) — plus `fresh`:
+                # the asker may believe itself inactive while the
+                # focus already stands on it, and only a real
+                # FocusOut/FocusIn pair corrects a belief like that.
                 set rt [lindex $data 1]
                 puts "WM: activation request for 0x[format %x $A] (t=$rt)"
-                soft "activation request" { policy-client-click $A }
+                soft "activation request" { policy-client-activate $A }
             } elseif {[info exists ::NET_WM_DESKTOP] && $B == $::NET_WM_DESKTOP
                     && [info exists ::managed($A)]} {
                 # "put this window on that desk" — what a pager sends,
@@ -2162,33 +2190,48 @@ proc set-net-wm-state {w atoms} {
 # back is the window list, which shows it with its state.
 proc iconify-client {w} {
     if {![info exists ::managed($w)] || [info exists ::iconic($w)]} return
-    # BOTH facts are taken NOW, before a single X request goes out.
-    # The pick needs the window still ordinary (the policy's choice
-    # reads per-frame facts, and an iconic window is no focus target) —
-    # and "was it focused" must be remembered rather than re-read,
-    # because everything below can run a nested event drain (Tk flushes
-    # its connection, the pump drains X) inside which the focus
-    # watchdog fires, parks the focus and clears ::focused. Re-reading
-    # it afterwards is exactly how the MOUSE gesture ended up handing
-    # the focus to nobody while the KEYBOARD gesture handed it on —
-    # same operation, two outcomes (owner's report, 2026-07-28).
-    set was_focused [expr {$::focused == $w}]
-    set refocus [expr {$was_focused ? [policy-pick-refocus $w] : 0}]
     set ::iconic($w) 1
+    # THE FOCUS LEAVES BEFORE THE WINDOW DOES. Unmapping the focus
+    # window makes the SERVER move the focus — a revert walks it up to
+    # our frame (and to None once the frame follows), and the client
+    # reads the loss off a dirty pair: FocusOut(mode=Grab) from the
+    # chord's passive grab, FocusOut(mode=WhileGrabbed, detail=
+    # Ancestor) from the revert, no closing Ungrab ever. Chromium's
+    # platform layer survives that arithmetic but its views activation
+    # does not: the window comes back to an honest FocusIn(Normal) and
+    # stays keyboard-dead until the focus leaves and returns once more
+    # (the owner's report, 2026-08-12; proved by A/B — the same cycle
+    # with the focus parked FIRST leaves chrome alive, and the manual
+    # cure was alt-tab-away-and-back, which is that bounce by hand).
+    #
+    # So the park happens BEFORE the unmap, on the same connection, and
+    # the revert never exists: every client sees the plain
+    # FocusOut(Normal) of an ordinary SetInputFocus while it is still
+    # mapped. This also serves the OTHER war this proc has fought
+    # (wine, 2026-07-28, WINEDEBUG=+focus,+event): wine's Win32 side
+    # used to deactivate on a surprise revert-FocusOut and come back
+    # keyboard-dead — the revert is gone for it too. (The unmap-first
+    # ordering that fight installed kept the loss hidden BEHIND the
+    # UnmapNotify; a clean SetInputFocus loss is the better statement
+    # of the same fact, and the winemin probe is the check.)
+    #
+    # The refocus is DEFERRED (refocus-soon): a burst — Super+d
+    # minimizing the desk — parks once and aims once at idle, instead
+    # of handing each next victim a focus it loses a millisecond
+    # later. "Was it focused" is decided here and not re-read
+    # below: the X calls can run a nested event drain inside which the
+    # watchdog parks and clears ::focused (owner's report, 2026-07-28
+    # — the mouse gesture handed the focus to nobody while the
+    # keyboard gesture handed it on).
+    if {$::focused == $w} {
+        set ::focused 0
+        focus-park "the focused window is being iconified"
+        refocus-soon
+    }
     incr ::skip_unmap($w)      ;# our own unmap is not the client withdrawing
-    # ORDER, and it is load-bearing across our two connections: the
-    # client's own unmap must reach the server FIRST, before the frame
-    # is taken down on Tk's connection. Withdrawing the frame makes the
-    # client unviewable, which reverts the focus — and the client then
-    # sees a plain FocusOut with no idea why. Wine acts on that one:
-    # its Win32 side deactivates and clears its internal focus, and the
-    # activation it gets on the way back does not restore it, so the
-    # window comes back keyboard-dead (owner's report; measured with
-    # WINEDEBUG=+focus,+event, and fvwm3 differs in exactly this
-    # order). Seeing the UnmapNotify first, wine flags the window as
-    # "reparenting" and IGNORES the focus loss — nothing to restore.
-    # XSync, not XFlush: the round trip is what guarantees the server
-    # processed it before Tk's connection speaks.
+    # XSync between the client's unmap and the frame going down on
+    # Tk's side: the round trip guarantees the server processed the
+    # client unmap before the decoration speaks.
     x-unmap $w
     x-sync 0
     set-wm-state $w 3          ;# IconicState
@@ -2196,11 +2239,6 @@ proc iconify-client {w} {
     policy-iconified $w        ;# the decoration goes with it
     x-sync 0
     puts "WM: iconified 0x[format %x $w]"
-    if {$was_focused} {
-        set ::focused 0
-        focus-park "the focused window was iconified"
-        if {$refocus != 0} { focus-to $refocus }
-    }
 }
 proc deiconify-client {w} {
     if {![info exists ::managed($w)] || ![info exists ::iconic($w)]} return
@@ -2389,6 +2427,15 @@ proc desk-visibility {w} {
         x-map $w
         x-sync 0
     } else {
+        # The focus leaves before the window does — the iconify rule
+        # (see iconify-client), same reason: an unmap of the focus
+        # window makes the server revert, and a revert is a dirty loss
+        # no client should have to read.
+        if {$::focused == $w} {
+            set ::focused 0
+            focus-park "the focused window is leaving the screen"
+            refocus-soon
+        }
         set ::offdesk($w) 1
         incr ::skip_unmap($w)      ;# our own unmap is not the client withdrawing
         x-unmap $w
@@ -2417,6 +2464,17 @@ proc desk-apply {} {
         } elseif {!$here && $on} {
             lappend hide $w
         }
+    }
+    # The focus leaves before the windows do (the iconify rule, see
+    # iconify-client): parked ahead of the unmaps, the switch never
+    # makes the server revert off a vanishing focus window, and the
+    # leaver reads a plain FocusOut(Normal) while still mapped.
+    # desk-go aims at the new desk's window right after this returns;
+    # the deferred refocus is only the net under a caller that does not.
+    if {$::focused != 0 && [lsearch -exact $hide $::focused] >= 0} {
+        set ::focused 0
+        focus-park "the focused window is leaving the desk"
+        refocus-soon
     }
     foreach w $hide {
         set ::offdesk($w) 1
@@ -2464,7 +2522,9 @@ proc desk-go {n} {
                 && ![info exists ::iconic($cand)]} { set want $cand; break }
     }
     if {$want == 0} {
-        focus-park "the new desk is empty"
+        # desk-apply already parked when it hid the focus window; a
+        # second parking would say the same thing twice.
+        if {$::focused != 0} { focus-park "the new desk is empty" }
     } else {
         focus-to $want
     }
@@ -2487,11 +2547,9 @@ proc desk-send {w n} {
     puts "WM: 0x[format %x $w] desk [desk-name $was] -> [desk-name $n]"
     soft "paint the sticky mark" { policy-window-desk-changed $w }
     set was_focused [expr {$::focused == $w}]
-    desk-visibility $w
+    desk-visibility $w      ;# parks first when it hides the focus window
     if {$was_focused && ![desk-here-p $w]} {
         set refocus [policy-pick-refocus $w]
-        set ::focused 0
-        focus-park "the focused window went to another desk"
         if {$refocus != 0} { focus-to $refocus }
     }
 }
@@ -2988,8 +3046,31 @@ proc client-input-hint {w} {
     if {![dict exists $h input]} { return 1 }
     dict get $h input
 }
-proc focus-to {w} {
+proc focus-to {w {fresh 0}} {
     if {![info exists ::managed($w)]} { return 0 }
+    # A FRESH focus is one the client can SEE. When the server already
+    # aims at $w, the x-focus-set below is a no-op — not one event is
+    # generated — and a client whose inner activation state went stale
+    # (chromium's aura layer after a dirty focus loss) stays stale
+    # forever: this exact branch is why five activations in a row did
+    # nothing while alt-tab-away-and-back cured it (2026-08-12). So an
+    # EXPLICIT activation — a chord, a panel button, the window list,
+    # an EWMH activation request — asks for `fresh`, and the focus
+    # bounces off the holder first: a real FocusOut/FocusIn(Normal)
+    # pair the client cannot miss. Silent (no parking, ::focused and
+    # _NET_ACTIVE_WINDOW stay put — they are correct and about to be
+    # confirmed); never for the globally-active model, whose focus is
+    # not ours to bounce; never on ordinary refocus, where the target
+    # is a window the focus is NOT on by construction.
+    if {$fresh && $::nofocus != 0
+            && !([client-advertises $w $::WM_TAKE_FOCUS 0]
+                 && ![client-input-hint $w])
+            && [lindex [x-focus-get] 0] == $w} {
+        puts "WM: focus -> 0x[format %x $w]: already the focus —\
+ bouncing for a fresh FocusIn"
+        x-focus-set $::nofocus parent
+        x-sync 0
+    }
     # The ICCCM "globally active" client — input=False plus
     # WM_TAKE_FOCUS (Wine 10+ lives here) — handles the focus ITSELF.
     # The WM only sends the invitation and must then LEAVE THE X FOCUS
@@ -3105,6 +3186,30 @@ proc focus-repair {why {prefer 0}} {
     if {[focus-target-ok $want]} {
         focus-to $want
     }
+}
+
+# Deferred refocus, coalesced (restack-soon's idiom). A burst that takes
+# focused windows off the screen — minimize-all, a desk sweep — used to
+# run a park-and-aim PER WINDOW: eight windows, eight parkings, and six
+# of the aims handed a client a focus it was about to lose to the next
+# iconify a millisecond later. That flap is expensive exactly where it
+# is invisible: a client's own activation bookkeeping (chromium's aura
+# layer, wine's Win32 side) chews every transition asynchronously, and
+# a focus that blinks faster than the client thinks is how inner state
+# goes stale. So the aim waits for idle: whoever parked during the
+# burst asks for ONE refocus when the dust settles, and a burst that
+# already aimed somewhere honest (a deiconify's own focus-to, say)
+# leaves nothing for it to do.
+keep refocus_pending 0
+proc refocus-soon {} {
+    if {$::refocus_pending} return
+    set ::refocus_pending 1
+    after idle {set ::refocus_pending 0; refocus-now}
+}
+proc refocus-now {} {
+    if {$::focused != 0 || $::invited != 0} return
+    set want [policy-pick-refocus 0]
+    if {[focus-target-ok $want]} { focus-to $want }
 }
 
 # A managed client's ConfigureRequest: the decoration follows (size bits

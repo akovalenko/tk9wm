@@ -1544,7 +1544,10 @@ proc panel-focus-hit {w} {
         return
     }
     raise-group $w
-    focus-to $w
+    # `fresh`: this is somebody SAYING «give me this window» — if the
+    # focus already stands on it, it bounces so a stale client gets a
+    # FocusIn it can see (the chromium wedge's safety net).
+    focus-to $w 1
 }
 # The index of an action's button in panel NAME's strip — by the
 # action's NAME, which is the reference's key; -1 when the strip is

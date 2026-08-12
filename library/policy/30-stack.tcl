@@ -428,6 +428,17 @@ proc policy-client-click {w} {
     raise-group $w
     focus-to $w
 }
+# An EWMH activation request is a click's stronger cousin: the client
+# SAYS «activate me», so the focus is delivered fresh (see focus-to) —
+# a requester whose inner activation went stale gets the honest
+# FocusOut/FocusIn pair instead of a silent no-op. A plain click stays
+# plain: bouncing the focus under every click on the focused window
+# would flap for no one's benefit.
+proc policy-client-activate {w} {
+    popups-close
+    raise-group $w
+    focus-to $w 1
+}
 
 # A newly managed window is raised with its group — a fresh dialog pulls
 # its leader up right under itself, fvwm-style — and gets the focus.
