@@ -2199,6 +2199,12 @@ proc set-net-wm-state {w atoms} {
 proc iconify-client {w} {
     if {![info exists ::managed($w)] || [info exists ::iconic($w)]} return
     set ::iconic($w) 1
+    # An iconic globally-active window starts CLEAN: ::wine_dirty
+    # flips to 1 the moment another client takes the focus while it
+    # sits iconic (paint-focus) — the exact ingredient that poisons
+    # wine's restore, and the only case deiconify-client arms the
+    # restore bounce for. Windows restored untouched dance nothing.
+    if {[client-globally-active $w]} { set ::wine_dirty($w) 0 }
     # THE FOCUS-LOSS ORDER IS PER-MODEL, and both halves were paid for
     # in blood on the live desk.
     #
@@ -2272,6 +2278,14 @@ proc iconify-client {w} {
 proc deiconify-client {w} {
     if {![info exists ::managed($w)] || ![info exists ::iconic($w)]} return
     unset ::iconic($w)
+    # the dirty verdict is read (and the mark retired) HERE, before any
+    # early return: an off-desk restore must not leave a stale mark for
+    # paint-focus to keep dirtying
+    set dirty 0
+    if {[info exists ::wine_dirty($w)]} {
+        set dirty $::wine_dirty($w)
+        unset ::wine_dirty($w)
+    }
     set-wm-state $w 1          ;# NormalState
     publish-net-wm-state $w
     # ...AND IT COMES BACK ON ITS OWN DESK. Minimizing never moved the
@@ -2299,67 +2313,93 @@ proc deiconify-client {w} {
     x-map $w
     x-sync 0
     puts "WM: deiconified 0x[format %x $w]"
-    # THE RESTORE AND THE FOCUS ARE FED SEPARATELY (wine workaround,
-    # timer-driven): wine 11.15 runs the restore's activation while
-    # WS_MINIMIZE is still set (win32u message.c orders SetActiveWindow
-    # before the SC_RESTORE that clears the style), the focus hand-off
-    # inside it dies against the minimized-window refusal (win32u
-    # input.c), and the half-activated window is sealed — only a FULL
-    # deactivate/activate cycle resurrects the keyboard (the manual
-    # alt-tab-away-and-back cure). Property choreography alone cannot
-    # help: the restore is pumped on the app's win32 queue, and one
-    # GetWindowStateUpdates snapshot coalesces every publish into the
-    # same poisoned activate-before-restore order. So the cycle is
-    # spread in TIME — the four beats below, each waiting out the
-    # previous one's pump.
-    if {[info exists ::NET_ACTIVE] && $::nofocus != 0
-            && [client-globally-active $w]} {
-        puts "WM: deiconify 0x[format %x $w]: 4-beat restore bounce\
- (globally active)"
-        after 500 [list wine-restore-beat1 $w]
+    focus-to $w
+    # THE RESTORE AND THE FOCUS ARE FED SEPARATELY (wine workaround):
+    # wine 11.15 pumps the restore's activation while WS_MINIMIZE is
+    # still set (win32u message.c orders SetActiveWindow before the
+    # SC_RESTORE that clears the style). Harmless — unless the Win32
+    # focus was LOST while the window sat iconic, i.e. the focus
+    # visited another client in between (the ::wine_dirty verdict
+    # above): then the hand-off inside that activation dies against
+    # the minimized-window refusal and seals, and only a full
+    # deactivate/activate cycle brings the keyboard back — the manual
+    # alt-tab-away-and-back cure, which the two beats below automate.
+    # The invitation already went out (the window focuses as fast as
+    # any other); beat 2 then deactivates, beat 3 re-invites.
+    #
+    # The beats are spaced by TIMERS, not signals, because no signal
+    # exists: wine's re-ask fires only when its tracked
+    # _NET_ACTIVE_WINDOW disagrees and its WM_STATE serials are
+    # settled (on the stand it showed in one round out of two), and
+    # the app's PUMPING of a publish — the thing each beat must wait
+    # out — is invisible from X. Each beat re-verifies the desk
+    # instead: any interference (another activation, a desk switch, a
+    # re-minimize, the window leaving) dissolves the dance with a log
+    # line and the interfering action stands.
+    if {$dirty && [info exists ::NET_ACTIVE] && $::nofocus != 0} {
+        puts "WM: deiconify 0x[format %x $w]: restore bounce armed"
+        after $::wine_bounce_ms \
+            [list wine-restore-beat2 $w [incr ::wine_bounce_gen] 0]
+    }
+}
+# The restore bounce pacing. One knob-less global: the stand passed
+# down to 60 ms with an idle app; 150 keeps a 2.5× margin for a busy
+# one, and the whole dance stays a ~300 ms blink.
+keep wine_bounce_ms 150
+keep wine_bounce_gen 0       ;# any newer dance retires older beats
+# Beat 2 of the restore bounce: the deactivation. It only counts while
+# wine believes the window is FOREGROUND (a foreground loss at
+# previous==hwnd is the one shape that clears the active window and
+# the poisoned hwndFocus) — the invitation's confirmed FocusIn has
+# made that true by now, or we wait one more beat for it. Parking
+# through focus-park keeps the books straight: ::focused drops to 0,
+# so beat 3's confirmed FocusIn is a CHANGE again and paint-focus
+# re-publishes the window — the publish that drives wine's
+# reactivation (a raw x-focus-set left ::focused standing and the
+# re-publish never happened: a day of dead stands).
+proc wine-restore-beat2 {w g retry} {
+    if {$g != $::wine_bounce_gen} return
+    if {![info exists ::managed($w)] || [info exists ::iconic($w)]
+            || ![desk-here-p $w]} {
+        puts "WM: restore bounce 0x[format %x $w]: called off (the\
+ window left)"
         return
     }
-    focus-to $w
-}
-# Beat 1 of the restore bounce, DELAYED past wine's restore pump: any
-# activation arriving between WM_STATE=Normal and the app pumping its
-# SC_RESTORE runs with WS_MINIMIZE still set (win32u message.c orders
-# SetActiveWindow before the SC_RESTORE syscommand) and poisons the
-# focus hand-off. This first invitation makes wine consider the window
-# FOREGROUND (its focus may already be dead — that is fine), which is
-# what beat 2's deactivation needs to run the FULL cleaning path.
-proc wine-restore-beat1 {w} {
-    if {![info exists ::managed($w)]} return
-    puts "WM: restore bounce beat1 0x[format %x $w]: inviting"
-    focus-to $w
-    after 400 [list wine-restore-beat2 $w]
-}
-# Beat 2 of the restore bounce: the deactivation. It only counts if
-# wine believes the window is FOREGROUND at this moment (a foreground
-# loss with previous==hwnd clears the active window and the poisoned
-# hwndFocus; anything else is a no-op against the seal) — hence beat 1
-# first made it foreground the normal way. The X focus is parked too:
-# an honest FocusOut(Normal) at a mapped window, and beat 3's
-# XSetInputFocus then generates the real FocusIn the WM will believe.
-proc wine-restore-beat2 {w} {
-    if {![info exists ::managed($w)]} return
-    puts "WM: restore bounce beat2 0x[format %x $w]: park + holder publish"
-    # focus-park keeps the books straight: ::focused drops to 0, so
-    # beat 3's confirmed FocusIn is a CHANGE again and paint-focus
-    # re-publishes the window — the publish that drives wine's
-    # reactivation (a raw x-focus-set here left ::focused standing and
-    # the re-publish never happened).
+    if {$::focused != $w} {
+        if {$::invited == $w && $retry < 2} {
+            # our invitation is still unanswered — wine is slow today;
+            # give it one more beat (twice, then give up)
+            after $::wine_bounce_ms \
+                [list wine-restore-beat2 $w $g [incr retry]]
+            return
+        }
+        puts "WM: restore bounce 0x[format %x $w]: called off (the\
+ focus went elsewhere)"
+        return
+    }
+    puts "WM: restore bounce 0x[format %x $w]: park + holder publish"
     focus-park "restore bounce"
     # the park published None; overwrite with the holder's real id — a
     # foreign window resolves to wine's desktop and actually
     # deactivates, a None value resolves to nothing and is a no-op
-    soft "publish _NET_ACTIVE_WINDOW (bounce beat2)" \
+    soft "publish _NET_ACTIVE_WINDOW (restore bounce)" \
         { set-prop-longs $::root $::NET_ACTIVE 33 [list $::nofocus] }
-    after 300 [list wine-restore-beat3 $w]
+    after $::wine_bounce_ms [list wine-restore-beat3 $w $g]
 }
-proc wine-restore-beat3 {w} {
-    if {![info exists ::managed($w)]} return
-    puts "WM: restore bounce beat3 0x[format %x $w]: re-inviting"
+proc wine-restore-beat3 {w g} {
+    if {$g != $::wine_bounce_gen} return
+    if {![info exists ::managed($w)] || [info exists ::iconic($w)]
+            || ![desk-here-p $w]} {
+        puts "WM: restore bounce 0x[format %x $w]: called off (the\
+ window left)"
+        return
+    }
+    if {$::focused != 0 || $::invited != 0} {
+        puts "WM: restore bounce 0x[format %x $w]: called off (somebody\
+ took the focus mid-dance)"
+        return
+    }
+    puts "WM: restore bounce 0x[format %x $w]: re-inviting"
     focus-to $w
 }
 
@@ -3080,6 +3120,7 @@ proc unmanage {w {dead 0}} {
     if {!$::releasing} { publish-client-list }
     icon-invalidate $w
     unset -nocomplain ::iconic($w) ::fullscreen($w) ::skip_unmap($w)
+    unset -nocomplain ::wine_dirty($w)
     unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
     unset -nocomplain ::poshintof($w) ::sizehintof($w) ::gravof($w) ::mapxyof($w)
     # The decoration is gone: stop treating its windows as ours, and
@@ -3137,6 +3178,12 @@ keep evtime 0   ;# timestamp of the last user input event we parsed
 keep invited 0
 proc paint-focus {w} {
     set ::focused $w
+    # a client taking the focus dirties every iconic globally-active
+    # window: their Win32 focus is lost for real now, and their
+    # restore will need the bounce (see deiconify-client)
+    foreach k [array names ::wine_dirty] {
+        if {$k != $w} { set ::wine_dirty($k) 1 }
+    }
     # every honest focus change publishes _NET_ACTIVE_WINDOW — Wine
     # reads its foreground from here (see the EWMH block)
     if {[info exists ::NET_ACTIVE]} {
