@@ -915,15 +915,30 @@ proc policy-transient {w leader} {
 proc sticky-hatch {} {
     if {[lsearch -exact [image names] tk9wm-sticky] >= 0} { return tk9wm-sticky }
     set n 8
-    image create photo tk9wm-sticky -width $n -height $n
+    image create photo tk9wm-hatch-cell -width $n -height $n
     # Tk 9 takes an RGBA colour, which is the whole trick: at a fifth of
     # white the line BLENDS with whatever is under it, so one image
     # serves the blue strip, the grey one, and the amber of a keyboard
     # mode. Solid white was tried first and read as a fence across the
     # title.
     for {set i 0} {$i < $n} {incr i} {
-        tk9wm-sticky put #ffffff36 -to $i $i [expr {$i + 1}] [expr {$i + 1}]
+        tk9wm-hatch-cell put #ffffff36 -to $i $i [expr {$i + 1}] [expr {$i + 1}]
     }
+    # The cell is NOT what gets tiled. treectrl lays a tiled image down
+    # one blit per repeat, and blitting a translucent photo is no mere
+    # copy on X11: fetch what is under it, blend, put it back — a round
+    # trip to the server. An 8x8 cell across a screen-wide strip is
+    # hundreds of round trips, and the hatch painted as a visible sweep
+    # (the owner, 2026-08-12). So the cell is stamped once into a tile
+    # as wide as the screen and as tall as the strip, and a redraw is
+    # one blit. Both sides rounded up to the pattern's period, so on
+    # the rare repeat — a strip taller than the tile, a screen grown
+    # sideways — the diagonals still meet.
+    set W [expr {$n * (([winfo screenwidth .] + $n - 1) / $n)}]
+    set H [expr {$n * (($::titleh + $n - 1) / $n)}]
+    image create photo tk9wm-sticky -width $W -height $H
+    tk9wm-sticky copy tk9wm-hatch-cell -to 0 0 $W $H -compositingrule set
+    image delete tk9wm-hatch-cell
     return tk9wm-sticky
 }
 proc frame-recolor {t bg} {
