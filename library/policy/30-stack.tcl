@@ -634,7 +634,7 @@ proc titlebar-build {t w names title} {
     $t.title state define sticky    ;# on every desk — worn as a texture
     $t.title element create eTxt text -fill white -lines 1 -font TitleFont
     $t.title element create eHatch image -tiled yes \
-        -image [list [sticky-hatch] sticky {} {}]
+        -image [list [sticky-hatch [themed focus]] sticky {} {}]
     $t.title element create eBox rect -outline white -outlinewidth 1 \
         -fill [list [shade [themed focus] 0.65] pressed {} {}]
     $t.title style create sTitle

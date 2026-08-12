@@ -907,39 +907,39 @@ proc policy-transient {w leader} {
 # and a style is per column, so the title column can carry a pattern
 # under its text and nothing else has to know.
 #
-# The hatch is TRANSLUCENT WHITE, which is what makes one image enough:
-# the titlebar is blue when focused, grey when not and amber under a
-# keyboard mode, and a pattern with alpha rides all three instead of
-# needing a copy per colour. Diagonal, sparse, at a fifth of white —
-# legible as a texture, quiet enough to read a title through.
-proc sticky-hatch {} {
-    if {[lsearch -exact [image names] tk9wm-sticky] >= 0} { return tk9wm-sticky }
+# The hatch LOOKS like translucent white — a fifth of white over the
+# strip's colour — but the image is OPAQUE: the blend is folded in
+# right here, once per colour, and the cell carries ground and line as
+# plain pixels. A photo with live alpha cannot be blitted without
+# asking the server what is under it — fetch, blend, put back, a round
+# trip PER TILE, and the hatch painted as a visible sweep (the owner,
+# 2026-08-12). An opaque cell is a one-way XCopyArea the server
+# pipelines, so the 8x8 cell — whose layout innocence months have
+# proved — can stay 8x8. (A screen-wide translucent tile was tried
+# instead and failed twice over: drawn solid white somewhere down
+# Tk's fallback paths, and its natural size shoved the title text
+# sideways.) The price of opacity is a cell per strip colour — blue,
+# grey, amber — built on first sight and cached; frame-recolor swaps
+# the worn one when the strip changes.
+proc sticky-hatch {bg} {
+    if {[info exists ::stickyhatch($bg)]} { return $::stickyhatch($bg) }
     set n 8
-    image create photo tk9wm-hatch-cell -width $n -height $n
-    # Tk 9 takes an RGBA colour, which is the whole trick: at a fifth of
-    # white the line BLENDS with whatever is under it, so one image
-    # serves the blue strip, the grey one, and the amber of a keyboard
-    # mode. Solid white was tried first and read as a fence across the
-    # title.
+    set img [image create photo]
+    $img put $bg -to 0 0 $n $n
+    # the line: a fifth of white folded into the ground — what the
+    # server's own blend of #ffffff36 would have made of it. Solid
+    # white was tried first and read as a fence across the title.
+    lassign [winfo rgb . $bg] r g b
+    set a [expr {0x36 / 255.0}]
+    set line [format "#%04x%04x%04x" \
+        [expr {round($r + (65535 - $r) * $a)}] \
+        [expr {round($g + (65535 - $g) * $a)}] \
+        [expr {round($b + (65535 - $b) * $a)}]]
     for {set i 0} {$i < $n} {incr i} {
-        tk9wm-hatch-cell put #ffffff36 -to $i $i [expr {$i + 1}] [expr {$i + 1}]
+        $img put $line -to $i $i [expr {$i + 1}] [expr {$i + 1}]
     }
-    # The cell is NOT what gets tiled. treectrl lays a tiled image down
-    # one blit per repeat, and blitting a translucent photo is no mere
-    # copy on X11: fetch what is under it, blend, put it back — a round
-    # trip to the server. An 8x8 cell across a screen-wide strip is
-    # hundreds of round trips, and the hatch painted as a visible sweep
-    # (the owner, 2026-08-12). So the cell is stamped once into a tile
-    # as wide as the screen and as tall as the strip, and a redraw is
-    # one blit. Both sides rounded up to the pattern's period, so on
-    # the rare repeat — a strip taller than the tile, a screen grown
-    # sideways — the diagonals still meet.
-    set W [expr {$n * (([winfo screenwidth .] + $n - 1) / $n)}]
-    set H [expr {$n * (($::titleh + $n - 1) / $n)}]
-    image create photo tk9wm-sticky -width $W -height $H
-    tk9wm-sticky copy tk9wm-hatch-cell -to 0 0 $W $H -compositingrule set
-    image delete tk9wm-hatch-cell
-    return tk9wm-sticky
+    set ::stickyhatch($bg) $img
+    return $img
 }
 proc frame-recolor {t bg} {
     $t configure -background $bg
@@ -956,6 +956,10 @@ proc frame-recolor {t bg} {
     # and moves with focus.
     catch {$t.title element configure eBox \
         -fill [list [shade $bg 0.65] pressed {} {}]}
+    # ...and the sticky hatch: its blend is baked per colour (see
+    # sticky-hatch), so the strip that changes colour changes cells.
+    catch {$t.title element configure eHatch \
+        -image [list [sticky-hatch $bg] sticky {} {}]}
 }
 # A colour of the same hue, DARKER — what a pressed thing looks like.
 # f is what survives of it: 0.65 is a press one can see without the
