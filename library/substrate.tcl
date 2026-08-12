@@ -2299,6 +2299,67 @@ proc deiconify-client {w} {
     x-map $w
     x-sync 0
     puts "WM: deiconified 0x[format %x $w]"
+    # THE RESTORE AND THE FOCUS ARE FED SEPARATELY (wine workaround,
+    # timer-driven): wine 11.15 runs the restore's activation while
+    # WS_MINIMIZE is still set (win32u message.c orders SetActiveWindow
+    # before the SC_RESTORE that clears the style), the focus hand-off
+    # inside it dies against the minimized-window refusal (win32u
+    # input.c), and the half-activated window is sealed — only a FULL
+    # deactivate/activate cycle resurrects the keyboard (the manual
+    # alt-tab-away-and-back cure). Property choreography alone cannot
+    # help: the restore is pumped on the app's win32 queue, and one
+    # GetWindowStateUpdates snapshot coalesces every publish into the
+    # same poisoned activate-before-restore order. So the cycle is
+    # spread in TIME — the four beats below, each waiting out the
+    # previous one's pump.
+    if {[info exists ::NET_ACTIVE] && $::nofocus != 0
+            && [client-globally-active $w]} {
+        puts "WM: deiconify 0x[format %x $w]: 4-beat restore bounce\
+ (globally active)"
+        after 500 [list wine-restore-beat1 $w]
+        return
+    }
+    focus-to $w
+}
+# Beat 1 of the restore bounce, DELAYED past wine's restore pump: any
+# activation arriving between WM_STATE=Normal and the app pumping its
+# SC_RESTORE runs with WS_MINIMIZE still set (win32u message.c orders
+# SetActiveWindow before the SC_RESTORE syscommand) and poisons the
+# focus hand-off. This first invitation makes wine consider the window
+# FOREGROUND (its focus may already be dead — that is fine), which is
+# what beat 2's deactivation needs to run the FULL cleaning path.
+proc wine-restore-beat1 {w} {
+    if {![info exists ::managed($w)]} return
+    puts "WM: restore bounce beat1 0x[format %x $w]: inviting"
+    focus-to $w
+    after 400 [list wine-restore-beat2 $w]
+}
+# Beat 2 of the restore bounce: the deactivation. It only counts if
+# wine believes the window is FOREGROUND at this moment (a foreground
+# loss with previous==hwnd clears the active window and the poisoned
+# hwndFocus; anything else is a no-op against the seal) — hence beat 1
+# first made it foreground the normal way. The X focus is parked too:
+# an honest FocusOut(Normal) at a mapped window, and beat 3's
+# XSetInputFocus then generates the real FocusIn the WM will believe.
+proc wine-restore-beat2 {w} {
+    if {![info exists ::managed($w)]} return
+    puts "WM: restore bounce beat2 0x[format %x $w]: park + holder publish"
+    # focus-park keeps the books straight: ::focused drops to 0, so
+    # beat 3's confirmed FocusIn is a CHANGE again and paint-focus
+    # re-publishes the window — the publish that drives wine's
+    # reactivation (a raw x-focus-set here left ::focused standing and
+    # the re-publish never happened).
+    focus-park "restore bounce"
+    # the park published None; overwrite with the holder's real id — a
+    # foreign window resolves to wine's desktop and actually
+    # deactivates, a None value resolves to nothing and is a no-op
+    soft "publish _NET_ACTIVE_WINDOW (bounce beat2)" \
+        { set-prop-longs $::root $::NET_ACTIVE 33 [list $::nofocus] }
+    after 300 [list wine-restore-beat3 $w]
+}
+proc wine-restore-beat3 {w} {
+    if {![info exists ::managed($w)]} return
+    puts "WM: restore bounce beat3 0x[format %x $w]: re-inviting"
     focus-to $w
 }
 
