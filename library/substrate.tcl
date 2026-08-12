@@ -1262,11 +1262,19 @@ proc dispatch-event {ev} {
             set win [dict get $ev window]
             set mode [dict get $ev mode]
             set detail [dict get $ev detail]
-            # Only mode Normal (0) reports a real focus change; the
-            # pairs a keyboard grab generates (Grab, Ungrab,
-            # WhileGrabbed) are bookkeeping about the grab, not about
-            # who owns the keyboard afterwards. ONE exception below:
-            # the PointerRoot/None fall is heeded in EVERY mode.
+            # Normal (0) and WhileGrabbed (3) report a real focus
+            # change — WhileGrabbed is Normal's shape while some grab
+            # is active, and our own chords ARE such a grab: a client
+            # answering a WM_TAKE_FOCUS invitation during Super+N desk
+            # switching lands its FocusIn as WhileGrabbed, and dropping
+            # it left the frame painted inactive and (worse) the
+            # _NET_ACTIVE_WINDOW publish never made — wine reads its
+            # foreground off that publish, so its window stayed
+            # deactivated for good (stand-proven, 2026-08-12). Only
+            # the pairs the grab ITSELF generates (Grab 1, Ungrab 2)
+            # are bookkeeping to ignore: they replay standing facts at
+            # grab boundaries. ONE further exception below: the
+            # PointerRoot/None fall is heeded in EVERY mode.
             #
             # detail says whether THIS window is the new focus window
             # (Ancestor 0, Inferior 2, Nonlinear 3) or merely lies on
@@ -1319,7 +1327,7 @@ proc dispatch-event {ev} {
                     focus-repair [expr {$detail == 6 ?
                         "focus fell to PointerRoot" : "focus fell to None"}]
                 }
-            } elseif {$mode == 0} {
+            } elseif {$mode == 0 || $mode == 3} {
                 set is_focus_win [expr {$detail == 0 || $detail == 2 || $detail == 3}]
                 if {[info exists ::managed($win)] && $detail < 5} {
                     # A client took the focus: our invitation was
