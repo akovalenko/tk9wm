@@ -665,8 +665,12 @@ proc titlebar-build {t w names title} {
     # so it is the whole cell rather than a thing beside the title
     $t.title style elements sTitle {eHatch eTxt}
     $t.title style layout sTitle eHatch -detach yes -iexpand xy
+    # ...and the scheme's LIFT as a bottom pad: the centering then
+    # happens in the cell above it, riding the text up by half the pad
+    # — see look-derive for why the box always stays whole (no glyph
+    # can be clipped) and why the lift is 0 at air 0.
     $t.title style layout sTitle eTxt -expand $::justflags($::titlejust) \
-        -padx 4 -squeeze x
+        -padx 4 -pady [list 0 [expr {2 * [dict get $L lift]}]] -squeeze x
     # the box fills its btnw-wide cell (glyph + ipad == btnw) and is
     # one grip shorter than the strip: -expand s sends the slack south,
     # pinning the box flush against the top border — the hole to the

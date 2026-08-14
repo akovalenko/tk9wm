@@ -75,9 +75,9 @@ wait_for 10 extents_is "4, 4, $H, 4"
 E4=$(extents)
 set -- $(metrics); H4=$1; TOP4=$2; BTN4=$3
 
-# --- live button gap: the hole under the buttons tightens, nothing moves
-q 'set-button-gap 2' >/dev/null
-wait_for 10 btn_is $((H - 8))
+# --- live button gap: the buttons grow to full height, nothing moves
+q 'set-button-gap 0' >/dev/null
+wait_for 10 btn_is $((H - 6))
 set -- $(metrics); H5=$1; TOP5=$2; BTN5=$3
 E5=$(extents)
 
@@ -99,7 +99,7 @@ echo "--- boot: h=$H top=$TOP btn=$BTN extents «$E0» grip $G0 edge(5,35)=$D0"
 echo "--- grips 12: grip $G1 edge(5,35)=$D1 extents «$E1»"
 echo "--- border 4: h=$H2 top=$TOP2 btn=$BTN2 extents «$E2» edge(2,8)=$D2"
 echo "--- air 0: h=$H4 top=$TOP4 btn=$BTN4 extents «$E4»"
-echo "--- button gap 2: h=$H5 btn=$BTN5 extents «$E5»"
+echo "--- button gap 0: h=$H5 btn=$BTN5 extents «$E5»"
 echo "--- reload: extents «$E3» grip $G3 btn $BTNR"
 
 echo "--- verdict"
@@ -108,10 +108,10 @@ if [ "$E0" = "10, 10, $((H + 12)), 10" ]; then
 else
     echo "FAIL: boot extents «$E0», want «10, 10, $((H + 12)), 10»"
 fi
-if [ "$BTN" = "$((H - 10))" ]; then
-    echo "OK: the button size follows the config's border"
+if [ "$BTN" = "$((H - 5))" ]; then
+    echo "OK: the button size follows half the config's border"
 else
-    echo "FAIL: boot btn=$BTN, want $((H - 10)) (titleh $H - border 10)"
+    echo "FAIL: boot btn=$BTN, want $((H - 5)) (titleh $H - border 10 / 2)"
 fi
 if [ "$G0" = "40.0" ] && [ "$D0" = "nw" ]; then
     echo "OK: the config's grips are drawn and hit-tested at 40"
@@ -128,36 +128,36 @@ if [ "$E1" = "$E0" ]; then
 else
     echo "FAIL: extents moved on set-grips: «$E1», had «$E0»"
 fi
-if [ "$E2" = "4, 4, $((H + 6)), 4" ] && [ "$BTN2" = "$((H - 4))" ]; then
+if [ "$E2" = "4, 4, $((H + 6)), 4" ] && [ "$BTN2" = "$((H - 2))" ]; then
     echo "OK: a live set-border re-derives and republishes"
 else
-    echo "FAIL: after set-border 4: extents «$E2» (want «4, 4, $((H + 6)), 4»), btn=$BTN2 (want $((H - 4)))"
+    echo "FAIL: after set-border 4: extents «$E2» (want «4, 4, $((H + 6)), 4»), btn=$BTN2 (want $((H - 2)))"
 fi
 if [ "$D2" = "nw" ]; then
     echo "OK: the corner still answers inside the new thin border"
 else
     echo "FAIL: after set-border 4: edge(2,8)=$D2, want nw"
 fi
-if [ "$H4" = "$((H - 6))" ] && [ "$BTN4" = "$((H - 10))" ] \
+if [ "$H4" = "$((H - 6))" ] && [ "$BTN4" = "$((H - 8))" ] \
         && [ "$E4" = "4, 4, $H, 4" ]; then
     echo "OK: a live set-title-air 0 tightens the strip and its buttons\
  to the bare linespace"
 else
     echo "FAIL: after set-title-air 0: h=$H4 (want $((H - 6))), btn=$BTN4\
- (want $((H - 10))), extents «$E4» (want «4, 4, $H, 4»)"
+ (want $((H - 8))), extents «$E4» (want «4, 4, $H, 4»)"
 fi
-if [ "$BTN5" = "$((H - 8))" ] && [ "$H5" = "$H4" ] && [ "$E5" = "$E4" ]; then
-    echo "OK: a live set-button-gap tightens the hole and moves nothing else"
+if [ "$BTN5" = "$((H - 6))" ] && [ "$H5" = "$H4" ] && [ "$E5" = "$E4" ]; then
+    echo "OK: a live set-button-gap 0 grows the buttons and moves nothing else"
 else
-    echo "FAIL: after set-button-gap 2: btn=$BTN5 (want $((H - 8))), h=$H5\
+    echo "FAIL: after set-button-gap 0: btn=$BTN5 (want $((H - 6))), h=$H5\
  (want $H4), extents «$E5» (want «$E4»)"
 fi
 if [ "$E3" = "6, 6, $((H + 8)), 6" ] && [ "$G3" = "24.0" ] \
-        && [ "$BTNR" = "$((H - 6))" ]; then
+        && [ "$BTNR" = "$((H - 3))" ]; then
     echo "OK: an empty-config reload restores the stock numbers"
 else
     echo "FAIL: after reload: extents «$E3» (want «6, 6, $((H + 8)), 6»),\
- grip $G3 (want 24.0), btn $BTNR (want $((H - 6)))"
+ grip $G3 (want 24.0), btn $BTNR (want $((H - 3)))"
 fi
 if grep -q 'handler error\|soft failure — settle' "$HERE/wm-decorknobs.log"; then
     echo "FAIL: errors in the WM log:"

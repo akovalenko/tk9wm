@@ -55,6 +55,8 @@ extB_is() { [ "$(ext $WB)" = "$1" ]; }
 DH=$(sed -n 's/^WM: titlebar h=\([0-9]*\).*/\1/p' "$HERE/wm-decorlooks.log" | tail -1)
 DTOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-decorlooks.log" | tail -1)
 DBTN=$(sed -n 's/^WM: titlebar h=[0-9]* top=[0-9]* btn=\([0-9]*\).*/\1/p' "$HERE/wm-decorlooks.log" | tail -1)
+DLIFT=$(sed -n 's/^WM: titlebar .* lift=\([0-9]*\).*/\1/p' "$HERE/wm-decorlooks.log" | tail -1)
+CLIFT=$(sed -n 's/^WM: look compact .* lift=\([0-9]*\).*/\1/p' "$HERE/wm-decorlooks.log" | tail -1)
 looknums() { sed -n 's/^WM: look compact h=\([0-9]*\) top=\([0-9]*\) btn=\([0-9]*\) border=\([0-9]*\) grips=\([0-9]*\).*/\1 \2 \3 \4 \5/p' \
     "$HERE/wm-decorlooks.log" | tail -1; }
 set -- $(looknums); CH=$1; CTOP=$2; CBTN=$3; CBORD=$4; CGRIPS=$5
@@ -80,6 +82,11 @@ BBOX=$(boxh $WBD)
 # pixel): the odd split, the even split, the sub-floor split a midget
 # cell needs, and the floor fallback for content that fits not at all
 PADS=$(q "list [btn-pad 18 25 3] [btn-pad 19 25 3] [btn-pad 24 25 3] [btn-pad 30 25 3]")
+# the title's lift: on the default scheme (air 3) the text element
+# must sit lift px above dead center — its top is at air - lift — and
+# the line box must still be whole inside the strip (no clipping)
+TXTY=$(q "set t \$::frameof($WAD); update idletasks
+lindex [\$t.title item bbox 1 C0 eTxt] 1")
 # (1,20) is inside default's 24px corner arm but past compact's 10px
 D_EDGE=$(q "set t \$::frameof($WBD); rz-edge \$t 1 20")
 D_CORNER=$(q "set t \$::frameof($WBD); rz-edge \$t 1 5")
@@ -154,6 +161,13 @@ if [ "$PADS" = "{3 4} {3 3} {0 1} 3" ]; then
     echo "OK: the pad makes up exactly what the walked font left short"
 else
     echo "FAIL: btn-pad said «$PADS», want «{3 4} {3 3} {0 1} 3»"
+fi
+if [ -n "$DLIFT" ] && [ "$DLIFT" -ge 1 ] && [ "$TXTY" = "$((3 - DLIFT))" ] \
+        && [ "$CLIFT" = "0" ]; then
+    echo "OK: the title rides half its leading up, and air 0 pins the lift at 0"
+else
+    echo "FAIL: lift default $DLIFT (want >=1) put eTxt top at $TXTY\
+ (want $((3 - DLIFT))); compact lift $CLIFT (want 0)"
 fi
 if [ "$D_EDGE" = "w" ] && [ "$D_CORNER" = "nw" ]; then
     echo "OK: narrow grips hit-test narrow — the arm ends where the scheme says"

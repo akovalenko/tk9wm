@@ -405,9 +405,9 @@ knob set-title-air   {var {titleair} settle {titles} group frame kind {int} get 
                           {0} {the tightest strip that still fits the whole font}
                           {-2} {tighter yet — eats the font's own leading, then the descenders}}}
 knob set-button-gap  {var {btngap} settle {titles} group frame kind {int 0} get {set ::btngap}
-                      derived {look default border}
+                      derived {expr {[look default border] / 2}}
                       doc {how much shorter than the strip a titlebar button is —
- the hole between the buttons and the client; unsaid, one border}
+ the hole between the buttons and the client; unsaid, half the border}
                       examples {
                           {2} {a tight 2px hole, whatever the border is}
                           {0} {full-height buttons, pressed right against the client}}}

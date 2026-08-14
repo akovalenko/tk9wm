@@ -208,6 +208,14 @@ proc look {name key} { dict get $::looks $name $key }
 # bottom), and decotop's 2px gap separates it from the client slot.
 # The floor keeps a runaway negative air from collapsing the strip
 # out of existence.
+# A font's em size in PIXELS, whatever unit it was declared in —
+# Tk's size is points when positive, pixels when negative, and the
+# lift's leading estimate needs one common unit.
+proc font-em-px {f} {
+    set s [font actual $f -size]
+    if {$s < 0} { return [expr {-$s}] }
+    return [expr {int(round($s * [tk scaling]))}]
+}
 proc look-derive {name} {
     set border [look $name border]
     set titleh [expr {max([font metrics [look $name font] -linespace] \
@@ -218,18 +226,34 @@ proc look-derive {name} {
     # height, flush against the top and side borders. Full-height
     # buttons read too big and pressed right against the client area
     # (the owner, 2026-07-28) — the shortfall leaves a hole between
-    # the buttons and the client. The gap defaults to the border (the
-    # original «one grip» shape, a relation that follows a moved
-    # border); a said btngap pins it, which is the tightening the
-    # same owner asked for at 144dpi (2026-08-14). btnw is the button
-    # column width and the click-target size the WM advertises in its
+    # the buttons and the client. The gap defaults to HALF the border
+    # rounded down — a whole border under the buttons read too wide
+    # at 144dpi, half of it is where the owner's eye called the hole
+    # visually symmetric (2026-08-14) — still a relation, following a
+    # moved border; a said btngap pins it. btnw is the button column
+    # width and the click-target size the WM advertises in its
     # metrics line. Never below 1: the border is a free number now,
     # and a gap wider than the strip is a taste — a negative column
     # width would be a crash.
     set gap [look $name btngap]
-    if {$gap eq ""} { set gap $border }
+    if {$gap eq ""} { set gap [expr {$border / 2}] }
     set btnw [expr {max($titleh - $gap, 1)}]
     dict set ::looks $name btnw $btnw
+    # The title's LIFT: how far above dead center the text line rides.
+    # Centered by its line box the text READS shifted down — the box's
+    # top carries the font's internal leading (diacritic headroom) and
+    # ink hangs low inside it (the owner, 2026-08-14). The lift is
+    # half the leading, estimated as linespace minus the em size (Tk
+    # exposes no truer figure), and CLAMPED to the air: it is worn as
+    # a bottom pad on the text element (titlebar-build), so the line
+    # box always stays whole inside the strip and no glyph — however
+    # tall its accent — can be clipped by construction. The cost of
+    # that guarantee: at air 0 there is nothing to redistribute and
+    # the lift is 0.
+    set ls [font metrics [look $name font] -linespace]
+    dict set ::looks $name lift [expr {max(0, min(
+        ($ls - [font-em-px [look $name font]]) / 2,
+        ($titleh - $ls) / 2))}]
     # ...and the air inside one. A CONSTANT three pixels was right at
     # the size this desk is usually run at and wrong everywhere else:
     # at a 32-point title the glyph filled its box to the outline and
@@ -271,7 +295,8 @@ proc look-build {name wish} {
     # One line per scheme, shaped like the titlebar line: the
     # regressions read their numbers here instead of re-deriving them.
     puts "WM: look $name h=[look $name titleh] top=[look $name decotop]\
- btn=[look $name btnw] border=[look $name border] grips=[look $name gripz]"
+ btn=[look $name btnw] border=[look $name border] grips=[look $name gripz]\
+ lift=[look $name lift]"
 }
 proc title-metrics {} {
     # Rebuilt WHOLE, from the wishes: the desk's numbers become the
@@ -287,7 +312,7 @@ proc title-metrics {} {
     dict for {name wish} $::look_wishes { look-build $name $wish }
     btn-images
     puts "WM: titlebar h=[look default titleh] top=[look default decotop]\
- btn=[look default btnw]\
+ btn=[look default btnw] lift=[look default lift]\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
 }
 
@@ -299,7 +324,7 @@ proc title-metrics {} {
 # A scheme is the whole set of decoration numbers under one name:
 # border, grips, air (the strip's padding around the text line, may
 # go negative — see look-derive), button-gap (how much shorter than
-# the strip a button is; unsaid, one border), a title font (a delta
+# the strip a button is; unsaid, half the border), a title font (a delta
 # on TitleFont, either form font-args takes), and everything
 # look-derive computes from them — strip height, client offset,
 # button size, button images of its own scale. What the wish does

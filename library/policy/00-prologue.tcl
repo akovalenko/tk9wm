@@ -51,12 +51,12 @@ keep gripz 24
 keep titleair 3
 # How much shorter than the strip a titlebar button is — the hole
 # between the buttons and the client area (plus decotop's constant
-# 2px seam). EMPTY means «one border», the shape the owner asked for
-# when full-height buttons pressed right against the client
-# (2026-07-28) — kept as a relation, so the hole follows a moved
-# border like it always did. A number pins it: the same owner, at
-# 144dpi, found a 6px hole under the buttons reads too wide
-# (2026-08-14), and `set-button-gap 2` is the tightening that keeps
-# the strip and the font exactly where they are.
+# 2px seam). EMPTY means «half a border, rounded down»: buttons
+# pressed right against the client were the owner's original no
+# (2026-07-28), a whole border under them read too wide at 144dpi,
+# and half is where his eye called the hole visually symmetric
+# (2026-08-14) — a relation still, so the hole follows a moved
+# border. A number pins it instead: `set-button-gap 0` is the old
+# full-height look, bigger is airier.
 keep btngap {}
 
