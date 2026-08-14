@@ -23,6 +23,7 @@ rm -rf "$CONF"; mkdir -p "$CONF"
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 wm-look compact {border 3 grips 10 font {-size 8 -slant italic}}
 wm-style {filter -title узкий*} {look compact}
+titlebar-button ask -glyph ✳
 EOF
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
@@ -42,6 +43,7 @@ wait_client "$HERE/wm-decorlooks.log" 'узкий актёр'
 
 set -- $(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-decorlooks.log")
 WA=$1; WB=$2
+WAD=$(printf %d "$WA")
 WBD=$(printf %d "$WB")
 
 q() { printf '%s\n' "$1" > "$CONF/q.tcl"
@@ -52,6 +54,7 @@ extB_is() { [ "$(ext $WB)" = "$1" ]; }
 # the desk's numbers from the boot log; the scheme's from its own line
 DH=$(sed -n 's/^WM: titlebar h=\([0-9]*\).*/\1/p' "$HERE/wm-decorlooks.log" | tail -1)
 DTOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-decorlooks.log" | tail -1)
+DBTN=$(sed -n 's/^WM: titlebar h=[0-9]* top=[0-9]* btn=\([0-9]*\).*/\1/p' "$HERE/wm-decorlooks.log" | tail -1)
 looknums() { sed -n 's/^WM: look compact h=\([0-9]*\) top=\([0-9]*\) btn=\([0-9]*\) border=\([0-9]*\) grips=\([0-9]*\).*/\1 \2 \3 \4 \5/p' \
     "$HERE/wm-decorlooks.log" | tail -1; }
 set -- $(looknums); CH=$1; CTOP=$2; CBTN=$3; CBORD=$4; CGRIPS=$5
@@ -62,6 +65,20 @@ EB0=$(ext $WB)
 BFONT=$(q "set t \$::frameof($WBD); \$t.title element cget eTxt -font")
 BSLANT=$(q "font actual LookFont-compact -slant")
 BPIN=$(q "set t \$::frameof($WBD); list \$::btnwof(\$t) \$::lookof(\$t)")
+# the TEXT-glyph button's box, both schemes: the glyph font is walked
+# down to fit and may stop short of the square — the pad must make up
+# the difference, or the box rides visibly shorter than its svg
+# neighbours (the ✳ under `look compact`, 2026-08-14)
+boxh() { q "set t \$::frameof($1); update idletasks
+lassign [\$t.title item bbox 1 Cask eBox] x1 y1 x2 y2
+expr {\$y2 - \$y1}"; }
+ABOX=$(boxh $WAD)
+BBOX=$(boxh $WBD)
+# ...and the pad arithmetic itself, with a content the fonts at hand
+# may never produce: an 18px glyph in a 25px cell must pad {3 4} —
+# the walked font lands ON g in this environment, so the bbox check
+# alone cannot catch a pad that quietly loses the odd pixel
+PADS=$(q "list [btn-pad 18 25 3] [btn-pad 19 25 3] [btn-pad 24 25 3]")
 # (1,20) is inside default's 24px corner arm but past compact's 10px
 D_EDGE=$(q "set t \$::frameof($WBD); rz-edge \$t 1 20")
 D_CORNER=$(q "set t \$::frameof($WBD); rz-edge \$t 1 5")
@@ -70,6 +87,7 @@ D_CORNER=$(q "set t \$::frameof($WBD); rz-edge \$t 1 5")
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 wm-look compact {border 5 grips 10 font {-size 8 -slant italic}}
 wm-style {filter -title узкий*} {look compact}
+titlebar-button ask -glyph ✳
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
 wait_for 10 extB_is "5, 5, $((CH + 7)), 5"
@@ -79,6 +97,7 @@ EA1=$(ext $WA)
 # --- reload 2: the rule is gone — the window falls back to default
 cat > "$CONF/tk9wm.tcl" <<'EOF'
 wm-look compact {border 5 grips 10 font {-size 8 -slant italic}}
+titlebar-button ask -glyph ✳
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
 wait_for 10 extB_is "6, 6, $DTOP, 6"
@@ -93,6 +112,7 @@ sleep 0.5
 
 echo "--- desk h=$DH top=$DTOP; compact h=$CH top=$CTOP btn=$CBTN border=$CBORD grips=$CGRIPS"
 echo "--- boot: обычный «$EA0», узкий «$EB0», eTxt font $BFONT ($BSLANT), pin {$BPIN}"
+echo "--- ✳ box height: обычный $ABOX (btn $DBTN), узкий $BBOX (btn $CBTN)"
 echo "--- edges on узкий: (1,20)=$D_EDGE (1,5)=$D_CORNER"
 echo "--- reload thicker: узкий «$EB1», обычный «$EA1»"
 echo "--- reload rule gone: узкий «$EB2», eTxt font $BFONT2, (1,20)=$D_EDGE2"
@@ -123,6 +143,16 @@ if [ "$BPIN" = "$CBTN compact" ]; then
     echo "OK: the frame is pinned to its scheme at its button size"
 else
     echo "FAIL: pin «$BPIN», want «$CBTN compact»"
+fi
+if [ "$ABOX" = "$DBTN" ] && [ "$BBOX" = "$CBTN" ]; then
+    echo "OK: the text-glyph button is the same square as its svg neighbours"
+else
+    echo "FAIL: ✳ box height обычный $ABOX (want $DBTN), узкий $BBOX (want $CBTN)"
+fi
+if [ "$PADS" = "{3 4} {3 3} 3" ]; then
+    echo "OK: the pad makes up exactly what the walked font left short"
+else
+    echo "FAIL: btn-pad said «$PADS», want «{3 4} {3 3} 3»"
 fi
 if [ "$D_EDGE" = "w" ] && [ "$D_CORNER" = "nw" ]; then
     echo "OK: narrow grips hit-test narrow — the arm ends where the scheme says"

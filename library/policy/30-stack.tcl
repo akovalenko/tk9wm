@@ -607,6 +607,17 @@ proc policy-pick-refocus {w} {
 # What this proc knows about buttons is that they have names, a side
 # and a picture. Which ones exist is the catalogue's business and what
 # they do is the gesture table's.
+# The two-sided pad that makes content + pads == cell EXACTLY (a
+# treectrl pad may be a {near far} pair): the slack splits over the
+# two sides with the odd pixel going far. Content too big for the
+# cell keeps the uniform floor and the box outgrows the cell, exactly
+# as it always did.
+proc btn-pad {content cell floor} {
+    set total [expr {$cell - $content}]
+    if {$total < 2 * $floor} { return $floor }
+    set near [expr {$total / 2}]
+    list $near [expr {$total - $near}]
+}
 proc titlebar-build {t w names title} {
     set names [titlebar-order $names]
     # The strip is measured by the WINDOW's scheme — btnw, padding,
@@ -663,15 +674,22 @@ proc titlebar-build {t w names title} {
         # a glyph is svg rendered to a photo, or a bare character
         # drawn in the strip's own font and ink; either way the box
         # union is padded out to the same btnw square, so a text
-        # button sits in the row exactly as its svg neighbours do
+        # button sits in the row exactly as its svg neighbours do.
+        # For text the FONT cannot promise the square: the glyph font
+        # is walked down until its linespace FITS the glyph height g,
+        # and when no pixel size lands on g exactly it stops short —
+        # so a symmetric btnpad left the box a pixel shy of btnw,
+        # visibly shorter than its svg neighbours on a scheme whose
+        # numbers are less lucky than the stock ones (the owner,
+        # 2026-08-14: xedit's ✳ under `look compact`). The pad makes
+        # up the difference exactly instead: btn-pad splits the whole
+        # slack over the two sides, odd pixel to the far one.
         set txt [titlebar-glyph-text $name]
         if {$txt ne ""} {
             $t.title element create e$name text -fill white -lines 1 \
                 -font $gfont -text $txt
-            set px [expr {max($btnpad,
-                ($btnw - [font measure $gfont $txt]) / 2)}]
-            set py [expr {max($btnpad,
-                ($btnw - [font metrics $gfont -linespace]) / 2)}]
+            set px [btn-pad [font measure $gfont $txt] $btnw $btnpad]
+            set py [btn-pad [font metrics $gfont -linespace] $btnw $btnpad]
         } else {
             $t.title element create e$name image \
                 -image [titlebar-image $name $scheme]
