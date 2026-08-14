@@ -3713,7 +3713,7 @@ proc tray-dock {w} {
     # commonest tray complaint there is, and reading it off the icon
     # costs nothing: we already have its attributes.
     set cell [dict get [x-attrs $slot] depth]
-    if {$depth eq $cell} {
+    if {$depth eq $cell && $depth eq [winfo screendepth .]} {
         # Same depth: the icon can be told to take the CELL's
         # background, and that is the classic cure for a transparent
         # icon coming out on black — the client's see-through parts
@@ -3722,11 +3722,22 @@ proc tray-dock {w} {
         # forget are exactly the ones that need it. Across depths the
         # server refuses (BadMatch), which is the whole ARGB story
         # below — hence the guard rather than a blind attempt.
+        #
+        # ...same depth as the ROOT too, or not at all. A ParentRelative
+        # window can only ever be reparented under a parent of its own
+        # depth — and both roads OUT of the tray lead to the root: the
+        # undock (which clears the background first, see tray-undock)
+        # and the SAVE-SET rescue when we crash, which clears nothing
+        # and just fails, taking the icon down with our connection. A
+        # depth-32 icon in a depth-32 cell over a depth-24 root must
+        # therefore not wear our ParentRelative: it is an ARGB icon, it
+        # paints its own alpha, and the cure would buy it nothing and
+        # cost it its crash-survival (run-trayrestart-test.sh).
         soft "parent-relative background for an icon" {
             x-attrs $w {background parent-relative}
             x-clear $w -exposures
         }
-    } elseif {$depth ne "" && $cell ne ""} {
+    } elseif {$depth ne "" && $cell ne "" && $depth ne $cell} {
         puts "WM: tray: 0x[format %x $w] is depth $depth in a depth-$cell\
  cell — an ARGB icon, though we advertise no ARGB visual (Chrome does\
  this unconditionally; measured 2026-07-29). Nobody blends a CHILD\
@@ -3821,7 +3832,19 @@ proc tray-undock {w {gone 0}} {
     if {!$gone} {
         # Hand it back to the root, unmapped. The icon outlives us (it
         # is in the save-set); what to do next is its client's call.
+        #
+        # The background goes FIRST, and it is load-bearing: reparenting
+        # a window that wears a ParentRelative background under a parent
+        # of another depth is a BadMatch — an ASYNC one, so the block
+        # sails on while the icon silently stays in the slot and dies
+        # with our connection. On an ARGB desk that was every restart:
+        # depth-32 icon, depth-24 root, one "ignored" BadMatch in the
+        # log, and nm-applet taking a fatal X error on the window that
+        # went out from under it (measured, run-trayrestart-test.sh,
+        # 2026-08-14). `none` is legal at any depth, whoever set what
+        # it replaces — us or the client.
         soft "release a tray icon" {
+            x-attrs $w {background none}
             x-unmap $w
             x-reparent $w $::root -200 -200
             x-sync 0
