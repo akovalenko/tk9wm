@@ -957,6 +957,11 @@ proc set-title-justify {j} {
 # start (iconic|fullscreen|normal) — the state it is born in, the
 # config's word for what a client asks with WM_HINTS initial_state or a
 # pre-map _NET_WM_STATE; see policy-start-state.
+# keys-pass (flat {kind spec} pairs; kind bundle|chord) — leading
+# chords the desk replays to this window while it holds the focus:
+# Alt+Tab for a fullscreen RDP viewer whose remote desk wants it. The
+# full story — late resolution, fail-closed — lives with
+# policy-key-pass (75-keys.tcl).
 keep style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {

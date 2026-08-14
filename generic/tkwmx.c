@@ -2123,12 +2123,19 @@ GrabObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 
     switch (index) {
     case G_KEY:
-    case G_UNKEY:
-	/* keycode modifiers window — the passive grab a global chord is
-	 * made of. Async both ways: there is nothing to freeze. */
-	if (n != 3) {
+    case G_UNKEY: {
+	/* keycode modifiers window ?keyboard-mode? — the passive grab a
+	 * global chord is made of. keyboard-mode is async (the default)
+	 * or sync; sync freezes the press until the WM answers with
+	 * `grab allow` (async-keyboard to keep it, replay-keyboard to
+	 * hand it to the client) — the keyboard twin of the button grab
+	 * below. The pointer side is always async: nothing of ours
+	 * rides on it. */
+	static const char *const kmodes[] = { "async", "sync", NULL };
+	int kmode = 0;
+	if (n < 3 || n > 4 || (index == G_UNKEY && n != 3)) {
 	    Tcl_WrongNumArgs(interp, 2, objv,
-		"?-displayof window? keycode modifiers window");
+		"?-displayof window? keycode modifiers window ?keyboard-mode?");
 	    return TCL_ERROR;
 	}
 	if (Tcl_GetIntFromObj(interp, av[0], &code) != TCL_OK
@@ -2136,13 +2143,18 @@ GrabObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 		|| WindowFromObj(interp, tkMain, av[2], &win) != TCL_OK) {
 	    return TCL_ERROR;
 	}
+	if (n == 4 && Tcl_GetIndexFromObj(interp, av[3], kmodes,
+		"keyboard-mode", 0, &kmode) != TCL_OK) {
+	    return TCL_ERROR;
+	}
 	if (index == G_KEY) {
-	    XGrabKey(dpy, code, (unsigned)mods, win, False,
-		     GrabModeAsync, GrabModeAsync);
+	    XGrabKey(dpy, code, (unsigned)mods, win, False, GrabModeAsync,
+		     kmode ? GrabModeSync : GrabModeAsync);
 	} else {
 	    XUngrabKey(dpy, code, (unsigned)mods, win);
 	}
 	return TCL_OK;
+    }
 
     case G_KBD: {
 	/* window ?time? -> 1 when the server gave it, 0 when it refused

@@ -500,7 +500,11 @@ proc x-monitors-randr {}        { tkwmx::server monitors }
 proc x-monitors-xinerama {}     { tkwmx::server xinerama }
 # {root parent {children...}}, or {} — the window is gone
 proc x-query-tree {w}           { tkwmx::window tree $w }
-proc x-grab-key {keycode mods w}   { tkwmx::grab key $keycode $mods $w }
+# kbdmode: async (default) or sync — sync freezes the press for the
+# replay decision (keys-pass); the shim keeps both on purpose.
+proc x-grab-key {keycode mods w {kbdmode async}} {
+    tkwmx::grab key $keycode $mods $w $kbdmode
+}
 proc x-ungrab-key {keycode mods w} { tkwmx::grab ungrab-key $keycode $mods $w }
 # 1 = the server gave the keyboard, 0 = someone else holds it
 proc x-grab-keyboard {w {time 0}}  { tkwmx::grab keyboard $w $time }
@@ -1584,7 +1588,21 @@ proc dispatch-event {ev} {
             # apart from the keys Tk's own widgets are being typed into.
             if {[dict get $ev window] != $::root} return
             set ::evtime [dict get $ev time]
-            handle-key [dict get $ev state] [dict get $ev keycode] $::evtime
+            # No active grab of ours means the press came through the
+            # passive SYNC grab and stands FROZEN until answered — the
+            # keyboard twin of button-press below. handle-key answers
+            # on the paths that decide (action, prefix, keys-pass);
+            # the finally answers for every path that stays silent —
+            # unbound, a bare modifier, an error — and replay is the
+            # answer that does not eat the key: the client gets what
+            # the desk had no use for.
+            set ::key_frozen [expr {!$::kbd_grabbed && $::keyrouter eq ""}]
+            try {
+                handle-key [dict get $ev state] [dict get $ev keycode] \
+                    $::evtime
+            } finally {
+                key-thaw replay-keyboard $::evtime
+            }
         }
         key-release { # only a keyboard-modal router cares (the alt-tab
             # commit-on-release); the keymap machine ignores releases.
@@ -3970,6 +3988,7 @@ keep keyseq_mods 0   ;# ...and the modifiers the prefix was held with
 # advice about which letters to avoid.
 keep chord_hold 0
 keep kbd_grabbed 0
+keep key_frozen 0    ;# a sync-grabbed press awaits its ONE answer (key-thaw)
 keep keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
 keep keyrouter_lost ""   ;# ...and this is its notice, see grab-keys-to
 keep key_invoke_mods 0  ;# modifiers of the chord that fired the running action
@@ -4215,12 +4234,14 @@ proc wm-unbind {spec} {
 # ...AND THE GRAB GOES WITH THE LAST BINDING UNDER IT. A top chord's
 # grab is shared by everything beneath it, so no single unbind may
 # drop it — but a top chord with NOTHING left under it is a key held
-# hostage: the server keeps sending it here (GrabModeAsync leaves
-# nothing to replay to the client afterwards), so the desk answers
-# nothing and the client never sees the key at all. The owner bound a
-# bare `t`, took the binding back, and lost the letter (2026-08-02);
-# the note that used to stand here claimed such a chord «falls through
-# to the client», and this is what finally makes that true.
+# hostage: the server keeps sending it here for nothing. The owner
+# bound a bare `t`, took the binding back, and lost the letter
+# (2026-08-02); the note that used to stand here claimed such a chord
+# «falls through to the client», and this is what finally makes that
+# true. (The sync grab has since softened the hostage's lot — an
+# unbound frozen press is REPLAYED now, so the letter reaches the
+# client even while the orphan stands — but every press still detours
+# through the WM for nothing, and the orphan still leaves.)
 proc keys-drop-orphan {top} {
     if {[dict exists $::keymap [join $top ,]]} return
     set i [lsearch -exact $::grabbed_top $top]
@@ -4417,8 +4438,12 @@ proc wm-bind {spec script {name ""}} {
 # The quadruple: an X grab matches the modifier state EXACTLY, so every
 # chord is grabbed four times over — plain, +Lock (Caps), +Mod2 (Num),
 # +both — and the same lock bits are stripped from the state before a
-# chord lookup. GrabModeAsync both ways: nothing to freeze, unlike the
-# click-to-focus button grab.
+# chord lookup. Keyboard-SYNC, like the click-to-focus button grab: an
+# idle press stands frozen until the dispatcher answers it — kept for
+# the desk (async-keyboard) or handed to the focused client
+# (replay-keyboard, the keys-pass verdict). Uniformly for every chord:
+# per-chord mode bookkeeping is not worth saving events that arrive at
+# a human's tempo.
 proc grab-chord {chord} {
     lassign $chord mods ks
     set got 0
@@ -4426,7 +4451,7 @@ proc grab-chord {chord} {
         set kc [x-keycode $k]
         if {$kc == 0} continue
         foreach locks {0 2 16 18} {
-            x-grab-key $kc [expr {$mods | $locks}] $::root
+            x-grab-key $kc [expr {$mods | $locks}] $::root sync
         }
         incr got
     }
@@ -4816,8 +4841,9 @@ proc modifier-held {mask} {
 # top map (the press came through a top-chord XGrabKey), a sequence in
 # progress consults its current submap (the press came through the
 # temporary XGrabKeyboard). An unbound press aborts a sequence — out
-# loud, see keyseq-abort — but is ignored in idle state, a stale grab
-# echo being no error.
+# loud, see keyseq-abort — but in idle state it is REPLAYED to the
+# client (the dispatcher's finally): a stale grab echo is no error,
+# and no reason to eat a letter either.
 #
 # A TOP CHORD IS ALWAYS LIVE. Inside a sequence, a press the current
 # submap does not know but the TOP map does starts over from there
@@ -4856,6 +4882,30 @@ proc modifier-held {mask} {
 # <Super>l on a Cyrillic group, and a menu hotkey is its Latin letter
 # too.
 set CHORD_IGNORE [expr {2 | 16 | 0x6000}]
+# The sync grab's other half: answer the server EXACTLY once per
+# frozen press. The dispatcher arms the latch when a press arrives
+# with no active grab of ours; every answer funnels through here, the
+# first one wins, and the dispatcher's finally sweeps whatever stayed
+# silent into a replay. An unanswered freeze is the failure mode this
+# shape exists to make impossible: the keyboard stops for the whole
+# display.
+proc key-thaw {mode time} {
+    if {!$::key_frozen} return
+    set ::key_frozen 0
+    x-allow-events $mode $time
+    x-sync 0
+}
+# The pass, said once per (chord, window): a held leader autorepeats
+# through the WM at full rate, and «why does Alt+Tab not work here»
+# needs one line, not a storm.
+keep keys_pass_said {}
+proc keys-pass-log {mods ks} {
+    set said [list $mods $ks $::focused]
+    if {$said eq $::keys_pass_said} return
+    set ::keys_pass_said $said
+    puts "WM: key [chord-name $mods $ks] -> passed to\
+ 0x[format %x $::focused] (keys-pass)"
+}
 proc handle-key {state kc time} {
     set mods [expr {$state & ~$::CHORD_IGNORE}]
     if {$::keyrouter ne ""} {
@@ -4866,6 +4916,17 @@ proc handle-key {state kc time} {
     }
     set ks [chord-key $kc [x-keysym-at $kc 0 0]]
     if {[info exists ::ismodks($ks)]} return
+    # keys-pass: the focused window may CLAIM this leader — then the
+    # frozen press is replayed to it, no sequence starts and the
+    # keymap never hears the key. Only an idle press can pass: under
+    # a sequence or a router the keyboard is actively ours and
+    # nothing arrives frozen. Compared AFTER the chord-key fold, so
+    # the verdict sees the same (mods, keysym) the lookup would.
+    if {$::key_frozen && [policy-key-pass $::focused $mods $ks]} {
+        keys-pass-log $mods $ks
+        key-thaw replay-keyboard $time
+        return
+    }
     set k "$mods,$ks"
     set node $::keymap
     set restart 0
@@ -4908,6 +4969,9 @@ proc handle-key {state kc time} {
         # reported as «key z» names a key nobody bound
         set said [join [concat $::keyseq_keys [chord-name $mods $ks]] " "]
         keyseq-end
+        # ...and a frozen press is the desk's to KEEP: answered async
+        # before the action runs, which may park or take its time
+        key-thaw async-keyboard $time
         puts "WM: key [chord-name $mods $ks] -> action"
         set ::key_invoke_mods $mods
         set t0 [clock milliseconds]
@@ -4931,11 +4995,20 @@ proc handle-key {state kc time} {
     } else {
         if {$::keyseq eq ""} {
             if {![x-grab-keyboard $::root $time]} {
+                # the dispatcher's finally replays the frozen press:
+                # whoever holds the keyboard, the client still types
                 puts "WM: key [chord-name $mods $ks]: the keyboard grab was\
  refused — sequence dropped"
                 return
             }
             set ::kbd_grabbed 1
+            # The async active grab THAWS a freeze this client holds
+            # (XGrabKeyboard's own words) — which closes an old race
+            # for free: a fast second key used to slip to the client
+            # before the grab stood; frozen, it waits in the queue
+            # and arrives under the grab. The explicit answer is a
+            # belt-and-braces no-op on exactly that spec reading.
+            key-thaw async-keyboard $time
         }
         if {$restart} { set ::keyseq_keys {} }
         puts "WM: key [chord-name $mods $ks] -> prefix"

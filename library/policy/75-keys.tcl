@@ -150,6 +150,74 @@ proc keymap-find {node script path} {
     return ""
 }
 
+# ---- keys-pass: leaders the focused window claims for itself ----
+# The style key `keys-pass` names top chords the desk GIVES UP while
+# the window holds the focus — a fullscreen RDP viewer whose remote
+# desk has an Alt+Tab of its own gets Alt+Tab back, and the prefixes
+# stay home. Flat {kind spec} pairs, repeats legal:
+#
+#   wm-style {filter -class xfreerdp} \
+#       {keys-pass {bundle windows chord <Super>d}}
+#
+# `bundle` passes the CURRENT leaders of a bundle — all of them (for
+# chords that is the prefix and the help key); `chord` one chord
+# token. What is passed is the GRAB, not an ownership: everything
+# under a passed leader goes quiet for that window, a custom bind
+# under the same umbrella included — whoever bound `<Super>t k` chose
+# to stand under the chords prefix. Resolution is LATE, at the press
+# and not at the style merge, so a re-parameterized bundle keeps
+# passing its new prefix rather than a snapshot. A crooked element
+# fails CLOSED — the chord stays the desk's, which is visible and
+# safe — with one complaint per unique cause, not a storm of them.
+#
+# Answers the substrate's dispatch (handle-key): 1 passes the frozen
+# press to the window by replay, 0 keeps it. Only idle presses ask —
+# a sequence or a router holds the keyboard actively and nothing
+# arrives frozen there.
+keep keys_pass_griped {}
+proc keys-pass-gripe {why} {
+    if {$why in $::keys_pass_griped} return
+    lappend ::keys_pass_griped $why
+    puts "WM: keys-pass: $why — element ignored, the chord stays the desk's"
+}
+proc policy-key-pass {w mods ks} {
+    if {$w == 0 || ![info exists ::managed($w)]} { return 0 }
+    set st [style-of $w]
+    if {![dict exists $st keys-pass]} { return 0 }
+    set val [dict get $st keys-pass]
+    if {[llength $val] % 2} {
+        keys-pass-gripe "odd pair list «$val»"
+        return 0
+    }
+    foreach {kind spec} $val {
+        switch -- $kind {
+            bundle {
+                if {![dict exists $::key_bundles $spec]} {
+                    keys-pass-gripe "bundle «$spec» is not on"
+                    continue
+                }
+                foreach cspec [dict get $::key_bundles $spec chords] {
+                    if {[catch {parse-chord [lindex $cspec 0]} top]} continue
+                    lassign $top m k
+                    if {$m == $mods && $k == $ks} { return 1 }
+                }
+            }
+            chord {
+                if {[catch {parse-chord $spec} top]} {
+                    keys-pass-gripe "bad chord «$spec»: $top"
+                    continue
+                }
+                lassign $top m k
+                if {$m == $mods && $k == $ks} { return 1 }
+            }
+            default {
+                keys-pass-gripe "unknown kind «$kind» (bundle or chord)"
+            }
+        }
+    }
+    return 0
+}
+
 # THE ACCORD TREE — stumpwm's shape: one prefix, everything under it,
 # and a key that says what is under the prefix you are standing in.
 # Both are parameters, because a prefix is exactly the thing a user

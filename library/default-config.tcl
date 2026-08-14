@@ -256,6 +256,17 @@
 #                              a Tk image name, a file path (png/svg),
 #                              or a bare NAME searched through
 #                              set-icon-path; a miss logs one line
+#   keys-pass PAIRS            leading chords the desk hands to THIS
+#                              window while it holds the focus — flat
+#                              {kind spec} pairs, kind `bundle` (that
+#                              bundle's current leaders; for chords
+#                              that is the prefix and the help key)
+#                              or `chord` (one chord token). The
+#                              press is replayed to the client, so
+#                              EVERYTHING under a passed leader goes
+#                              quiet for that window; a crooked
+#                              element is refused out loud and its
+#                              chord stays the desk's
 #
 #   wm-style always {increments ignore}
 #   wm-style {filter -class {* XTerm}} {increments ignore}
@@ -268,6 +279,15 @@
 #             && [lindex [client-cmdline $w] 0] eq "/usr/bin/xterm"}
 #   }
 #   wm-style my-xterm {increments ignore}
+#
+# A fullscreen RDP viewer is what keys-pass is FOR: the remote desk
+# has an Alt+Tab of its own, and the local prefixes are still wanted
+# at home:
+#   wm-style {filter -class xfreerdp} \
+#       {keys-pass {bundle windows chord <Super>d}}
+# (xfreerdp run with /grab-keyboard holds an ACTIVE keyboard grab and
+# every desk chord dies with it, keys-pass or no — the key is for
+# running without that switch.)
 #
 # ---- place: where a window opens ----
 #
