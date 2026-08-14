@@ -38,6 +38,8 @@ extents_is() { [ "$(extents)" = "$1" ]; }
 # once by the time wait_wm answers, so the first line is the stock 6
 metrics() { sed -n 's/^WM: titlebar h=\([0-9]*\) top=\([0-9]*\) btn=\([0-9]*\).*/\1 \2 \3/p' \
     "$HERE/wm-decorknobs.log" | tail -1; }
+btn_now() { set -- $(metrics); echo $3; }
+btn_is() { [ "$(btn_now)" = "$1" ]; }
 # the drawn grip arm: the first grip rectangle deco-draw puts down is
 # {0 0 B CZ}, so its fourth coordinate IS the arm's reach
 grip_len() { q 'set t $::frameof([lindex [array names ::frameof] 0])
@@ -73,6 +75,12 @@ wait_for 10 extents_is "4, 4, $H, 4"
 E4=$(extents)
 set -- $(metrics); H4=$1; TOP4=$2; BTN4=$3
 
+# --- live button gap: the hole under the buttons tightens, nothing moves
+q 'set-button-gap 2' >/dev/null
+wait_for 10 btn_is $((H - 8))
+set -- $(metrics); H5=$1; TOP5=$2; BTN5=$3
+E5=$(extents)
+
 # --- reload with an empty config: the stock numbers come back
 : > "$CONF/tk9wm.tcl"
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
@@ -80,6 +88,7 @@ wait_for 10 extents_is "6, 6, $((H + 8)), 6"
 E3=$(extents)
 wait_for 10 grip_is 24.0
 G3=$(grip_len)
+BTNR=$(btn_now)
 
 kill $CA 2>/dev/null
 sleep 0.5
@@ -90,7 +99,8 @@ echo "--- boot: h=$H top=$TOP btn=$BTN extents «$E0» grip $G0 edge(5,35)=$D0"
 echo "--- grips 12: grip $G1 edge(5,35)=$D1 extents «$E1»"
 echo "--- border 4: h=$H2 top=$TOP2 btn=$BTN2 extents «$E2» edge(2,8)=$D2"
 echo "--- air 0: h=$H4 top=$TOP4 btn=$BTN4 extents «$E4»"
-echo "--- reload: extents «$E3» grip $G3"
+echo "--- button gap 2: h=$H5 btn=$BTN5 extents «$E5»"
+echo "--- reload: extents «$E3» grip $G3 btn $BTNR"
 
 echo "--- verdict"
 if [ "$E0" = "10, 10, $((H + 12)), 10" ]; then
@@ -136,10 +146,18 @@ else
     echo "FAIL: after set-title-air 0: h=$H4 (want $((H - 6))), btn=$BTN4\
  (want $((H - 10))), extents «$E4» (want «4, 4, $H, 4»)"
 fi
-if [ "$E3" = "6, 6, $((H + 8)), 6" ] && [ "$G3" = "24.0" ]; then
+if [ "$BTN5" = "$((H - 8))" ] && [ "$H5" = "$H4" ] && [ "$E5" = "$E4" ]; then
+    echo "OK: a live set-button-gap tightens the hole and moves nothing else"
+else
+    echo "FAIL: after set-button-gap 2: btn=$BTN5 (want $((H - 8))), h=$H5\
+ (want $H4), extents «$E5» (want «$E4»)"
+fi
+if [ "$E3" = "6, 6, $((H + 8)), 6" ] && [ "$G3" = "24.0" ] \
+        && [ "$BTNR" = "$((H - 6))" ]; then
     echo "OK: an empty-config reload restores the stock numbers"
 else
-    echo "FAIL: after reload: extents «$E3» (want «6, 6, $((H + 8)), 6»), grip $G3 (want 24.0)"
+    echo "FAIL: after reload: extents «$E3» (want «6, 6, $((H + 8)), 6»),\
+ grip $G3 (want 24.0), btn $BTNR (want $((H - 6)))"
 fi
 if grep -q 'handler error\|soft failure — settle' "$HERE/wm-decorknobs.log"; then
     echo "FAIL: errors in the WM log:"

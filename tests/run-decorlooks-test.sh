@@ -21,7 +21,7 @@ start_xvfb
 CONF="$HERE/decorlooks-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-wm-look compact {border 3 grips 10 air 0 font {-size 8 -slant italic}}
+wm-look compact {border 3 grips 10 air 0 button-gap 1 font {-size 8 -slant italic}}
 wm-style {filter -title узкий*} {look compact}
 titlebar-button ask -glyph ✳
 EOF
@@ -86,7 +86,7 @@ D_CORNER=$(q "set t \$::frameof($WBD); rz-edge \$t 1 5")
 
 # --- reload 1: the scheme re-declared thicker — its windows re-frame
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-wm-look compact {border 5 grips 10 air 0 font {-size 8 -slant italic}}
+wm-look compact {border 5 grips 10 air 0 button-gap 1 font {-size 8 -slant italic}}
 wm-style {filter -title узкий*} {look compact}
 titlebar-button ask -glyph ✳
 EOF
@@ -97,7 +97,7 @@ EA1=$(ext $WA)
 
 # --- reload 2: the rule is gone — the window falls back to default
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-wm-look compact {border 5 grips 10 air 0 font {-size 8 -slant italic}}
+wm-look compact {border 5 grips 10 air 0 button-gap 1 font {-size 8 -slant italic}}
 titlebar-button ask -glyph ✳
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
@@ -130,10 +130,10 @@ if [ -n "$CH" ] && [ -n "$DH" ] && [ "$CH" -lt "$DH" ]; then
 else
     echo "FAIL: compact titleh $CH not below default's $DH"
 fi
-if [ "$CBTN" = "$((CH - 3))" ]; then
+if [ "$CBTN" = "$((CH - 1))" ]; then
     echo "OK: the button square derives from the scheme's own numbers"
 else
-    echo "FAIL: compact btn=$CBTN, want $((CH - 3)) (titleh $CH - border 3)"
+    echo "FAIL: compact btn=$CBTN, want $((CH - 1)) (titleh $CH - button-gap 1)"
 fi
 if [ "$BFONT" = "LookFont-compact" ] && [ "$BSLANT" = "italic" ]; then
     echo "OK: the strip's text is set in the scheme's italic font"

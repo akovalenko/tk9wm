@@ -14,7 +14,7 @@
 # the code's own values the moment before the config is first sourced,
 # so a default and its copy cannot drift apart: there is no copy.
 set config_vars {
-    border gripz titleair OUTLINE titlejust winlist_cycle_opt icon_path
+    border gripz titleair btngap OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     monitors_override ndesks
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor

@@ -214,16 +214,21 @@ proc look-derive {name} {
                               + 2 * [look $name air], 5)}]
     dict set ::looks $name titleh $titleh
     dict set ::looks $name decotop [expr {$border + $titleh + 2}]
-    # The titlebar buttons: squares one grip SHORT of the strip height,
-    # flush against the top and side borders. Full-height buttons read
-    # too big and pressed right against the client area (the owner,
-    # 2026-07-28) — shrinking them by the grip width leaves a hole of
-    # about one grip (border + the 2px gap) between the buttons and
-    # the client. btnw is the button column width and the click-target
-    # size the WM advertises in its metrics line. Never below 1: the
-    # border is a free number now, and a border wider than the strip
-    # is a taste — a negative column width would be a crash.
-    set btnw [expr {max($titleh - $border, 1)}]
+    # The titlebar buttons: squares one BUTTON-GAP short of the strip
+    # height, flush against the top and side borders. Full-height
+    # buttons read too big and pressed right against the client area
+    # (the owner, 2026-07-28) — the shortfall leaves a hole between
+    # the buttons and the client. The gap defaults to the border (the
+    # original «one grip» shape, a relation that follows a moved
+    # border); a said btngap pins it, which is the tightening the
+    # same owner asked for at 144dpi (2026-08-14). btnw is the button
+    # column width and the click-target size the WM advertises in its
+    # metrics line. Never below 1: the border is a free number now,
+    # and a gap wider than the strip is a taste — a negative column
+    # width would be a crash.
+    set gap [look $name btngap]
+    if {$gap eq ""} { set gap $border }
+    set btnw [expr {max($titleh - $gap, 1)}]
     dict set ::looks $name btnw $btnw
     # ...and the air inside one. A CONSTANT three pixels was right at
     # the size this desk is usually run at and wrong everywhere else:
@@ -241,12 +246,13 @@ proc look-derive {name} {
 # scheme with it the way it carries the titlebars.
 proc look-build {name wish} {
     set rec [dict create border $::border gripz $::gripz \
-                 air $::titleair font TitleFont]
+                 air $::titleair btngap $::btngap font TitleFont]
     foreach {k v} $wish {
         switch -- $k {
-            border { dict set rec border $v }
-            grips  { dict set rec gripz $v }
-            air    { dict set rec air $v }
+            border     { dict set rec border $v }
+            grips      { dict set rec gripz $v }
+            air        { dict set rec air $v }
+            button-gap { dict set rec btngap $v }
             font {
                 set out [font actual TitleFont]
                 foreach {o ov} [font-args "wm-look $name" $v] {
@@ -276,7 +282,7 @@ proc title-metrics {} {
     array unset ::look_warned
     dict set ::looks default \
         [dict create border $::border gripz $::gripz \
-             air $::titleair font TitleFont]
+             air $::titleair btngap $::btngap font TitleFont]
     look-derive default
     dict for {name wish} $::look_wishes { look-build $name $wish }
     btn-images
@@ -292,13 +298,14 @@ proc title-metrics {} {
 #
 # A scheme is the whole set of decoration numbers under one name:
 # border, grips, air (the strip's padding around the text line, may
-# go negative — see look-derive), a title font (a delta on TitleFont,
-# either form font-args takes), and everything look-derive computes
-# from them — strip height, client offset, button size, button
-# images of its own scale. What the wish does not name is inherited
-# from the desk (`default`) LIVE: a scheme that says only `grips 12`
-# follows every set-border and set-title-font like any undeclared
-# window does.
+# go negative — see look-derive), button-gap (how much shorter than
+# the strip a button is; unsaid, one border), a title font (a delta
+# on TitleFont, either form font-args takes), and everything
+# look-derive computes from them — strip height, client offset,
+# button size, button images of its own scale. What the wish does
+# not name is inherited from the desk (`default`) LIVE: a scheme
+# that says only `grips 12` follows every set-border and
+# set-title-font like any undeclared window does.
 #
 # The declaration is a WISH (the config lifecycle's rule): it records
 # itself and asks the titles settler, which re-derives every record
@@ -327,7 +334,7 @@ proc wm-look {name settings} {
     }
     foreach {k v} $settings {
         switch -- $k {
-            border - grips {
+            border - grips - button-gap {
                 if {![string is integer -strict $v] || $v < 0} {
                     error "wm-look $name: $k is a whole number of pixels"
                 }
@@ -346,7 +353,7 @@ proc wm-look {name settings} {
             }
             default {
                 error "wm-look $name: unknown key «$k» —\
- border, grips, air or font"
+ border, grips, air, button-gap or font"
             }
         }
     }

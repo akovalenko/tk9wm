@@ -49,4 +49,14 @@ keep gripz 24
 # centered), which eats the font's own leading first and the deepest
 # descender pixels after it — legal, and a taste.
 keep titleair 3
+# How much shorter than the strip a titlebar button is — the hole
+# between the buttons and the client area (plus decotop's constant
+# 2px seam). EMPTY means «one border», the shape the owner asked for
+# when full-height buttons pressed right against the client
+# (2026-07-28) — kept as a relation, so the hole follows a moved
+# border like it always did. A number pins it: the same owner, at
+# 144dpi, found a 6px hole under the buttons reads too wide
+# (2026-08-14), and `set-button-gap 2` is the tightening that keeps
+# the strip and the font exactly where they are.
+keep btngap {}
 
