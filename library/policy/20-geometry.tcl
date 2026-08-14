@@ -572,7 +572,8 @@ proc policy-detach {w} {
     unset -nocomplain ::btn($::frameof($w)) ::fullframe($::frameof($w)) \
         ::chromeof($::frameof($w))
     ;# the frame's own, not the client's
-    unset -nocomplain ::btncols($::frameof($w)) ::btnwof($::frameof($w))
+    unset -nocomplain ::btncols($::frameof($w)) ::btnwof($::frameof($w)) \
+        ::lookof($::frameof($w))
     destroy $::frameof($w)
     unset ::frameof($w)
     unset -nocomplain ::titleof($w)
@@ -633,7 +634,7 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
         # client wears all three, a window the WM put up for itself
         # wears whatever it asked for. Same layout code either way.
         foreach name [frame-buttons $t] {
-            $t.title column configure C$name -width [look default btnw]
+            $t.title column configure C$name -width [look [frame-look $t] btnw]
         }
         place $t.title -x $B -y $B -width $cw -height $titleh
     } else {

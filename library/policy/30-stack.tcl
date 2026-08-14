@@ -609,11 +609,18 @@ proc policy-pick-refocus {w} {
 # they do is the gesture table's.
 proc titlebar-build {t w names title} {
     set names [titlebar-order $names]
-    set btnw [look default btnw]
-    set btnpad [look default btnpad]
+    # The strip is measured by the WINDOW's scheme — btnw, padding,
+    # height and both fonts come from the same record the chrome
+    # verdict answers from. The WM's own windows (w == 0) wear
+    # default: they are furniture, and no style rule matches them.
+    set scheme [expr {$w == 0 ? "default" : [look-of $w]}]
+    set L [dict get $::looks $scheme]
+    set btnw [dict get $L btnw]
+    set btnpad [dict get $L btnpad]
+    set gfont [look-glyph-font $scheme]
     treectrl $t.title -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background [themed focus] -itemheight [look default titleh]
+        -background [themed focus] -itemheight [dict get $L titleh]
     # class binds stripped (a dumb label, not a tree) — but the FRAME's
     # tag stays: press-end must hear a ButtonRelease that happens over
     # the title, or the drag state outlives the drag (the rz-* handlers
@@ -634,7 +641,8 @@ proc titlebar-build {t w names title} {
     }
     $t.title configure -treecolumn C0
     $t.title state define sticky    ;# on every desk — worn as a texture
-    $t.title element create eTxt text -fill white -lines 1 -font TitleFont
+    $t.title element create eTxt text -fill white -lines 1 \
+        -font [dict get $L font]
     $t.title element create eHatch image -tiled yes \
         -image [list [sticky-hatch [themed focus]] sticky {} {}]
     $t.title element create eBox rect -outline white -outlinewidth 1 \
@@ -659,13 +667,14 @@ proc titlebar-build {t w names title} {
         set txt [titlebar-glyph-text $name]
         if {$txt ne ""} {
             $t.title element create e$name text -fill white -lines 1 \
-                -font BtnGlyphFont -text $txt
+                -font $gfont -text $txt
             set px [expr {max($btnpad,
-                ($btnw - [font measure BtnGlyphFont $txt]) / 2)}]
+                ($btnw - [font measure $gfont $txt]) / 2)}]
             set py [expr {max($btnpad,
-                ($btnw - [font metrics BtnGlyphFont -linespace]) / 2)}]
+                ($btnw - [font metrics $gfont -linespace]) / 2)}]
         } else {
-            $t.title element create e$name image -image [titlebar-image $name]
+            $t.title element create e$name image \
+                -image [titlebar-image $name $scheme]
             set px $btnpad
             set py $btnpad
         }
@@ -682,6 +691,7 @@ proc titlebar-build {t w names title} {
     $t.title item lastchild root $item
     set ::btncols($t) $names
     set ::btnwof($t) $btnw   ;# the size this strip was BUILT at
+    set ::lookof($t) $scheme ;# ...and the scheme (frame-look reads it)
     # Three buttons and the double, because all four are gestures the
     # table can name. w == 0 says "no client behind this frame" to the
     # shared handlers.

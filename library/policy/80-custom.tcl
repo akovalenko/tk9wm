@@ -1182,6 +1182,7 @@ config-verb wm-widget-remove  {at {widgets @1}  key wm-widget    denies 1}
 config-verb panel-button      {at {panel @1}    key panel-button value overrides section 4}
 config-verb panel-buttons-own {at {panel @1}    key panel-buttons-own sweep 1 section 3}
 config-verb wm-font           {at {fonts @1}    key wm-font      value options section 1}
+config-verb wm-look           {at {looks @1}    key wm-look      value spec}
 config-verb wm-keys           {at {keys @1}     key wm-keys      value params}
 config-verb wm-menu           {at {menus @1}    key wm-menu      spec menu}
 config-verb wm-menu-remove    {at {menus @1}    key wm-menu      denies 1}

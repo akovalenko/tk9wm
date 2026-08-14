@@ -191,12 +191,13 @@ unless-already {[lsearch -exact [font names] IconFont] >= 0} {font create IconFo
 #
 # Everything a frame is measured by — border, corner grip arms, the
 # strip's height and what derives from them — is a RECORD, not a
-# scatter of globals. One scheme exists today, `default`, recomputed
-# from the wishes (::border, ::gripz, TitleFont) whenever any of them
-# moves; every consumer asks the record. That is the seam the named
-# schemes (wm-look) will stand on: a scheme is a finite thing derived
-# once at declaration, and a frame asks ITS scheme instead of the
-# desk — so the per-window lookup stays a lookup.
+# scatter of globals. The desk's own numbers are the scheme `default`,
+# recomputed from the wishes (::border, ::gripz, TitleFont) whenever
+# any of them moves; every consumer asks the record. NAMED schemes
+# (wm-look, below) are further records beside it: a scheme is a finite
+# thing derived whole when the metrics settle, and a frame asks ITS
+# scheme instead of the desk — so the per-window lookup stays a
+# lookup, and no rule can invent a number nothing precomputed.
 keep looks {}   ;# NAME -> {border gripz font titleh decotop btnw btnpad}
 proc look {name key} { dict get $::looks $name $key }
 # The derivations, from a scheme's own border and font. Height is the
@@ -228,14 +229,128 @@ proc look-derive {name} {
     # the same three pixels it always was.
     dict set ::looks $name btnpad [expr {max(3, $btnw / 7)}]
 }
+# One named scheme's record, from its wish: the desk's numbers seed
+# it, the wish overrides what it names, and the font is a DELTA on
+# TitleFont — a named object of the scheme's own, re-derived here
+# every time the metrics settle, so a moved desk font carries every
+# scheme with it the way it carries the titlebars.
+proc look-build {name wish} {
+    set rec [dict create border $::border gripz $::gripz font TitleFont]
+    foreach {k v} $wish {
+        switch -- $k {
+            border { dict set rec border $v }
+            grips  { dict set rec gripz $v }
+            font {
+                set out [font actual TitleFont]
+                foreach {o ov} [font-args "wm-look $name" $v] {
+                    if {$o eq "-size"} { set ov [font-size-of TitleFont $ov] }
+                    dict set out $o $ov
+                }
+                set f LookFont-$name
+                if {[lsearch -exact [font names] $f] < 0} { font create $f }
+                font configure $f {*}$out
+                dict set rec font $f
+            }
+        }
+    }
+    dict set ::looks $name $rec
+    look-derive $name
+    # One line per scheme, shaped like the titlebar line: the
+    # regressions read their numbers here instead of re-deriving them.
+    puts "WM: look $name h=[look $name titleh] top=[look $name decotop]\
+ btn=[look $name btnw] border=[look $name border] grips=[look $name gripz]"
+}
 proc title-metrics {} {
+    # Rebuilt WHOLE, from the wishes: the desk's numbers become the
+    # default scheme, then every declared wm-look on top — so a scheme
+    # the new config stopped declaring is GONE, not a ghost record a
+    # stale rule could still dress a window in.
+    set ::looks {}
+    array unset ::look_warned
     dict set ::looks default \
         [dict create border $::border gripz $::gripz font TitleFont]
     look-derive default
+    dict for {name wish} $::look_wishes { look-build $name $wish }
     btn-images
     puts "WM: titlebar h=[look default titleh] top=[look default decotop]\
  btn=[look default btnw]\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
+}
+
+# ---- named schemes: wm-look declares, the style key `look` applies --
+#
+#     wm-look compact {border 4 grips 12 font {-size 0.8x -slant italic}}
+#     wm-style {filter -class ninja} {look compact}
+#
+# A scheme is the whole set of decoration numbers under one name:
+# border, grips, a title font (a delta on TitleFont, either form
+# font-args takes), and everything look-derive computes from them —
+# strip height, client offset, button size, button images of its own
+# scale. What the wish does not name is inherited from the desk
+# (`default`) LIVE: a scheme that says only `grips 12` follows every
+# set-border and set-title-font like any undeclared window does.
+#
+# The declaration is a WISH (the config lifecycle's rule): it records
+# itself and asks the titles settler, which re-derives every record
+# and re-frames what changed. Precomputation is preserved by
+# construction — schemes are finite, derived when the metrics settle,
+# and a frame's verdict stays a dict lookup.
+#
+# Colours stay out of a scheme in this wave (focus/blur are the
+# desk's); the record is the seam where they would land.
+keep look_wishes {}   ;# NAME -> the settings dict as SAID (a config var)
+proc wm-look {name settings} {
+    if {![regexp {^[a-z][a-z0-9-]*$} $name]} {
+        error "wm-look: «$name» — lowercase letters, digits and dashes:\
+ it becomes a font and image name"
+    }
+    if {$name eq "default"} {
+        error "wm-look: «default» is the desk's own scheme —\
+ set-border, set-grips and set-title-font move it"
+    }
+    # Malformed settings die HERE, at their own config line — the
+    # wm-style lesson: accepted, they would detonate later inside the
+    # titles settler, far from the line that wrote them.
+    if {[llength $settings] % 2} {
+        error "wm-look $name: settings is not a dict (odd length):\
+ «$settings» — a value with spaces needs its own braces: font {-size 9}"
+    }
+    foreach {k v} $settings {
+        switch -- $k {
+            border - grips {
+                if {![string is integer -strict $v] || $v < 0} {
+                    error "wm-look $name: $k is a whole number of pixels"
+                }
+            }
+            font {
+                set opts [font-args "wm-look $name" $v]
+                if {[dict exists $opts -size]} {
+                    font-size-of TitleFont [dict get $opts -size]
+                }
+            }
+            default {
+                error "wm-look $name: unknown key «$k» —\
+ border, grips or font"
+            }
+        }
+    }
+    dict set ::look_wishes $name $settings
+    settle-soon titles
+}
+# The scheme a window wears: the style key `look`, or default. An
+# undeclared name is a config mistake that must not cost the window
+# its frame — worn as default, said ONCE per name per derivation.
+proc look-of {w} {
+    set st [style-of $w]
+    if {![dict exists $st look]} { return default }
+    set name [dict get $st look]
+    if {[dict exists $::looks $name]} { return $name }
+    if {![info exists ::look_warned($name)]} {
+        set ::look_warned($name) 1
+        puts "WM: look «$name» is not declared — wm-look names it first;\
+ default worn"
+    }
+    return default
 }
 
 # Titlebar buttons, fvwm-style (the owner's frame as the model): a thin
@@ -508,28 +623,40 @@ proc titlebar-glyph-text {name} {
     return $g
 }
 proc titlebar-side  {name} { dict get $::titlebar_buttons $name side }
-proc titlebar-image {name} { return imgBtn-$name }
+# Per-scheme names for the derived objects. The default scheme keeps
+# the bare names everything always had (imgBtn-close, BtnGlyphFont);
+# a named scheme's copies carry an @scheme suffix — one image and one
+# glyph font per size that exists, never per frame.
+proc look-suffix {scheme} { expr {$scheme eq "default" ? "" : "@$scheme"} }
+proc titlebar-image {name {scheme default}} {
+    return imgBtn-$name[look-suffix $scheme]
+}
+proc look-glyph-font {scheme} { return BtnGlyphFont[look-suffix $scheme] }
 proc btn-images {} {
+    dict for {scheme -} $::looks { btn-images-for $scheme }
+}
+proc btn-images-for {scheme} {
     # re-creating a photo under the same name updates every user of it;
     # the union box is glyph + 2*3px ipad (the 1px outline draws inside),
     # so this glyph height makes the box exactly btnw square — the full
     # button cell, no inset
-    set g [expr {max([look default btnw] - 2 * [look default btnpad], 7)}]
+    set g [expr {max([look $scheme btnw] - 2 * [look $scheme btnpad], 7)}]
     # ...and the TEXT glyphs get a font fitted to the same square the
     # svg renders into: a font asks for its linespace, and a glyph
     # taller than the cell hung below the row — a П-shaped button rank
     # (the owner, 2026-08-05). The badge trick, again: a PIXEL size
     # walked down until the line fits, so a text button is the same
     # btnw square its svg neighbours are.
-    if {"BtnGlyphFont" ni [font names]} { font create BtnGlyphFont }
+    set gf [look-glyph-font $scheme]
+    if {$gf ni [font names]} { font create $gf }
     for {set s $g} {$s > 7} {incr s -1} {
-        font configure BtnGlyphFont \
-            -family [font actual TitleFont -family] -size -$s -weight bold
-        if {[font metrics BtnGlyphFont -linespace] <= $g} break
+        font configure $gf -family [font actual [look $scheme font] -family] \
+            -size -$s -weight bold
+        if {[font metrics $gf -linespace] <= $g} break
     }
     dict for {name spec} $::titlebar_buttons {
         if {[titlebar-glyph-text $name] ne ""} continue   ;# drawn as text
-        image create photo [titlebar-image $name] \
+        image create photo [titlebar-image $name $scheme] \
             -format [list svg -scaletoheight $g] -data [dict get $spec glyph]
     }
 }
@@ -661,16 +788,26 @@ proc retitle-frames {} {
         # this a live font change grew the strip and the columns and
         # left four twenty-pixel buttons stranded at the top of a tall
         # titlebar (the owner, 2026-07-30).
+        # ...and for a changed SCHEME, even at an unchanged size: the
+        # strip's fonts are the scheme's, and a same-size scheme that
+        # differs only in slant would otherwise keep the old lettering.
         set want [client-buttons $w]
+        set scheme [look-of $w]
         if {$want ne [frame-buttons $t]
                 || ![info exists ::btnwof($t)]
-                || $::btnwof($t) != [look default btnw]} {
+                || $::btnwof($t) != [look $scheme btnw]
+                || ![info exists ::lookof($t)]
+                || $::lookof($t) ne $scheme} {
             unset -nocomplain ::btn($t)
             destroy $t.title
             titlebar-build $t $w $want [title-or-id $w \
                 [expr {[info exists ::titleof($w)] ? $::titleof($w) : ""}]]
         }
         frame-layout $t [$t.slot cget -width] [$t.slot cget -height]
+        # The underlay too: a scheme change that moved only the DRAWN
+        # grips leaves the frame's geometry — and so its <Configure> —
+        # untouched, and nothing else would repaint the arms.
+        deco-redraw $t
     }
     update idletasks
     foreach {w t} [array get ::frameof] {
@@ -749,6 +886,10 @@ proc set-title-justify {j} {
 # CSD shape — firefox, GTK4), so the furniture types (dock, splash,
 # tooltip...) stay bare and `wm-style always {decor-floor border}` is
 # safe desk-wide; an explicit `decor none` rule outranks the floor.
+# look (a wm-look scheme name) — which decoration scheme measures this
+# window's frame: border, grips, the title font and everything derived
+# from them. See the named-schemes block above; an undeclared name is
+# logged once and worn as default.
 # place (a term list) — the geometry it is
 # born with; see parse-place.
 # desk (a number, or sticky) — which desk it is born on; sticky means
@@ -966,7 +1107,7 @@ proc hinted-decor {w} {
 # style verdict is cached per client, but the frame is what the drawing
 # and the resize code has in hand.
 proc chrome-of {w} {
-    set L [dict get $::looks default]
+    set L [dict get $::looks [look-of $w]]
     switch -- [dict get [style-of $w] decor] {
         none    { list 0 0 0 0 }
         border  { list [dict get $L border] [dict get $L border] 0 \
@@ -981,6 +1122,16 @@ proc frame-chrome {t} {
     set L [dict get $::looks default]
     list [dict get $L border] [dict get $L decotop] [dict get $L titleh] \
         [dict get $L gripz]
+}
+# The scheme a FRAME was built at (pinned by titlebar-build), for the
+# layout paths that hold $t and not $w. A scheme the config withdrew
+# falls back to default rather than erroring mid-layout — the next
+# retitle re-pins it honestly.
+proc frame-look {t} {
+    if {[info exists ::lookof($t)] && [dict exists $::looks $::lookof($t)]} {
+        return $::lookof($t)
+    }
+    return default
 }
 # --- layer 2, per frame: which of the catalogue this one wears ---
 # The set is a property of the FRAME, because it varies: the WM's own

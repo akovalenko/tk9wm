@@ -20,7 +20,7 @@ set config_vars {
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
     key_echo key_echo_place key_hold_warn KEY_ECHO_BAD KBMR_BG chord_hold
     last_started
-    titlebar_buttons titlebar_gestures fade font_kin
+    titlebar_buttons titlebar_gestures fade font_kin look_wishes
     widgets desk_window desk_background desk_background_said widget_gap
     theme
     tray_on tray_icon_size tray_gap tray_pad tray_bg tray_bg_said tray_argb
@@ -140,6 +140,13 @@ settler decor {
     # derives from it, so retitle-frames re-derives the record whole,
     # and the <Configure> it causes repaints the underlay by itself.)
     dict set ::looks default gripz $::gripz
+    # ...and into every scheme whose wish does not SAY grips: an
+    # unsaid key inherits from the desk live, here as at derivation.
+    dict for {name wish} $::look_wishes {
+        if {![dict exists $wish grips] && [dict exists $::looks $name]} {
+            dict set ::looks $name gripz $::gripz
+        }
+    }
     foreach {w t} [array get ::frameof] {
         set ::chromeof($t) [chrome-of $w]
         deco-redraw $t
