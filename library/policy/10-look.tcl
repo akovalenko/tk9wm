@@ -716,9 +716,15 @@ proc set-title-justify {j} {
 # window in the window list, overriding the client's own _NET_WM_ICON.
 # minimize (iconify|refuse) — this client's answer to an iconify
 # request, overriding the desk-wide set-minimize.
-# decor (full|border|none) — how much frame this client wears; see
-# chrome-of, and hinted-decor for what the window itself asked for
-# (this key OVERRULES that). place (a term list) — the geometry it is
+# decor (full|border|none|hint) — how much frame this client wears;
+# see chrome-of, and hinted-decor for what the window itself asked for
+# (a named step OVERRULES that; `hint` hands the question back to the
+# window). decor-floor (border|full) — the least frame a window that
+# ASKED for none still wears: promotes only the Motif-said none (the
+# CSD shape — firefox, GTK4), so the furniture types (dock, splash,
+# tooltip...) stay bare and `wm-style always {decor-floor border}` is
+# safe desk-wide; an explicit `decor none` rule outranks the floor.
+# place (a term list) — the geometry it is
 # born with; see parse-place.
 # desk (a number, or sticky) — which desk it is born on; sticky means
 # every desk. See the virtual desks block in the substrate.
@@ -751,13 +757,16 @@ proc wm-style {pred settings} {
 }
 proc style-of {w} {
     if {[info exists ::styleof($w)]} { return $::styleof($w) }
-    # The seed carries the CLIENT's own answer about its decoration
-    # (hinted-decor), and the rules merge OVER it — so a `decor` named
-    # in the config beats the window's hint by the same mechanism that
-    # makes a later rule beat an earlier one, with no special case
-    # anywhere. Which is the order the owner asked for (2026-08-02):
-    # what a hint decides, a config line must be able to overrule.
-    set st [dict create increments respect decor [hinted-decor $w]]
+    # The seed's decor is the WORD `hint` — "whatever the window asked
+    # for", resolved after the rules have spoken. A `decor` named in
+    # the config beats the window's hint by the same mechanism that
+    # makes a later rule beat an earlier one (the order the owner asked
+    # for, 2026-08-02: what a hint decides, a config line must be able
+    # to overrule), a later `decor hint` hands the question back to the
+    # window — and the floor below can tell a hint-derived none from a
+    # config-spoken one, which no post-merge reading of a concrete
+    # value could.
+    set st [dict create increments respect decor hint]
     foreach rule $::style_rules {
         lassign $rule pred settings
         if {[catch {uplevel #0 [list {*}$pred $w]} match]} {
@@ -765,6 +774,29 @@ proc style-of {w} {
         } elseif {$match} {
             set st [dict merge $st $settings]
         }
+    }
+    if {[dict get $st decor] eq "hint"} {
+        set d [hinted-decor $w]
+        # decor-floor: the least frame a window that ASKED for none
+        # still wears — the CSD shape (firefox, every GTK4 window)
+        # made resizable and focus-ringed desk-wide in one always-rule
+        # (the owner, 2026-08-14). Only the MOTIF-said none is
+        # promoted: a none that came from the furniture types (dock,
+        # splash, tooltip...) stays bare — `always {decor-floor
+        # border}` must not dress the panel's neighbours. And only a
+        # HINT-derived none: an explicit `decor none` rule was just
+        # honored above by not entering this branch, so a config can
+        # still pin a window bare under a desk-wide floor.
+        if {$d eq "none" && [dict exists $st decor-floor]} {
+            set floor [dict get $st decor-floor]
+            if {$floor ni {none border full}} {
+                puts "WM: decor-floor «$floor»: none, border or full —\
+ ignored"
+            } elseif {[client-motif-decor $w] eq "0"} {
+                set d $floor
+            }
+        }
+        dict set st decor $d
     }
     set ::styleof($w) $st
 }
