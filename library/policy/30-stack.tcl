@@ -609,12 +609,14 @@ proc policy-pick-refocus {w} {
 # they do is the gesture table's.
 # The two-sided pad that makes content + pads == cell EXACTLY (a
 # treectrl pad may be a {near far} pair): the slack splits over the
-# two sides with the odd pixel going far. Content too big for the
-# cell keeps the uniform floor and the box outgrows the cell, exactly
-# as it always did.
+# two sides with the odd pixel going far — even when that lands the
+# pads under the btnpad floor, because a midget button would rather
+# wear a 2px pad than a box taller than its row (the floor is a
+# comfort, the square is the contract). Only content that does not
+# fit AT ALL keeps the floor and outgrows the cell, as it always did.
 proc btn-pad {content cell floor} {
     set total [expr {$cell - $content}]
-    if {$total < 2 * $floor} { return $floor }
+    if {$total < 0} { return $floor }
     set near [expr {$total / 2}]
     list $near [expr {$total - $near}]
 }

@@ -67,6 +67,12 @@ set -- $(metrics); H2=$1; TOP2=$2; BTN2=$3
 D2=$(q 'set t $::frameof([lindex [array names ::frameof] 0])
 rz-edge $t 2 8')
 
+# --- live air: the strip tightens to the bare linespace, buttons follow
+q 'set-title-air 0' >/dev/null
+wait_for 10 extents_is "4, 4, $H, 4"
+E4=$(extents)
+set -- $(metrics); H4=$1; TOP4=$2; BTN4=$3
+
 # --- reload with an empty config: the stock numbers come back
 : > "$CONF/tk9wm.tcl"
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
@@ -83,6 +89,7 @@ sleep 0.5
 echo "--- boot: h=$H top=$TOP btn=$BTN extents «$E0» grip $G0 edge(5,35)=$D0"
 echo "--- grips 12: grip $G1 edge(5,35)=$D1 extents «$E1»"
 echo "--- border 4: h=$H2 top=$TOP2 btn=$BTN2 extents «$E2» edge(2,8)=$D2"
+echo "--- air 0: h=$H4 top=$TOP4 btn=$BTN4 extents «$E4»"
 echo "--- reload: extents «$E3» grip $G3"
 
 echo "--- verdict"
@@ -120,6 +127,14 @@ if [ "$D2" = "nw" ]; then
     echo "OK: the corner still answers inside the new thin border"
 else
     echo "FAIL: after set-border 4: edge(2,8)=$D2, want nw"
+fi
+if [ "$H4" = "$((H - 6))" ] && [ "$BTN4" = "$((H - 10))" ] \
+        && [ "$E4" = "4, 4, $H, 4" ]; then
+    echo "OK: a live set-title-air 0 tightens the strip and its buttons\
+ to the bare linespace"
+else
+    echo "FAIL: after set-title-air 0: h=$H4 (want $((H - 6))), btn=$BTN4\
+ (want $((H - 10))), extents «$E4» (want «4, 4, $H, 4»)"
 fi
 if [ "$E3" = "6, 6, $((H + 8)), 6" ] && [ "$G3" = "24.0" ]; then
     echo "OK: an empty-config reload restores the stock numbers"

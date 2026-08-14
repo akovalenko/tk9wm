@@ -398,6 +398,12 @@ knob set-border      {var {border} settle {titles} group frame kind {int 0} get 
                       doc {the border's thickness, all four sides — it is the resize grip}}
 knob set-grips       {var {gripz} settle {decor} group frame kind {int 0} get {set ::gripz}
                       doc {the corner grip arms' reach along the border}}
+knob set-title-air   {var {titleair} settle {titles} group frame kind {int} get {set ::titleair}
+                      doc {the strip's padding around the title's text line, each side;
+ 0 is exactly the linespace, negative clips into the line}
+                      examples {
+                          {0} {the tightest strip that still fits the whole font}
+                          {-2} {tighter yet — eats the font's own leading, then the descenders}}}
 knob set-minimize    {var {minimize} settle {} group windows kind {choice iconify refuse}
                       get {set ::minimize} doc {what an iconify request gets}}
 knob set-maximize    {var {maximize} settle {} group windows kind {choice drop keep}

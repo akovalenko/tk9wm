@@ -38,4 +38,15 @@ keep border 6
 # client area. The grip's cut is just a mark on the border — it does
 # not chase the button's edge. Button size — see look-derive.
 keep gripz 24
+# The air above and below the title's text line, each side. It was a
+# constant 3 inside look-derive until the owner met a 144dpi strip:
+# the font's linespace plus six plus the border read too tall, and
+# the lever that keeps the FONT while shrinking the strip (and the
+# buttons with it — btnw follows titleh) is exactly this number
+# (2026-08-14). Zero is the safe floor — the strip is the linespace
+# and everything still fits by definition; negative goes tighter by
+# clipping INTO the line, top and bottom equally (the text sits
+# centered), which eats the font's own leading first and the deepest
+# descender pixels after it — legal, and a taste.
+keep titleair 3
 

@@ -201,12 +201,17 @@ unless-already {[lsearch -exact [font names] IconFont] >= 0} {font create IconFo
 keep looks {}   ;# NAME -> {border gripz font titleh decotop btnw btnpad}
 proc look {name key} { dict get $::looks $name $key }
 # The derivations, from a scheme's own border and font. Height is the
-# font's linespace plus 3px of air above and below the text line; the
-# strip sits under the full top border (a real grip, uniform with the
+# font's linespace plus the scheme's AIR above and below the text
+# line (::titleair unless the scheme says its own — 3 stock, 0 is
+# «exactly the linespace», negative clips into the line); the strip
+# sits under the full top border (a real grip, uniform with the
 # bottom), and decotop's 2px gap separates it from the client slot.
+# The floor keeps a runaway negative air from collapsing the strip
+# out of existence.
 proc look-derive {name} {
     set border [look $name border]
-    set titleh [expr {[font metrics [look $name font] -linespace] + 6}]
+    set titleh [expr {max([font metrics [look $name font] -linespace] \
+                              + 2 * [look $name air], 5)}]
     dict set ::looks $name titleh $titleh
     dict set ::looks $name decotop [expr {$border + $titleh + 2}]
     # The titlebar buttons: squares one grip SHORT of the strip height,
@@ -235,11 +240,13 @@ proc look-derive {name} {
 # every time the metrics settle, so a moved desk font carries every
 # scheme with it the way it carries the titlebars.
 proc look-build {name wish} {
-    set rec [dict create border $::border gripz $::gripz font TitleFont]
+    set rec [dict create border $::border gripz $::gripz \
+                 air $::titleair font TitleFont]
     foreach {k v} $wish {
         switch -- $k {
             border { dict set rec border $v }
             grips  { dict set rec gripz $v }
+            air    { dict set rec air $v }
             font {
                 set out [font actual TitleFont]
                 foreach {o ov} [font-args "wm-look $name" $v] {
@@ -268,7 +275,8 @@ proc title-metrics {} {
     set ::looks {}
     array unset ::look_warned
     dict set ::looks default \
-        [dict create border $::border gripz $::gripz font TitleFont]
+        [dict create border $::border gripz $::gripz \
+             air $::titleair font TitleFont]
     look-derive default
     dict for {name wish} $::look_wishes { look-build $name $wish }
     btn-images
@@ -283,12 +291,14 @@ proc title-metrics {} {
 #     wm-style {filter -class ninja} {look compact}
 #
 # A scheme is the whole set of decoration numbers under one name:
-# border, grips, a title font (a delta on TitleFont, either form
-# font-args takes), and everything look-derive computes from them —
-# strip height, client offset, button size, button images of its own
-# scale. What the wish does not name is inherited from the desk
-# (`default`) LIVE: a scheme that says only `grips 12` follows every
-# set-border and set-title-font like any undeclared window does.
+# border, grips, air (the strip's padding around the text line, may
+# go negative — see look-derive), a title font (a delta on TitleFont,
+# either form font-args takes), and everything look-derive computes
+# from them — strip height, client offset, button size, button
+# images of its own scale. What the wish does not name is inherited
+# from the desk (`default`) LIVE: a scheme that says only `grips 12`
+# follows every set-border and set-title-font like any undeclared
+# window does.
 #
 # The declaration is a WISH (the config lifecycle's rule): it records
 # itself and asks the titles settler, which re-derives every record
@@ -322,6 +332,12 @@ proc wm-look {name settings} {
                     error "wm-look $name: $k is a whole number of pixels"
                 }
             }
+            air {
+                if {![string is integer -strict $v]} {
+                    error "wm-look $name: air is a whole number of pixels\
+ (negative clips into the text line)"
+                }
+            }
             font {
                 set opts [font-args "wm-look $name" $v]
                 if {[dict exists $opts -size]} {
@@ -330,7 +346,7 @@ proc wm-look {name settings} {
             }
             default {
                 error "wm-look $name: unknown key «$k» —\
- border, grips or font"
+ border, grips, air or font"
             }
         }
     }
@@ -649,10 +665,15 @@ proc btn-images-for {scheme} {
     # btnw square its svg neighbours are.
     set gf [look-glyph-font $scheme]
     if {$gf ni [font names]} { font create $gf }
-    for {set s $g} {$s > 7} {incr s -1} {
+    # The walk must CONFIGURE at least once whatever g is: with the
+    # old `$s > 7` guard a 7px cell never entered the loop at all and
+    # the scheme's glyph font stayed at Tk's defaults — a ~23px line
+    # in a 13px button (found by the decorlooks suite at `air 0`).
+    # The 7px floor still holds; it is now the walk's own last step.
+    for {set s $g} {1} {incr s -1} {
         font configure $gf -family [font actual [look $scheme font] -family] \
             -size -$s -weight bold
-        if {[font metrics $gf -linespace] <= $g} break
+        if {[font metrics $gf -linespace] <= $g || $s <= 7} break
     }
     dict for {name spec} $::titlebar_buttons {
         if {[titlebar-glyph-text $name] ne ""} continue   ;# drawn as text

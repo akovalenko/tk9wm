@@ -21,7 +21,7 @@ start_xvfb
 CONF="$HERE/decorlooks-config"
 rm -rf "$CONF"; mkdir -p "$CONF"
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-wm-look compact {border 3 grips 10 font {-size 8 -slant italic}}
+wm-look compact {border 3 grips 10 air 0 font {-size 8 -slant italic}}
 wm-style {filter -title узкий*} {look compact}
 titlebar-button ask -glyph ✳
 EOF
@@ -74,18 +74,19 @@ lassign [\$t.title item bbox 1 Cask eBox] x1 y1 x2 y2
 expr {\$y2 - \$y1}"; }
 ABOX=$(boxh $WAD)
 BBOX=$(boxh $WBD)
-# ...and the pad arithmetic itself, with a content the fonts at hand
-# may never produce: an 18px glyph in a 25px cell must pad {3 4} —
-# the walked font lands ON g in this environment, so the bbox check
-# alone cannot catch a pad that quietly loses the odd pixel
-PADS=$(q "list [btn-pad 18 25 3] [btn-pad 19 25 3] [btn-pad 24 25 3]")
+# ...and the pad arithmetic itself, with contents the fonts at hand
+# may never produce (the walked font lands ON g in this environment,
+# so the bbox check alone cannot catch a pad that quietly loses a
+# pixel): the odd split, the even split, the sub-floor split a midget
+# cell needs, and the floor fallback for content that fits not at all
+PADS=$(q "list [btn-pad 18 25 3] [btn-pad 19 25 3] [btn-pad 24 25 3] [btn-pad 30 25 3]")
 # (1,20) is inside default's 24px corner arm but past compact's 10px
 D_EDGE=$(q "set t \$::frameof($WBD); rz-edge \$t 1 20")
 D_CORNER=$(q "set t \$::frameof($WBD); rz-edge \$t 1 5")
 
 # --- reload 1: the scheme re-declared thicker — its windows re-frame
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-wm-look compact {border 5 grips 10 font {-size 8 -slant italic}}
+wm-look compact {border 5 grips 10 air 0 font {-size 8 -slant italic}}
 wm-style {filter -title узкий*} {look compact}
 titlebar-button ask -glyph ✳
 EOF
@@ -96,7 +97,7 @@ EA1=$(ext $WA)
 
 # --- reload 2: the rule is gone — the window falls back to default
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-wm-look compact {border 5 grips 10 font {-size 8 -slant italic}}
+wm-look compact {border 5 grips 10 air 0 font {-size 8 -slant italic}}
 titlebar-button ask -glyph ✳
 EOF
 "$LINUX/whale-cli" "$TOOLS/send-reload.tcl" "$DISPLAY"
@@ -149,10 +150,10 @@ if [ "$ABOX" = "$DBTN" ] && [ "$BBOX" = "$CBTN" ]; then
 else
     echo "FAIL: ✳ box height обычный $ABOX (want $DBTN), узкий $BBOX (want $CBTN)"
 fi
-if [ "$PADS" = "{3 4} {3 3} 3" ]; then
+if [ "$PADS" = "{3 4} {3 3} {0 1} 3" ]; then
     echo "OK: the pad makes up exactly what the walked font left short"
 else
-    echo "FAIL: btn-pad said «$PADS», want «{3 4} {3 3} 3»"
+    echo "FAIL: btn-pad said «$PADS», want «{3 4} {3 3} {0 1} 3»"
 fi
 if [ "$D_EDGE" = "w" ] && [ "$D_CORNER" = "nw" ]; then
     echo "OK: narrow grips hit-test narrow — the arm ends where the scheme says"
