@@ -314,6 +314,17 @@ keep kbmr_edge se
 proc resize-keyboard {{w 0}} {
     if {$w == 0} { set w $::focused }
     if {$w == 0 || ![info exists ::frameof($w)]} return
+    # A fixed-size window (min == max) gives this mode nothing to do —
+    # every arrow would push against both bounds at once. Every entry
+    # (winops, wm-bind, EWMH's SIZE_KEYBOARD) is REFUSED, not converted
+    # to a move: keyboard move is its own verb, a keystroke away, and a
+    # mode that silently became another would be the worse answer (the
+    # owner's call, 2026-08-15). The pointer gestures convert instead —
+    # a hand already holding the window is better carried than dropped.
+    if {[client-fixed-size-p $w]} {
+        puts "WM: keyboard resize refused — 0x[format %x $w] is fixed-size"
+        return
+    }
     set t $::frameof($w)
     set ::kbmr_edge se
     # The saved geometry is the POSITION as well now: a handle on the

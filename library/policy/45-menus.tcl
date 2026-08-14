@@ -351,6 +351,9 @@ set winops_actions {
 proc winops-rows {w} {
     set rows {}
     foreach {label key} $::winops_actions {
+        # Resize on a fixed-size window is a refusal at every door
+        # (resize-keyboard); a row that could only say no is not shown.
+        if {$label eq "Resize" && [client-fixed-size-p $w]} continue
         lappend rows [dict create label $label key $key command $label \
             marked [command-marked-p $label $w]]
     }

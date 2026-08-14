@@ -266,13 +266,20 @@ proc place-sizeless {spec} {
 }
 
 # Size hints applied the style's way: clamp to the declared minimum
-# always; snap to the increment grid (from the PBaseSize origin) only
-# when this client's style says respect. Every WM-initiated size
-# decision (border/corner drag, maximize) funnels through here; the
-# client's OWN ConfigureRequests are its business and stay untouched.
-# `exempt` names the axes the grid does NOT bind (h, v) — see below.
+# and maximum always; snap to the increment grid (from the PBaseSize
+# origin) only when this client's style says respect. Every
+# WM-initiated size decision (border/corner drag, maximize) funnels
+# through here; the client's OWN ConfigureRequests are its business
+# and stay untouched. `exempt` names the axes the grid does NOT bind
+# (h, v) — see below; the maximum binds them anyway, which is what
+# stops a maximize at a declared ceiling instead of the workarea.
 proc apply-size-hints {w cw ch {exempt {}}} {
-    lassign [client-size-hints $w] minw minh incw inch basew baseh
+    lassign [client-size-hints $w] minw minh incw inch basew baseh maxw maxh
+    # The ceiling first: the snap below only rounds DOWN, so a size
+    # brought under the max stays under it. The min comes last of all —
+    # on broken hints (max < min) the minimum wins.
+    if {$maxw > 0} { set cw [expr {min($cw, $maxw)}] }
+    if {$maxh > 0} { set ch [expr {min($ch, $maxh)}] }
     if {[dict get [style-of $w] increments] eq "respect"} {
         # ...except on an EXEMPT axis — one a maximize holds or a place
         # rule sized outright. The rule is mutter's, and every desktop's
@@ -503,11 +510,11 @@ proc policy-attach {w cw ch} {
     # the title; crossing into the CLIENT (an X window Tk never hears
     # Motion from) is caught by <Leave> — X sends LeaveNotify with detail
     # Inferior when the pointer dives into a child.
-    bind $t <Motion>          [list rz-hover $t %X %Y]
+    bind $t <Motion>          [list rz-hover $t $w %X %Y]
     bind $t <Leave>           [list rz-leave $t]
     bind $t <ButtonPress-1>   [list rz-start $t $w %X %Y]
     bind $t <B1-Motion>       [list rz-move  $t $w %X %Y]
-    bind $t <ButtonRelease-1> [list press-end $t]
+    bind $t <ButtonRelease-1> [list press-end $t $w]
     frame-layout $t $cw $ch $X $Y
     update idletasks
     # Cross-connection ordering: a roundtrip on Tk's connection guarantees
@@ -761,12 +768,19 @@ proc rz-edge {t x y} {
 }
 # Which cursor an edge wears — the hover over a border grip and the
 # modifier-resize gesture show the same one, so the table is one table.
+# A fixed-size window's border wears the CARRY cursor over every grip
+# instead: what a grab there does is move (see rz-start), and a corner
+# cursor would advertise a resize nobody is offering.
 array set rzcursor {e right_side w left_side s bottom_side n top_side
     se bottom_right_corner sw bottom_left_corner
     ne top_right_corner nw top_left_corner}
-proc rz-hover {t X Y} {
+proc rz-hover {t w X Y} {
     set e [rz-edge $t [expr {$X - [winfo rootx $t]}] \
                       [expr {$Y - [winfo rooty $t]}]]
+    if {$e ne "" && [client-fixed-size-p $w]} {
+        $t configure -cursor fleur
+        return
+    }
     $t configure -cursor [expr {$e eq "" ? "" : $::rzcursor($e)}]
 }
 proc rz-leave {t} {
@@ -776,6 +790,16 @@ proc rz-start {t w X Y} {
     set e [rz-edge $t [expr {$X - [winfo rootx $t]}] \
                       [expr {$Y - [winfo rooty $t]}]]
     if {$e eq ""} return
+    # A window that declared itself non-resizable (min == max) has no
+    # resize to offer, but its border is still a handle: the grab
+    # CARRIES the window instead — the title's own machinery, marked so
+    # rz-move knows to route the motion there. Dropping the press
+    # outright would make the border the one dead spot on the frame.
+    if {[client-fixed-size-p $w]} {
+        set ::rzcarry($t) 1
+        drag-start $t $w $X $Y
+        return
+    }
     popups-close
     raise-group $w
     focus-to $w
@@ -787,6 +811,12 @@ proc rz-start {t w X Y} {
     set ::rz [list $e $X $Y [winfo width $t.slot] [winfo height $t.slot] $fx $fy $w]
 }
 proc rz-move {t w X Y} {
+    # The border carry of a fixed-size window (rz-start above). The
+    # mark, not bare ::drag($t), is the router: the toplevel's bindtag
+    # fires for the TITLE's motion too, and a title drag already feeds
+    # drag-move through its own binding — routing on the drag state
+    # alone would deliver every such motion twice.
+    if {[info exists ::rzcarry($t)]} { drag-move $t $w $X $Y; return }
     if {![info exists ::rz]} return
     lassign $::rz e x0 y0 cw0 ch0 fx fy
     set dx [expr {$X - $x0}]; set dy [expr {$Y - $y0}]
@@ -862,11 +892,11 @@ proc rz-end {} { unset -nocomplain ::rz }
 # picked the window up with stale coordinates and yanked it. Then re-run
 # the hover logic: the pointer may well be resting on the title now, and
 # the resize cursor must not outlive the resize.
-proc press-end {t} {
+proc press-end {t w} {
     rz-end
-    unset -nocomplain ::drag($t)
+    unset -nocomplain ::drag($t) ::rzcarry($t)
     $t.title configure -cursor ""   ;# the carry cursor ends with the carry
-    soft "re-hover after a press" { rz-hover $t {*}[winfo pointerxy $t] }
+    soft "re-hover after a press" { rz-hover $t $w {*}[winfo pointerxy $t] }
 }
 
 # A client that named nothing is shown by its id — on the titlebar and

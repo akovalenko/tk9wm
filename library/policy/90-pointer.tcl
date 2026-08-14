@@ -174,7 +174,10 @@ proc policy-client-press {w state button X Y} {
     raise-group $w
     focus-to $w
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
-    if {$button == 1} {
+    # Button 3 on a fixed-size window (min == max) carries too: there
+    # is no resize to give, and the border makes the same conversion
+    # for a bare press (rz-start).
+    if {$button == 1 || [client-fixed-size-p $w]} {
         set ::mdrag [list move $t $w $X $Y $fx $fy]
         set cursor fleur
     } else {
@@ -252,18 +255,22 @@ proc policy-moveresize-request {w X Y dir button} {
     raise-group $w
     focus-to $w
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
-    if {$dir == 8} {
+    if {$dir != 8 && ![info exists ::mrdir($dir)]} {
+        puts "WM: moveresize direction $dir is none of EWMH's — ignored"
+        return
+    }
+    # An edge drag asked FOR a fixed-size window (min == max) carries
+    # instead — the same conversion the border makes for a press by
+    # hand, and a CSD titlebar is exactly a border of the client's own.
+    if {$dir == 8 || [client-fixed-size-p $w]} {
         set ::mdrag [list move $t $w $X $Y $fx $fy]
         set cursor fleur
-    } elseif {[info exists ::mrdir($dir)]} {
+    } else {
         set e $::mrdir($dir)
         set ::rz [list $e $X $Y \
             [winfo width $t.slot] [winfo height $t.slot] $fx $fy $w]
         set ::mdrag [list resize $t $w]
         set cursor $::rzcursor($e)
-    } else {
-        puts "WM: moveresize direction $dir is none of EWMH's — ignored"
-        return
     }
     # The timestamp this grab needs is the press the client is still
     # holding, and we have it: the click-to-focus grab takes every

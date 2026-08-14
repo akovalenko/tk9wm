@@ -164,8 +164,11 @@
 #   wm-resize-client w cw ch    a WM-initiated resize (border/corner drag);
 #                               clamps to the client's declared minimum
 #   client-min-size w           declared WM_NORMAL_HINTS minimum, {0 0} = none
-#   client-size-hints w         {minw minh incw inch basew baseh}; zero
-#                               increments = none declared
+#   client-size-hints w         {minw minh incw inch basew baseh maxw maxh};
+#                               zero increments = none declared, zero
+#                               max = unbounded
+#   client-fixed-size-p w       min == max on both axes: the client
+#                               declared itself non-resizable
 #   client-position-hint w      {none|user|program gravity}: does the
 #                               client claim its own position
 #                               (USPosition/PPosition), and which
@@ -1873,14 +1876,17 @@ proc icon-invalidate {w} {
 
 # ICCCM WM_NORMAL_HINTS, the parts we honor: the client's declared
 # MINIMUM size (PMinSize; per ICCCM a missing min falls back to
-# PBaseSize) and its resize increments (PResizeInc, with PBaseSize —
-# falling back to the minimum — as the increment origin). Read at
-# manage and re-read on PropertyNotify — a client is free to change its
-# hints while mapped. Whether the increments are respected or ignored
-# is a per-client policy decision (the style machinery); the substrate
-# only keeps the facts.
+# PBaseSize), its declared MAXIMUM (PMaxSize — how SDL and `wm
+# resizable 0 0` spell a fixed-size window, min == max), and its
+# resize increments (PResizeInc, with PBaseSize — falling back to the
+# minimum — as the increment origin). Read at manage and re-read on
+# PropertyNotify — a client is free to change its hints while mapped.
+# Whether the increments are respected or ignored is a per-client
+# policy decision (the style machinery); the substrate only keeps the
+# facts.
 proc read-normal-hints {w} {
     set ::minof($w) {0 0}
+    set ::maxof($w) {0 0}
     set ::incof($w) {0 0}
     set ::baseof($w) {0 0}
     set ::poshintof($w) none
@@ -1897,6 +1903,13 @@ proc read-normal-hints {w} {
     } elseif {[dict exists $h base]} {           ;# PBaseSize as min (ICCCM)
         lassign [dict get $h base] basew baseh
         set ::minof($w) [list [expr {max($basew,0)}] [expr {max($baseh,0)}]]
+    }
+    # Zero stays "unbounded". A max under the min (broken hints) needs
+    # no repair here: apply-size-hints clamps the minimum LAST, so the
+    # min wins the contradiction wherever the two meet.
+    if {[dict exists $h max]} {
+        lassign [dict get $h max] maxw maxh
+        set ::maxof($w) [list [expr {max($maxw,0)}] [expr {max($maxh,0)}]]
     }
     if {[dict exists $h inc]} {
         lassign [dict get $h inc] winc hinc
@@ -1954,14 +1967,26 @@ proc client-min-size {w} {
     return {0 0}
 }
 
-# Everything a size decision needs: {minw minh incw inch basew baseh}.
-# Zero increments = the client declared none.
+# Everything a size decision needs: {minw minh incw inch basew baseh
+# maxw maxh}. Zero increments = the client declared none; zero max =
+# unbounded on that axis.
 proc client-size-hints {w} {
-    set min {0 0}; set inc {0 0}; set base {0 0}
+    set min {0 0}; set inc {0 0}; set base {0 0}; set max {0 0}
     if {[info exists ::minof($w)]}  { set min $::minof($w) }
     if {[info exists ::incof($w)]}  { set inc $::incof($w) }
     if {[info exists ::baseof($w)]} { set base $::baseof($w) }
-    concat $min $inc $base
+    if {[info exists ::maxof($w)]}  { set max $::maxof($w) }
+    concat $min $inc $base $max
+}
+
+# Both axes pinned (min == max, nonzero): the client declared itself
+# non-resizable — SDL's spelling for every window made without
+# SDL_WINDOW_RESIZABLE, Tk's for `wm resizable 0 0`. What the fact
+# means — which gestures turn into carries, which verbs refuse — is
+# the policy's business.
+proc client-fixed-size-p {w} {
+    lassign [client-size-hints $w] minw minh - - - - maxw maxh
+    expr {$maxw > 0 && $maxh > 0 && $minw == $maxw && $minh == $maxh}
 }
 
 # ICCCM 4.1.3.1: a managed window must carry WM_STATE (state + icon
@@ -3139,7 +3164,7 @@ proc unmanage {w {dead 0}} {
     icon-invalidate $w
     unset -nocomplain ::iconic($w) ::fullscreen($w) ::skip_unmap($w)
     unset -nocomplain ::wine_dirty($w)
-    unset -nocomplain ::minof($w) ::incof($w) ::baseof($w)
+    unset -nocomplain ::minof($w) ::maxof($w) ::incof($w) ::baseof($w)
     unset -nocomplain ::poshintof($w) ::sizehintof($w) ::gravof($w) ::mapxyof($w)
     # The decoration is gone: stop treating its windows as ours, and
     # settle an invitation this window will now never answer (fvwm's
