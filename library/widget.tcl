@@ -663,25 +663,40 @@ proc area-build {area place idx} {
         # centred across. A corner of one's own is what put the owner's
         # clock under the tray.
         #
+        # Anchored by the FAR EDGE, not the near corner, and that is
+        # the whole cure for a slower-motion version of the same ride.
+        # The area's width is its content's, and the content ANSWERS
+        # LATE: a weather fetch, a phone battery over ssh — the area is
+        # placed while they still show their narrow placeholders, and
+        # when the answer lands the frame grows IN PLACE. Placed by the
+        # near corner it grew rightward, straight under the strip, and
+        # stayed there until some widget's own tick happened to change
+        # its size and re-lay the area — the owner watched his clock's
+        # tail sit under the tray until the minute flipped (the live
+        # desk, 2026-08-14). Pinned by the edge the strip is on, growth
+        # eats the panel's free middle instead, and no re-place is
+        # owed. Relative coordinates for the same reason: a host that
+        # resizes under us moves the pin itself.
+        #
         # Measured against the HOST WINDOW and not against the band:
         # the area is a child of that window, so those are the only
         # coordinates that mean anything here. (They were the band's
         # once, and a band deeper than the window put the widget
         # through the floor of the panel.)
-        set band [list [winfo x $host] [winfo y $host] \
-                       [winfo width $host] [winfo height $host]]
-        lassign $band bx by bw bh
+        set bx [winfo x $host]
+        set by [winfo y $host]
         set tray [expr {[tray-panel] eq $what ? [tray-extent] : 0}]
         if {$vert} {
-            set ax [expr {($bw - $aw) / 2}]
-            set ay [expr {$bh - $tray - $ah - $::widget_gap}]
+            place $A -anchor s -relx 0.5 -rely 1.0 \
+                -y -[expr {$tray + $::widget_gap}]
         } else {
-            set ax [expr {$bw - $tray - $aw - $::widget_gap}]
-            set ay [expr {($bh - $ah) / 2}]
+            place $A -anchor e -relx 1.0 -rely 0.5 \
+                -x -[expr {$tray + $::widget_gap}]
         }
-        place $A -x $ax -y $ay
-        puts "WM: widget area ${aw}x${ah}+[expr {$bx + $ax}]+[expr {$by + $ay}]\
- in the «$what» panel, before the tray ([llength $members]: $members)"
+        update idletasks   ;# the log prints the GLASS, not the arithmetic
+        puts "WM: widget area ${aw}x${ah}+[expr {$bx + [winfo x $A]}]+[expr \
+ {$by + [winfo y $A]}] in the «$what» panel, before the tray\
+ ([llength $members]: $members)"
     } else {
         lassign [widget-host-rect-for $what] hx hy hw hh
         lassign [anchor-of $place] halign valign
