@@ -367,6 +367,42 @@ else
     bad "the adopted-minimized window is not on its own desk either ($MHOME)"
 fi
 
+# --- after a restart, the desk you switch TO has somebody focused --
+# The focus history dies with the instance, and the first switch to a
+# desk whose windows were ADOPTED — never focused since — used to find
+# the history dry and park as if the desk were empty. A lone
+# undecorated firefox sat there looking exactly like an active window
+# that eats no keys, until an alt-tab (the owner, 2026-08-14). The
+# deferred refocus was refused mid-switch (the frame it aimed at was
+# not viewable yet), so what has to hold is desk-go's own second pass:
+# a dry history falls back to the topmost window THERE.
+#
+# The actor to leave focused across the restart is «верхний» — an
+# ORDINARY window of THIS desk. The first run left «липкий» focused,
+# and a sticky window is the one thing whose single history entry is
+# valid on every desk: it masked the dry history, and the leg
+# measured nothing (the WM was wrong and the leg was green).
+xdotool key --clearmodifiers super+1
+sleep 0.6
+xdotool windowactivate "$DID" 2>/dev/null
+sleep 0.8
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
+sleep 3.5
+xdotool key --clearmodifiers super+2
+sleep 1.2
+RACTIVE=$(xprop -root _NET_ACTIVE_WINDOW | sed 's/.*# //')
+RDESK=$([ "$RACTIVE" != "0x0" ] && [ -n "$RACTIVE" ] && deskof "$RACTIVE")
+echo "--- restart, then Super+2: active = $RACTIVE (desk $RDESK)"
+if [ "$RACTIVE" != "0x0" ] && [ -n "$RACTIVE" ]; then
+    ok "the desk switched to after a restart has somebody focused"
+else
+    bad "the desk switched to after a restart was left with nothing active"
+fi
+case "$RDESK" in
+    1|4294967295) ok "...and the somebody is a window of THAT desk" ;;
+    *)            bad "the focus went to a window of desk «$RDESK», want 1 (or sticky)" ;;
+esac
+
 kill $WM $CA $CB $CC $CD 2>/dev/null
 check_invariants "$LOG" || FAIL=1
 if grep -q 'handler error' "$LOG"; then

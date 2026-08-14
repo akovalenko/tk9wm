@@ -2650,7 +2650,8 @@ proc desk-apply {} {
 }
 
 # Go to desk n. The focus follows: the most recently focused window
-# that is THERE, and the holder when the desk is empty — a desk one
+# that is THERE, else the topmost thing there that can take a focus,
+# and the holder only when the desk is truly empty — a desk one
 # switches to with the keyboard still aimed at a window one can no
 # longer see would be a trap.
 proc desk-go {n} {
@@ -2669,6 +2670,23 @@ proc desk-go {n} {
     foreach cand $::focus_hist {
         if {[info exists ::managed($cand)] && [desk-here-p $cand]
                 && ![info exists ::iconic($cand)]} { set want $cand; break }
+    }
+    if {$want == 0} {
+        # A DRY HISTORY IS NOT AN EMPTY DESK. The history starts over
+        # with the instance, so right after a restart a desk full of
+        # ADOPTED windows has nobody in it — and this switch used to
+        # park as if there were nothing to focus, leaving a lone
+        # undecorated firefox looking exactly like an active window
+        # that eats no keys, until an alt-tab (the owner, 2026-08-14).
+        # The deferred refocus is no net here either: it fires inside
+        # desk-apply's update idletasks, before the freshly
+        # deiconified frame is viewable, so the server refuses that
+        # aim — and the refusal used to be the end of it. The
+        # fallback is adoption's own (policy-adopt-settled): the
+        # topmost window that can take a focus.
+        foreach w [lreverse [client-stacking]] {
+            if {[refocus-ok $w 0]} { set want $w; break }
+        }
     }
     if {$want == 0} {
         # desk-apply already parked when it hid the focus window; a
