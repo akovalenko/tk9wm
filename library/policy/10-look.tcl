@@ -187,20 +187,38 @@ proc set-desk-font {args} {
 # case — and panels sharing one font would each be lettered for
 # whichever was built last.
 unless-already {[lsearch -exact [font names] IconFont] >= 0} {font create IconFont -weight bold}
-# 3px of air above and below the text line; the strip sits under the
-# full top border (a real grip, uniform with the bottom), a 2px gap
-# separates it from the client slot.
-proc title-metrics {} {
-    set ::titleh [expr {[font metrics TitleFont -linespace] + 6}]
-    set ::decotop [expr {$::border + $::titleh + 2}]
+# ---- the look record: the decoration's numbers as ONE thing --------
+#
+# Everything a frame is measured by — border, corner grip arms, the
+# strip's height and what derives from them — is a RECORD, not a
+# scatter of globals. One scheme exists today, `default`, recomputed
+# from the wishes (::border, ::gripz, TitleFont) whenever any of them
+# moves; every consumer asks the record. That is the seam the named
+# schemes (wm-look) will stand on: a scheme is a finite thing derived
+# once at declaration, and a frame asks ITS scheme instead of the
+# desk — so the per-window lookup stays a lookup.
+keep looks {}   ;# NAME -> {border gripz font titleh decotop btnw btnpad}
+proc look {name key} { dict get $::looks $name $key }
+# The derivations, from a scheme's own border and font. Height is the
+# font's linespace plus 3px of air above and below the text line; the
+# strip sits under the full top border (a real grip, uniform with the
+# bottom), and decotop's 2px gap separates it from the client slot.
+proc look-derive {name} {
+    set border [look $name border]
+    set titleh [expr {[font metrics [look $name font] -linespace] + 6}]
+    dict set ::looks $name titleh $titleh
+    dict set ::looks $name decotop [expr {$border + $titleh + 2}]
     # The titlebar buttons: squares one grip SHORT of the strip height,
     # flush against the top and side borders. Full-height buttons read
     # too big and pressed right against the client area (the owner,
     # 2026-07-28) — shrinking them by the grip width leaves a hole of
     # about one grip (border + the 2px gap) between the buttons and
     # the client. btnw is the button column width and the click-target
-    # size the WM advertises in its metrics line.
-    set ::btnw [expr {$::titleh - $::border}]
+    # size the WM advertises in its metrics line. Never below 1: the
+    # border is a free number now, and a border wider than the strip
+    # is a taste — a negative column width would be a crash.
+    set btnw [expr {max($titleh - $border, 1)}]
+    dict set ::looks $name btnw $btnw
     # ...and the air inside one. A CONSTANT three pixels was right at
     # the size this desk is usually run at and wrong everywhere else:
     # at a 32-point title the glyph filled its box to the outline and
@@ -208,9 +226,15 @@ proc title-metrics {} {
     # font = big buttons, and big glyphs IN them"). A share of the
     # button keeps the proportions instead, and at the stock size it is
     # the same three pixels it always was.
-    set ::btnpad [expr {max(3, $::btnw / 7)}]
+    dict set ::looks $name btnpad [expr {max(3, $btnw / 7)}]
+}
+proc title-metrics {} {
+    dict set ::looks default \
+        [dict create border $::border gripz $::gripz font TitleFont]
+    look-derive default
     btn-images
-    puts "WM: titlebar h=$::titleh top=$::decotop btn=$::btnw\
+    puts "WM: titlebar h=[look default titleh] top=[look default decotop]\
+ btn=[look default btnw]\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
 }
 
@@ -490,7 +514,7 @@ proc btn-images {} {
     # the union box is glyph + 2*3px ipad (the 1px outline draws inside),
     # so this glyph height makes the box exactly btnw square — the full
     # button cell, no inset
-    set g [expr {max($::btnw - 2 * $::btnpad, 7)}]
+    set g [expr {max([look default btnw] - 2 * [look default btnpad], 7)}]
     # ...and the TEXT glyphs get a font fitted to the same square the
     # svg renders into: a font asks for its linespace, and a glyph
     # taller than the cell hung below the row — a П-shaped button rank
@@ -639,7 +663,8 @@ proc retitle-frames {} {
         # titlebar (the owner, 2026-07-30).
         set want [client-buttons $w]
         if {$want ne [frame-buttons $t]
-                || ![info exists ::btnwof($t)] || $::btnwof($t) != $::btnw} {
+                || ![info exists ::btnwof($t)]
+                || $::btnwof($t) != [look default btnw]} {
             unset -nocomplain ::btn($t)
             destroy $t.title
             titlebar-build $t $w $want [title-or-id $w \
@@ -930,25 +955,32 @@ proc hinted-decor {w} {
 # the border and its grips but drops the title strip — the window still
 # resizes by the edge, it just carries no name, no buttons and no drag
 # handle; none is nothing at all, the frame exactly the size of the
-# client. Returns the three measures every layout is built from:
-# {border top titleh}, where top is the offset of the client area.
+# client. Returns the measures every layout is built from: {border top
+# titleh gripz}, where top is the offset of the client area — gripz
+# rides along because the drawing (deco-draw) and the hit test
+# (rz-edge) want it with the border, from the same verdict.
 #
-# Everything that lays a frame out asks HERE instead of reading
-# ::border/::decotop, because those are the desk's numbers and this is
+# Everything that lays a frame out asks HERE instead of reading the
+# look record, because the record holds the desk's numbers and this is
 # the window's. A frame remembers its own answer (::chromeof) — the
 # style verdict is cached per client, but the frame is what the drawing
 # and the resize code has in hand.
 proc chrome-of {w} {
+    set L [dict get $::looks default]
     switch -- [dict get [style-of $w] decor] {
-        none    { list 0 0 0 }
-        border  { list $::border $::border 0 }
-        full    { list $::border $::decotop $::titleh }
+        none    { list 0 0 0 0 }
+        border  { list [dict get $L border] [dict get $L border] 0 \
+                       [dict get $L gripz] }
+        full    { list [dict get $L border] [dict get $L decotop] \
+                       [dict get $L titleh] [dict get $L gripz] }
         default { error "decor: full, border or none" }
     }
 }
 proc frame-chrome {t} {
     if {[info exists ::chromeof($t)]} { return $::chromeof($t) }
-    list $::border $::decotop $::titleh
+    set L [dict get $::looks default]
+    list [dict get $L border] [dict get $L decotop] [dict get $L titleh] \
+        [dict get $L gripz]
 }
 # --- layer 2, per frame: which of the catalogue this one wears ---
 # The set is a property of the FRAME, because it varies: the WM's own

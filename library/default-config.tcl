@@ -41,6 +41,14 @@
 # Title alignment in the bar — left (default), center, right:
 #   set-title-justify center
 #
+# The frame's own numbers. The border is the resize grip, all four
+# sides (6 stock); the grips are the corner arms' reach along it —
+# the diagonal-resize zones and the cut marks that advertise them
+# (24 stock). Titlebar button size follows the border, since the
+# buttons sit flush against it:
+#   set-border 4
+#   set-grips 16
+#
 # ---- windows: minimize, maximize, drag ----
 #
 # Minimize (ICCCM iconification): `iconify` honors it (default),

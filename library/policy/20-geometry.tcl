@@ -599,9 +599,9 @@ proc policy-origin {w} {
 
 # The one place that knows where every part of a frame sits: title
 # strip, close box, client slot, outer geometry — all derived from the
-# border width and the font-driven ::titleh/::decotop. Called at attach
-# (with an explicit position), on every resize, and when the metrics
-# change under a live frame (set-title-font). Position defaults to
+# frame's chrome (border, top, titleh). Called at attach (with an
+# explicit position), on every resize, and when the metrics change
+# under a live frame (set-title-font, set-border). Position defaults to
 # "stay where you are".
 proc frame-layout {t cw ch {X ""} {Y ""}} {
     lassign [frame-chrome $t] B top titleh
@@ -633,7 +633,7 @@ proc frame-layout {t cw ch {X ""} {Y ""}} {
         # client wears all three, a window the WM put up for itself
         # wears whatever it asked for. Same layout code either way.
         foreach name [frame-buttons $t] {
-            $t.title column configure C$name -width $::btnw
+            $t.title column configure C$name -width [look default btnw]
         }
         place $t.title -x $B -y $B -width $cw -height $titleh
     } else {
@@ -693,17 +693,16 @@ proc policy-move-request {w x y vmask grav} {
 # Border background (the canvas -background), a 1px dark outline around
 # the perimeter, and fvwm-style corner grips in a lighter shade, cut
 # off by thin dark lines — the visible promise that a corner drags
-# diagonally. All four corners are L-shaped, arms $::border thick and
-# $::gripz long, one measure top and bottom. The arms press against
-# what lives just inside the border: the client area at the bottom,
-# a titlebar button at the top (flush in the strip's corner — see
-# title-metrics). rz-edge's corner zones are the same measure.
-# Redrawn on <Configure>, recolored (via a full cheap redraw) by
-# paint-focus.
+# diagonally. All four corners are L-shaped, arms one border thick and
+# one gripz long, one measure top and bottom — both numbers from the
+# frame's own chrome verdict. The arms press against what lives just
+# inside the border: the client area at the bottom, a titlebar button
+# at the top (flush in the strip's corner — see look-derive).
+# rz-edge's corner zones are the same measure. Redrawn on <Configure>,
+# recolored (via a full cheap redraw) by paint-focus.
 proc deco-draw {c W H} {
     $c delete all
-    lassign [frame-chrome [winfo parent $c]] B
-    set CZ $::gripz
+    lassign [frame-chrome [winfo parent $c]] B - - CZ
     # No border, nothing to draw — and nothing that MAY be drawn: the
     # client covers the whole frame, so even the 1px outline would be a
     # line under a window nobody sees.
@@ -729,17 +728,23 @@ proc deco-draw {c W H} {
     $c create rectangle 0 0 [expr {$W-1}] [expr {$H-1}] \
         -outline $::OUTLINE -fill ""
 }
+# ...and the repaint a knob owes when only the DRAWING moved (a grips
+# change): the canvas already knows its size, nothing re-lays out.
+proc deco-redraw {t} {
+    if {[winfo exists $t.deco]} {
+        deco-draw $t.deco [winfo width $t.deco] [winfo height $t.deco]
+    }
+}
 
 # ---- resize by the border / corner ----
 # Which resize grip is under frame-relative (x, y)? All four strips
-# are $::border thick (the top used to be a 2px sliver — unhittable;
+# are one border thick (the top used to be a 2px sliver — unhittable;
 # uniform since 2026-07-28). The corner-zone ends of the strips act
-# as diagonal corners, $::gripz at every corner — the same measure
-# deco-draw advertises.
+# as diagonal corners, one gripz at every corner — the same measures
+# deco-draw advertises, from the same chrome verdict.
 proc rz-edge {t x y} {
     set W [winfo width $t]; set H [winfo height $t]
-    lassign [frame-chrome $t] B
-    set CZ $::gripz
+    lassign [frame-chrome $t] B - - CZ
     if {$B == 0} { return "" }   ;# no border, no grip: nothing to grab
     if {($y < $B && $x < $CZ) || ($x < $B && $y < $CZ)} { return nw }
     if {($y < $B && $x >= $W - $CZ) || ($x >= $W - $B && $y < $CZ)} { return ne }
@@ -944,7 +949,7 @@ proc sticky-hatch {bg} {
 proc frame-recolor {t bg} {
     $t configure -background $bg
     $t.deco configure -background $bg
-    deco-draw $t.deco [winfo width $t.deco] [winfo height $t.deco]
+    deco-redraw $t
     $t.title configure -background $bg
     # ...and the ARMED button with it. A pressed button used to fill
     # with the desk's ground, which on a light theme is nearly white

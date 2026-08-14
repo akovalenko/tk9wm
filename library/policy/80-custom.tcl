@@ -394,6 +394,10 @@ knob set-panel-font  {var {} settle {panels} group fonts kind {font PanelFont} g
                           {-family {DejaVu Sans Mono}} {a family of its own, the size still the desk's}}}
 knob set-title-justify {var {titlejust} settle {titles} group fonts kind {choice left center right}
                       get {set ::titlejust} doc {where the title sits in its bar}}
+knob set-border      {var {border} settle {titles} group frame kind {int 0} get {set ::border}
+                      doc {the border's thickness, all four sides — it is the resize grip}}
+knob set-grips       {var {gripz} settle {decor} group frame kind {int 0} get {set ::gripz}
+                      doc {the corner grip arms' reach along the border}}
 knob set-minimize    {var {minimize} settle {} group windows kind {choice iconify refuse}
                       get {set ::minimize} doc {what an iconify request gets}}
 knob set-maximize    {var {maximize} settle {} group windows kind {choice drop keep}
@@ -1805,7 +1809,7 @@ proc ui-style {} {
         scheme    $::theme \
         generation [ui-generation] \
         workarea  [workarea] \
-        chrome    [list $::border $::decotop] \
+        chrome    [list [look default border] [look default decotop]] \
         {*}$palette
 }
 # The ui world's cache key: an MTIME FINGERPRINT of everything under

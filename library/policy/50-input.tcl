@@ -171,7 +171,7 @@ proc compass-offer {rect fw fh} {
 proc compass-size {rect} {
     lassign $rect - - rw rh
     font configure CompassFont -family [font actual TitleFont -family] \
-        -size [expr {-2 * $::titleh}]
+        -size [expr {-2 * [look default titleh]}]
     set s [expr {[font metrics CompassFont -linespace] + 12}]
     set cap [expr {max(min($rw, $rh) / 4, 18)}]
     if {$s > $cap} {

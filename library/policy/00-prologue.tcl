@@ -18,6 +18,10 @@ package require treectrl   ;# titlebars: its text element cuts a long
 keep ncli 0
 keep fid 0
 keep focus_hist {}
+# The two decoration numbers a config may move (set-border and
+# set-grips write them); the look record in 10-look.tcl derives the
+# rest from them, and consumers read the record, never these.
+#
 # Border width, all four sides. 6px is a resize GRIP, not just a
 # line: the old 2px border left nothing to grab. The top strip above
 # the titlebar was 2px for a while (top resize worked but was
@@ -32,6 +36,6 @@ keep border 6
 # corners, so the border (and the grip riding on it) presses right
 # against the button the way the bottom border presses against the
 # client area. The grip's cut is just a mark on the border — it does
-# not chase the button's edge. Button size — see title-metrics.
+# not chase the button's edge. Button size — see look-derive.
 keep gripz 24
 

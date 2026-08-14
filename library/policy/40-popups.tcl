@@ -320,7 +320,8 @@ proc popup-drag-release {X Y {s 0}} {
 # around a client id, and nothing that would want them belongs on this
 # side of the line.
 proc wm-window {t title cw ch closescript} {
-    lassign [list $::border $::decotop $::titleh] B top titleh
+    lassign [list [look default border] [look default decotop] \
+        [look default titleh]] B top titleh
     toplevel $t -background [themed focus]
     wm overrideredirect $t 1
     set ::closeof($t) $closescript

@@ -609,9 +609,11 @@ proc policy-pick-refocus {w} {
 # they do is the gesture table's.
 proc titlebar-build {t w names title} {
     set names [titlebar-order $names]
+    set btnw [look default btnw]
+    set btnpad [look default btnpad]
     treectrl $t.title -showheader no -showroot no -showbuttons no \
         -showlines no -borderwidth 0 -highlightthickness 0 \
-        -background [themed focus] -itemheight $::titleh
+        -background [themed focus] -itemheight [look default titleh]
     # class binds stripped (a dumb label, not a tree) — but the FRAME's
     # tag stays: press-end must hear a ButtonRelease that happens over
     # the title, or the drag state outlives the drag (the rz-* handlers
@@ -621,13 +623,13 @@ proc titlebar-build {t w names title} {
     $t.title state define pressed   ;# armed by a press; release-inside fires
     foreach name $names {
         if {[titlebar-side $name] eq "left"} {
-            $t.title column create -width $::btnw -tags C$name
+            $t.title column create -width $btnw -tags C$name
         }
     }
     $t.title column create -squeeze yes -expand yes -tags C0
     foreach name $names {
         if {[titlebar-side $name] eq "right"} {
-            $t.title column create -width $::btnw -tags C$name
+            $t.title column create -width $btnw -tags C$name
         }
     }
     $t.title configure -treecolumn C0
@@ -658,14 +660,14 @@ proc titlebar-build {t w names title} {
         if {$txt ne ""} {
             $t.title element create e$name text -fill white -lines 1 \
                 -font BtnGlyphFont -text $txt
-            set px [expr {max($::btnpad,
-                ($::btnw - [font measure BtnGlyphFont $txt]) / 2)}]
-            set py [expr {max($::btnpad,
-                ($::btnw - [font metrics BtnGlyphFont -linespace]) / 2)}]
+            set px [expr {max($btnpad,
+                ($btnw - [font measure BtnGlyphFont $txt]) / 2)}]
+            set py [expr {max($btnpad,
+                ($btnw - [font metrics BtnGlyphFont -linespace]) / 2)}]
         } else {
             $t.title element create e$name image -image [titlebar-image $name]
-            set px $::btnpad
-            set py $::btnpad
+            set px $btnpad
+            set py $btnpad
         }
         $t.title style create s$name
         $t.title style elements s$name [list eBox e$name]
@@ -679,7 +681,7 @@ proc titlebar-build {t w names title} {
     $t.title item element configure $item C0 eTxt -text $title
     $t.title item lastchild root $item
     set ::btncols($t) $names
-    set ::btnwof($t) $::btnw   ;# the size this strip was BUILT at
+    set ::btnwof($t) $btnw   ;# the size this strip was BUILT at
     # Three buttons and the double, because all four are gestures the
     # table can name. w == 0 says "no client behind this frame" to the
     # shared handlers.

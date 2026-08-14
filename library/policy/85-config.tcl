@@ -131,6 +131,20 @@ settler desk-window {desk-window-build}  ;# on, off, and the colour of it
 settler welcome     {welcome-inject}     ;# re-decided per load
 settler widgets     {widgets-build}      ;# cheap by construction: all, from nothing
 settler titles      {retitle-frames}     ;# live frames follow metrics and font
+settler decor {
+    # The corner grips: their length is drawn and hit-tested from the
+    # frame's chrome verdict, so carry the wish into the look record —
+    # gripz derives nothing, so no look-derive is owed — then refresh
+    # each frame's verdict and repaint. No re-layout: the geometry did
+    # not move. (A BORDER change is the titles settler's: everything
+    # derives from it, so retitle-frames re-derives the record whole,
+    # and the <Configure> it causes repaints the underlay by itself.)
+    dict set ::looks default gripz $::gripz
+    foreach {w t} [array get ::frameof] {
+        set ::chromeof($t) [chrome-of $w]
+        deco-redraw $t
+    }
+}
 settler cursor      {root-cursor-apply}  ;# the desk stops wearing the server's X
 settler applets {
     # The APPLETS are not the desk: they live in their own processes
@@ -169,7 +183,7 @@ settler keys {
 # THE ORDER, and this list is the only place it lives.
 keep settle_order {
     styles theme fonts panels tray desk-window welcome widgets titles
-    cursor applets workarea stack desks layers matches keys
+    decor cursor applets workarea stack desks layers matches keys
 }
 # ONE settler, ASKED FOR rather than done — the shape the invariant
 # needs: a word writes its wish and says which settler owes it a deed.

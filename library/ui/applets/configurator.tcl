@@ -662,7 +662,7 @@ proc cfg-nodes {} {
     # each other (the owner, 2026-08-06). A subject the list never
     # heard of goes after the named ones, in name order — a new group
     # surfaces rather than vanishes.
-    set said {desk fonts actions keys panel terminal emacs \
+    set said {desk fonts frame actions keys panel terminal emacs \
         windows tray widgets menus}
     set subjects [dict keys $groups]
     foreach t [dict keys $under] {
