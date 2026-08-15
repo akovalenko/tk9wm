@@ -1161,11 +1161,15 @@ proc emacs-edit-terminal-name {} {
 # branch below cannot use it, because putting a file into a frame that
 # already exists inside a given terminal is a thing only the daemon
 # can do; that one carries his focus form instead.
-proc emacs-edit-open {file line} {
+proc emacs-edit-open {file {line ""}} {
     set spec [emacs-edit-spec]
     set cmd [emacs-client-cmd $spec]
     if {$::emacs_autodaemon eq "on"} { lappend cmd -a {} }
-    set place [list +$line $file]
+    if {$line eq ""} {
+	set place [list $file]
+    } else {
+	set place [list +$line $file]
+    }
     if {$::emacs_frames ne "terminal"} {
         lappend cmd [expr {$::emacs_edit eq "create" ? "-c" : "-r"}] -n
         set cmd [concat $cmd $place]
