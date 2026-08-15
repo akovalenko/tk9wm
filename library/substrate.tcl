@@ -4731,6 +4731,14 @@ proc key-help-open {} {
             return
         }
         set ::kbd_grabbed 1
+        # a sync grab freezes the MOMENT it stands, not at the next
+        # delivery (the protocol's own words) — wave the queue on into
+        # the per-event discipline, or the keyboard stops right here.
+        # The prefix branch has key-thaw answer the same freeze; this
+        # grab is taken outside any frozen press, so the answer is its
+        # own.
+        x-allow-events sync-keyboard 0
+        x-sync 0
     }
     set ::keyseq $::keymap
     set ::keyseq_keys {}
@@ -5039,6 +5047,25 @@ proc keys-pass-log {mods ks} {
     puts "WM: key [chord-name $mods $ks] -> passed to\
  0x[format %x $::focused] (keys-pass fallback)"
 }
+# The doubled opener's answer — forward or stand; handle-key's two
+# call sites say when a second press means it. The replay releases the
+# active grab by itself: the server reprocesses the press ignoring
+# root's passive grabs, the chord lands in the focus natively,
+# modifiers intact — and keyseq-end has no grab left to drop.
+proc keyseq-doubled {mods ks time} {
+    if {!$::keyseq_opener_up} {
+        # the opener never came up: this press is the hold's
+        # autorepeat, not a second press — stand still (the
+        # dispatcher's finally answers sync; detectable autorepeat is
+        # what makes the hold readable, and ungranted it keeps the
+        # doubling dark, see key_dar)
+        return
+    }
+    puts "WM: key [chord-name $mods $ks] -> doubled, passed to the window"
+    key-thaw replay-keyboard $time
+    set ::kbd_grabbed 0
+    keyseq-end
+}
 proc handle-key {state kc time} {
     set mods [expr {$state & ~$::CHORD_IGNORE}]
     if {$::keyrouter ne ""} {
@@ -5066,6 +5093,27 @@ proc handle-key {state kc time} {
     set node $::keymap
     set restart 0
     if {$::keyseq ne ""} {
+        # THE DOUBLED OPENER GOES THROUGH — screen and tmux's own
+        # idiom (C-a C-a types a literal C-a): a second press of the
+        # chord that opened the sequence, made where the opener left
+        # it, asks for that chord LITERALLY (keyseq-doubled). A
+        # config's word still beats the idiom — the exact match (a
+        # submap's own <Super>t) and chord-hold's fill (a bare letter
+        # with the modifier still down) both come first, the forward
+        # takes only the slot the restart-into-itself used to no-op
+        # in — EXCEPT on the help walk's root, where every top chord
+        # is an exact match and the help chord's is the very bind
+        # that opened us: re-running it would only re-open help, so
+        # there the forward is asked first. Walked deeper, the opener
+        # is not standing where it left the keys and restarts as it
+        # always did.
+        set doubled [expr {$k eq $::keyseq_opener && $::key_double_pass
+                           && $::key_dar
+                           && $::keyseq_keys eq $::keyseq_opener_keys}]
+        if {$doubled && ![llength $::keyseq_keys]} {
+            keyseq-doubled $mods $ks $time
+            return
+        }
         if {[dict exists $::keyseq $k]} {
             set node $::keyseq
         } elseif {$::chord_hold && $mods == $::keyseq_mods && $mods != 0
@@ -5074,35 +5122,8 @@ proc handle-key {state kc time} {
             # inner key mean the same key.
             set node $::keyseq
             set k "0,$ks"
-        } elseif {$k eq $::keyseq_opener && $::key_double_pass && $::key_dar
-                  && $::keyseq_keys eq $::keyseq_opener_keys} {
-            # THE DOUBLED OPENER GOES THROUGH — screen and tmux's own
-            # idiom (C-a C-a types a literal C-a): a second press of
-            # the chord that opened the sequence, made where the opener
-            # left it, asks for that chord LITERALLY. The replay
-            # releases the active grab and the server reprocesses the
-            # press ignoring root's passive grabs — native delivery,
-            # into the focus, modifiers intact — so keyseq-end below
-            # has no grab left to drop. A config's word still beats the
-            # idiom: the exact match above (a submap's own <Super>t)
-            # and chord-hold's fill (a bare letter with the modifier
-            # still down) both come first — the forward takes only the
-            # slot the restart-into-itself used to no-op in. Walked
-            # deeper, the opener is not standing where it left the keys
-            # and restarts as it always did.
-            if {!$::keyseq_opener_up} {
-                # the opener never came up: this press is the hold's
-                # autorepeat, not a second press — stand still (the
-                # finally answers sync; detectable autorepeat is what
-                # makes the hold readable, and ungranted it keeps this
-                # whole branch dark, see key_dar)
-                return
-            }
-            puts "WM: key [chord-name $mods $ks] -> doubled, passed to\
- the window"
-            key-thaw replay-keyboard $time
-            set ::kbd_grabbed 0
-            keyseq-end
+        } elseif {$doubled} {
+            keyseq-doubled $mods $ks $time
             return
         } elseif {$ks == $::KS_ESC} {
             keyseq-abort Esc
