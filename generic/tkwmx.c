@@ -2157,22 +2157,35 @@ GrabObjCmd(void *clientData, Tcl_Interp *interp, int objc,
     }
 
     case G_KBD: {
-	/* window ?time? -> 1 when the server gave it, 0 when it refused
-	 * (someone else holds it) — a refusal is an answer, not an error. */
+	/* window ?time? ?keyboard-mode? -> 1 when the server gave it, 0
+	 * when it refused (someone else holds it) — a refusal is an
+	 * answer, not an error. keyboard-mode is async (the default) or
+	 * sync; sync makes the ACTIVE grab freeze on every key event
+	 * until the WM answers with `grab allow` — sync-keyboard to
+	 * stay in the discipline, replay-keyboard to hand the event
+	 * through — which is what a key sequence runs under. The
+	 * pointer side is always async, as with `grab key` above. */
+	static const char *const kmodes[] = { "async", "sync", NULL };
+	int kmode = 0;
 	int status;
-	if (n < 1 || n > 2) {
-	    Tcl_WrongNumArgs(interp, 2, objv, "?-displayof window? window ?time?");
+	if (n < 1 || n > 3) {
+	    Tcl_WrongNumArgs(interp, 2, objv,
+		"?-displayof window? window ?time? ?keyboard-mode?");
 	    return TCL_ERROR;
 	}
 	if (WindowFromObj(interp, tkMain, av[0], &win) != TCL_OK) {
 	    return TCL_ERROR;
 	}
 	w = CurrentTime;
-	if (n == 2 && Tcl_GetWideIntFromObj(interp, av[1], &w) != TCL_OK) {
+	if (n >= 2 && Tcl_GetWideIntFromObj(interp, av[1], &w) != TCL_OK) {
 	    return TCL_ERROR;
 	}
-	status = XGrabKeyboard(dpy, win, False, GrabModeAsync, GrabModeAsync,
-			       (Time)w);
+	if (n == 3 && Tcl_GetIndexFromObj(interp, av[2], kmodes,
+		"keyboard-mode", 0, &kmode) != TCL_OK) {
+	    return TCL_ERROR;
+	}
+	status = XGrabKeyboard(dpy, win, False, GrabModeAsync,
+			       kmode ? GrabModeSync : GrabModeAsync, (Time)w);
 	Tcl_SetObjResult(interp, Tcl_NewIntObj(status == GrabSuccess));
 	return TCL_OK;
     }

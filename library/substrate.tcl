@@ -507,7 +507,9 @@ proc x-grab-key {keycode mods w {kbdmode async}} {
 }
 proc x-ungrab-key {keycode mods w} { tkwmx::grab ungrab-key $keycode $mods $w }
 # 1 = the server gave the keyboard, 0 = someone else holds it
-proc x-grab-keyboard {w {time 0}}  { tkwmx::grab keyboard $w $time }
+proc x-grab-keyboard {w {time 0} {kmode async}}  {
+    tkwmx::grab keyboard $w $time $kmode
+}
 proc x-ungrab-keyboard {{time 0}}  { tkwmx::grab ungrab-keyboard $time }
 # The cursor is the GRAB's, and that is the whole reason it is here: a
 # drag over somebody else's window can show a drag cursor no other way
@@ -525,6 +527,7 @@ proc x-keysym {name}            { tkwmx::keyboard keysym $name }
 proc x-keysym-name {ks}         { tkwmx::keyboard name $ks }
 proc x-keycode {keysym}         { tkwmx::keyboard keycode $keysym }
 proc x-keysym-at {kc {group 0} {level 0}} { tkwmx::keyboard at $kc $group $level }
+proc x-key-autorepeat {onoff}   { tkwmx::keyboard autorepeat $onoff }
 # The xkb GROUP, which decides the alphabet a keycode speaks. Read with
 # no argument for {locked effective} — the two differ while a momentary
 # switch is held — or give an index 0..3 to lock the keyboard into one.
@@ -1588,30 +1591,57 @@ proc dispatch-event {ev} {
             # apart from the keys Tk's own widgets are being typed into.
             if {[dict get $ev window] != $::root} return
             set ::evtime [dict get $ev time]
-            # No active grab of ours means the press came through the
-            # passive SYNC grab and stands FROZEN until answered — the
-            # keyboard twin of button-press below. handle-key answers
-            # on the paths that decide (action, prefix, keys-pass);
-            # the finally answers for every path that stays silent —
-            # unbound, a bare modifier, an error — and replay is the
-            # answer that does not eat the key: the client gets what
-            # the desk had no use for.
-            set ::key_frozen [expr {!$::kbd_grabbed && $::keyrouter eq ""}]
+            # Passive grab and sequence grab are both SYNC, so short of
+            # a router's async grab every press arrives FROZEN and
+            # awaits its ONE answer — the keyboard twin of button-press
+            # below. handle-key answers on the paths that decide
+            # (action, prefix, keys-pass, the doubled opener); the
+            # finally answers for every path that stays silent —
+            # unbound, a bare modifier, an error — and WHICH answer
+            # depends on where the press froze. In idle it is the
+            # client's: replay does not eat the key, the client gets
+            # what the desk had no use for. Inside a sequence it is the
+            # desk's: sync-keyboard keeps the queue moving and the
+            # discipline standing, and nothing leaks to a client while
+            # the sequence lives.
+            set ::key_frozen [expr {$::keyrouter eq ""}]
             try {
                 handle-key [dict get $ev state] [dict get $ev keycode] \
                     $::evtime
             } finally {
-                key-thaw replay-keyboard $::evtime
+                key-thaw [expr {$::kbd_grabbed ? "sync-keyboard"
+                                               : "replay-keyboard"}] $::evtime
             }
         }
-        key-release { # only a keyboard-modal router cares (the alt-tab
-            # commit-on-release); the keymap machine ignores releases.
-            if {$::keyrouter eq "" || [dict get $ev window] != $::root} return
+        key-release { # a keyboard-modal router reads releases (the
+            # alt-tab commit-on-release); the keymap machine ignores
+            # them — but under a sequence's SYNC grab a release arrives
+            # frozen like everything else and must be answered, or the
+            # keyboard stops. One thing is read before the queue moves
+            # on: the OPENER's own release, which is what tells a
+            # second press of it from the hold's autorepeat (see the
+            # doubled-opener forward in handle-key).
+            if {[dict get $ev window] != $::root} return
             set ::evtime [dict get $ev time]
-            route-key release \
-                [keysym-name [router-key [dict get $ev state] \
-                                  [dict get $ev keycode]]] \
-                [expr {[dict get $ev state] & ~(2 | 16)}]
+            if {$::keyrouter ne ""} {
+                route-key release \
+                    [keysym-name [router-key [dict get $ev state] \
+                                      [dict get $ev keycode]]] \
+                    [expr {[dict get $ev state] & ~(2 | 16)}]
+                return
+            }
+            if {!$::kbd_grabbed} return
+            try {
+                set kc [dict get $ev keycode]
+                if {$::keyseq_opener ne ""
+                        && [chord-key $kc [x-keysym-at $kc 0 0]]
+                           == [lindex [split $::keyseq_opener ,] 1]} {
+                    set ::keyseq_opener_up 1
+                }
+            } finally {
+                x-allow-events sync-keyboard $::evtime
+                x-sync 0
+            }
         }
         mapping-notify { # 2 (pointer) is not ours
             if {[dict get $ev request] == 2} return
@@ -3971,6 +4001,15 @@ keep code_binds {}   ;# parsed path -> {script S name N origin O}
 keep keyseq ""       ;# "" = idle; else the submap we are inside, keyboard grabbed
 keep keyseq_keys {}  ;# ...and the chords that got us there, for the echo
 keep keyseq_mods 0   ;# ...and the modifiers the prefix was held with
+# The chord that OPENED the sequence — set when one starts, fresh or
+# over (a restart is a start), and read by the doubled-opener forward
+# in handle-key. The help opener leaves no trace in keyseq_keys, which
+# is why the opener is its own field and not the list's first word.
+keep keyseq_opener ""      ;# "mods,ks" of the opener; "" = none
+keep keyseq_opener_up 0    ;# its key seen RELEASED since — a press again
+                            #  is a second press, not the hold's autorepeat
+keep keyseq_opener_keys {} ;# keyseq_keys as the opener left them: doubling
+                            #  answers only where the opener still stands
 
 # HOLDING THE MODIFIER THROUGH A CHORD (the owner, 2026-08-02: "someone
 # might like <Super>t<Super>w<Super>w without letting go"). Both forms
@@ -3989,6 +4028,10 @@ keep keyseq_mods 0   ;# ...and the modifiers the prefix was held with
 # is why chord-hold-shadows says so out loud rather than leaving it as
 # advice about which letters to avoid.
 keep chord_hold 0
+keep key_double_pass 1  ;# the doubled opener types itself into the window
+keep key_dar 0       ;# detectable autorepeat granted (substrate-start) —
+                      #  the doubled-opener forward stays off without it:
+                      #  a held prefix would read as a stream of doubles
 keep kbd_grabbed 0
 keep key_frozen 0    ;# a sync-grabbed press awaits its ONE answer (key-thaw)
 keep keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
@@ -4630,9 +4673,14 @@ proc keyseq-end {} {
         x-ungrab-keyboard 0
         x-sync 0
         set ::kbd_grabbed 0
+        # the ungrab released any queued events with it (Xlib's own
+        # words) — the freeze is answered, and the latch must agree
+        # or the dispatcher's finally would answer a second time
+        set ::key_frozen 0
     }
     set ::keyseq ""
     set ::keyseq_keys {}
+    set ::keyseq_opener ""
     policy-key-echo none
 }
 # The chords typed so far, as one line — what the echo is about.
@@ -4678,7 +4726,7 @@ proc key-help-open {} {
         return
     }
     if {!$::kbd_grabbed} {
-        if {![x-grab-keyboard $::root]} {
+        if {![x-grab-keyboard $::root 0 sync]} {
             puts "WM: key help: the keyboard grab was refused"
             return
         }
@@ -4687,6 +4735,13 @@ proc key-help-open {} {
     set ::keyseq $::keymap
     set ::keyseq_keys {}
     set ::keyseq_mods 0
+    # the help chord OPENED this sequence, so doubled it goes through
+    # like any opener, box and all (keyseq-end takes the box). Opened
+    # from the welcome mat there is no chord — and "" matches no press.
+    set ::keyseq_opener [expr {[llength $::help_chord]
+                               ? [join $::help_chord ,] : ""}]
+    set ::keyseq_opener_up 0
+    set ::keyseq_opener_keys {}
     puts "WM: key help from the top\
  ([llength [keymap-rows $::keymap {}]] bindings)"
     policy-key-echo help [keyseq-help]
@@ -4829,6 +4884,12 @@ proc grab-keys-to {cmd {onlost {}}} {
             return 0
         }
         set ::kbd_grabbed 1
+    } else {
+        # taking over a SEQUENCE's grab: that one is sync (the
+        # per-event discipline), a router runs async — a same-client
+        # GrabKeyboard replaces the parameters in place, and async
+        # thaws anything the old discipline left frozen
+        x-grab-keyboard $::root 0 async
     }
     set ::keyseq ""      ;# the router replaces any sequence in progress
     set ::keyrouter $cmd
@@ -5013,6 +5074,36 @@ proc handle-key {state kc time} {
             # inner key mean the same key.
             set node $::keyseq
             set k "0,$ks"
+        } elseif {$k eq $::keyseq_opener && $::key_double_pass && $::key_dar
+                  && $::keyseq_keys eq $::keyseq_opener_keys} {
+            # THE DOUBLED OPENER GOES THROUGH — screen and tmux's own
+            # idiom (C-a C-a types a literal C-a): a second press of
+            # the chord that opened the sequence, made where the opener
+            # left it, asks for that chord LITERALLY. The replay
+            # releases the active grab and the server reprocesses the
+            # press ignoring root's passive grabs — native delivery,
+            # into the focus, modifiers intact — so keyseq-end below
+            # has no grab left to drop. A config's word still beats the
+            # idiom: the exact match above (a submap's own <Super>t)
+            # and chord-hold's fill (a bare letter with the modifier
+            # still down) both come first — the forward takes only the
+            # slot the restart-into-itself used to no-op in. Walked
+            # deeper, the opener is not standing where it left the keys
+            # and restarts as it always did.
+            if {!$::keyseq_opener_up} {
+                # the opener never came up: this press is the hold's
+                # autorepeat, not a second press — stand still (the
+                # finally answers sync; detectable autorepeat is what
+                # makes the hold readable, and ungranted it keeps this
+                # whole branch dark, see key_dar)
+                return
+            }
+            puts "WM: key [chord-name $mods $ks] -> doubled, passed to\
+ the window"
+            key-thaw replay-keyboard $time
+            set ::kbd_grabbed 0
+            keyseq-end
+            return
         } elseif {$ks == $::KS_ESC} {
             keyseq-abort Esc
             return
@@ -5067,8 +5158,9 @@ proc handle-key {state kc time} {
  it ran (a launch wants `Run`, and a wait wants a coroutine)"
         }
     } else {
-        if {$::keyseq eq ""} {
-            if {![x-grab-keyboard $::root $time]} {
+        set opened [expr {$::keyseq eq ""}]
+        if {$opened} {
+            if {![x-grab-keyboard $::root $time sync]} {
                 # the dispatcher's finally replays the frozen press:
                 # whoever holds the keyboard, the client still types
                 puts "WM: key [chord-name $mods $ks]: the keyboard grab was\
@@ -5076,19 +5168,33 @@ proc handle-key {state kc time} {
                 return
             }
             set ::kbd_grabbed 1
-            # The async active grab THAWS a freeze this client holds
-            # (XGrabKeyboard's own words) — which closes an old race
-            # for free: a fast second key used to slip to the client
-            # before the grab stood; frozen, it waits in the queue
-            # and arrives under the grab. The explicit answer is a
-            # belt-and-braces no-op on exactly that spec reading.
-            key-thaw async-keyboard $time
+            # The SYNC active grab CONTINUES the passive grab's freeze
+            # where async used to thaw it; the sync-keyboard answer
+            # lets the queue move — until the next key event, which
+            # again stands frozen. So the WHOLE sequence runs under the
+            # per-event discipline: press, release and autorepeat each
+            # wait for their one answer (the doubled-opener forward and
+            # its hold detection ride on seeing them all), nothing
+            # slips to a client while the sequence lives — which keeps
+            # the old race closed the same way the async thaw did: a
+            # fast second key waits in the queue and arrives under the
+            # grab.
+            key-thaw sync-keyboard $time
         }
         if {$restart} { set ::keyseq_keys {} }
         puts "WM: key [chord-name $mods $ks] -> prefix"
         set ::keyseq $payload
         set ::keyseq_mods $mods
         lappend ::keyseq_keys [chord-name $mods $ks]
+        if {$opened || $restart} {
+            # a sequence STARTED, fresh or over: this chord is its
+            # opener, its key is down at this instant, and this is
+            # where it left the keys — the doubled-opener forward
+            # reads all three
+            set ::keyseq_opener $k
+            set ::keyseq_opener_up 0
+            set ::keyseq_opener_keys $::keyseq_keys
+        }
         policy-key-echo keys [keyseq-text]
     }
 }
@@ -5421,6 +5527,18 @@ proc quit-wm {} {
 # dispatching (replaying whatever arrived while it was being loaded)
 # and adopt whatever was already on the screen.
 proc substrate-start {} {
+    # Detectable autorepeat, asked once for this connection: a held key
+    # then repeats as press, press, … with ONE release at the end, so
+    # «a press with no release between» reads as the hold it is. The
+    # doubled-opener forward stands on that reading and stays off
+    # ungranted (see key_dar) — without it a held prefix would type a
+    # stream of itself into the window. Ours alone: the clients' view
+    # of the keyboard is not touched.
+    set ::key_dar [x-key-autorepeat 1]
+    if {!$::key_dar} {
+        puts "WM: detectable autorepeat refused — a doubled prefix will\
+ restart, not forward"
+    }
     set queued $::evqueue
     set ::evqueue {}
     set ::dispatching 1

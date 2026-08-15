@@ -468,6 +468,9 @@ knob set-key-echo-place {var {key_echo_place} settle {} group keys kind text get
                       doc {where the chord echo sits, in place words}}
 knob set-key-hold-warn {var {key_hold_warn} settle {} group keys kind {int 0} get {set ::key_hold_warn}
     doc {ms a binding may hold the desk before it is reported}}
+knob set-key-double-pass {var {key_double_pass} settle {} group keys kind bool
+                      get {expr {$::key_double_pass ? "on" : "off"}}
+                      doc {a prefix pressed twice types itself into the window}}
 knob set-tray        {var {tray_on} settle {tray} group tray kind bool
                       get {expr {$::tray_on ? "on" : "off"}}
                       doc {be the display's system tray}}

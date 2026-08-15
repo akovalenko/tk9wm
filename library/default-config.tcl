@@ -164,6 +164,20 @@
 # A chord answers even while its modifier is still held down; off
 # demands a clean press:
 #   set-chord-hold off
+#
+# A prefix pressed TWICE types itself into the focused window and the
+# sequence ends — screen/tmux's C-a C-a. The help opener obeys too:
+# doubled, it hands its chord over and the box leaves. Your own word
+# beats the idiom: an explicit bind of the doubled chord answers as
+# bound (so does the bare letter reached through chord-hold), and a
+# HELD prefix is its autorepeat, not a second press. Off = the second
+# press restarts the sequence, as any top chord does:
+#   set-key-double-pass off
+# (An RDP-class viewer may see the forwarded chord arrive BARE: its
+# remote side dropped the modifier at the focus blip that started the
+# sequence. For such a window keys-pass is the tool — the doubled
+# prefix is for local, state-reading clients.)
+#
 # ...and a binding's script that holds the desk longer than this
 # many ms is reported (the desk is the event loop — a slow script
 # freezes every window):
