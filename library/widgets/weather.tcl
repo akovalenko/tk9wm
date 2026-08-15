@@ -17,13 +17,16 @@
 # Unsaid, the source is {name Tbilisi} — the owner's grin, 2026-08-11.
 #
 # THE ROAD TO THE SKY is a ladder, probed once and remembered
-# (weather-via): tcltls when the runtime carries it (in-process,
-# https), curl when it does not (https still), and bare core-http
-# last — Open-Meteo genuinely answers plain http (measured,
-# 2026-08-11), and a weather report is nobody's secret, so the last
-# rung keeps the widget alive on a machine with neither tls nor
-# curl. All three rungs are event-loop citizens: the fetch rides an
-# errand and the desk never waits.
+# (weather-via): curl when the machine carries it (https in a
+# subprocess), tcltls when it does not (in-process https), and bare
+# core-http last — Open-Meteo genuinely answers plain http
+# (measured, 2026-08-11), and a weather report is nobody's secret,
+# so the last rung keeps the widget alive on a machine with neither
+# curl nor tls. curl outranks tls deliberately (2026-08-15): every
+# rung rides an errand, but an in-process ::socket still resolves
+# the name synchronously, and under the sync-grab discipline one
+# stalled loop freezes every keyboard the server has — a subprocess
+# pays a fork each quarter-hour to keep the desk breathing.
 #
 # STATE IS KEYED BY THE SOURCE, the battery's discipline: two widgets
 # naming one sky show one sky, and a rebuild never forgets the last
@@ -77,18 +80,18 @@ array set weather_geo {}        ;# PLACE -> {lat lon}, for the session
 # ---- the road ----
 proc weather-via {} {
     if {$::weather_via ne ""} { return $::weather_via }
-    if {![catch {package require http}] && ![catch {package require tls}]} {
+    if {[llength [auto_execok curl]]} {
+        set ::weather_via curl
+    } elseif {![catch {package require http}] && ![catch {package require tls}]} {
         ::http::register https 443 [list ::tls::socket -autoservername 1]
         set ::weather_via tls
-    } elseif {[llength [auto_execok curl]]} {
-        set ::weather_via curl
     } elseif {![catch {package require http}]} {
         set ::weather_via http
     } else {
         set ::weather_via none
     }
     puts "WM: weather goes by [expr {$::weather_via eq "none"
-        ? "no road at all — no tls, no curl, no http" : $::weather_via}]"
+        ? "no road at all — no curl, no tls, no http" : $::weather_via}]"
     return $::weather_via
 }
 proc weather-url {host path} {
