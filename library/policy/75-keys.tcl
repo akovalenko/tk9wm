@@ -102,31 +102,44 @@ proc wm-keys {name args} {
     # the one thing its owner meant to keep (the owner's desk,
     # 2026-08-01: on-then-off after a take left three customizations
     # that said their piece and answered nothing).
-    if {[dict exists $::key_bundles $name]} {
-        set kept 0
-        foreach spec [dict get $::key_bundles $name chords] {
-            if {![catch {wm-unbind-owned $spec [list bundle $name]} gone]
-                    && !$gone} { incr kept }
-        }
-        if {$kept} {
-            puts "WM: keys: bundle $name leaves $kept chord(s) —\
+    #
+    # The keys-pass claim settles ONCE, over the finished move: the
+    # departure and the landing both move top chords, and a claim on
+    # THIS bundle consulted halfway would see the family half-gone —
+    # and gripe about a bundle that is merely mid-flight. The finally
+    # both disarms the deferral on every path (off returns from inside)
+    # and runs the one settling that counts.
+    set ::keys_pass_defer 1
+    try {
+        if {[dict exists $::key_bundles $name]} {
+            set kept 0
+            foreach spec [dict get $::key_bundles $name chords] {
+                if {![catch {wm-unbind-owned $spec [list bundle $name]} gone]
+                        && !$gone} { incr kept }
+            }
+            if {$kept} {
+                puts "WM: keys: bundle $name leaves $kept chord(s) —\
  not its own any more"
+            }
+            dict unset ::key_bundles $name
         }
-        dict unset ::key_bundles $name
+        if {[lindex $args 0] eq "off"} {
+            puts "WM: keys: bundle $name off"
+            return
+        }
+        # ...and the staged binds land, in the family's own name
+        set staged $::key_bundle_staging
+        unset ::key_bundle_staging
+        say-as [list bundle $name] {
+            foreach b $staged { wm-bind {*}$b }
+        }
+        dict set ::key_bundles $name $::key_bundle_current
+        puts "WM: keys: bundle $name on\
+ ([llength [dict get $::key_bundle_current chords]] bindings)"
+    } finally {
+        set ::keys_pass_defer 0
+        keys-pass-apply
     }
-    if {[lindex $args 0] eq "off"} {
-        puts "WM: keys: bundle $name off"
-        return
-    }
-    # ...and the staged binds land, in the family's own name
-    set staged $::key_bundle_staging
-    unset ::key_bundle_staging
-    say-as [list bundle $name] {
-        foreach b $staged { wm-bind {*}$b }
-    }
-    dict set ::key_bundles $name $::key_bundle_current
-    puts "WM: keys: bundle $name on ([llength [dict get $::key_bundle_current chords]]\
- bindings)"
 }
 # WHICH CHORD DOES THIS? — the keymap read backwards, for anything
 # that wants to TELL the user where a thing lives instead of assuming
@@ -164,31 +177,34 @@ proc keymap-find {node script path} {
 # token. What is passed is the GRAB, not an ownership: everything
 # under a passed leader goes quiet for that window, a custom bind
 # under the same umbrella included — whoever bound `<Super>t k` chose
-# to stand under the chords prefix. Resolution is LATE, at the press
-# and not at the style merge, so a re-parameterized bundle keeps
-# passing its new prefix rather than a snapshot. A crooked element
-# fails CLOSED — the chord stays the desk's, which is visible and
-# safe — with one complaint per unique cause, not a storm of them.
+# to stand under the chords prefix. Resolution is LATE — the set is
+# re-derived at every settling, never snapshotted at the style merge,
+# so a re-parameterized bundle keeps passing its new prefix. A
+# crooked element fails CLOSED — the chord stays the desk's, which
+# is visible and safe — with one complaint per unique cause, not a
+# storm of them.
 #
-# Answers the substrate's dispatch (handle-key): 1 passes the frozen
-# press to the window by replay, 0 keeps it. Only idle presses ask —
-# a sequence or a router holds the keyboard actively and nothing
-# arrives frozen there.
+# Two askers in the substrate: keys-pass-apply LIFTS the server grabs
+# of the claimed leaders while the window holds the focus (the way a
+# modifier survives the trip — see the apply for the RDP story), and
+# handle-key's fallback replays a frozen press that should not have
+# arrived. Both want the same answer: the leaders this window claims.
 keep keys_pass_griped {}
 proc keys-pass-gripe {why} {
     if {$why in $::keys_pass_griped} return
     lappend ::keys_pass_griped $why
     puts "WM: keys-pass: $why — element ignored, the chord stays the desk's"
 }
-proc policy-key-pass {w mods ks} {
-    if {$w == 0 || ![info exists ::managed($w)]} { return 0 }
+proc policy-keys-pass-set {w} {
+    if {$w == 0 || ![info exists ::managed($w)]} { return {} }
     set st [style-of $w]
-    if {![dict exists $st keys-pass]} { return 0 }
+    if {![dict exists $st keys-pass]} { return {} }
     set val [dict get $st keys-pass]
     if {[llength $val] % 2} {
         keys-pass-gripe "odd pair list «$val»"
-        return 0
+        return {}
     }
+    set out {}
     foreach {kind spec} $val {
         switch -- $kind {
             bundle {
@@ -198,8 +214,7 @@ proc policy-key-pass {w mods ks} {
                 }
                 foreach cspec [dict get $::key_bundles $spec chords] {
                     if {[catch {parse-chord [lindex $cspec 0]} top]} continue
-                    lassign $top m k
-                    if {$m == $mods && $k == $ks} { return 1 }
+                    if {$top ni $out} { lappend out $top }
                 }
             }
             chord {
@@ -207,15 +222,17 @@ proc policy-key-pass {w mods ks} {
                     keys-pass-gripe "bad chord «$spec»: $top"
                     continue
                 }
-                lassign $top m k
-                if {$m == $mods && $k == $ks} { return 1 }
+                if {$top ni $out} { lappend out $top }
             }
             default {
                 keys-pass-gripe "unknown kind «$kind» (bundle or chord)"
             }
         }
     }
-    return 0
+    return $out
+}
+proc policy-key-pass {w mods ks} {
+    expr {[list $mods $ks] in [policy-keys-pass-set $w]}
 }
 
 # THE ACCORD TREE — stumpwm's shape: one prefix, everything under it,

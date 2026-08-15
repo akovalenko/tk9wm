@@ -958,10 +958,11 @@ proc set-title-justify {j} {
 # config's word for what a client asks with WM_HINTS initial_state or a
 # pre-map _NET_WM_STATE; see policy-start-state.
 # keys-pass (flat {kind spec} pairs; kind bundle|chord) — leading
-# chords the desk replays to this window while it holds the focus:
-# Alt+Tab for a fullscreen RDP viewer whose remote desk wants it. The
-# full story — late resolution, fail-closed — lives with
-# policy-key-pass (75-keys.tcl).
+# chords the desk hands to this window, its grabs lifted while the
+# window holds the focus: Alt+Tab for a fullscreen RDP viewer whose
+# remote desk wants it. The full story — late resolution,
+# fail-closed, the suspension — lives with policy-keys-pass-set
+# (75-keys.tcl) and keys-pass-apply (substrate).
 keep style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {

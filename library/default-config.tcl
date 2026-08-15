@@ -262,11 +262,15 @@
 #                              bundle's current leaders; for chords
 #                              that is the prefix and the help key)
 #                              or `chord` (one chord token). The
-#                              press is replayed to the client, so
-#                              EVERYTHING under a passed leader goes
-#                              quiet for that window; a crooked
-#                              element is refused out loud and its
-#                              chord stays the desk's
+#                              desk LIFTS its grabs on those chords
+#                              while the window holds the focus, so
+#                              they arrive natively with the modifier
+#                              world intact (an RDP session forwards
+#                              them whole) and EVERYTHING under a
+#                              passed leader goes quiet for that
+#                              window; a crooked element is refused
+#                              out loud and its chord stays the
+#                              desk's
 #
 #   wm-style always {increments ignore}
 #   wm-style {filter -class {* XTerm}} {increments ignore}

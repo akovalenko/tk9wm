@@ -185,6 +185,11 @@ settler keys {
     # it likes, and a warning computed halfway through names half the
     # collisions.
     chord-hold-shadows
+    # ...and the keys-pass claim of whoever holds the focus, settled
+    # over the finished keymap AND the finished style rules: every
+    # settling that ran during the reload derived from rules not yet
+    # re-read, and only this one sees the config's last word.
+    keys-pass-apply
 }
 
 # THE ORDER, and this list is the only place it lives.

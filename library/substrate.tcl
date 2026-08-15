@@ -3252,6 +3252,7 @@ proc paint-focus {w} {
             { set-prop-longs $::root $::NET_ACTIVE 33 [list $w] }
     }
     policy-paint-focus $w
+    keys-pass-apply    ;# the new holder's claim, settled (see the apply)
 }
 # ICCCM input model: the WM_HINTS input member, meaningful when the
 # InputHint flag is set; an absent property or flag means input=True —
@@ -3380,6 +3381,7 @@ proc focus-park {why} {
         soft "clear _NET_ACTIVE_WINDOW" \
             { set-prop-longs $::root $::NET_ACTIVE 33 [list 0] }
     }
+    keys-pass-apply    ;# nobody focused, nobody's claim — grabs resume
 }
 # The focus reached a dead end: it sits on our own decoration, on the
 # root, on nothing, or it follows the pointer. Whatever the cause (a
@@ -4249,6 +4251,7 @@ proc keys-drop-orphan {top} {
     set ::grabbed_top [lreplace $::grabbed_top $i $i]
     ungrab-chord $top
     puts "WM: key top chord [chord-name {*}$top] released"
+    keys-pass-apply    ;# a suspended chord that left is no claim now
 }
 # ...and the same, but only if the chord is still OURS. What a family
 # of bindings takes away when it leaves is its own contribution and
@@ -4432,6 +4435,8 @@ proc wm-bind {spec script {name ""}} {
         lappend ::grabbed_top $top
         grab-chord $top
         puts "WM: key top chord [chord-name {*}$top] grabbed"
+        # a top chord arriving under a live claim is claimed at once
+        keys-pass-apply
     }
 }
 
@@ -4441,10 +4446,14 @@ proc wm-bind {spec script {name ""}} {
 # chord lookup. Keyboard-SYNC, like the click-to-focus button grab: an
 # idle press stands frozen until the dispatcher answers it — kept for
 # the desk (async-keyboard) or handed to the focused client
-# (replay-keyboard, the keys-pass verdict). Uniformly for every chord:
-# per-chord mode bookkeeping is not worth saving events that arrive at
-# a human's tempo.
+# (replay-keyboard: an unbound echo, or the keys-pass fallback).
+# Uniformly for every chord: per-chord mode bookkeeping is not worth
+# saving events that arrive at a human's tempo.
 proc grab-chord {chord} {
+    # A suspended leader stays lifted: the focused window claims it
+    # (keys-pass-apply), and a re-lay — keys-remap, a re-bind — must
+    # not hand it back to the desk behind the claim's back.
+    if {$chord in $::keys_suspended} return
     lassign $chord mods ks
     set got 0
     foreach k [concat [list $ks] [keypad-twin $ks]] {
@@ -4520,15 +4529,72 @@ proc router-key {state kc} {
     }
     return $ks
 }
-# ...and the same four, given back (see keys-drop-orphan).
+# ...and the same, given back — the keypad TWIN included, mirroring
+# grab-chord's own enumeration: an ungrab that forgot the twin left a
+# digit's keypad half grabbed, which a released orphan could shrug
+# off but a keys-pass suspension cannot — the twin's grab would go on
+# blipping the focus the suspension exists to keep still.
 proc ungrab-chord {chord} {
     lassign $chord mods ks
-    set kc [x-keycode $ks]
-    if {$kc == 0} return
-    foreach locks {0 2 16 18} {
-        x-ungrab-key $kc [expr {$mods | $locks}] $::root
+    foreach k [concat [list $ks] [keypad-twin $ks]] {
+        set kc [x-keycode $k]
+        if {$kc == 0} continue
+        foreach locks {0 2 16 18} {
+            x-ungrab-key $kc [expr {$mods | $locks}] $::root
+        }
     }
     x-sync 0
+}
+
+# ---- keys-pass: a claim LIFTS the grabs it names ----
+# The style key keys-pass names leaders the desk gives up while the
+# window holds the focus. The first answer was replay — and the
+# owner's RDP viewer showed why replay cannot be the whole answer
+# (2026-08-15): a passive grab's ACTIVATION generates
+# FocusOut(NotifyGrab) at the focused client before the replay
+# arrives, and an RDP-class client releases its held modifiers on any
+# FocusOut — Alt+Tab landed remotely as a bare Tab. No grab mode
+# avoids that blip; the only delivery with the modifier world intact
+# is the one no grab touches. So the claim suspends the SERVER GRABS
+# themselves: while a claiming window is focused its leaders are not
+# grabbed at all, and every press reaches it natively.
+#
+# DERIVED, NOT TRACKED. The desired set is a pure function of
+# (::focused, the styles, the bundles, what is actually grabbed),
+# diffed here against ::keys_suspended — idempotent, so every front
+# that can move an input just calls it: the two focus funnels
+# (paint-focus, focus-park), a top chord coming or going (wm-bind,
+# keys-drop-orphan), a bundle re-declaration (wm-keys, deferred to
+# its end so a half-moved family is never consulted), and the
+# reload's keys settler. A missed front does not eat a key: the sync
+# grab still freezes the press and handle-key's verdict replays it —
+# degraded for RDP, whole for everyone else, and logged as the
+# fallback it is.
+keep keys_suspended {}   ;# leaders whose server grabs are lifted
+keep keys_pass_defer 0   ;# mid-transaction guard, see wm-keys
+proc keys-pass-apply {} {
+    if {$::keys_pass_defer} return
+    set want {}
+    foreach top [policy-keys-pass-set $::focused] {
+        if {$top in $::grabbed_top && $top ni $want} { lappend want $top }
+    }
+    if {$want eq $::keys_suspended} return
+    set was $::keys_suspended
+    set ::keys_suspended $want
+    # the resume first consults the new set (grab-chord skips what is
+    # still suspended), so the bookkeeping moves before the grabs do
+    foreach top $was {
+        if {$top ni $want && $top in $::grabbed_top} { grab-chord $top }
+    }
+    foreach top $want {
+        if {$top ni $was} { ungrab-chord $top }
+    }
+    if {[llength $want]} {
+        puts "WM: keys-pass: 0x[format %x $::focused] claims\
+ [join [lmap c $want {chord-name {*}$c}] {, }] — grabs suspended"
+    } else {
+        puts "WM: keys-pass: grabs resumed ([llength $was])"
+    }
 }
 
 # Keycodes moved under us (setxkbmap and friends): re-grab every top
@@ -4544,6 +4610,9 @@ proc keys-reset {} {
     keyseq-end
     set ::keymap {}
     set ::grabbed_top {}
+    # grabs swept wholesale means nothing is suspended: a stale entry
+    # here would make grab-chord skip re-laying that chord's floor
+    set ::keys_suspended {}
     set ::code_binds {}
     set ::help_chord $::HELP_CHORD    ;# a key binding too, and swept with them
     x-sync 0
@@ -4895,16 +4964,19 @@ proc key-thaw {mode time} {
     x-allow-events $mode $time
     x-sync 0
 }
-# The pass, said once per (chord, window): a held leader autorepeats
-# through the WM at full rate, and «why does Alt+Tab not work here»
-# needs one line, not a storm.
+# The fallback's line, said once per (chord, window): a held leader
+# autorepeats through the WM at full rate, and «why does Alt+Tab not
+# work here» needs one line, not a storm. With the suspension doing
+# its job this never prints — a claimed leader's grab is lifted and
+# no press detours here — so the line standing in a log is itself
+# the finding: some front moved the claim without settling it.
 keep keys_pass_said {}
 proc keys-pass-log {mods ks} {
     set said [list $mods $ks $::focused]
     if {$said eq $::keys_pass_said} return
     set ::keys_pass_said $said
     puts "WM: key [chord-name $mods $ks] -> passed to\
- 0x[format %x $::focused] (keys-pass)"
+ 0x[format %x $::focused] (keys-pass fallback)"
 }
 proc handle-key {state kc time} {
     set mods [expr {$state & ~$::CHORD_IGNORE}]
@@ -4916,12 +4988,14 @@ proc handle-key {state kc time} {
     }
     set ks [chord-key $kc [x-keysym-at $kc 0 0]]
     if {[info exists ::ismodks($ks)]} return
-    # keys-pass: the focused window may CLAIM this leader — then the
-    # frozen press is replayed to it, no sequence starts and the
-    # keymap never hears the key. Only an idle press can pass: under
-    # a sequence or a router the keyboard is actively ours and
-    # nothing arrives frozen. Compared AFTER the chord-key fold, so
-    # the verdict sees the same (mods, keysym) the lookup would.
+    # keys-pass, the FALLBACK half: a claimed leader's grab is lifted
+    # (keys-pass-apply), so a frozen press on one means a front was
+    # missed — replay it to the window anyway (soft degradation: an
+    # RDP-class client gets the key bare, everyone else gets it
+    # whole) and let keys-pass-log name the anomaly. Only an idle
+    # press can arrive frozen: under a sequence or a router the
+    # keyboard is actively ours. Compared AFTER the chord-key fold,
+    # so the verdict sees the same (mods, keysym) the lookup would.
     if {$::key_frozen && [policy-key-pass $::focused $mods $ks]} {
         keys-pass-log $mods $ks
         key-thaw replay-keyboard $time
