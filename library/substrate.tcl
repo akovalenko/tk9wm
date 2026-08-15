@@ -345,6 +345,37 @@ proc run-script {what script} {
 # buffer and died with the process (measured, run-replace-test.sh).
 chan configure stdout -buffering line
 
+# One-arg puts is the WM's whole log voice, and here it learns two
+# knobs (declared in 80-custom, group desk, both off by default so
+# every suite's ^WM: anchor stands as written):
+#   set-log-stamp on              — wall-clock in front of every line;
+#     the 2026-08-15 desk freeze was dated by arithmetic over a
+#     15-minute widget beat, never again
+#   set-log-mute {focus winlist}  — drop a topic's lines entirely, the
+#     topic being the word after «WM:»; for a desk that finds the log
+#     too chatty
+# Only the bare one-arg form is dressed: -nonewline, channel forms and
+# everybody else's writes pass exactly as written.
+keep log_stamp 0
+keep log_mute {}
+if {![llength [info commands puts-plain]]} { rename puts puts-plain }
+proc puts {args} {
+    if {[llength $args] == 1} {
+        set line [lindex $args 0]
+        if {[llength $::log_mute]
+                && [regexp {^WM: (\S+)} $line -> topic]
+                && $topic in $::log_mute} return
+        if {$::log_stamp} {
+            set ms [clock milliseconds]
+            set stamp [clock format [expr {$ms / 1000}] -format "%m-%d %H:%M:%S"]
+            set line "$stamp.[format %03d [expr {$ms % 1000}]] $line"
+        }
+        puts-plain $line
+        return
+    }
+    puts-plain {*}$args
+}
+
 # ---------------- soft failures: survived, but never silent ----------------
 # A WM has to outlive the errors its clients hand it — a window dies
 # mid-request, a property read races the client's exit — so a good

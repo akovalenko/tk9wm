@@ -140,6 +140,13 @@
 # «hide forever» link writes the customization, or say it here:
 #   set-welcome off
 #
+# The desk's log (stdout, «WM: …» lines) can wear a wall-clock stamp —
+# forensics across .xsession-errors and the journal want one clock —
+# and whole topics (the word right after «WM:») can be silenced for
+# a production desk that finds the chatter too loud. Both off unsaid:
+#   set-log-stamp on
+#   set-log-mute {focus winlist}
+#
 # ---- keys: echo, help, cycle ----
 #
 # A running chord sequence SHOWS itself in a small box. A delay in ms

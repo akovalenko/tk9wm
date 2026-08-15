@@ -443,6 +443,11 @@ knob set-desk-background {var {desk_background_said} settle {desk-window} group 
                       doc {the desk window's color}}
 knob set-root-cursor {var {root_cursor} settle {cursor} group desk kind text get {set ::root_cursor}
                       doc {the cursor over the bare desk}}
+knob set-log-stamp   {var {log_stamp} settle {} group desk kind bool
+                      get {expr {$::log_stamp ? "on" : "off"}}
+                      doc {wall-clock in front of every log line}}
+knob set-log-mute    {var {log_mute} settle {} group desk kind list get {set ::log_mute}
+                      doc {log topics (the word after «WM:») said nowhere}}
 knob set-welcome     {var {welcome} settle {welcome} group desk kind bool get {set ::welcome}
                       doc {the welcome note on the desk}}
 knob set-panel-side  {var {} settle {panels} group panel kind {choice bottom top left right}
