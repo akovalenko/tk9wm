@@ -420,13 +420,16 @@
 # maximize button carries them classically — middle tall, right wide.
 #
 # Rename (winops `e`) asks for the window's shown words in a box
-# under its own titlebar, primed with what the desk shows now. The
-# answer is a TEMPLATE in the style key's grammar — %t the client's
-# own title, %i/%c its WM_CLASS, %% a literal % — so «ssh: %t» is a
-# live prefix and a plain word replaces. It outranks a style-said
-# `title`; an EMPTY answer takes the hand rename off (the style
-# rule, if any, shows again — type «%t» to see the client's raw
-# words THROUGH a style rule), and Escape changes nothing.
+# under its own titlebar, primed with the TEMPLATE behind them —
+# your standing rename exactly as you typed it, else the style
+# rule's, else the client's raw words — selected whole, so typing
+# replaces and Enter keeps. The answer is a TEMPLATE in the style
+# key's grammar — %t the client's own title, %i/%c its WM_CLASS, %%
+# a literal % — so «ssh: %t» is a live prefix and a plain word
+# replaces. It outranks a style-said `title`; an EMPTY answer takes
+# the hand rename off (the style rule, if any, shows again — type
+# «%t» to see the client's raw words THROUGH a style rule), and
+# Escape changes nothing.
 # Bound, a command acts on the ACTIVE window:
 #   wm-bind {<Ctrl><Shift>z} Minimize
 #   wm-bind {<Super>Up}      Maximize
@@ -792,11 +795,12 @@
 # ?-over-window W?` — one line of text from the person, dressed as
 # the key echo. Enter ANSWERS (empty included), Escape CANCELS the
 # asking script quietly: «answered nothing» and «did not answer» are
-# different facts. Not modal; a newer ask displaces the standing
-# one. It waits on a future, so it belongs in a script the desk runs
-# — a binding, a menu row. -over-window stands the box on that
-# window, under its titlebar and spanning its frame (what Rename
-# uses), overriding -place.
+# different facts. The -initial priming comes selected whole: typing
+# replaces it, Enter keeps it. Not modal; a newer ask displaces the
+# standing one. It waits on a future, so it belongs in a script the
+# desk runs — a binding, a menu row. -over-window stands the box on
+# that window, under its titlebar and spanning its frame (what
+# Rename uses), overriding -place.
 #
 # `Choose rows…` is the same list as a QUESTION: answers the picked
 # row's value (label when unsaid), or empty. A row is a bare word or

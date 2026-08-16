@@ -714,6 +714,12 @@ proc ui-ask {wmapp id prompt initial anchor warect {width ""}} {
         .ask.b.f.t configure -width [expr {$long ? 56 : 40}]
     }
     ui-field-set .ask.b.f $initial
+    # the priming arrives SELECTED, whole (the owner, 2026-08-17):
+    # the first letter typed replaces it, keeping it is Enter, and
+    # editing it starts with a cursor key — the field convention
+    # every rename box in the world has taught. An empty initial
+    # selects nothing and none of this shows.
+    ui-field-select-all .ask.b.f
     if {$long} {
         grid .ask.b.p -row 0 -column 0 -sticky w  -padx 12 -pady {10 4}
         grid .ask.b.f -row 1 -column 0 -sticky ew -padx 12 -pady {0 12}

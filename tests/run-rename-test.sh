@@ -2,9 +2,10 @@
 # Regression for Rename — the person's word over the desk's:
 #
 #   бокс     Rename stands the ask box ON the window — under its own
-#            titlebar, spanning the frame — primed with the VISIBLE
-#            title (what you see is what you edit); Escape changes
-#            nothing and nags nobody
+#            titlebar, spanning the frame — primed with the TEMPLATE
+#            the desk speaks (the standing rename as typed, else the
+#            style rule's, else the raw words), selected whole so
+#            typing replaces; Escape changes nothing and nags nobody
 #   слово    a typed word outranks a style-said `title`, and the
 #            client renaming itself does not budge it
 #   шаблон   the answer is a template: «п: %t» is a live prefix whose
@@ -63,10 +64,11 @@ wait_client "$LOG" 'рен старт'
 WID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | head -1)
 echo "--- actor: $WID"
 
-# ---- the box: primed with the visible title, under the titlebar ----
+# ---- the box: primed with the template, under the titlebar ----
 key super+1
 wait_for 20 box_up          # the first ask spawns the ui host
-PRIMED=$(askq 'list init [ui-field-get .ask.b.f] title [wm title .ask]')
+PRIMED=$(askq 'list init [ui-field-get .ask.b.f] \
+    sel [.ask.b.f.t tag ranges sel] title [wm title .ask]')
 BOXID=$(xdotool search --class Tk9wmGadget 2>/dev/null | head -1)
 BOXGEO=""
 if [ -n "$BOXID" ]; then
@@ -78,6 +80,10 @@ fi
 EXPGEO=$(askw "set w [expr {$WID + 0}]
 lassign [frame-rect \$w] fx fy fw fh
 list \$fx [expr {\$fy + [lindex [chrome-of \$w] 1]}] \$fw")
+# ---- ...typing replaces the selected priming whole ----
+xdotool type zz
+sleep 1
+TYPED=$(askq 'ui-field-get .ask.b.f')
 # ---- ...and Escape walks away without a mark ----
 key Escape
 wait_for 10 box_gone
@@ -107,6 +113,7 @@ check_name "...and the tail follows the client's rename" "$WID" "п: рен тр
 # ---- «%t» bares the client's words through the style rule ----
 key super+1
 wait_for 10 box_up
+PRIMED_T=$(askq 'ui-field-get .ask.b.f')   # the owner's case: template, not expansion
 askq 'ui-field-set .ask.b.f {%t}'
 key Return
 if wait_for 10 vname_absent "$WID"; then
@@ -153,10 +160,15 @@ if grep -q 'soft failure\|handler error' "$LOG"; then
     echo "FAIL: soft failures or handler errors:"
     grep 'soft failure\|handler error' "$LOG"; BAD=1
 fi
-if [ "$PRIMED" = "init {стиль: рен старт} title Rename" ]; then
-    echo "OK: the box came primed with the VISIBLE title, and says Rename"
+if [ "$PRIMED" = "init {стиль: %t} sel {1.0 1.9} title Rename" ]; then
+    echo "OK: the box came primed with the style TEMPLATE, selected whole"
 else
     echo "FAIL: the first box says: $PRIMED"; BAD=1
+fi
+if [ "$TYPED" = "zz" ]; then
+    echo "OK: the first letters typed replaced the priming"
+else
+    echo "FAIL: typing over the priming left: «$TYPED»"; BAD=1
 fi
 if [ -n "$BOXGEO" ] && [ "$BOXGEO" = "$EXPGEO" ]; then
     echo "OK: the box stood under the titlebar, spanning the frame"
@@ -179,6 +191,11 @@ if [ "$PRIMED2" = "моё окно" ]; then
 else
     echo "FAIL: the second box says: «$PRIMED2»"; BAD=1
 fi
+if [ "$PRIMED_T" = "п: %t" ]; then
+    echo "OK: a standing rename primes as TYPED — «п: %t», not its expansion"
+else
+    echo "FAIL: the standing rename primed as: «$PRIMED_T»"; BAD=1
+fi
 if [ "$BARED" = "vis {рен третий} layer %t" ]; then
     echo "OK: the «%t» layer stands, and the desk shows the raw words"
 else
@@ -195,7 +212,7 @@ if grep -q 'WM: Rename 0x[0-9a-f]*: an interactive command' "$LOG" \
 else
     echo "FAIL: the sweep refusal is silent, or a box stood ($SWEPT)"; BAD=1
 fi
-if [ "$PRIMED3" = "стиль: рен третий" ]; then
+if [ "$PRIMED3" = "стиль: %t" ]; then
     echo "OK: the winops row fired the same ask on «e»"
 else
     echo "FAIL: the winops box says: «$PRIMED3»"; BAD=1

@@ -1069,16 +1069,19 @@ proc ask-host-ready {} {
 
 # ---- Rename: the person's word over the desk's --------------------
 # The window command behind the winops `e` row: an ask under the
-# window's own titlebar, primed with what the desk currently SHOWS
-# (the visible title — what you see is what you edit). The answer is
-# kept as a TEMPLATE, not its expansion: type «ssh: %t» and the
-# prefix keeps following the client's renames, type «%t» over a
-# style-said title and the client's own words show through — the same
-# grammar the style key speaks, one language in both mouths. The
-# empty answer takes the hand rename OFF, back to whatever the style
-# rules say (kitty's reading of an emptied field); Escape is not an
-# answer at all — the wait is cancelled and this proc never resumes
-# past the Ask line, so a walked-away-from box changes nothing.
+# window's own titlebar, primed with the TEMPLATE the desk currently
+# speaks (visible-title-template) — the standing rename comes back
+# exactly as typed, «[dev]: %t» and not the morning's expansion of
+# it, and a style rule's template is met the same editable way (the
+# owner, 2026-08-17). The answer is likewise kept as a template, not
+# its expansion: type «ssh: %t» and the prefix keeps following the
+# client's renames, type «%t» over a style-said title and the
+# client's own words show through — the same grammar the style key
+# speaks, one language in both mouths. The empty answer takes the
+# hand rename OFF, back to whatever the style rules say (kitty's
+# reading of an emptied field); Escape is not an answer at all — the
+# wait is cancelled and this proc never resumes past the Ask line,
+# so a walked-away-from box changes nothing.
 #
 # Interactive only: an Apply-To-Matching sweep reaching this verb
 # would park one box per window, each displacing the last — a refusal
@@ -1089,7 +1092,7 @@ proc rename-command {w} {
  a sweep's boxes would only displace one another"
         return
     }
-    set text [Ask Rename -initial [visible-title $w] -over-window $w]
+    set text [Ask Rename -initial [visible-title-template $w] -over-window $w]
     # the client can die while its question stands; the frame gone,
     # there is nothing left to name (unmanage swept ::renameof too)
     if {![info exists ::frameof($w)]} return

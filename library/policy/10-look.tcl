@@ -1099,6 +1099,20 @@ proc visible-title {w} {
     if {$t ne ""} { return $t }
     return $raw
 }
+# ...and what the desk SAYS rather than shows: the template behind
+# the visible title, the words one would EDIT. The standing rename
+# verbatim, or the style rule's own template, or the client's raw
+# words when nobody said anything. Rename primes its box with this —
+# a person who typed «[dev]: %t» must meet «[dev]: %t» again, not
+# the morning's expansion of it, and a style-said template is just
+# as live a starting point (the owner, 2026-08-17). Same layering as
+# visible-title above, minus the expansion.
+proc visible-title-template {w} {
+    if {[info exists ::renameof($w)]} { return $::renameof($w) }
+    set t [style-title-of $w]
+    if {$t ne ""} { return $t }
+    expr {[info exists ::titleof($w)] ? $::titleof($w) : ""}
+}
 
 # ---- filter — the declarative match predicate ----
 # The workhorse for every match place (wm-style rules, panel-button
