@@ -280,13 +280,18 @@
 #   title TEMPLATE             the words the desk shows INSTEAD of the
 #                              client's own — titlebar, window list,
 #                              _NET_WM_VISIBLE_NAME. %t is the
-#                              client's own title, %% a literal %:
-#                              {title Mail} replaces, {title {xt: %t}}
-#                              prefixes and keeps following the
-#                              client's renames. Predicates always
-#                              match the CLIENT's title, never the
-#                              shown one; an empty expansion falls
-#                              back to the client's own words
+#                              client's own title, %i and %c the
+#                              WM_CLASS instance and class, %% a
+#                              literal %: {title Mail} replaces,
+#                              {title {xt: %t}} prefixes and keeps
+#                              following the client's renames, and
+#                                wm-style {filter -class ssh_*} \
+#                                    {title {[%i]: %t}}
+#                              badges every ssh terminal by its
+#                              target. Predicates always match the
+#                              CLIENT's title, never the shown one;
+#                              an empty expansion falls back to the
+#                              client's own words
 #   keys-pass PAIRS            leading chords the desk hands to THIS
 #                              window while it holds the focus — flat
 #                              {kind spec} pairs, kind `bundle` (that

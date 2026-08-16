@@ -970,9 +970,11 @@ proc set-title-justify {j} {
 # PLACE of the client's own: on the titlebar, in the window list,
 # and in _NET_WM_VISIBLE_NAME on the client (published only while
 # the two differ — the EWMH rule). %t in the template is the
-# client's own title, %% a literal %, so a flat replacement
-# ({title Mail}) and a live prefix ({title {xt: %t}}) are one rule
-# apiece. Matching stays on the CLIENT's words: a -title predicate
+# client's own title, %i/%c the WM_CLASS instance and class, %% a
+# literal %, so a flat replacement ({title Mail}), a live prefix
+# ({title {xt: %t}}) and a per-instance badge ({title {[%i]: %t}}
+# over filter -class ssh_*) are one rule apiece. Matching stays on
+# the CLIENT's words: a -title predicate
 # never sees the rewritten title, or a rule could feed itself.
 # Unlike its neighbours this key is not read off the per-client
 # cache — see visible-title below for why.
@@ -1057,10 +1059,20 @@ proc style-of {w} {
 # cached: place, desk and their kin are read at their own moments,
 # and re-judging them here would change answers behind their
 # consumers' backs.
-proc title-expand {template raw} {
-    # %% before %t: string map takes the earliest pair at each
-    # position, so %%t reads as a literal %t, not % plus the title.
-    string map [list %% % %t $raw] $template
+proc title-expand {w template raw} {
+    # %% first: string map takes the earliest pair at each position,
+    # so %%t reads as a literal %t, not % plus the title.
+    set map [list %% % %t $raw]
+    # %i/%c — WM_CLASS instance and class — are fetched only when the
+    # template asks: it is an X read per call, and most templates
+    # never mention them. (An ssh terminal named per target is what
+    # they are for: {title {[%i]: %t}} over filter -class ssh_*.)
+    if {[string first %i $template] >= 0
+            || [string first %c $template] >= 0} {
+        lassign [client-class $w] inst cls
+        lappend map %i $inst %c $cls
+    }
+    string map $map $template
 }
 proc style-title-of {w} {
     set title ""
@@ -1078,10 +1090,10 @@ proc style-title-of {w} {
 proc visible-title {w} {
     set raw [expr {[info exists ::titleof($w)] ? $::titleof($w) : ""}]
     if {[info exists ::renameof($w)]} {
-        set t [title-expand $::renameof($w) $raw]
+        set t [title-expand $w $::renameof($w) $raw]
         if {$t ne ""} { return $t }
     }
-    set t [title-expand [style-title-of $w] $raw]
+    set t [title-expand $w [style-title-of $w] $raw]
     if {$t ne ""} { return $t }
     return $raw
 }

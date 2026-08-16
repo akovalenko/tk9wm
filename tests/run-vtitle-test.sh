@@ -2,9 +2,11 @@
 # Regression for the visible title — the style key `title` and its
 # published witness _NET_WM_VISIBLE_NAME:
 #
-#   статик   a literal-ish template {приб %% ит: %t} — checks the
-#            replacement itself, %t expansion and %% escaping in one
-#            string; the property must carry exactly the shown words
+#   статик   a template {[%i/%c] приб %% ит: %t} — checks the
+#            replacement itself, %t, the WM_CLASS pair %i/%c and %%
+#            escaping in one string (the expectation is computed from
+#            the client's ACTUAL WM_CLASS, whatever the interpreter
+#            named it); the property must carry exactly the shown words
 #   простой  no rule — the property must be ABSENT (EWMH: it stands
 #            only while the shown name differs from the client's)
 #   дин…     client-vtitle.tcl renames itself twice: first WITHIN the
@@ -21,7 +23,7 @@ start_xvfb
 CONF=$(mktemp -d)
 trap 'stop_xservers; rm -rf "$CONF"' EXIT
 cat > "$CONF/tk9wm.tcl" <<'EOF'
-wm-style {filter -title статик*} {title {приб %% ит: %t}}
+wm-style {filter -title статик*} {title {[%i/%c] приб %% ит: %t}}
 wm-style {filter -title {дин *}} {title {dyn: %t}}
 EOF
 
@@ -68,8 +70,11 @@ else
     echo "FAIL: _NET_WM_VISIBLE_NAME missing from _NET_SUPPORTED"
 fi
 
-check_name "static template expanded (%t and %% both)" \
-    "$STATIC" "приб % ит: статик"
+# the client's own WM_CLASS pair, exactly as %i/%c must expand it
+eval "$(xprop -id "$STATIC" WM_CLASS \
+    | sed 's/.*= "\(.*\)", "\(.*\)"/INST="\1"; CLS="\2"/')"
+check_name "static template expanded (%t, %i/%c and %% at once)" \
+    "$STATIC" "[$INST/$CLS] приб % ит: статик"
 if vname_absent "$PLAIN"; then
     echo "OK: unruled client carries no _NET_WM_VISIBLE_NAME"
 else
