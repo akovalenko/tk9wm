@@ -128,7 +128,7 @@ import -window root "$HERE/winopsmark-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/winopsmark-test.png"
 kill $WM $CA 2>/dev/null
 
-STOCK="Maximize,Maximize-V,Maximize-H,Fullscreen,Close,Destroy,Raise,Lower,Bury,Move,Resize,Minimize,Above,Sticky"
+STOCK="Maximize,Maximize-V,Maximize-H,Fullscreen,Close,Destroy,Raise,Lower,Bury,Move,Resize,Minimize,Above,Sticky,Rename"
 TRIO="Maximize,Maximize-V,Maximize-H"
 echo "--- A=$AID"
 echo "--- labels: $LABELS"
