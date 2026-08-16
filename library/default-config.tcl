@@ -291,7 +291,10 @@
 #                              target. Predicates always match the
 #                              CLIENT's title, never the shown one;
 #                              an empty expansion falls back to the
-#                              client's own words
+#                              client's own words. The Rename
+#                              command (winops `e`) lays the
+#                              person's own template OVER this key,
+#                              window by window
 #   keys-pass PAIRS            leading chords the desk hands to THIS
 #                              window while it holds the focus — flat
 #                              {kind spec} pairs, kind `bundle` (that
@@ -412,8 +415,18 @@
 #   Minimize  Maximize  Fullscreen  Move  Resize
 #   Raise     Lower     Bury        Close Destroy
 #   Unmaximize  Unfullscreen  Fade  Unfade  Maximize-V  Maximize-H
+#   Rename
 # The axis pair composes (tall then wide is full); the titlebar's
 # maximize button carries them classically — middle tall, right wide.
+#
+# Rename (winops `e`) asks for the window's shown words in a box
+# under its own titlebar, primed with what the desk shows now. The
+# answer is a TEMPLATE in the style key's grammar — %t the client's
+# own title, %i/%c its WM_CLASS, %% a literal % — so «ssh: %t» is a
+# live prefix and a plain word replaces. It outranks a style-said
+# `title`; an EMPTY answer takes the hand rename off (the style
+# rule, if any, shows again — type «%t» to see the client's raw
+# words THROUGH a style rule), and Escape changes nothing.
 # Bound, a command acts on the ACTIVE window:
 #   wm-bind {<Ctrl><Shift>z} Minimize
 #   wm-bind {<Super>Up}      Maximize
@@ -775,12 +788,15 @@
 #
 # ---- Ask, Choose, Window-Shot, Exec ----
 #
-# `Ask PROMPT ?-initial …? ?-place …? ?-width …?` — one line of text
-# from the person, dressed as the key echo. Enter ANSWERS (empty
-# included), Escape CANCELS the asking script quietly: «answered
-# nothing» and «did not answer» are different facts. Not modal; a
-# newer ask displaces the standing one. It waits on a future, so it
-# belongs in a script the desk runs — a binding, a menu row.
+# `Ask PROMPT ?-initial …? ?-place …? ?-width …?
+# ?-over-window W?` — one line of text from the person, dressed as
+# the key echo. Enter ANSWERS (empty included), Escape CANCELS the
+# asking script quietly: «answered nothing» and «did not answer» are
+# different facts. Not modal; a newer ask displaces the standing
+# one. It waits on a future, so it belongs in a script the desk runs
+# — a binding, a menu row. -over-window stands the box on that
+# window, under its titlebar and spanning its frame (what Rename
+# uses), overriding -place.
 #
 # `Choose rows…` is the same list as a QUESTION: answers the picked
 # row's value (label when unsaid), or empty. A row is a bare word or

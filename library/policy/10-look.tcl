@@ -976,6 +976,8 @@ proc set-title-justify {j} {
 # over filter -class ssh_*) are one rule apiece. Matching stays on
 # the CLIENT's words: a -title predicate
 # never sees the rewritten title, or a rule could feed itself.
+# The Rename command lays the person's own template over this key,
+# window by window (rename-command, 60-actions).
 # Unlike its neighbours this key is not read off the per-client
 # cache — see visible-title below for why.
 keep style_rules {}

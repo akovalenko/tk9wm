@@ -950,12 +950,15 @@ proc Ask {prompt args} {
     set initial ""
     set place center
     set width ""
+    set over 0
     foreach {k v} $args {
         switch -- $k {
-            -initial { set initial $v }
-            -place   { set place $v }
-            -width   { set width $v }
-            default  { error "Ask: unknown option «$k» (-initial -place -width)" }
+            -initial     { set initial $v }
+            -place       { set place $v }
+            -width       { set width $v }
+            -over-window { set over $v }
+            default  { error "Ask: unknown option «$k»\
+ (-initial -place -width -over-window)" }
         }
     }
     # width is characters (the field's own unit) or a percent of the
@@ -966,6 +969,33 @@ proc Ask {prompt args} {
  workarea (50%), not «$width»"
     }
     set anchor [anchor-of $place]
+    set warect [workarea]
+    # -over-window: the question is ABOUT a window, so the box stands
+    # on it — the rect handed to the host is the frame below the
+    # titlebar, anchored start/start, and an unsaid width becomes 100%
+    # so the box spans the frame (a rename box reading as part of the
+    # window it renames). The rect is pressed into the frame's own
+    # monitor first: a window half off the screen still deserves a
+    # reachable box, and for the bottom edge — the box's height being
+    # the host's to know — two title strips stand in for it.
+    if {$over != 0} {
+        set fr [frame-rect $over]
+        if {[llength $fr]} {
+            lassign $fr fx fy fw fh
+            set ct [lindex [chrome-of $over] 1]
+            lassign [workarea-at $fr] wax way waw wah
+            set bw [expr {min($fw, $waw)}]
+            set bx [expr {max($wax, min($fx, $wax + $waw - $bw))}]
+            set est [expr {2 * [look [look-of $over] titleh]}]
+            set by [expr {max($way, min($fy + $ct, $way + $wah - $est))}]
+            set warect [list $bx $by $bw [expr {max($fh - $ct, 1)}]]
+            set anchor {start start}
+            if {$width eq ""} { set width 100% }
+        } else {
+            puts "WM: Ask: -over-window 0x[format %x $over] wears no\
+ frame — the box takes the workarea"
+        }
+    }
     if {![ask-host-ready]} {
         puts "WM: Ask: the ui host would not come up"
         return ""
@@ -983,7 +1013,7 @@ proc Ask {prompt args} {
     set id [incr ::ask_seq]
     set ::ask_fut($id) [fut::new]
     send -async -- tk9wm-ui [list ui-ask [tk appname] $id \
-        $prompt $initial $anchor [workarea] $width]
+        $prompt $initial $anchor $warect $width]
     puts "WM: Ask $id «$prompt»"
     return [fut::take $::ask_fut($id)]
 }
@@ -1035,6 +1065,40 @@ proc ask-host-ready {} {
         if {"tk9wm-ui" in [winfo interps]} { return 1 }
     }
     return 0
+}
+
+# ---- Rename: the person's word over the desk's --------------------
+# The window command behind the winops `e` row: an ask under the
+# window's own titlebar, primed with what the desk currently SHOWS
+# (the visible title — what you see is what you edit). The answer is
+# kept as a TEMPLATE, not its expansion: type «ssh: %t» and the
+# prefix keeps following the client's renames, type «%t» over a
+# style-said title and the client's own words show through — the same
+# grammar the style key speaks, one language in both mouths. The
+# empty answer takes the hand rename OFF, back to whatever the style
+# rules say (kitty's reading of an emptied field); Escape is not an
+# answer at all — the wait is cancelled and this proc never resumes
+# past the Ask line, so a walked-away-from box changes nothing.
+#
+# Interactive only: an Apply-To-Matching sweep reaching this verb
+# would park one box per window, each displacing the last — a refusal
+# with a line is the honest answer.
+proc rename-command {w} {
+    if {![interactive-p]} {
+        puts "WM: Rename 0x[format %x $w]: an interactive command —\
+ a sweep's boxes would only displace one another"
+        return
+    }
+    set text [Ask Rename -initial [visible-title $w] -over-window $w]
+    # the client can die while its question stands; the frame gone,
+    # there is nothing left to name (unmanage swept ::renameof too)
+    if {![info exists ::frameof($w)]} return
+    if {$text eq ""} {
+        unset -nocomplain ::renameof($w)
+    } else {
+        set ::renameof($w) $text
+    }
+    retitle $w
 }
 
 # PIN THE LAST THING I STARTED (the owner's own wording). The other

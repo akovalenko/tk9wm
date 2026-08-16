@@ -113,6 +113,7 @@ set window_commands {
     Minimize     policy-minimize-request
     Fade         fade-command
     Unfade       unfade-command
+    Rename       rename-command
 }
 proc window-do {name {w 0}} {
     if {$w == 0} { set w [current-window] }
@@ -341,6 +342,7 @@ set winops_actions {
     Minimize   i
     Above      a
     Sticky     y
+    Rename     e
 }
 # The rows this window's menu shows: the stock commands, then the
 # config's own items (winops-item below) — each gated by its needs
