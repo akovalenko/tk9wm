@@ -41,10 +41,6 @@ sendc() {  # eval in the renaming client
     printf '%s\n' "$1" > "$CONF/c.tcl"
     "$LINUX/whale" "$TOOLS/send-eval.tcl" renamec "$CONF/c.tcl" 2>&1
 }
-sendp() {  # eval in the pre-named client
-    printf '%s\n' "$1" > "$CONF/p.tcl"
-    "$LINUX/whale" "$TOOLS/send-eval.tcl" prenamec "$CONF/p.tcl" 2>&1
-}
 box_up()   { [ -n "$(xdotool search --class Tk9wmGadget 2>/dev/null)" ]; }
 box_gone() { [ -z "$(xdotool search --class Tk9wmGadget 2>/dev/null)" ]; }
 vname_is()     { xprop -id "$1" _NET_WM_VISIBLE_NAME | grep -qF "= \"$2\""; }
@@ -72,16 +68,14 @@ check_tpl_absent() {
     else bad "$1 — still: $(xprop -id "$2" _TK9WM_TITLE_TEMPLATE)"; fi
 }
 focused_is() { [ "$(askw "expr {\$::focused == $1}")" = "1" ]; }
-click_win() {   # focus a window by clicking inside its client area
-    _xy=$(xwininfo -id "$1" | awk '/Absolute upper-left X/ {x=$NF}
-        /Absolute upper-left Y/ {y=$NF} /Width:/ {w=$NF} /Height:/ {h=$NF}
-        END {print int(x+w/2), int(y+h/2)}')
-    xdotool mousemove --sync $_xy click 1
+focus_win() {   # focus a window the pager's way (_NET_ACTIVE_WINDOW):
+                # a click can land on whatever placement stacked on top
+    xdotool windowactivate "$1"
     wait_for 10 focused_is "$(($1 + 0))" \
-        || echo "note: the click on $1 never took the focus"
+        || echo "note: activating $1 never took the focus"
 }
 rename_to() {   # id text — the real road: the box, primed, retyped
-    click_win "$1"
+    focus_win "$1"
     key super+1
     wait_for 20 box_up || bad "no rename box came up over $1"
     askq "ui-field-set .ask.b.f {$2}"
@@ -93,10 +87,15 @@ XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" > "$LOG" 2>&1 &
 WM=$!
 wait_wm "$LOG" $WM
 
+# The id of a client by its TITLE line, not by managed-line order:
+# the ask box is a managed window too (titled «Rename»), so counting
+# managed lines picks it up.
+wid_of() { sed -n "s/^WM: title \(0x[0-9a-f]*\) -> «$1».*/\1/p" "$LOG" | head -1; }
+
 "$LINUX/whale" "$HERE/client-rename.tcl" > "$HERE/rename-c.log" 2>&1 &
 CA=$!
 wait_client "$LOG" 'рен старт'
-AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | head -1)
+AID=$(wid_of 'рен старт')
 ADEC=$((AID + 0))
 
 # ---- a hand rename, through the real box ----
@@ -105,10 +104,10 @@ check_name "the rename stands" "$AID" "п: рен старт"
 check_tpl "...and rides the window" "$AID" "п: %t"
 
 "$LINUX/whale" "$HERE/client.tcl" "стильный сосед" 280x160 "#8ae234" \
-    > "$HERE/renamekeep-b.log" 2>&1 &
+    "" "" 240 > "$HERE/renamekeep-b.log" 2>&1 &
 CB=$!
 wait_client "$LOG" 'стильный сосед'
-BID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$LOG" | sed -n 2p)
+BID=$(wid_of 'стильный сосед')
 BDEC=$((BID + 0))
 echo "--- actors: renamed $AID, styled $BID"
 check_name "the neighbour wears the style title" "$BID" "стиль: стильный сосед"
@@ -161,18 +160,16 @@ check_tpl_absent "the withdraw swept the template" "$AID"
 check_name_absent "...and the visible name" "$AID"
 
 # ---- pre-naming: the template meets the FIRST manage ----
-"$LINUX/whale" "$HERE/client-prename.tcl" > "$HERE/prename-c.log" 2>&1 &
-CP=$!
-_prename_said() { grep -q 'prename id:' "$HERE/prename-c.log"; }
-wait_for 15 _prename_said
-CID=$(sed -n 's/^prename id: //p' "$HERE/prename-c.log" | head -1)
-xprop -id "$CID" -f _TK9WM_TITLE_TEMPLATE 8u \
+# The withdrawn window is exactly a launcher's: a known id, not
+# managed, about to map. (Not a fresh Tk client saying `winfo id .` —
+# that is the INNER toplevel, while the WM manages Tk's wrapper; the
+# withdrawn window's id is the wrapper, learned from the WM itself.)
+xprop -id "$AID" -f _TK9WM_TITLE_TEMPLATE 8u \
     -set _TK9WM_TITLE_TEMPLATE 'pre: %t'
-sendp 'wm deiconify .'
-wait_client "$LOG" 'тихое окно'
+sendc 'wm deiconify .'
 check_name "the pre-set template named the window at manage" \
-    "$CID" "pre: тихое окно"
-PLAYER=$(askw "set ::renameof([expr {$CID + 0}])")
+    "$AID" "pre: рен другой"
+PLAYER=$(askw "set ::renameof($ADEC)")
 if [ "$PLAYER" = "pre: %t" ]; then
     ok "...and stands as the rename layer, verbatim"
 else
@@ -181,7 +178,7 @@ fi
 
 import -window root "$HERE/renamekeep-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/renamekeep-test.png"
-kill $WM $CA $CB $CP 2>/dev/null
+kill $WM $CA $CB 2>/dev/null
 
 echo "--- verdict"
 if grep -q 'soft failure\|handler error' "$LOG"; then
