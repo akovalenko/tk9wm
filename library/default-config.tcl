@@ -429,7 +429,11 @@
 # replaces. It outranks a style-said `title`; an EMPTY answer takes
 # the hand rename off (the style rule, if any, shows again — type
 # «%t» to see the client's raw words THROUGH a style rule), and
-# Escape changes nothing.
+# Escape changes nothing. A rename SURVIVES a desk restart: the
+# template rides on the window itself (_TK9WM_TITLE_TEMPLATE,
+# UTF8_STRING) and is read back whenever the window is managed —
+# which also lets a launcher pre-name a window it is about to map by
+# setting that property first, no box involved.
 # Bound, a command acts on the ACTIVE window:
 #   wm-bind {<Ctrl><Shift>z} Minimize
 #   wm-bind {<Super>Up}      Maximize

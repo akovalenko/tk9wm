@@ -1101,6 +1101,20 @@ proc rename-command {w} {
     } else {
         set ::renameof($w) $text
     }
+    # What the hand said must outlive this instance: the template
+    # rides on the client window itself and the next manage reads it
+    # back (policy-rename-adopt) — a restart keeps the rename, %t and
+    # all. The empty answer takes the property off with the layer.
+    # Soft: the client can die between the answer and this write.
+    if {[info exists ::TK9WM_TITLE_TEMPLATE]} {
+        soft "keep the rename template on the client" {
+            if {$text eq ""} {
+                x-prop-delete $w $::TK9WM_TITLE_TEMPLATE
+            } else {
+                set-prop-utf8 $w $::TK9WM_TITLE_TEMPLATE $text
+            }
+        }
+    }
     retitle $w
 }
 

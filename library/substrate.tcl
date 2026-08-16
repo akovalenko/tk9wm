@@ -875,6 +875,13 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     # (EWMH: only while the two differ), read by pagers in preference
     # to _NET_WM_NAME; see policy-title for the publish/delete rule.
     set NET_WM_VISIBLE_NAME [x-intern _NET_WM_VISIBLE_NAME]
+    # ...and the road a hand rename takes ACROSS a restart: the
+    # template as typed, kept on the client window itself, the same
+    # way WM_STATE carries "somebody minimized this" over an execv.
+    # A private property — the _NET_ namespace is freedesktop's to
+    # grow (the _OB_/_I3_ precedent) — so deliberately NOT in the
+    # _NET_SUPPORTED list below.
+    set TK9WM_TITLE_TEMPLATE [x-intern _TK9WM_TITLE_TEMPLATE]
     set NET_ACTIVE    [x-intern _NET_ACTIVE_WINDOW]
     set NET_WM_STATE  [x-intern _NET_WM_STATE]
     set NET_WM_STATE_HIDDEN [x-intern _NET_WM_STATE_HIDDEN]
@@ -3117,6 +3124,10 @@ proc manage {w {asiconic 0}} {
     publish-client-list
     x-sync 0
     puts "WM: managed 0x[format %x $w]: slot [format 0x%x $slot] client ${cw}x${ch}"
+    # The rename a previous instance left on this window — or a
+    # launcher put there before mapping — comes back BEFORE the first
+    # title paint. Policy machinery; a bare substrate has none.
+    if {[llength [info commands policy-rename-adopt]]} { policy-rename-adopt $w }
     refresh-title $w
     # Is this window going to end up minimized? Three ways in: a client
     # that ASKED to start that way — ICCCM 4.1.4 spells it WM_HINTS
@@ -3238,6 +3249,20 @@ proc unmanage {w {dead 0}} {
             # IconicState on the way out and our next instance reads it
             # back in adopt-existing.
             set-wm-state $w [expr {[info exists ::iconic($w)] ? 3 : 0}]
+            # The desk's own marks on the client follow the same line:
+            # an ordinary withdraw takes the rename template and the
+            # visible name along — left standing they would name a
+            # window the next manager knows nothing about — while the
+            # exit sweep leaves the template for our next instance to
+            # adopt (the visible name it recomputes anyway).
+            if {!$::releasing} {
+                if {[info exists ::TK9WM_TITLE_TEMPLATE]} {
+                    x-prop-delete $w $::TK9WM_TITLE_TEMPLATE
+                }
+                if {[info exists ::NET_WM_VISIBLE_NAME]} {
+                    x-prop-delete $w $::NET_WM_VISIBLE_NAME
+                }
+            }
             x-reparent $w $::root $x $y
             if {!$::releasing} { x-sync 0 }   ;# the sweep syncs once
         }

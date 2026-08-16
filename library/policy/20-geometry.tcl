@@ -950,6 +950,24 @@ proc retitle {w} {
     if {[info exists ::titleof($w)]} { policy-title $w $::titleof($w) }
 }
 
+# The way a rename comes BACK: rename-command keeps the standing
+# template on the client window (_TK9WM_TITLE_TEMPLATE — X properties
+# live in the server, so an execv cannot lose them; WM_STATE's own
+# road), and every manage asks here before the first title paint. A
+# restart's adopt sweep is the expected caller; an ordinary map is
+# the free bonus — a launcher that sets the property before mapping
+# gets its window pre-named, no box involved. The template is taken
+# verbatim, so %t is as live after a restart as before it. From the
+# manage on, the property is the desk's word rather than the
+# client's: no PropertyNotify subscription, a rewrite is met at the
+# next manage. Soft: the property lives on a foreign window.
+proc policy-rename-adopt {w} {
+    if {![info exists ::TK9WM_TITLE_TEMPLATE]} return
+    set tpl [soft "read the rename template" \
+                 { x-prop-text $w $::TK9WM_TITLE_TEMPLATE }]
+    if {$tpl ne ""} { set ::renameof($w) $tpl }
+}
+
 # The substrate re-read WM_TRANSIENT_FOR after a PropertyNotify: a
 # client may aim its dialog at a leader (or away from one) after
 # mapping. The stored leader feeds raise-group, lower-group and the
