@@ -583,7 +583,7 @@ proc policy-detach {w} {
         ::lookof($::frameof($w))
     destroy $::frameof($w)
     unset ::frameof($w)
-    unset -nocomplain ::titleof($w)
+    unset -nocomplain ::titleof($w) ::renameof($w)
     unset -nocomplain ::leaderof($w)
     unset -nocomplain ::placeof($w)
     unset -nocomplain ::maxsaved($w) ::maxaxes($w) ::fssaved($w)
@@ -912,14 +912,42 @@ proc title-or-id {w title} {
 # what goes back on the bar afterwards has to come from somewhere —
 # and a client that renames itself mid-mode must not shove the readout
 # aside, it just updates what will be restored.
+#
+# ::titleof holds the CLIENT's words, raw — the invariant every layer
+# above leans on: filters match it, %t expands to it, the kbmr restore
+# feeds it back through here. What the bar SHOWS is visible-title
+# (10-look) — the rename and style layers speak between the client
+# and the paint.
 proc policy-title {w title} {
     if {![info exists ::frameof($w)]} return
     set ::titleof($w) $title
+    set shown [visible-title $w]
     if {![kbmr-owns $w]} {
         $::frameof($w).title item element configure 1 C0 eTxt \
-            -text [title-or-id $w $title]
+            -text [title-or-id $w $shown]
+    }
+    # _NET_WM_VISIBLE_NAME stands on the client only while the desk
+    # shows something OTHER than the client's own words (the EWMH
+    # rule): pagers read it in preference to _NET_WM_NAME, and one
+    # left behind would freeze a title the desk no longer says. Soft:
+    # the property lives on a foreign window, and a client can die
+    # between the event and this write.
+    if {[info exists ::NET_WM_VISIBLE_NAME]} {
+        soft "publish _NET_WM_VISIBLE_NAME" {
+            if {$shown ne $title} {
+                set-prop-utf8 $w $::NET_WM_VISIBLE_NAME $shown
+            } else {
+                x-prop-delete $w $::NET_WM_VISIBLE_NAME
+            }
+        }
     }
     panel-match-kick   ;# a title flip can turn a -title matcher around
+}
+# Repaint what the desk says for $w without the client having spoken:
+# the style rules were re-read, a rename came or went. One caller's
+# convenience, policy-title's rules.
+proc retitle {w} {
+    if {[info exists ::titleof($w)]} { policy-title $w $::titleof($w) }
 }
 
 # The substrate re-read WM_TRANSIENT_FOR after a PropertyNotify: a

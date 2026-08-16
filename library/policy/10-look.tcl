@@ -853,14 +853,17 @@ proc retitle-frames {} {
                 || $::lookof($t) ne $scheme} {
             unset -nocomplain ::btn($t)
             destroy $t.title
-            titlebar-build $t $w $want [title-or-id $w \
-                [expr {[info exists ::titleof($w)] ? $::titleof($w) : ""}]]
+            titlebar-build $t $w $want [title-or-id $w [visible-title $w]]
         }
         frame-layout $t [$t.slot cget -width] [$t.slot cget -height]
         # The underlay too: a scheme change that moved only the DRAWN
         # grips leaves the frame's geometry — and so its <Configure> —
         # untouched, and nothing else would repaint the arms.
         deco-redraw $t
+        # ...and the WORDS: a reload may have changed the `title`
+        # rules alone, and neither branch above repaints the text for
+        # a frame whose buttons and scheme stood still.
+        retitle $w
     }
     update idletasks
     foreach {w t} [array get ::frameof] {
@@ -963,6 +966,16 @@ proc set-title-justify {j} {
 # remote desk wants it. The full story — late resolution,
 # fail-closed, the suspension — lives with policy-keys-pass-set
 # (75-keys.tcl) and keys-pass-apply (substrate).
+# title (a template) — the words the desk shows for this window IN
+# PLACE of the client's own: on the titlebar, in the window list,
+# and in _NET_WM_VISIBLE_NAME on the client (published only while
+# the two differ — the EWMH rule). %t in the template is the
+# client's own title, %% a literal %, so a flat replacement
+# ({title Mail}) and a live prefix ({title {xt: %t}}) are one rule
+# apiece. Matching stays on the CLIENT's words: a -title predicate
+# never sees the rewritten title, or a rule could feed itself.
+# Unlike its neighbours this key is not read off the per-client
+# cache — see visible-title below for why.
 keep style_rules {}
 proc always {w} { return 1 }
 proc wm-style {pred settings} {
@@ -1024,6 +1037,53 @@ proc style-of {w} {
         dict set st decor $d
     }
     set ::styleof($w) $st
+}
+
+# ---- the visible title: what the desk SHOWS for a window ----------
+# Three layers, strongest first: the hand rename (::renameof — the
+# Rename command's word, kept as an UNEXPANDED template so a live %t
+# keeps following the client), the style-said `title`, the client's
+# own words (::titleof, always stored raw — policy-title's
+# invariant). An override that expands to nothing is no override:
+# the fallback shows the client's own words, or the id fallback for
+# a client that named nothing.
+#
+# The style key is deliberately NOT read off the styleof cache: a
+# terminal renames itself for a living, and a -title predicate
+# judged once at manage time would never meet the titles it was
+# written for. So the rules are walked afresh for this ONE key at
+# every repaint — later wins, an erring predicate is skipped with a
+# line, the style-of discipline — while the cached keys stay
+# cached: place, desk and their kin are read at their own moments,
+# and re-judging them here would change answers behind their
+# consumers' backs.
+proc title-expand {template raw} {
+    # %% before %t: string map takes the earliest pair at each
+    # position, so %%t reads as a literal %t, not % plus the title.
+    string map [list %% % %t $raw] $template
+}
+proc style-title-of {w} {
+    set title ""
+    foreach rule $::style_rules {
+        lassign $rule pred settings
+        if {![dict exists $settings title]} continue
+        if {[catch {uplevel #0 [list {*}$pred $w]} match]} {
+            puts "WM: style predicate error on 0x[format %x $w]: $match"
+        } elseif {$match} {
+            set title [dict get $settings title]
+        }
+    }
+    return $title
+}
+proc visible-title {w} {
+    set raw [expr {[info exists ::titleof($w)] ? $::titleof($w) : ""}]
+    if {[info exists ::renameof($w)]} {
+        set t [title-expand $::renameof($w) $raw]
+        if {$t ne ""} { return $t }
+    }
+    set t [title-expand [style-title-of $w] $raw]
+    if {$t ne ""} { return $t }
+    return $raw
 }
 
 # ---- filter — the declarative match predicate ----

@@ -848,7 +848,7 @@ proc winlist-icon {w target} {
     set img [client-icon $w $target]
     if {$img ne ""} { return [list image $img] }
     set name [lindex [client-class $w] 1]
-    if {$name eq ""} { set name [title-or-id $w [client-title $w]] }
+    if {$name eq ""} { set name [title-or-id $w [visible-title $w]] }
     list pseudo {*}[pseudo-badge $name]
 }
 
@@ -1024,7 +1024,7 @@ proc winlist-open {wins where kind {more ""}} {
     set maxw 0
     foreach w $wins key $::winlist_keys {
         set title [desk-label $w \
-            [iconic-label $w [title-or-id $w [client-title $w]]]]
+            [iconic-label $w [title-or-id $w [visible-title $w]]]]
         set maxw [expr {max($maxw, [font measure TitleFont $title])}]
         set item [$T item create]
         $T item style set $item Cnum sNum C0 sWin

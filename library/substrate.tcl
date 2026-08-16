@@ -509,6 +509,7 @@ proc x-prop-set {w prop type fmt value {append 0}} {
 proc x-prop-get {w prop}        { tkwmx::prop get $w $prop }
 # a text property in any encoding, decoded; "" when absent
 proc x-prop-text {w prop}       { tkwmx::prop text $w $prop }
+proc x-prop-delete {w prop}     { tkwmx::prop delete $w $prop }
 proc x-prop-class {w}           { tkwmx::prop class $w }
 proc x-prop-hints {w}           { tkwmx::prop hints $w }
 proc x-prop-normal-hints {w}    { tkwmx::prop normal-hints $w }
@@ -869,6 +870,11 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     set NET_CHECK     [x-intern _NET_SUPPORTING_WM_CHECK]
     set NET_SUPPORTED [x-intern _NET_SUPPORTED]
     set NET_WM_NAME   [x-intern _NET_WM_NAME]
+    # What the desk SHOWS when it differs from what the client said —
+    # a style-said or hand-renamed title. Set on the client by the WM
+    # (EWMH: only while the two differ), read by pagers in preference
+    # to _NET_WM_NAME; see policy-title for the publish/delete rule.
+    set NET_WM_VISIBLE_NAME [x-intern _NET_WM_VISIBLE_NAME]
     set NET_ACTIVE    [x-intern _NET_ACTIVE_WINDOW]
     set NET_WM_STATE  [x-intern _NET_WM_STATE]
     set NET_WM_STATE_HIDDEN [x-intern _NET_WM_STATE_HIDDEN]
@@ -963,7 +969,7 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     set-prop-longs $root $NET_CURRENT_DESKTOP 6 [list $desk]
     set-prop-longs $root $NET_DESKTOP_VIEWPORT 6 [list 0 0]
     set-prop-longs $root $NET_SUPPORTED 4 \
-        [list $NET_CHECK $NET_WM_NAME $NET_ACTIVE \
+        [list $NET_CHECK $NET_WM_NAME $NET_WM_VISIBLE_NAME $NET_ACTIVE \
               $NET_WM_STATE $NET_WM_STATE_HIDDEN $NET_WM_STATE_FULLSCREEN \
               $NET_WM_STATE_ABOVE $NET_WM_STATE_BELOW $NET_WM_STATE_STICKY \
               $NET_WM_STATE_MAXIMIZED_HORZ $NET_WM_STATE_MAXIMIZED_VERT \
