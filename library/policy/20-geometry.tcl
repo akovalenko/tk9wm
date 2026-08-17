@@ -462,6 +462,17 @@ proc policy-max-client-size {w} {
     list [expr {$sw - 2*$B}] [expr {$sh - $top - $B}]
 }
 
+# "truecolor 32" as [winfo visualsavailable] spells it, or "" when the
+# screen has none (a plain 24-bit server: no ARGB to be had). The one
+# answer every taker dresses by — the chromeless frame below and the
+# tray's strip (70-tray).
+proc argb-visual {} {
+    foreach v [winfo visualsavailable .] {
+        if {$v eq "truecolor 32"} { return $v }
+    }
+    return ""
+}
+
 # Build a decoration for client w (client area cw x ch): blue titlebar
 # with a ✕, dark slot below; placement per place-frame above. Returns the
 # slot's X window id; the Tk roundtrip before the return guarantees the
@@ -480,7 +491,35 @@ proc policy-attach {w cw ch} {
     # arrives through policy-transient below.
     set ::leaderof($w) [transient-for $w]
     lassign [place-frame $w [expr {$cw + 2*$B}] [expr {$ch + $top + $B}]] X Y
-    toplevel $t -background [themed focus]
+    # A 32-bit client is framed ON ITS OWN VISUAL, or its alpha dies at
+    # our door. A GTK4 window rounds its corners the only way it has
+    # left — alpha in an ARGB visual; GDK4 has no bounding-shape API —
+    # and counts on a compositor to blend them away. But a compositor
+    # is only shown the TOP-LEVEL, which is our frame: on the default
+    # 24-bit visual the server flattens the client into a 24-bit
+    # composite pixmap, the alpha byte has nowhere to live, and the
+    # premultiplied zeros in the corners land on the glass as literal
+    # black — compositor or no compositor (the owner's calculator,
+    # 2026-08-17). On the client's own visual the alpha rides through:
+    # a child of a 32-bit top-level is 32-bit, the fact the tray's
+    # cells already stand on. Only the CHROMELESS frame takes this
+    # road: Tk allocates every pixel with alpha ZERO (the shim's note
+    # on backgrounds), so any decoration such a frame painted would
+    # hang as a hole under a compositor — a frame that shows nothing
+    # of itself has nothing to lose. The depth is asked of a window
+    # that may be dying; {} reads as «not 32» and takes the plain road.
+    set argb ""
+    if {$B == 0 && $top == 0} {
+        set wa [x-attrs $w]
+        if {[dict exists $wa depth] && [dict get $wa depth] == 32} {
+            set argb [argb-visual]
+        }
+    }
+    if {$argb ne ""} {
+        toplevel $t -background [themed focus] -visual $argb -colormap new
+    } else {
+        toplevel $t -background [themed focus]
+    }
     wm overrideredirect $t 1   ;# frames must bypass our own redirect
     # Born WITHDRAWN, shown by frame-show once the client is seated
     # inside: the flush below used to map the frame right here — an
@@ -530,6 +569,9 @@ proc policy-attach {w cw ch} {
     # minimize box.
     puts "WM: frame $t for 0x[format %x $w] at +$X+$Y"
     puts "WM: frame $t wears [frame-buttons $t]"
+    if {$argb ne ""} {
+        puts "WM: frame $t wears the client's 32-bit visual"
+    }
     return [winfo id $t.slot]
 }
 

@@ -164,22 +164,15 @@ proc tray-argb-default {} {
 }
 proc set-tray-argb {on} {
     set want [expr {$on ? 1 : 0}]
-    if {$want && [tray-argb-visual] eq ""} {
+    if {$want && [argb-visual] eq ""} {
         puts "WM: tray: no 32-bit TrueColor visual on this screen — ARGB refused"
         return
     }
     set ::tray_argb $want
     settle-soon tray      ;# a live strip is rebuilt only if the visual moved
 }
-# "truecolor 32" as [winfo visualsavailable] spells it, or "" when the
-# screen has none (a plain 24-bit server: then there is no ARGB to be
-# had and the knob says so instead of building a broken strip).
-proc tray-argb-visual {} {
-    foreach v [winfo visualsavailable .] {
-        if {$v eq "truecolor 32"} { return $v }
-    }
-    return ""
-}
+# The visual itself is asked of argb-visual (20-geometry) — the frames
+# dress by the same answer now, so it lives with them.
 # The backdrop, and why the ARGB strip needs one — measured, not
 # reasoned (run-trayargb-test.sh, 2026-07-29).
 #
@@ -252,7 +245,7 @@ proc tray-recolor {} {
 }
 proc tray-ensure {} {
     if {[winfo exists .tray]} return
-    if {$::tray_argb && [set v [tray-argb-visual]] ne ""} {
+    if {$::tray_argb && [set v [argb-visual]] ne ""} {
         toplevel .tray -background $::tray_bg -visual $v -colormap new
     } else {
         toplevel .tray -background $::tray_bg
