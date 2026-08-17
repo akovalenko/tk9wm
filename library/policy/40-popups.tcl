@@ -651,6 +651,40 @@ proc popup-move {T n d} {
     $T selection clear
     $T selection add $i
 }
+# The MOTION a key means, popup-wide: what popup-nav says, plus Tab —
+# a step forward, backward under Shift — which the winlist has always
+# treated as its own alt-tab step. Returns what popup-nav returns.
+proc popup-motion-of {name mods} {
+    if {$name eq "Tab"} { return [expr {$mods & 1 ? -1 : 1}] }
+    popup-nav $name $mods
+}
+# ---- cycle mode, the popup layer's half ----
+# A popup opened by a chord that MEANS A MOTION, with its (non-Shift)
+# modifier set still physically held, may run as a cycle: the motion
+# the key means runs at open, and releasing ANY element of the held
+# set commits. This pair is the generalized alt-tab: arm answers
+# {mask motion} read off the invoking chord ({0 0} = no cycle — the
+# hand already let go, or the chord meant no motion, as <Super>grave
+# would not), release runs the commit script once the hold is no
+# longer whole. Shift is not holdable: it spells the motion's own
+# direction (Shift+Tab), so it is stripped from the mask and left in
+# the motion. Any popup's key router can ride these two; the winlist
+# does.
+proc popup-cycle-arm {} {
+    set mask [expr {$::key_invoke_mods & ~1}]
+    if {$mask == 0 || ![modifiers-all-held $mask]} { return {0 0} }
+    set motion [popup-motion-of $::key_invoke_sym \
+                    [expr {$::key_invoke_mods & ~$mask}]]
+    if {$motion == 0} { return {0 0} }
+    list $mask $motion
+}
+proc popup-cycle-release {mask commit} {
+    if {$mask != 0 && ![modifiers-all-held $mask]} {
+        uplevel #0 $commit
+        return 1
+    }
+    return 0
+}
 
 # ---- the window list (alt-tab) ----
 # Every managed window, most-recently-focused first (never-focused
@@ -664,15 +698,20 @@ proc popup-move {T n d} {
 # hotkey; either way it picks immediately.
 #
 # The fvwm alt-tab semantics come as a MODE the list enters when the
-# invoking chord's modifier is still physically held at open (the Alt
-# of Alt+Tab; asked of the server via modifier-held — a release that
-# beat our grab is invisible to us, so the one-roundtrip check can
-# only degrade to the static menu, never hang): further Tab presses
-# run the selection with wraparound (Shift+Tab backwards), releasing
-# the modifier commits. A quick full Alt+Tab press-release is then the
-# classic toggle — commit lands on the previous window. Invoked with
-# nothing held (the Super-sequence ends fully released) the list is a
-# static menu. set-winlist-cycle off disables the mode entirely.
+# invoking chord MEANT A MOTION and its (non-Shift) modifier set is
+# still physically held at open (popup-cycle-arm; asked of the server
+# via modifiers-all-held — a release that beat our grab is invisible
+# to us, so the one-roundtrip check can only degrade to the static
+# menu, never hang). The motion the key means runs at open — Tab's
+# own +1 is the classic second row; bind <Super>p to the list and it
+# opens walking UP, wrapped to the last row — and further motion keys
+# run the selection with wraparound (Tab and Shift+Tab included);
+# releasing ANY element of the held set commits. A quick full Alt+Tab
+# press-release is then the classic toggle — commit lands on the
+# previous window. Invoked with nothing held (the Super-sequence ends
+# fully released), or by a chord that means no motion (<Super>grave,
+# say), the list is a static menu. set-winlist-cycle off disables the
+# mode entirely.
 keep winlist_cycle_opt 1
 
 # ---- config-facing icon resolution ----
@@ -988,9 +1027,9 @@ proc winlist-open {wins where kind {more ""}} {
     set ::winlist_rows $wins
     set ::winlist_prev $::focused
     set ::winlist_cycle 0
-    if {$kind eq "toggle" && $::winlist_cycle_opt && $::key_invoke_mods != 0
-            && [modifier-held $::key_invoke_mods]} {
-        set ::winlist_cycle $::key_invoke_mods
+    set cycle_motion 0
+    if {$kind eq "toggle" && $::winlist_cycle_opt} {
+        lassign [popup-cycle-arm] ::winlist_cycle cycle_motion
     }
     # Every entry is numbered, and the number IS its hotkey — the
     # shared popup alphabet (popup-autokeys), which is why j/k/n/p
@@ -1081,9 +1120,18 @@ proc winlist-open {wins where kind {more ""}} {
         $T item lastchild root $item
         lappend ::winlist_rows more
     }
-    # The toggle starts on the row it would switch to; a chooser starts
-    # on the most recent, because it is not switching anywhere yet.
-    $T selection add [expr {$kind eq "toggle" && [llength $wins] > 1 ? 2 : 1}]
+    # A cycle starts where the invoking key was already going — Tab's
+    # own +1 is the classic «second row», a Super+P open walks up and
+    # wraps to the last. A static toggle keeps the old habit (the
+    # second row is the window a bare Enter toggles to); a chooser
+    # starts on the most recent, because it is not switching anywhere
+    # yet.
+    if {$::winlist_cycle != 0} {
+        $T selection add 1
+        winlist-move $cycle_motion
+    } else {
+        $T selection add [expr {$kind eq "toggle" && [llength $wins] > 1 ? 2 : 1}]
+    }
     # measured against the monitor under the hand — the same glass the
     # popup clamp (popup-show) will hold it to
     lassign [pointer-monitor] mx my sw sh
@@ -1145,21 +1193,17 @@ proc winlist-choose {wins where {more ""}} {
 }
 proc winlist-key {kind name mods} {
     if {$kind eq "release"} {
-        # cycle mode commits when the invoking chord's modifier is no
-        # longer held; re-asking the server covers both-Alts pedantry
-        if {$::winlist_cycle != 0 && ![modifier-held $::winlist_cycle]} {
-            winlist-pick
-        }
+        # cycle mode commits when the invoking chord's hold is no
+        # longer WHOLE — any element of a Ctrl+Alt set going up is
+        # the hand letting go; re-asking the server covers both-Alts
+        # pedantry
+        popup-cycle-release $::winlist_cycle winlist-pick
         return
     }
     # In cycle mode the held chord modifier is TRANSPARENT: it cannot
     # be released without committing, so Alt+3, Alt+j, Alt+Up must
     # work as 3, j, Up — strip it and dispatch as in the static menu.
     if {$::winlist_cycle != 0} { set mods [expr {$mods & ~$::winlist_cycle}] }
-    if {$name eq "Tab"} {
-        winlist-move [expr {$mods & 1 ? -1 : 1}]
-        return
-    }
     if {$mods == 0 && [string length $name] == 1} {
         set i [lsearch -exact $::winlist_keys [string toupper $name]]
         if {$i >= 0} {
@@ -1169,7 +1213,9 @@ proc winlist-key {kind name mods} {
             return
         }
     }
-    set d [popup-nav $name $mods]
+    # Tab rides the same rail as the arrows and letters now
+    # (popup-motion-of): the step that opened a cycle keeps walking it.
+    set d [popup-motion-of $name $mods]
     if {$d != 0} { winlist-move $d; return }
     switch -- $name {
         Return - KP_Enter { winlist-pick }
