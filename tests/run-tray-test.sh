@@ -86,7 +86,7 @@ fi
 ROOTID=$(xwininfo -root 2>/dev/null | sed -n 's/^xwininfo: Window id: \(0x[0-9a-f]*\).*/\1/p')
 
 # A COLOUR ERASED MUST LEAVE THE STRIP TOO: the icon cells are
-# re-made on the next layout, the strip and its backdrop are not — so
+# re-made on the next layout, the strip and its floor are not — so
 # a reset that only put the variable back left the space around the
 # icons wearing the old customization.
 qt() { printf '%s\n' "$1" > "$HERE/tray-config/q.tcl"

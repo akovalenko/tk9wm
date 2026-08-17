@@ -33,6 +33,7 @@ keep tray_sid 0
 keep tray_order {}        ;# icon windows, in dock order
 keep tray_seen_extent 0   ;# the length the panel last reserved for us
 keep tray_geo ""          ;# the strip geometry we last asked for
+keep tray_floor {}        ;# the floor patch on the panel, when one is laid
 # A SCRIPT THAT HOLDS THE DESK is worth knowing about whatever the
 # reason (the plan's answer to «forbid a bare exec»: measure instead
 # of forbidding — a slow `send`, a long `after` and a loop hang the
@@ -94,7 +95,7 @@ proc tray-reconcile {} {
         tray-stop [expr {$rebuild ? {the tray visual changed}
                                   : {the config no longer asks for a tray}}]
         destroy .tray
-        if {[winfo exists .traybg]} { destroy .traybg }
+        tray-floor ""       ;# and the floor off its panel
         set ::tray_geo ""
         set ::tray_seen_extent 0
         set live 0
@@ -174,7 +175,7 @@ proc set-tray-argb {on} {
 }
 # The visual itself is asked of argb-visual (20-geometry) — the frames
 # dress by the same answer now, so it lives with them.
-# The backdrop, and why the ARGB strip needs one — measured, not
+# The strip's floor, and why an ARGB strip needs one — measured, not
 # reasoned (run-trayargb-test.sh, 2026-07-29).
 #
 # With the ARGB offer taken, an icon's see-through parts are alpha ZERO
@@ -183,30 +184,39 @@ proc set-tray-argb {on} {
 # of the icon. ParentRelative does not save it — the toolkit sets its
 # own transparent background in ARGB mode and paints over ours. Nor
 # does painting the strip opaque: the icon's own window covers the
-# cell, and a child's pixels replace the parent's in that pixmap.
+# cell, and a child's pixels replace the parent's in that pixmap. The
+# fill has to come from a window BEHIND the whole strip.
 #
-# So what is behind the strip has to be OURS: a plain, opaque
-# 24-bit top-level of exactly the strip's geometry, stacked directly
-# under it. The holes then show the tray's own color, the icon's
-# antialiased edge blends against it, and nothing of the desk shows
-# through. Only in ARGB mode — the default strip is opaque by itself.
-proc tray-backdrop {geo} {
-    if {!$::tray_argb} {
-        if {[winfo exists .traybg]} { destroy .traybg }
-        return
+# The panel already keeps one there: its window is the band's floor
+# (panel-place), the full band under the strip, a sublayer below it.
+# So the floor is a PATCH on the panel window — a plain frame over the
+# strip's rectangle — where it used to be a toplevel of its own
+# (.traybg, 2026-07-29 → 2026-08-17: retired by the owner's question
+# and the matrix that answered it, run-traymatrix-probe.sh). All the
+# patch adds to the panel is the COLOR: the holes show the tray's own
+# background rather than the panel's ground, the icon's antialiased
+# edge blends against it, and set-tray-background keeps its meaning.
+# Only in ARGB mode — the plain strip is opaque by itself.
+proc tray-floor {geo} {
+    destroy .traybg   ;# the toplevel this patch retired, on a live desk
+    set P [panel-window [tray-panel]]
+    set patch [expr {$P eq "" ? "" : "$P.trayfloor"}]
+    set want [expr {$::tray_argb && $geo ne "" && $patch ne ""}]
+    if {$::tray_floor ne "" && (!$want || $::tray_floor ne $patch)} {
+        destroy $::tray_floor   ;# a floor on the panel of yesterday
+        set ::tray_floor ""
     }
-    if {![winfo exists .traybg]} {
-        toplevel .traybg -background $::tray_bg
-        wm overrideredirect .traybg 1
-        # dock, like the strip it floors: its own shadow otherwise
-        # falls where the backdrop ends and the panel's widgets begin
-        wm attributes .traybg -type dock
-        wm withdraw .traybg
-    }
-    if {$geo eq ""} { wm withdraw .traybg; return }
-    wm geometry .traybg $geo
-    wm deiconify .traybg
-    stack-layer .traybg $::LAYER_DOCK 1   ;# ...the strip's opaque floor...
+    if {!$want} return
+    if {![winfo exists $patch]} { frame $patch -borderwidth 0 }
+    $patch configure -background $::tray_bg
+    # The strip's rectangle in the panel window's own coordinates:
+    # both were measured off the same band, so the difference of the
+    # two root positions is all the translation there is.
+    regexp {(\d+)x(\d+)([+-]\d+)([+-]\d+)$} $geo -> w h x y
+    regexp {([+-]\d+)([+-]\d+)$} [wm geometry $P] -> px py
+    place $patch -x [expr {$x - $px}] -y [expr {$y - $py}] -width $w -height $h
+    lower $patch   ;# paint, not furniture: under every real child
+    set ::tray_floor $patch
 }
 proc set-tray-icon-size {px} {
     set ::tray_icon_size $px
@@ -235,10 +245,12 @@ proc set-tray-background {color} {
 # the strip wearing the colour a customization had given it: the
 # owner erased his and watched the icon cells go back while the space
 # around them stayed (the cells are re-made on the next layout, the
-# strip and its backdrop are not). So the application lives in one
+# strip and its floor are not). So the application lives in one
 # proc, and the apply path calls it like any other reconciliation.
 proc tray-recolor {} {
-    if {[winfo exists .traybg]} { .traybg configure -background $::tray_bg }
+    if {$::tray_floor ne "" && [winfo exists $::tray_floor]} {
+        $::tray_floor configure -background $::tray_bg
+    }
     if {![winfo exists .tray]} return
     .tray configure -background $::tray_bg
     foreach w $::tray_order {
@@ -259,11 +271,11 @@ proc tray-ensure {} {
     # from shadows by (compton -C, picom's wintypes). Without it the
     # strip is shadowed like any window, and on the ARGB strip the
     # shadow is drawn BEHIND it — straight through every icon's
-    # transparent pixels onto the backdrop, which is how a light theme
+    # transparent pixels onto the floor, which is how a light theme
     # wore dark grey icon cells the moment shadows went on (the owner,
-    # 2026-08-17). Every strip of ours says the word: this one, its
-    # backdrop, the panels (65-registry) — and the desk window says
-    # DESKTOP (widget.tcl).
+    # 2026-08-17). Every strip of ours says the word: this one and the
+    # panels (65-registry) — and the desk window says DESKTOP
+    # (widget.tcl).
     wm attributes .tray -type dock
     wm withdraw .tray             ;# shown by tray-layout once it holds a cell
 }
@@ -319,7 +331,7 @@ proc tray-layout {} {
     if {$len == 0} {
         wm withdraw .tray
         set ::tray_geo ""
-        tray-backdrop ""
+        tray-floor ""
         tray-tell-panel
         return
     }
@@ -361,10 +373,10 @@ proc tray-layout {} {
         set geo ${len}x${thick}+[expr {$bx + $bw - $len}]+${by}
     }
     wm geometry .tray $geo
-    tray-backdrop $geo       ;# the opaque floor under an ARGB strip
-    destroy .tray.hair .traybg.hair   ;# step 182's first cut drew here
+    tray-floor $geo          ;# the color under an ARGB strip's holes
+    destroy .tray.hair       ;# step 182's first cut drew here
     wm deiconify .tray
-    stack-layer .tray $::LAYER_DOCK 2   ;# ...and the icons over both
+    stack-layer .tray $::LAYER_DOCK 2   ;# over the panel that floors it
     restack-soon             ;# the strip is a new window; seat it by layer
     # The COMPUTED string, not [wm geometry .tray]: that answers with
     # the geometry Tk has processed so far, which right after the

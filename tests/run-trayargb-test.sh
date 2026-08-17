@@ -5,10 +5,10 @@
 # advertise that visual, so a toolkit paints its icon WITH ALPHA — and
 # then its see-through parts are alpha ZERO in the strip's composite
 # pixmap, which a compositor shows as a HOLE straight through to the
-# desk. The cure under test is the backdrop: a plain opaque top-level
-# of exactly the strip's geometry, stacked directly under it, so the
-# holes show the tray's own color and an antialiased edge blends
-# against it.
+# desk. The cure under test is the floor: the panel window beneath
+# the strip, wearing a tray-colored patch over the strip's rectangle
+# (tray-floor), so the holes show the tray's own color and an
+# antialiased edge blends against it.
 #
 # Two clients, because the failure is client-specific: Tk's own systray
 # (ships in the kit) and a GTK3 GtkStatusIcon (what the world's tray
@@ -18,7 +18,7 @@
 #
 # The compositor runs WITH shadows, docks excused (-c -C) — the
 # owner's live configuration, and a second regression for free: the
-# strip and its backdrop must say _NET_WM_WINDOW_TYPE_DOCK, or -C
+# strip and the panel flooring it must say _NET_WM_WINDOW_TYPE_DOCK, or -C
 # excuses nothing, the strip's own shadow is painted behind its alpha
 # and every corner probe below reads shadow-grey instead of the
 # tray's color (a light theme wearing dark icon cells — the owner,
@@ -171,8 +171,8 @@ else
     echo "FAIL: the GTK client died on the reload"
 fi
 case "$RCORNER" in
-    *"46,52,54"*) echo "OK: after the reload the strip is still ARGB over its backdrop" ;;
-    *"255,0,255"*) echo "FAIL: after the reload the corner is the WALLPAPER — the backdrop is gone" ;;
+    *"46,52,54"*) echo "OK: after the reload the strip is still ARGB over its floor" ;;
+    *"255,0,255"*) echo "FAIL: after the reload the corner is the WALLPAPER — the floor is gone" ;;
     *) echo "FAIL: after the reload the corner is $RCORNER, want the tray's color" ;;
 esac
 case "$RMIDDLE" in

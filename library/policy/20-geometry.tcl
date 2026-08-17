@@ -1151,7 +1151,7 @@ proc policy-paint-focus {w} {
 #
 # What CANNOT be done on the fly is the other kind of transparency:
 # per-pixel alpha needs a 32-bit ARGB visual, and a window's visual is
-# chosen when it is created and never after — the tray's own backdrop
+# chosen when it is created and never after — the tray's own strip
 # already lives with that (set-tray-argb). Uniform opacity has no such
 # problem, and uniform opacity is what a frame wants.
 #
