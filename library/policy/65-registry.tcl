@@ -1143,6 +1143,9 @@ proc panel-build {name idx} {
     } else {
         toplevel $P -background [themed ground]
         wm overrideredirect $P 1
+        # the EWMH word for what a strip is — and what a compositor
+        # excuses from shadows (compton -C; the tray says it too)
+        wm attributes $P -type dock
     }
     if {[winfo exists $P.t] && [info exists ::panel_sig($name)]
             && $::panel_sig($name) eq $sig} {

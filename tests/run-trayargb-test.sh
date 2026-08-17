@@ -15,6 +15,14 @@
 # clients actually are — Chrome's Linux status icon included). A
 # compositor must run for any of this to mean anything, so one is
 # started, over a magenta desk so a hole is unmistakable.
+#
+# The compositor runs WITH shadows, docks excused (-c -C) — the
+# owner's live configuration, and a second regression for free: the
+# strip and its backdrop must say _NET_WM_WINDOW_TYPE_DOCK, or -C
+# excuses nothing, the strip's own shadow is painted behind its alpha
+# and every corner probe below reads shadow-grey instead of the
+# tray's color (a light theme wearing dark icon cells — the owner,
+# 2026-08-17).
 . "$(dirname "$0")/common.sh"
 start_xvfb 800x600x24 +extension Composite +extension RENDER
 trap 'kill $COMP 2>/dev/null; stop_xservers' EXIT
@@ -23,7 +31,7 @@ trap 'kill $COMP 2>/dev/null; stop_xservers' EXIT
 # the root PIXMAP (_XROOTPMAP_ID), which xsetroot -solid never publishes
 # — see notes/xephyr-playground.md in thoughts.
 hsetroot -solid '#ff00ff' 2>/dev/null
-compton --backend xrender --config /dev/null >"$HERE/trayargb-compositor.log" 2>&1 &
+compton -c -C --backend xrender --config /dev/null >"$HERE/trayargb-compositor.log" 2>&1 &
 COMP=$!
 sleep 1
 

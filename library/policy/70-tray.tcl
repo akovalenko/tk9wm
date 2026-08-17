@@ -197,6 +197,9 @@ proc tray-backdrop {geo} {
     if {![winfo exists .traybg]} {
         toplevel .traybg -background $::tray_bg
         wm overrideredirect .traybg 1
+        # dock, like the strip it floors: its own shadow otherwise
+        # falls where the backdrop ends and the panel's widgets begin
+        wm attributes .traybg -type dock
         wm withdraw .traybg
     }
     if {$geo eq ""} { wm withdraw .traybg; return }
@@ -251,6 +254,16 @@ proc tray-ensure {} {
         toplevel .tray -background $::tray_bg
     }
     wm overrideredirect .tray 1   ;# our own furniture, not a client
+    # _NET_WM_WINDOW_TYPE_DOCK — the word a compositor excuses panels
+    # from shadows by (compton -C, picom's wintypes). Without it the
+    # strip is shadowed like any window, and on the ARGB strip the
+    # shadow is drawn BEHIND it — straight through every icon's
+    # transparent pixels onto the backdrop, which is how a light theme
+    # wore dark grey icon cells the moment shadows went on (the owner,
+    # 2026-08-17). Every strip of ours says the word: this one, its
+    # backdrop, the panels (65-registry) — and the desk window says
+    # DESKTOP (widget.tcl).
+    wm attributes .tray -type dock
     wm withdraw .tray             ;# shown by tray-layout once it holds a cell
 }
 # The substrate's hooks. The Tk round trip before the return is the

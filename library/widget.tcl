@@ -565,6 +565,9 @@ proc desk-window-build {} {
     if {![winfo exists .desk]} {
         toplevel .desk -background $::desk_background
         wm overrideredirect .desk 1
+        # the EWMH word for the bottom window, for whoever asks — a
+        # compositor treats a desktop specially, as the strips' dock
+        wm attributes .desk -type desktop
         wm title .desk tk9wm-desk
     }
     .desk configure -background $::desk_background
