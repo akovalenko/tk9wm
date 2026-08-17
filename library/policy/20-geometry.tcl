@@ -502,17 +502,16 @@ proc policy-attach {w cw ch} {
     # black — compositor or no compositor (the owner's calculator,
     # 2026-08-17). On the client's own visual the alpha rides through:
     # a child of a 32-bit top-level is 32-bit, the fact the tray's
-    # cells already stand on. The road is CHROMELESS for no deep
-    # reason any more: the alpha-ZERO fear about Tk's own paint was
-    # measured false (2026-08-17 — a Composite-aware server ORs the
-    # alpha bits into every AllocColor answer on a 32-bit visual;
-    # ALPHAMASK, dix/colormap.c), so a bordered frame would draw its
-    # chrome opaque and could take this visual too. What holds it to
-    # decor none is the LOOK being the owner's call — a bordered CSD
-    # window's corner notches would go from black to see-through —
-    # and the titlebar's glyph path (photo images, XPutImage) being
-    # still unmeasured. The depth is asked of a window that may be
-    # dying; {} reads as «not 32» and takes the plain road.
+    # cells already stand on. The road is CHROMELESS by the owner's
+    # word, not by physics: the alpha-ZERO fear about Tk's own paint
+    # was measured false (2026-08-17 — a Composite-aware server ORs
+    # the alpha bits into every AllocColor answer on a 32-bit visual;
+    # ALPHAMASK, dix/colormap.c), so a bordered frame could take this
+    # visual and draw its chrome opaque. Asked, the owner declined
+    # (same day): a floored CSD window's corner notches stay black
+    # rather than go see-through — a frame is a solid thing on this
+    # desk. The depth is asked of a window that may be dying; {}
+    # reads as «not 32» and takes the plain road.
     set argb ""
     if {$B == 0 && $top == 0} {
         set wa [x-attrs $w]

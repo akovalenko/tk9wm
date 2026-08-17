@@ -134,14 +134,15 @@ proc tray-reconcile {} {
 # compositor must be running to blend the strip — the server never
 # blends a child window's alpha by itself.
 #
-# The catch that makes this more than a flag: Tk computes a color's
-# pixel from the visual's masks, and a TrueColor visual has no mask
-# over the alpha bits — so every Tk color in a 32-bit visual comes out
-# with alpha ZERO, which a compositor draws as "not there". The strip
-# would be an invisible bar with icons floating over the wallpaper. So
-# the background pixel is set from outside Tk, alpha byte and all (see
-# tray-paint-opaque) — that is what the shim's `window background`
-# primitive is for.
+# The catch that never was: this header long promised that Tk colors
+# come out alpha ZERO in a 32-bit visual (computed from masks that
+# cover no alpha bits) and that the strip's background is therefore
+# set from outside Tk — by a tray-paint-opaque nobody ever wrote. The
+# strip has run on Tk's plain -background all along, and the reason
+# that works was measured 2026-08-17: a Composite-aware server ORs
+# the alpha bits into every AllocColor answer on a 32-bit visual
+# (ALPHAMASK, dix/colormap.c), precisely so alpha-blind toolkits
+# paint opaque. No hand-made pixel is needed anywhere in this file.
 #
 # Chrome ignores the negotiation and makes an ARGB icon whether or not
 # we advertise (measured 2026-07-29), so with the offer OFF it is the
