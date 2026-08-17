@@ -685,14 +685,15 @@ WindowObjCmd(void *clientData, Tcl_Interp *interp, int objc,
 		 * server refuses it across depths (BadMatch), which is
 		 * exactly why the ARGB question is a question at all.
 		 *
-		 * A NUMBER is a raw pixel, and raw is the point: in a
-		 * 32-bit visual the alpha lives in the bits no
-		 * TrueColor mask covers, so a toolkit that computes
-		 * colors from the masks — Tk does — can only ever ask
-		 * for alpha ZERO, i.e. a window a compositor draws as
-		 * not there at all. Handing the pixel in whole
-		 * (0xff000000 | rgb) is how a script paints an opaque
-		 * ARGB window without teaching Tk about alpha.
+		 * A NUMBER is a raw pixel, alpha byte included — but NOT
+		 * for opacity's sake: the belief that a toolkit asking
+		 * colors by the TrueColor masks gets alpha ZERO was
+		 * measured false (2026-08-17). A Composite-aware server
+		 * ORs the alpha bits into every AllocColor answer on a
+		 * 32-bit visual (ALPHAMASK, dix/colormap.c), so Tk
+		 * paints opaque there with no help. Raw is for the
+		 * OTHER alphas — a deliberately translucent or clear
+		 * pixel no colormap will ever hand out.
 		 *
 		 * Neither takes effect on what is already on screen —
 		 * `window clear` is the repaint. */

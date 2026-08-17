@@ -502,12 +502,17 @@ proc policy-attach {w cw ch} {
     # black — compositor or no compositor (the owner's calculator,
     # 2026-08-17). On the client's own visual the alpha rides through:
     # a child of a 32-bit top-level is 32-bit, the fact the tray's
-    # cells already stand on. Only the CHROMELESS frame takes this
-    # road: Tk allocates every pixel with alpha ZERO (the shim's note
-    # on backgrounds), so any decoration such a frame painted would
-    # hang as a hole under a compositor — a frame that shows nothing
-    # of itself has nothing to lose. The depth is asked of a window
-    # that may be dying; {} reads as «not 32» and takes the plain road.
+    # cells already stand on. The road is CHROMELESS for no deep
+    # reason any more: the alpha-ZERO fear about Tk's own paint was
+    # measured false (2026-08-17 — a Composite-aware server ORs the
+    # alpha bits into every AllocColor answer on a 32-bit visual;
+    # ALPHAMASK, dix/colormap.c), so a bordered frame would draw its
+    # chrome opaque and could take this visual too. What holds it to
+    # decor none is the LOOK being the owner's call — a bordered CSD
+    # window's corner notches would go from black to see-through —
+    # and the titlebar's glyph path (photo images, XPutImage) being
+    # still unmeasured. The depth is asked of a window that may be
+    # dying; {} reads as «not 32» and takes the plain road.
     set argb ""
     if {$B == 0 && $top == 0} {
         set wa [x-attrs $w]
