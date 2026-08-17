@@ -15,7 +15,10 @@
 #    fills a gap;
 #  - and the desk says what the knob COSTS — a top chord whose letter
 #    a prefix also binds stops being reachable inside that prefix, and
-#    that is named out loud rather than left as advice.
+#    that is named out loud rather than left as advice;
+#  - what the action is TOLD about its chord (key_invoke_mods and
+#    key_invoke_sym) is the PHYSICAL press: the held form of a
+#    bare-written key reports the modifier it actually wore.
 . "$(dirname "$0")/common.sh"
 start_xvfb 800x500x24
 CONF=$(mktemp -d)
@@ -28,7 +31,7 @@ set-welcome off
 set-chord-hold off
 proc fired {what} {
     set ch [open "$OUT" a]
-    puts \$ch \$what
+    puts \$ch "\$what \$::key_invoke_mods \$::key_invoke_sym"
     close \$ch
 }
 wm-bind {<Super>t z} {fired plain} "the plain inner key"
@@ -86,12 +89,15 @@ want() {
         echo "FAIL: $1 — got «$2», wanted «$3»"; FAIL=1
     fi
 }
-want "off: the written form answers"            "$OFFPLAIN" "plain "
+want "off: the written form answers, told a bare press" \
+    "$OFFPLAIN" "plain 0 z "
 want "off: ...and the held one does not"        "$OFFHELD"  ""
-want "on: the written form still answers"       "$ONPLAIN"  "plain "
-want "on: ...and so does the held one, the SAME binding" "$ONHELD" "plain "
+want "on: the written form still answers, still a bare press" \
+    "$ONPLAIN"  "plain 0 z "
+want "on: ...the held one too, SAME binding, told the modifier it wore" \
+    "$ONHELD" "plain 64 z "
 want "on: an inner chord written with its modifier keeps it" \
-    "$ONEXACT" "exact "
+    "$ONEXACT" "exact 64 y "
 if [ "$SHADOW" -ge 1 ]; then
     echo "OK: the desk names what the knob costs, rather than advising"
 else

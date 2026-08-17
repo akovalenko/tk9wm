@@ -151,8 +151,16 @@
 #                               the keymap
 #   modifier-held mask          is any key of these modifiers physically
 #                               down right now (XQueryKeymap)?
+#   modifiers-all-held mask     the stricter, element-wise ask: does
+#                               EVERY bit of the mask still have a key
+#                               down? A Ctrl+Alt cycle commits on the
+#                               FIRST of the two to go up
 #   $::key_invoke_mods          modifier mask of the chord that invoked
 #                               the currently running key action
+#   $::key_invoke_sym           keysym name of that chord's key; both
+#                               tell the PHYSICAL press — under
+#                               chord-hold a bare-written inner key
+#                               arrives wearing the prefix's modifiers
 #   client-stacking             every managed window, bottom first —
 #                               THE POLICY'S word (the model speaks,
 #                               the server agrees); the substrate only
@@ -4099,6 +4107,7 @@ keep key_frozen 0    ;# a sync-grabbed press awaits its ONE answer (key-thaw)
 keep keyrouter ""    ;# non-empty: a keyboard-modal UI owns every key event
 keep keyrouter_lost ""   ;# ...and this is its notice, see grab-keys-to
 keep key_invoke_mods 0  ;# modifiers of the chord that fired the running action
+keep key_invoke_sym ""  ;# ...and its key's name — the physical press, both
 
 # Modifier names a chord may use. A static table: Alt is Mod1 and Super
 # is Mod4 on any stock map; a layout where that lies wants a dynamic
@@ -5037,6 +5046,33 @@ proc modifier-held {mask} {
     return 0
 }
 
+# ...and the stricter, element-wise ask: is EVERY bit of the mask still
+# held by at least one of its keys? "Any key down" is the right question
+# for one modifier, but a Ctrl+Alt cycle must commit on the FIRST of the
+# two to go up — which the looser question cannot see while the other
+# is still down. A bit with nothing in the table counts as released:
+# unverifiable is not held.
+proc modifiers-all-held {mask} {
+    if {$mask == 0} { return 0 }
+    set v [soft "read the keymap" { x-keymap }]
+    if {[string length $v] != 32} { return 0 }
+    foreach {bit syms} [array get ::modkeysyms] {
+        if {!($mask & $bit)} continue
+        set down 0
+        foreach n $syms {
+            set ks [x-keysym $n]
+            if {$ks == 0} continue
+            set kc [x-keycode $ks]
+            if {$kc == 0} continue
+            binary scan $v "x[expr {$kc / 8}]cu" byte
+            if {$byte & (1 << ($kc % 8))} { set down 1; break }
+        }
+        if {!$down} { return 0 }
+        set mask [expr {$mask & ~$bit}]
+    }
+    expr {$mask == 0}
+}
+
 # One KeyPress from our grabs walks the keymap: idle state consults the
 # top map (the press came through a top-chord XGrabKey), a sequence in
 # progress consults its current submap (the press came through the
@@ -5210,8 +5246,9 @@ proc handle-key {state kc time} {
     lassign [dict get $node $k] kind payload
     if {$kind eq "action"} {
         # release the keyboard BEFORE the action: it may want focus.
-        # The chord's own modifiers are published for the action: the
-        # window list reads them to decide "am I an alt-tab cycle".
+        # The chord's own modifiers and key are published for the
+        # action: the window list reads them to decide "am I an
+        # alt-tab cycle" and which way such a cycle starts.
         # the WHOLE sequence, spelled as the desk shows it — captured
         # before keyseq-end forgets the prefix, because a failure
         # reported as «key z» names a key nobody bound
@@ -5222,6 +5259,7 @@ proc handle-key {state kc time} {
         key-thaw async-keyboard $time
         puts "WM: key [chord-name $mods $ks] -> action"
         set ::key_invoke_mods $mods
+        set ::key_invoke_sym [keysym-name $ks]
         set t0 [clock milliseconds]
         # IN A COROUTINE, so a script that waits on something parks
         # instead of stopping the desk (run-script). The failure still
