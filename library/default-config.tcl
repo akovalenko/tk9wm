@@ -163,9 +163,14 @@
 #   set-key-help {<Ctrl>h}
 #   set-key-help off
 #
-# The window list under a still-held modifier runs the fvwm alt-tab
-# cycle (Tab advances, releasing commits, a quick full Alt+Tab
-# toggles to the previous window). Off = always a static menu:
+# The window list opened by a MOTION chord whose modifier is still
+# held runs the fvwm alt-tab cycle: the key's own motion runs at
+# open (Alt+Tab starts on the second row; bind <Super>p and it
+# starts on the LAST), the motion letters keep walking while the
+# modifier is down, releasing any of it commits — a quick full
+# Alt+Tab toggles to the previous window. A modified chord that is
+# no motion (<Super>grave, say) opens the plain static menu. Off =
+# always a static menu:
 #   set-winlist-cycle off
 #
 # A chord answers even while its modifier is still held down; off

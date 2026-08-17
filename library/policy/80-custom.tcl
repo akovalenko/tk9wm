@@ -466,7 +466,7 @@ knob set-chord-hold  {var {chord_hold} settle {keys} group keys kind bool
                       doc {a chord answers with the modifier held down too}}
 knob set-winlist-cycle {var {winlist_cycle_opt} settle {} group keys kind bool
                       get {expr {$::winlist_cycle_opt ? "on" : "off"}}
-                      doc {alt-tab as the fvwm cycle, or a static menu}}
+                      doc {a held motion chord as the fvwm cycle, or a static menu}}
 knob set-key-echo    {var {key_echo} settle {} group keys kind text get {set ::key_echo}
                       doc {ms of hesitation before a chord shows itself; off = never}}
 knob set-key-echo-place {var {key_echo_place} settle {} group keys kind text get {set ::key_echo_place}
