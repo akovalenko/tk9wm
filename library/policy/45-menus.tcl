@@ -582,9 +582,11 @@ proc gesture-menu-at {w} {
 # the two, never both: the run ⊕ launch rule, for the same reason —
 # one slot, two spellings.
 #
-# A row without a key is numbered the winlist way — 1-9, then A-Z —
-# and the numbering STEPS OVER what explicit keys have claimed, so a
-# mnemonic never collides with a number handed out by position. A
+# A menu with NO explicit keys is numbered by position — the shared
+# popup alphabet (popup-autokeys: 1-9, then A-Z minus the motion
+# letters j/k/n/p). One explicit key anywhere turns the numbering
+# off: the author took the naming into their own hands, and the rows
+# they left bare stay bare rather than wearing gap numbers. A
 # reference to a waiting action is not shown (the panel's rule), and
 # one to a deed nobody declared is skipped with a log line: a menu is
 # a view, and a view does not refuse to open over one bad row.
@@ -889,27 +891,25 @@ proc Choose {items {place ""}} {
 # resolved; what a row CARRIES (fire or value) is the door's
 # business, read back in menu-pick.
 proc menu-post {rows {place ""} {w 0}} {
-    set claimed {}
+    # A FULLY unkeyed menu is numbered by position with the shared
+    # popup alphabet (popup-autokeys); one explicit key anywhere
+    # turns the numbering off — the author took the naming into
+    # their own hands, and rows they left bare stay bare. (Gap
+    # numbers used to be handed out around the claimed keys, and a
+    # mnemonic menu grew digits nobody asked for — the owner,
+    # 2026-08-17.)
+    set keyed 0
     foreach row $rows {
-        if {[dict get $row key] ne ""} {
-            lappend claimed [string toupper [dict get $row key]]
-        }
+        if {[dict get $row key] ne ""} { set keyed 1; break }
     }
-    set auto {}
-    for {set i 1} {$i <= 9} {incr i} { lappend auto $i }
-    for {set c 65} {$c <= 90} {incr c} { lappend auto [format %c $c] }
     set out {}
-    foreach row $rows {
-        if {[dict get $row key] eq ""} {
-            while {[llength $auto] && [lindex $auto 0] in $claimed} {
-                set auto [lrange $auto 1 end]
-            }
-            if {[llength $auto]} {
-                dict set row key [lindex $auto 0]
-                set auto [lrange $auto 1 end]
-            }
+    if {$keyed} {
+        set out $rows
+    } else {
+        foreach row $rows key [popup-autokeys [llength $rows]] {
+            dict set row key $key
+            lappend out $row
         }
-        lappend out $row
     }
     set ::menu_rows $out
     set n [llength $out]

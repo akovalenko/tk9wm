@@ -589,9 +589,28 @@ proc wm-invariants {} {
     }
     return $bad
 }
+# The one alphabet that numbers popup rows: 1-9, then A-Z MINUS the
+# vi and emacs motion letters J/K/N/P — a bare letter that is some
+# row's hotkey beats navigation (the hotkey branch runs first), so a
+# 19th row that swallowed J would turn «down» into a pick on exactly
+# the lists crowded enough to need the walking (the owner,
+# 2026-08-17). Positional: n keys for n rows, rows past the alphabet
+# get none.
+proc popup-autokeys {n} {
+    set keys {}
+    for {set i 1} {$i <= 9 && $i <= $n} {incr i} { lappend keys $i }
+    for {set c 65} {$c <= 90 && [llength $keys] < $n} {incr c} {
+        set ch [format %c $c]
+        if {$ch ni {J K N P}} { lappend keys $ch }
+    }
+    while {[llength $keys] < $n} { lappend keys "" }
+    return $keys
+}
 # Popup navigation keys (the owner's spec): arrows always; vi (k/j)
 # and emacs (p/n) letters on a BARE press — a bare letter that is some
-# item's hotkey never reaches here, the hotkey matched first; Ctrl+P /
+# item's hotkey never reaches here, the hotkey matched first, though
+# the four letters themselves are safe (popup-autokeys never hands
+# them out; only an EXPLICIT key can claim one); Ctrl+P /
 # Ctrl+N run the menu unconditionally, hotkeys or not. The ends of the
 # list too (the owner, 2026-08-10): Home and End as every list has
 # them, Ctrl+A / Ctrl+E as emacs hands expect — unconditional, like
@@ -638,8 +657,9 @@ proc popup-move {T n d} {
 # ones trail behind), centered on the screen; the initial selection
 # sits on the SECOND entry — the first is the window the user is
 # leaving — so a bare Enter (or a released Alt) toggles to the
-# previous window. Entries are numbered 1-9/A-Z and the number is the
-# entry's hotkey — in cycle mode pressed WITH the held modifier
+# previous window. Entries are numbered with the shared popup
+# alphabet (popup-autokeys: 1-9, A-Z minus j/k/n/p) and the number is
+# the entry's hotkey — in cycle mode pressed WITH the held modifier
 # (releasing it would commit), in the static menu bare, like any menu
 # hotkey; either way it picks immediately.
 #
@@ -972,20 +992,11 @@ proc winlist-open {wins where kind {more ""}} {
             && [modifier-held $::key_invoke_mods]} {
         set ::winlist_cycle $::key_invoke_mods
     }
-    # Every entry is numbered, and the number IS its hotkey: 1-9, then
-    # A-Z; a 36th window simply gets no hotkey. The digit column sits
-    # on the left — a numbered list reads that way.
-    set ::winlist_keys {}
-    foreach w $wins {
-        set i [llength $::winlist_keys]
-        if {$i < 9} {
-            lappend ::winlist_keys [expr {$i + 1}]
-        } elseif {$i < 35} {
-            lappend ::winlist_keys [format %c [expr {65 + $i - 9}]]
-        } else {
-            lappend ::winlist_keys ""
-        }
-    }
+    # Every entry is numbered, and the number IS its hotkey — the
+    # shared popup alphabet (popup-autokeys), which is why j/k/n/p
+    # keep walking the list however many windows are open. The digit
+    # column sits on the left — a numbered list reads that way.
+    set ::winlist_keys [popup-autokeys [llength $wins]]
     set ih [expr {[font metrics TitleFont -linespace] + 6}]
     set numw [expr {[font measure TitleFont W] + 14}]
     # the icon cell: a square a hair under the row, the lettering sized

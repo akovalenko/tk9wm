@@ -757,9 +757,11 @@
 #           {label "log here" do {Run xterm -e tail -f /var/log/syslog}}
 #       }
 #   }
-# Unkeyed rows are numbered the winlist way (1-9, A-Z, stepping over
-# claimed letters). A row referencing a WAITING action is quietly
-# not shown (the panel's rule); a reference nobody declared is a
+# A menu with no explicit keys is numbered by position (1-9, then
+# A-Z minus the motion letters j/k/n/p); give any row a key and the
+# numbering is off — bare rows stay bare. A row referencing a
+# WAITING action is quietly not shown (the panel's rule); a
+# reference nobody declared is a
 # problem line. The name refines like an action's; wm-menu-remove is
 # the negative word. `place` overrules where it opens (edge words,
 # sizeless); brought up by mouse it lands under the hand.
