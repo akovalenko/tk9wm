@@ -816,8 +816,11 @@ proc popup-move {T n d} {
     $T selection clear
     $T selection add $i
     # the keyboard's row is ALWAYS on the glass: a clipped list scrolls
-    # under the selection (a no-op on one that fits whole)
-    $T see $i
+    # under the selection (a no-op on one that fits whole). Only once
+    # the widget is up — the winlist moves its selection BEFORE showing
+    # (the cycle's opening step), and popup-show does the first `see`
+    # itself, against geometry that has actually settled.
+    if {[winfo ismapped $T]} { $T see $i }
 }
 # The MOTION a key means, popup-wide: what popup-nav says, plus Tab —
 # a step forward, backward under Shift — which the winlist has always
@@ -1301,11 +1304,17 @@ proc winlist-open {wins where kind {more ""}} {
         $T selection add [expr {$kind eq "toggle" && [llength $wins] > 1 ? 2 : 1}]
     }
     # measured against the monitor under the hand — the same glass the
-    # popup clamp (popup-show) will hold it to
+    # popup clamp (popup-show) will hold it to. The height goes through
+    # the scroll gate (popup-fit) before any Y is computed from it: a
+    # list hanging UP off a bottom panel anchors its top at
+    # panel-minus-H, and only a height already capped to the panel's
+    # own workarea puts that top on the glass. The gate's anchor point
+    # only picks the monitor — the pointer's for the centred list, the
+    # panel's for one hanging off a button.
     lassign [pointer-monitor] mx my sw sh
     set W [expr {min(max($maxw + $numw + $iconw + 28, 200), $sw * 3 / 5)}]
-    set H [expr {[llength $::winlist_rows] * $ih + 2}]
     if {$where eq "center"} {
+        set H [popup-fit .winlist [llength $::winlist_rows] $ih $mx $my]
         set X [expr {$mx + ($sw - $W) / 2}]
         set Y [expr {$my + ($sh - $H) / 3}]
     } else {
@@ -1322,6 +1331,8 @@ proc winlist-open {wins where kind {more ""}} {
                          && [dict exists $::panel_items($pname) $aname]
                          ? [dict get $::panel_items($pname) $aname] : 1}]
         lassign [$T item bbox $bitem] bx by
+        set H [popup-fit .winlist [llength $::winlist_rows] $ih \
+                   [winfo rootx $T] [winfo rooty $T]]
         switch -- [panel-cfg $pname side] {
             bottom { set X [expr {[winfo rootx $T] + $bx}]
                      set Y [expr {[winfo y $P] - $H}] }

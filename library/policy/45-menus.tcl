@@ -948,13 +948,20 @@ proc menu-post {rows {place ""} {w 0}} {
     # the glass either way (popup-show).
     lassign [pointer-monitor] mx my sw sh
     set W [expr {min(max($maxw + $ih + 40, 160), $sw * 3 / 5)}]
-    set H [expr {$n * $ih + 2}]
+    # The height goes through the scroll gate FIRST (popup-fit): a Y
+    # computed from an unclipped height would anchor a bottom-placed —
+    # or centred — menu off the glass. The gate's anchor point only
+    # picks the monitor: the workarea's own corner for a said `place`
+    # (the no-arg workarea is the primary's), the pointer's monitor
+    # otherwise — the same glass the placement below works on.
     if {$place ne ""} {
         lassign [anchor-of $place] halign valign
         lassign [workarea] wax way ww wh
+        set H [popup-fit .menu $n $ih $wax $way]
         set X [place-axis $wax $ww $W $halign]
         set Y [place-axis $way $wh $H $valign]
     } else {
+        set H [popup-fit .menu $n $ih $mx $my]
         set at [gesture-menu-at $w]
         if {[llength $at]} {
             lassign $at X Y
