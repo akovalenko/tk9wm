@@ -148,6 +148,16 @@ proc popup-shell {m ih pick} {
     # words); picks that have no other reading take it and ignore it.
     set ::popup_pick($m) $pick
     bind $m.t <ButtonPress-1> [list $pick %x %y %s]
+    # The wheel scrolls the VIEW and only the view — the selection band
+    # is the keyboard's axis and stays where the keyboard put it (the
+    # same two-axes rule as hover). Bound here for every popup: on a
+    # list that fits whole the scroll is a no-op, and the class binding
+    # that would normally do this was stripped with the bindtags above.
+    # Button-4/5 beside <MouseWheel> as the configurator carries them —
+    # whichever spelling this Tk delivers, the wheel works.
+    bind $m.t <MouseWheel> [list popup-wheel $m %D]
+    bind $m.t <Button-4>   [list popup-wheel $m 120]
+    bind $m.t <Button-5>   [list popup-wheel $m -120]
     return $m.t
 }
 # Which row the pointer is over, marked and unmarked. Off the widget
@@ -166,17 +176,149 @@ proc popup-hover {T x y} {
     if {$item ne ""} { catch {$T item state set $item {hover}} }
     set ::popup_hovered($T) $item
 }
+# ---- a list taller than the glass scrolls ----
+# The height a popup MAY take, asked by its builder BEFORE placement —
+# before, because a bottom-anchored list (a winlist hanging off a
+# panel button) computes its Y from H, so a clamp inside popup-show
+# would come too late. The measure is the WORKAREA of the anchor's
+# monitor, not the monitor itself: an overgrown list has to stop
+# somewhere, and stopping short of the panel strips reads better than
+# lying over them.
+#
+# A list that fits is untouched — same height, same look, not a pixel
+# moved. One that does not gets a scroll: two arrow bands over and
+# under the treectrl (the mouse's half — a click walks one row, held
+# it repeats, the wheel drives the list directly), and the band that
+# cannot go further is dimmed rather than hidden — a vanishing arrow
+# would shift the rows under a pointer mid-aim, a dimmed one moves
+# nothing. The arrows are DRAWN (canvas triangles), not typed: the
+# winops bullet was chosen because it renders everywhere, and a
+# polygon renders more everywhere still.
+proc popup-fit {m n ih X Y} {
+    set H [expr {$n * $ih + 2}]
+    lassign [workarea-at [list $X $Y 1 1]] - - - wah
+    if {$H <= $wah} { return $H }
+    set band [expr {max(10, $ih * 3 / 5)}]
+    set vis [expr {max(1, ($wah - 2 - 2*$band) / $ih)}]
+    set ::popup_scroll($m) [list $n $ih $vis $band]
+    foreach {c d} [list $m.up -1 $m.down 1] {
+        canvas $c -highlightthickness 0 -borderwidth 0 \
+            -background [themed raised]
+        bind $c <Configure>       [list popup-arrow-draw $c $d %w %h]
+        bind $c <ButtonPress-1>   [list popup-arrow-press $m $d]
+        bind $c <ButtonRelease-1> [list popup-arrow-release $m]
+    }
+    $m.t configure -yscrollcommand [list popup-view-sync $m]
+    puts "WM: popup $m: $n rows, $vis shown"
+    expr {$vis * $ih + 2*$band + 2}
+}
+# The triangle, redrawn at the size the band actually got; the fill
+# survives the redraw so a band dimmed before its <Configure> stays
+# dimmed after it.
+proc popup-arrow-draw {c d w h} {
+    set fill [themed ink]
+    if {[llength [$c find withtag tri]]} { set fill [$c itemcget tri -fill] }
+    $c delete tri
+    set p 3
+    set cx [expr {$w / 2}]
+    set s [expr {max(4, $h - 2*$p)}]
+    if {$d < 0} {
+        set pts [list $cx $p [expr {$cx - $s}] [expr {$h - $p}] \
+                     [expr {$cx + $s}] [expr {$h - $p}]]
+    } else {
+        set pts [list $cx [expr {$h - $p}] [expr {$cx - $s}] $p \
+                     [expr {$cx + $s}] $p]
+    }
+    $c create polygon {*}$pts -fill $fill -outline "" -tags tri
+}
+# One step of the view, answering whether it MOVED — the press below
+# reads the answer to know a dead-end arrow from a live one, and the
+# repeat reads it to stop at the wall instead of ticking against it.
+proc popup-scroll {m d} {
+    set before [$m.t yview]
+    $m.t yview scroll $d units
+    expr {[$m.t yview] ne $before}
+}
+# Press-and-hold repeats, the scrollbar's own feel: one row at once,
+# then after a beat one row per tick until the button goes up, the
+# wall arrives, or the popup closes (popups-close cancels).
+proc popup-arrow-press {m d} {
+    popup-arrow-release $m
+    if {![popup-scroll $m $d]} return
+    set ::popup_repeat($m) [after 300 [list popup-arrow-repeat $m $d]]
+}
+proc popup-arrow-repeat {m d} {
+    unset -nocomplain ::popup_repeat($m)
+    if {![winfo exists $m] || ![popup-scroll $m $d]} return
+    set ::popup_repeat($m) [after 60 [list popup-arrow-repeat $m $d]]
+}
+proc popup-arrow-release {m} {
+    if {[info exists ::popup_repeat($m)]} {
+        after cancel $::popup_repeat($m)
+        unset ::popup_repeat($m)
+    }
+}
+# The wheel, one row per notch. %D is accumulated to ±120 first: a
+# hi-res touchpad delivers the notch in crumbs, and each crumb
+# stepping a row would make the list bolt.
+proc popup-wheel {m D} {
+    incr ::popup_wheelacc($m) $D
+    while {$::popup_wheelacc($m) >= 120} {
+        incr ::popup_wheelacc($m) -120
+        popup-scroll $m -1
+    }
+    while {$::popup_wheelacc($m) <= -120} {
+        incr ::popup_wheelacc($m) 120
+        popup-scroll $m 1
+    }
+}
+# Every move of the view lands here (the treectrl's -yscrollcommand):
+# repaint the arrows off the fractions, and re-ask what the standing
+# pointer hovers — the rows just shifted under it, and a stale
+# underline is exactly what the hover mark must never show.
+proc popup-view-sync {m args} {
+    if {![winfo exists $m.up]} return
+    lassign [$m.t yview] first last
+    $m.up   itemconfigure tri -fill [themed [expr {$first > 0 ? "ink" : "dim"}]]
+    $m.down itemconfigure tri -fill [themed [expr {$last < 1 ? "ink" : "dim"}]]
+    lassign [winfo pointerxy $m.t] px py
+    popup-hover $m.t [expr {$px - [winfo rootx $m.t]}] \
+        [expr {$py - [winfo rooty $m.t]}]
+}
 proc popup-show {m W H X Y} {
     # clamped into the monitor the ANCHOR POINT is on: a menu asked
     # for near the right edge of the left monitor slides left, it does
-    # not walk over onto the neighbour
-    lassign [monitor-of-rect [list $X $Y 1 1]] mx my mw mh
-    set X [expr {max($mx, min($X, $mx + $mw - $W))}]
-    set Y [expr {max($my, min($Y, $my + $mh - $H))}]
-    place $m.t -x 1 -y 1 -width [expr {$W - 2}] -height [expr {$H - 2}]
+    # not walk over onto the neighbour. A CLIPPED list clamps into the
+    # workarea instead — its height was measured against it (popup-fit),
+    # and a scroll that stops at the panel's edge should stand there too.
+    if {[info exists ::popup_scroll($m)]} {
+        lassign [workarea-at [list $X $Y 1 1]] wax way waw wah
+        set X [expr {max($wax, min($X, $wax + $waw - $W))}]
+        set Y [expr {max($way, min($Y, $way + $wah - $H))}]
+        lassign $::popup_scroll($m) - - - band
+        place $m.up   -x 1 -y 1 -width [expr {$W - 2}] -height $band
+        place $m.t    -x 1 -y [expr {1 + $band}] -width [expr {$W - 2}] \
+            -height [expr {$H - 2 - 2*$band}]
+        place $m.down -x 1 -y [expr {$H - 1 - $band}] \
+            -width [expr {$W - 2}] -height $band
+    } else {
+        lassign [monitor-of-rect [list $X $Y 1 1]] mx my mw mh
+        set X [expr {max($mx, min($X, $mx + $mw - $W))}]
+        set Y [expr {max($my, min($Y, $my + $mh - $H))}]
+        place $m.t -x 1 -y 1 -width [expr {$W - 2}] -height [expr {$H - 2}]
+    }
     wm geometry $m ${W}x${H}+$X+$Y
     stack-layer $m $::LAYER_POPUP
     update idletasks
+    # The clipped list opens SHOWING its selection — a cycle that walks
+    # up at open wraps to the last row, and the last row must be on the
+    # glass. Done here, after the geometry settled: a `see` against an
+    # unplaced widget measures nothing.
+    if {[info exists ::popup_scroll($m)]} {
+        set sel [lindex [$m.t selection get] 0]
+        if {$sel ne ""} { $m.t see $sel }
+        popup-view-sync $m
+    }
     # Posted with the button still down — the drag that follows is the
     # same gesture and has to reach this menu (popup-drag-* below).
     # Nothing else arms it: a menu opened by a key, or by a press whose
@@ -264,9 +406,21 @@ proc popup-drag-release {X Y {s 0}} {
     lassign [popup-drag-point $m $X $Y] in x y
     if {$in} {
         {*}$::popup_pick($m) $x $y $s
+    } elseif {[popup-drag-inside $m $X $Y]} {
+        # over the shell's own furniture — a scroll arrow: not a row,
+        # so no pick, and not "never mind" either — the menu stands
     } elseif {$entered} {
         popups-close
     }
+}
+# Inside the popup's TOPLEVEL, arrows and border included — the coarse
+# question the release above asks when the fine one (over a row) says
+# no.
+proc popup-drag-inside {m X Y} {
+    set x [expr {$X - [winfo rootx $m]}]
+    set y [expr {$Y - [winfo rooty $m]}]
+    expr {$x >= 0 && $y >= 0
+          && $x < [winfo width $m] && $y < [winfo height $m]}
 }
 # ---- the WM's own windows -------------------------------------------
 #
@@ -460,8 +614,10 @@ proc popups-close {{except ""}} {
             # A dismissed wm-window leaves no bookkeeping behind. Its
             # close SCRIPT is deliberately not run: dismissing IS the
             # cancel, and cancel does nothing by definition.
+            popup-arrow-release $m   ;# a held repeat dies with its menu
             unset -nocomplain ::closeof($m) ::btncols($m) ::drag($m) \
-                ::btn($m) ::popup_pick($m)
+                ::btn($m) ::popup_pick($m) ::popup_scroll($m) \
+                ::popup_wheelacc($m)
             # ...and a hand-over armed for it dies with it: the button
             # may well still be down, and the release that ends the
             # gesture must not go looking for a menu that is gone.
@@ -561,6 +717,15 @@ proc wm-invariants {} {
             lappend bad "somebody still waits on $m, which is gone"
         }
     }
+    # An arrow repeat is an after-timer holding a popup's name: alive
+    # only while its popup is (popups-close cancels; the tick itself
+    # gives up on a gone window, but a timer still ARMED for one means
+    # a teardown path missed the cancel).
+    foreach m [array names ::popup_repeat] {
+        if {![winfo exists $m]} {
+            lappend bad "an arrow repeat armed for $m, which is gone"
+        }
+    }
     # ...and the grab is held for a router or for a chord in progress,
     # never for its own sake: a keyboard nobody is listening on is a
     # dead desk.
@@ -650,6 +815,9 @@ proc popup-move {T n d} {
     }
     $T selection clear
     $T selection add $i
+    # the keyboard's row is ALWAYS on the glass: a clipped list scrolls
+    # under the selection (a no-op on one that fits whole)
+    $T see $i
 }
 # The MOTION a key means, popup-wide: what popup-nav says, plus Tab —
 # a step forward, backward under Shift — which the winlist has always

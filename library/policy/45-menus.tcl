@@ -443,7 +443,7 @@ proc winops {{w 0}} {
     set at [gesture-menu-at $w]
     if {[llength $at]} { lassign $at X Y }
     set W [expr {max($maxw + $ih + 40, 160) + $markw}]
-    set H [expr {$n * $ih + 2}]
+    set H [popup-fit .winops $n $ih $X $Y]
     lassign [popup-show .winops $W $H $X $Y] X Y
     if {![grab-keys-to winops-key]} {
         puts "WM: winops: keyboard not grabbed — mouse only"
