@@ -3331,7 +3331,23 @@ proc unmanage {w {dead 0}} {
         # invitation's stamp newer than the last focus change (see
         # focus-repair).
         focus-park "the focused window went away"
-        if {$refocus != 0} { focus-to $refocus }
+        # An APPLICATION leaves as a burst, not as a window: the pick
+        # was made a line above, against a desk where this window's
+        # siblings were still standing — and by the time the aim
+        # reaches the server they may be gone with it, so the focus is
+        # REFUSED and stays parked on the holder. Nothing came after to
+        # notice: the sibling's own unmanage sees ::focused already 0
+        # and a server focus that is neither None nor a frame, reads no
+        # dead end, and repairs nothing. So the desk sat with the
+        # keyboard on the holder and a perfectly good window standing
+        # next to it — lazarus-ide, four windows down at once, the
+        # owner 2026-08-19.
+        #
+        # focus-to already says "will retry" when the server refuses;
+        # this is the retry. Deferred, because the answer is only worth
+        # asking once the rest of the burst has been processed — which
+        # is refocus-soon's whole reason for being.
+        if {$refocus != 0 && ![focus-to $refocus]} { refocus-soon }
     }
 }
 
