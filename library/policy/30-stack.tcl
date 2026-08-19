@@ -1280,6 +1280,54 @@ proc maximize-settle {w} {
     update idletasks
     send-synthetic-configure $w
 }
+# The size hints CHANGED under a maximized window (the substrate's
+# policy-hints-changed hook, off WM_NORMAL_HINTS). A maximized size is
+# not a number the WM chose once — it is a SUM of three things: the
+# workarea, this frame's chrome, and the client's hints. Two of the
+# three already re-open the sum when they move (the workarea through
+# reflow-client, the chrome when the style is re-read); the hints did
+# not, and a client is free to change them at any time while mapped.
+#
+# What that cost, measured on lazarus-ide 3.0 (the owner, 2026-08-19,
+# reproduced here on Xvfb): the IDE's main bar is restored maximized
+# from its own profile, so it is maximized while its height is still
+# free, and only once the toolbar and the component palette have been
+# laid out does the LCL declare the hints it really lives by — min
+# height == max height, a bar that CANNOT be tall. The fit was already
+# computed and nobody asked it again, so the window stood at the full
+# workarea height its own hints forbade; the shield then denied its
+# every attempt to correct that, and the two sat there restating
+# themselves at each other forever — «size request 1908x121 while
+# maximized» on repeat, the bar flickering between the height it was
+# held at and the strip it kept relaying out to.
+#
+# So: ask the sum again, and move only if the answer moved. It cannot
+# ring: the fit is a pure function of those three inputs, so one pass
+# lands on it and the next hints change that does not move it does
+# nothing. The MARK is untouched — a maximized axis whose fit is the
+# client's own ceiling is exactly what a hand-maximize of that same bar
+# has always produced (apply-size-hints clamps to the maximum), and the
+# way back stays saved.
+#
+# Fullscreen is out: EWMH says a fullscreen window fills the screen and
+# the hints do not bind it (see policy-fullscreen), so a changed
+# maximum has nothing to say there.
+proc policy-hints-changed {w} {
+    if {![info exists ::frameof($w)]} return
+    if {![info exists ::maxsaved($w)]} return
+    if {[info exists ::fullscreen($w)]} return
+    set t $::frameof($w)
+    lassign [maximize-fit $w [workarea-of-frame $t] $::maxaxes($w)] mw mh
+    set cw [$t.slot cget -width]; set ch [$t.slot cget -height]
+    set ncw $cw; set nch $ch
+    if {"h" in $::maxaxes($w)} { set ncw $mw }
+    if {"v" in $::maxaxes($w)} { set nch $mh }
+    if {$ncw == $cw && $nch == $ch} return
+    puts "WM: 0x[format %x $w] changed its size hints while maximized —\
+ re-fitted ${cw}x${ch} -> ${ncw}x${nch}"
+    wm-resize-client $w $ncw $nch
+    maximize-settle $w
+}
 
 # ---- fullscreen, the substrate's policy-fullscreen hook ----
 # Maximize's stronger cousin, and the differences are all deliberate.

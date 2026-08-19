@@ -12,6 +12,10 @@
 # PIXEL when maximized (the mutter rule: a maximized axis owes the
 # increments nothing), and a client that sets VERT alone before its
 # first map is BORN tall.
+#
+# ...and the fit stays a SUM that can be asked again: a client that
+# declares its size hints only AFTER it was maximized is re-fitted to
+# them, rather than held at a size its own hints forbid.
 . "$(dirname "$0")/common.sh"
 start_xvfb
 
@@ -68,6 +72,29 @@ bind . <Map> {
         puts "ZOOMED: mapped at [winfo width .]x[winfo height .]"
         bind . <Map> {}
     }
+}
+after 30000 exit
+EOF
+# a client that declares its real size hints LATE — lazarus-ide's road:
+# the IDE's main bar comes up maximized (from its own profile) and only
+# once the toolbar and the component palette have been laid out does the
+# LCL declare min height == max height, a bar that CANNOT be tall. The
+# maximized fit was computed before that word arrived.
+cat > "$HERE/ewmhmax-config/client-late.tcl" <<'EOF'
+package require Tk
+wm title . поздний
+label .l -text late -background #729fcf -font {Sans 14}
+pack .l -expand 1 -fill both
+chan configure stdout -buffering line
+proc ask {} {
+    wm geometry . 700x64
+    puts "LATE: live [winfo width .]x[winfo height .]"
+}
+after 4000 {
+    wm minsize . 1 64
+    wm maxsize . 32767 64
+    puts "LATE: hints declared — 64 fixed height"
+    for {set i 0} {$i < 8} {incr i} { after [expr {400 * $i}] ask }
 }
 after 30000 exit
 EOF
@@ -147,7 +174,23 @@ TXID=$(sed -n 's/^TALL: id //p' "$HERE/ewmhmax-config/tall.log" | head -1)
 SZ_T=$(size_of "$TXID")
 ST_T=$(xprop -id "$TXID" _NET_WM_STATE | sed 's/.*= //')
 
-kill $WM $CA $CZ $CS $CG $CT 2>/dev/null
+# --- the hints declared LATE, under a maximized window. The fit is a
+# SUM — workarea, chrome, hints — and one of the three just moved: it
+# has to be asked again, or the window stands at a height its own hints
+# forbid and spends the rest of its life asking to be let down (the
+# lazarus-ide fight, the owner 2026-08-19)
+"$LINUX/whale" "$HERE/ewmhmax-config/client-late.tcl" \
+    > "$HERE/ewmhmax-config/late.log" 2>&1 &
+CL=$!
+wait_client "$HERE/wm-ewmhmax.log" 'поздний'
+LID=$(wmctrl -l | awk '/поздний/{print $1; exit}')
+wmctrl -i -r "$LID" -b add,maximized_vert,maximized_horz; sleep 1
+SZ_L0=$(size_of "$LID")   # maximized while the height is still free
+sleep 8                   # ...and now the client says what it really is
+SZ_L=$(size_of "$LID")
+LLIVE=$(sed -n 's/^LATE: live //p' "$HERE/ewmhmax-config/late.log" | tail -1)
+
+kill $WM $CA $CZ $CS $CG $CT $CL 2>/dev/null
 
 echo "--- actors: A=$AID Z=$ZID want-max=$WANTMAX"
 echo "--- maximize lines:"
@@ -267,6 +310,27 @@ if [ "$SZ_SR" = "300x150" ]; then
     echo "OK: the USER'S unmaximize works and restores what the client last meant"
 else
     echo "FAIL: user unmaximize landed at $SZ_SR, want the requested 300x150"
+fi
+if [ "$SZ_L0" = "$WANTMAX" ]; then
+    echo "OK: the late client maximized to the workarea while its height was free"
+else
+    echo "FAIL: the late client maximized to $SZ_L0, want $WANTMAX"
+fi
+if [ "$SZ_L" = "788x64" ]; then
+    echo "OK: hints declared mid-state re-fitted the maximized window ($SZ_L)"
+else
+    echo "FAIL: after its late hints the maximized client is $SZ_L, want 788x64\
+ — held at a height its own hints forbid"
+fi
+if grep -q 'changed its size hints while maximized' "$HERE/wm-ewmhmax.log"; then
+    echo "OK: ...and said so"
+else
+    echo "FAIL: no re-fit log line"
+fi
+if [ "$LLIVE" = "788x64" ]; then
+    echo "OK: the client agrees it is 788x64 — the fight is over"
+else
+    echo "FAIL: the client's last word is $LLIVE, want 788x64"
 fi
 if grep -q 'handler error' "$HERE/wm-ewmhmax.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-ewmhmax.log"

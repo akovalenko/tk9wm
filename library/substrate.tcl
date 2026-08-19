@@ -65,6 +65,12 @@
 #                           return 0 for none
 #   policy-transient w leader  WM_TRANSIENT_FOR changed on a managed
 #                           window; leader freshly re-read (0 = cleared)
+#   policy-hints-changed w  WM_NORMAL_HINTS changed on a managed window
+#                           and have been re-read. Any size the WM
+#                           computed FROM them — the maximized fit is
+#                           the one there is — was a sum of inputs one
+#                           of which just moved, and this is where it
+#                           is asked again
 #   policy-move-request w x y vmask grav  a managed client with a
 #                           declared position claim asked to move; x/y
 #                           valid per vmask bits (CWX=1, CWY=2), grav
@@ -1435,7 +1441,13 @@ proc dispatch-event {ev} {
                             && $B == $::NET_WM_NAME)} {
                     refresh-title $A
                 } elseif {$B == 40} {
+                    # Re-read, and then TELL THE POLICY. A size decision
+                    # the WM already made — a maximized fit, say — was
+                    # computed from the hints as they stood, and a client
+                    # is free to change them afterwards; the facts alone
+                    # do not un-stale that sum.
                     read-normal-hints $A
+                    policy-hints-changed $A
                 } elseif {$B == 68} {
                     set l [transient-for $A]
                     set ls none
