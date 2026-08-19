@@ -117,3 +117,8 @@ proc treesync::forget {T {parent ""}} {
         dict unset map [list $T $parent]
     }
 }
+
+# A package as well as a file: the WM sources it straight (pkgIndex.tcl
+# spells its own load order out), while deskui — which cannot know
+# where this tree lands — requires it by name.
+package provide treesync 0.1

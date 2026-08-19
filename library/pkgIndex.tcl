@@ -54,3 +54,17 @@ catch {unset _p}
 # when the interpreter carries one (a whale does).
 package ifneeded json 1.3.6 \
     [list source -encoding utf-8 [file join $dir json json.tcl]]
+
+# ...and so do OUR OWN two, for the same reason and by the same rule.
+# They are separate packages from tk9wm and that is the entire point:
+# requiring tk9wm LOADS A WINDOW MANAGER (see the top of this file),
+# which is not what a program wanting the desk's widgets is asking for.
+#
+# deskui — the ui toolkit (deskui/deskui.tcl), consumed by the applet
+# host here and by tk9fm next door. treesync — the tree reconciler,
+# which both the WM's own strip and deskui's tree render use, and which
+# the host used to reach by sourcing it through a computed path.
+package ifneeded treesync 0.1 \
+    [list source -encoding utf-8 [file join $dir treesync.tcl]]
+package ifneeded deskui 0.1 \
+    [list source -encoding utf-8 [file join $dir deskui deskui.tcl]]

@@ -1837,8 +1837,10 @@ proc ui-style {} {
 # The ui world's cache key: an MTIME FINGERPRINT of everything under
 # library/ui — the host included, which is the point (the owner: a
 # changed host.tcl had no way to arrive; a re-source counter could
-# never cover the host's own code) — plus treesync.tcl one storey up,
-# because the host sources that too. The host learns it for free
+# never cover the host's own code) — plus the deskui package and
+# treesync.tcl, because the host loads both. Everything the host runs
+# on is in the print, or an edit to it lands silently and the dev loop
+# quietly stops working. The host learns it for free
 # riding ui-style, answers "stale" at the next open when it differs,
 # and the WM respawns — so any edit under ui/ is one close-and-open
 # away, no Reread involved, while a WM restart (mtimes untouched)
@@ -1861,6 +1863,7 @@ proc ui-generation {} {
     foreach f [glob -nocomplain \
             [file join $::tk9wm_library ui *.tcl] \
             [file join $::tk9wm_library ui applets *.tcl] \
+            [file join $::tk9wm_library deskui *.tcl] \
             [file join $::tk9wm_library treesync.tcl]] {
         incr n
         catch {set g [expr {max($g, [file mtime $f])}]}
