@@ -106,6 +106,11 @@
 #                           nothing of the policy's own stay stacked
 #                           above it; on the way out, put back what was
 #                           remembered
+#   policy-fullscreen-allowed w  may w go fullscreen at all? Asked
+#                           BEFORE the state is taken, because the
+#                           policy is the one that knows which screen
+#                           would be filled; 0 refuses the whole thing,
+#                           state and atom included
 #   policy-screen-changed   the root changed size under us (RandR);
 #                           anything glued to a screen edge re-places
 #   policy-tray-attach w    build a slot for tray icon w and return
@@ -2101,6 +2106,22 @@ proc client-fixed-size-p {w} {
     expr {$maxw > 0 && $maxh > 0 && $minw == $maxw && $minh == $maxh}
 }
 
+# CAN this client be exactly this big? The declared window, both axes,
+# minimum and maximum — a zero maximum being "unbounded" as everywhere
+# else here. Not "is it resizable": a window pinned at exactly the size
+# in question answers YES, and that is the whole reason the question is
+# asked this way round rather than as a non-resizable test. Whoever is
+# about to IMPOSE a size (fullscreen is the one that does not otherwise
+# consult the hints) asks first, because a size the client has declared
+# impossible is one no window manager can hold it at — the client
+# restates its own word, the imposer restates the size, and neither
+# ever stops.
+proc client-size-fits-p {w cw ch} {
+    lassign [client-size-hints $w] minw minh - - - - maxw maxh
+    expr {($maxw <= 0 || $cw <= $maxw) && ($maxh <= 0 || $ch <= $maxh)
+          && $cw >= $minw && $ch >= $minh}
+}
+
 # ICCCM 4.1.3.1: a managed window must carry WM_STATE (state + icon
 # window). Toolkits and every wmctrl/xdotool-class tool use its presence
 # to tell "managed by a WM" from "still wild" — we never set it, which
@@ -2877,6 +2898,9 @@ proc desk-sticky-toggle {w} {
 # how a fullscreen window ends up with a strip of desk down its side.
 proc fullscreen-client {w} {
     if {![info exists ::managed($w)] || [info exists ::fullscreen($w)]} return
+    # The policy owns the screen this would fill, so it is the one that
+    # can answer whether the client is able to be that size at all.
+    if {![policy-fullscreen-allowed $w]} return
     set ::fullscreen($w) 1
     policy-fullscreen $w 1
     publish-net-wm-state $w

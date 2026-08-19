@@ -1,6 +1,7 @@
 #!/bin/sh
 # Regression for EWMH fullscreen: the whole SCREEN, no decoration, and
-# nothing of ours left standing on top of it.
+# nothing of ours left standing on top of it — for every client that CAN
+# be that size, which is the one thing the hints still decide here.
 #
 # Three clients, because three different things are being proved. Our
 # own client.tcl is the one with a KNOWN COLOR, so a screenshot can say
@@ -34,6 +35,25 @@ action терм {}
 panel-button терм
 set-tray on
 wm-style {filter -title стилевой} {start fullscreen}
+EOF
+# A client that declares a size WINDOW and lives by it — argv is
+# title, min, max, and an optional delay for saying so LATE (after it
+# is already in the state).
+cat > "$CONF/client-pin.tcl" <<'EOF'
+package require Tk
+lassign $argv title minw minh maxw maxh late
+chan configure stdout -buffering line
+wm title . $title
+wm geometry . 240x120
+label .l -text $title -background #729fcf -font {Sans 12}
+pack .l -expand 1 -fill both
+proc pin {} {
+    wm minsize . $::minw $::minh
+    wm maxsize . $::maxw $::maxh
+    puts "PIN: min ${::minw}x${::minh} max ${::maxw}x${::maxh}"
+}
+if {$late eq ""} { pin } else { after $late pin }
+after 45000 exit
 EOF
 
 XDG_CONFIG_HOME="$CONF" "$LINUX/whale" "$WMTCL" \
@@ -163,6 +183,42 @@ if command -v emacs >/dev/null 2>&1; then
     kill $EMPID 2>/dev/null
 fi
 
+# --- what the hints still get a say in: whether the state may be
+# entered at all. "Fills the screen" is a promise about a window that
+# CAN fill it; one that declared otherwise would be held at a size it
+# had already refused, and the two would restate themselves at each
+# other forever (lazarus-ide put fullscreen, the owner 2026-08-19).
+# Three readings of the one predicate — can it be exactly this big:
+# a bar that cannot, a window pinned at EXACTLY the screen (which can,
+# and must not be refused for merely being non-resizable), and a client
+# that says it cannot only once it is already in the state.
+"$LINUX/whale" "$CONF/client-pin.tcl" тесный 1 64 32767 64 \
+    > "$CONF/tight.log" 2>&1 &
+CN1=$!
+wait_client "$HERE/wm-fullscreen.log" 'тесный'
+N1=$(wmctrl -l | awk '/тесный/{print $1; exit}')
+wmctrl -i -r "$N1" -b add,fullscreen; sleep 1
+ST_TIGHT=$(state "$N1")
+
+"$LINUX/whale" "$CONF/client-pin.tcl" влитой 1024 768 1024 768 \
+    > "$CONF/snug.log" 2>&1 &
+CN2=$!
+wait_client "$HERE/wm-fullscreen.log" 'влитой'
+N2=$(wmctrl -l | awk '/влитой/{print $1; exit}')
+wmctrl -i -r "$N2" -b add,fullscreen; sleep 1
+ST_SNUG=$(state "$N2"); SZ_SNUG=$(size "$N2")
+
+"$LINUX/whale" "$CONF/client-pin.tcl" запоздалый 1 64 32767 64 5000 \
+    > "$CONF/latefs.log" 2>&1 &
+CN3=$!
+wait_client "$HERE/wm-fullscreen.log" 'запоздалый'
+N3=$(wmctrl -l | awk '/запоздалый/{print $1; exit}')
+wmctrl -i -r "$N3" -b add,fullscreen; sleep 1
+ST_LATE0=$(state "$N3")
+sleep 6                      # past the client's late pin
+ST_LATE=$(state "$N3")
+kill $CN1 $CN2 $CN3 2>/dev/null
+
 import -window root "$HERE/fullscreen-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/fullscreen-test.png"
 
@@ -266,6 +322,35 @@ if [ -n "$EMWIN" ]; then
 else
     echo "note: no emacs on this machine — the fold-order pass ran nowhere"
 fi
+echo "--- the size window: tight=«$ST_TIGHT» snug=«$ST_SNUG» ($SZ_SNUG)\
+ late=«$ST_LATE0» -> «$ST_LATE»"
+case "$ST_TIGHT" in
+    *FULLSCREEN*) echo "FAIL: a bar that declared it cannot be 768 tall was\
+ put fullscreen anyway — it will ask its way back out forever" ;;
+    *) if grep -q 'fullscreen refused' "$HERE/wm-fullscreen.log"; then
+           echo "OK: fullscreen refused to a client that cannot be that size, and said so"
+       else
+           echo "FAIL: no state, but no refusal line either — something else swallowed it"
+       fi ;;
+esac
+case "$ST_SNUG" in
+    *FULLSCREEN*) if [ "$SZ_SNUG" = "1024x768+0+0" ]; then
+            echo "OK: a window PINNED at exactly the screen still gets its fullscreen"
+        else
+            echo "FAIL: the pinned-at-screen client is «$SZ_SNUG», want 1024x768+0+0"
+        fi ;;
+    *) echo "FAIL: a window that fits the screen exactly was refused — the\
+ predicate is reading «non-resizable», not «cannot be this big»" ;;
+esac
+case "$ST_LATE0" in
+    *FULLSCREEN*) echo "OK: the late client entered the state while it still fitted" ;;
+    *) echo "FAIL: the late client never got fullscreen at all («$ST_LATE0»)" ;;
+esac
+case "$ST_LATE" in
+    *FULLSCREEN*) echo "FAIL: it declared mid-state that it cannot be that size and\
+ the state stayed — the flicker starts here" ;;
+    *) echo "OK: ...and the state went when the client withdrew the ground it stood on" ;;
+esac
 if grep -q 'handler error' "$HERE/wm-fullscreen.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-fullscreen.log"
 fi

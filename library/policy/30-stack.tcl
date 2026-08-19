@@ -1309,13 +1309,25 @@ proc maximize-settle {w} {
 # has always produced (apply-size-hints clamps to the maximum), and the
 # way back stays saved.
 #
-# Fullscreen is out: EWMH says a fullscreen window fills the screen and
-# the hints do not bind it (see policy-fullscreen), so a changed
-# maximum has nothing to say there.
+# FULLSCREEN answers the same question with its own verb. There the
+# hints do not shape the geometry — the window fills the screen or it
+# does not go fullscreen at all (policy-fullscreen-allowed) — so a
+# client that declares mid-state that it cannot be that size has not
+# resized itself: it has withdrawn the only ground the state stood on.
+# The state goes, and the window comes back to its decoration and to
+# the geometry ::fssaved kept for it. Clamping instead would leave the
+# undecorated immovable strip the entry guard exists to prevent.
 proc policy-hints-changed {w} {
     if {![info exists ::frameof($w)]} return
+    if {[info exists ::fullscreen($w)]} {
+        if {![fullscreen-fits-p $w]} {
+            puts "WM: 0x[format %x $w] declared a size fullscreen cannot\
+ give it — the state goes"
+            unfullscreen-client $w
+        }
+        return
+    }
     if {![info exists ::maxsaved($w)]} return
-    if {[info exists ::fullscreen($w)]} return
     set t $::frameof($w)
     lassign [maximize-fit $w [workarea-of-frame $t] $::maxaxes($w)] mw mh
     set cw [$t.slot cget -width]; set ch [$t.slot cget -height]
@@ -1340,6 +1352,38 @@ proc policy-hints-changed {w} {
 # own (::fssaved), separate from maximize's: a window can be
 # maximized, go fullscreen and come back to being maximized, and each
 # toggle still restores what IT remembered.
+# ...with ONE thing the hints still get a say in: whether the state may
+# be entered at all. "Fills the screen" is a promise about a window that
+# CAN fill it, and a client that declared a maximum smaller than the
+# glass (or a minimum bigger) has said in advance that it cannot. Hold
+# it there anyway and neither side ever stops — the client restates its
+# own word through ConfigureRequests that fullscreen denies whole and
+# silently, and the bar flickers between the two readings for the rest
+# of the session (lazarus-ide put fullscreen, the owner 2026-08-19).
+#
+# The question is "can it be exactly this big", NOT "is it resizable",
+# and the difference is the whole point: a window pinned at exactly the
+# monitor's size passes and gets its fullscreen, with no special case
+# written for it and nothing to re-detect when a monitor changes shape.
+#
+# Refused whole — no state, no atom — which is the honest answer and the
+# one mutter gives too. The alternative, keeping the state and clamping
+# the size, makes an undecorated strip in the fullscreen layer that
+# cannot be moved (its geometry belongs to the state) or resized (its
+# own hints forbid it): a thing called fullscreen that is neither
+# fullscreen nor usable.
+proc fullscreen-fits-p {w} {
+    if {![info exists ::frameof($w)]} { return 0 }
+    lassign [monitor-of-frame $::frameof($w)] - - mw mh
+    client-size-fits-p $w $mw $mh
+}
+proc policy-fullscreen-allowed {w} {
+    if {[fullscreen-fits-p $w]} { return 1 }
+    lassign [client-size-hints $w] minw minh - - - - maxw maxh
+    puts "WM: fullscreen refused — 0x[format %x $w] declared it cannot be\
+ that size (min ${minw}x${minh}, max ${maxw}x${maxh})"
+    return 0
+}
 proc policy-fullscreen {w on} {
     if {![info exists ::frameof($w)]} return
     set t $::frameof($w)
