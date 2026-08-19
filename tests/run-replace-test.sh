@@ -65,6 +65,13 @@ code_of $WM2; SECOND_CODE=$?
 # --- 3. ...and one with -replace must take the desk
 wm_start WM3 "$HERE/replace-3.log" -replace
 wait_wm "$HERE/replace-3.log" $WM3
+# The ADOPTION is a later step than the config line wait_wm answers at —
+# the sweep that reframes the outgoing manager's orphans runs after the
+# layers are in. Waiting for the config line and then asking about
+# adopted windows measures a moment that has not happened yet (see leg 5,
+# where it was doing exactly that).
+wait_for 15 grep -q 'adopting existing window' "$HERE/replace-3.log" \
+    || echo "note: the replacement never said it adopted anything"
 code_of $WM1; FIRST_CODE=$?
 kill -0 $CL  2>/dev/null && CLIENT_ALIVE=yes || CLIENT_ALIVE=no
 import -display "$DISPLAY" -window root "$HERE/replace-test.png" 2>/dev/null \
@@ -100,6 +107,13 @@ FVEOF
     kill -0 $CL  2>/dev/null && CLIENT_AFTER_FVWM=yes || CLIENT_AFTER_FVWM=no
     wm_start WM4 "$HERE/replace-4.log" -replace
     wait_wm "$HERE/replace-4.log" $WM4
+    # Same wait as leg 3, and here it is load-bearing: nothing else in
+    # this leg blocks, so the log was being read — and the manager
+    # killed — a few lines before the sweep it is asked about. The
+    # adoption always happened; the test simply never let it (measured,
+    # 2026-08-19).
+    wait_for 15 grep -q 'adopting existing window' "$HERE/replace-4.log" \
+        || echo "note: we never said we adopted anything back from fvwm3"
     kill -0 $FV 2>/dev/null && FVWM_STILL=yes || FVWM_STILL=no
     kill -0 $CL 2>/dev/null && CLIENT_AFTER_US=yes || CLIENT_AFTER_US=no
     kill $WM4 $FV 2>/dev/null

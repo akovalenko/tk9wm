@@ -22,7 +22,13 @@ AID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-restart.log" | h
 echo "--- actor: $AID, WM pid $WM"
 
 "$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
-sleep 2.5
+# Wait for the SWEEP to settle, not for a guessed number of seconds:
+# «adoption settled» is the line after every frame the sweep queued is
+# on the glass, which is what the geometry read below is asking about.
+# The counterpart guess in run-replace-test was measuring a moment that
+# had not happened yet, and read as a WM bug for it (2026-08-19).
+wait_for 15 grep -q 'adoption settled' "$HERE/wm-restart.log" \
+    || echo "note: the fresh instance never settled its adoption"
 
 STATE=$(xwininfo -id "$AID" 2>/dev/null | awk '/Map State:/ {print $3}')
 GEOM=$(xwininfo -id "$AID" 2>/dev/null | awk '/Width:/ {w=$2} /Height:/ {h=$2} END {print w "x" h}')

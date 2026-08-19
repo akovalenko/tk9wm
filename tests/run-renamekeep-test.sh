@@ -115,7 +115,11 @@ check_tpl_absent "a style rule leaves no template" "$BID"
 
 # ---- restart 1: the rename comes back, alive ----
 "$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
-sleep 3
+# The sweep's own word rather than a guessed three seconds — the same
+# guess in run-replace-test was reading the log before the adoption it
+# asked about had run, and it looked like a WM bug (2026-08-19).
+wait_for 15 grep -q 'adoption settled' "$LOG" \
+    || echo "note: the fresh instance never settled its adoption"
 if grep -q "adopting existing window $AID" "$LOG"; then
     ok "the new instance adopted $AID"
 else
@@ -142,7 +146,11 @@ check_tpl_absent "...took the template off the window" "$AID"
 
 # ---- ...so the next restart resurrects nothing ----
 "$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
-sleep 3
+# The SECOND settle, so it is counted rather than grepped: the first
+# restart's line is standing in this same log and would answer for a
+# sweep that has not run yet.
+wait_for 15 sh -c "[ \$(grep -c 'adoption settled' \"$LOG\") -ge 2 ]" \
+    || echo "note: the second restart never settled its adoption"
 check_name_absent "after the second restart" "$AID"
 ALAYER=$(askw "info exists ::renameof($ADEC)")
 if [ "$ALAYER" = "0" ]; then
