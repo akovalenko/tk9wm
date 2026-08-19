@@ -930,6 +930,15 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
     set NET_WM_STATE_MAXIMIZED_VERT [x-intern _NET_WM_STATE_MAXIMIZED_VERT]
     set NET_FRAME_EXTENTS [x-intern _NET_FRAME_EXTENTS]
     set NET_REQUEST_FRAME_EXTENTS [x-intern _NET_REQUEST_FRAME_EXTENTS]
+    # "Close that window" as a PAGER says it. The desk's own close
+    # button and Alt+F4 go straight to close-client; this is the road
+    # everything OUTSIDE the desk takes — wmctrl -c, a taskbar's
+    # context menu, xdotool's windowclose — and it went nowhere at all
+    # (measured: not a line in the log, the window standing). The
+    # message names a client window and is sent to the ROOT, which is
+    # why it needs a branch of its own rather than a WM_PROTOCOLS
+    # answer: the manager is the addressee, not the client.
+    set NET_CLOSE_WINDOW [x-intern _NET_CLOSE_WINDOW]
     # The drag a client asks US to run, because it cannot run it
     # itself: a window whose titlebar is its own widget (every GTK4
     # window is one) has nothing of ours to grab, and moving its own
@@ -1000,6 +1009,7 @@ unless-already {[info exists ::wmcheck]} {if {[catch {
               $NET_WM_STATE_ABOVE $NET_WM_STATE_BELOW $NET_WM_STATE_STICKY \
               $NET_WM_STATE_MAXIMIZED_HORZ $NET_WM_STATE_MAXIMIZED_VERT \
               $NET_FRAME_EXTENTS $NET_REQUEST_FRAME_EXTENTS \
+              $NET_CLOSE_WINDOW \
               $NET_WM_MOVERESIZE $NET_WM_WINDOW_TYPE \
               $NET_CLIENT_LIST $NET_CLIENT_LIST_STACKING $NET_WORKAREA \
               $NET_NUMBER_OF_DESKTOPS $NET_CURRENT_DESKTOP \
@@ -1642,6 +1652,19 @@ proc dispatch-event {ev} {
                     puts "WM: tray: opcode [lindex $data 1] ignored\
  (balloon messages are not implemented)"
                 }
+            } elseif {[info exists ::NET_CLOSE_WINDOW]
+                    && $B == $::NET_CLOSE_WINDOW
+                    && [info exists ::managed($A)]} {
+                # EWMH 4.3: close that window. data.l is {timestamp,
+                # source}, and neither changes the answer — a close is a
+                # close whoever asked, and the polite/violent choice is
+                # close-client's to make from WM_PROTOCOLS, exactly as
+                # it is for the titlebar button. This is what a pager,
+                # a taskbar and `wmctrl -c` send, and what a window
+                # list off the desk would send if it were somebody
+                # else's.
+                puts "WM: close requested for 0x[format %x $A] (_NET_CLOSE_WINDOW)"
+                close-client $A
             } elseif {$B == $::WM_CHANGE_STATE && [info exists ::managed($A)]} {
                 # ICCCM 4.1.4: the iconify request. data.l[0] carries
                 # the wanted state — IconicState (3) is the only one

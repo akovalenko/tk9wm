@@ -8,6 +8,10 @@
 # checks the same things a client would: the client list in arrival
 # order, the stacking list bottom-to-top (which must follow a raise),
 # the workarea shrinking under a panel, and the one-desktop statement.
+#
+# ...and the one message that comes back the other way for the same
+# audience: _NET_CLOSE_WINDOW, how a pager or a taskbar closes a
+# window it does not own.
 . "$(dirname "$0")/common.sh"
 start_xvfb
 
@@ -56,6 +60,16 @@ sleep 0.7
 STACK2=$(prop _NET_CLIENT_LIST_STACKING)
 LIST2=$(prop _NET_CLIENT_LIST)
 
+# --- the one INWARD message this suite owns: _NET_CLOSE_WINDOW, which
+# is how everything outside the desk closes a window — a pager, a
+# taskbar, `wmctrl -c`. It is sent to the ROOT and names the client, so
+# it needs a branch of its own; without one it went nowhere at all, not
+# even a line in the log, and the window stood (the owner, 2026-08-19).
+SUPPORTS_CLOSE=$(xprop -root _NET_SUPPORTED | tr ',' '\n' | grep -c _NET_CLOSE_WINDOW)
+wmctrl -i -c "$BID"
+sleep 1
+LISTC=$(prop _NET_CLIENT_LIST)
+
 kill $CA $CB 2>/dev/null
 sleep 0.7
 LIST3=$(prop _NET_CLIENT_LIST)
@@ -103,6 +117,21 @@ if [ "$ADESK" = "0" ] && [ -n "$STRUT" ]; then
     echo "OK: a managed window carries its desktop and the KDE strut ($STRUT)"
 else
     echo "FAIL: desktop «$ADESK», strut «$STRUT»"
+fi
+if [ "$SUPPORTS_CLOSE" = 1 ]; then
+    echo "OK: _NET_CLOSE_WINDOW is advertised — a pager will use it"
+else
+    echo "FAIL: _NET_CLOSE_WINDOW is not in _NET_SUPPORTED"
+fi
+if grep -q 'got WM_DELETE_WINDOW' "$HERE/ewmh-b.log"; then
+    echo "OK: a close asked from outside the desk reached the client politely"
+else
+    echo "FAIL: wmctrl -c on B never became a WM_DELETE_WINDOW"
+fi
+if [ "$LISTC" = "$AID" ]; then
+    echo "OK: ...and the closed window left the client list ($LISTC)"
+else
+    echo "FAIL: after the outside close the list is «$LISTC», want «$AID»"
 fi
 if [ -z "$LIST3" ]; then
     echo "OK: the list empties when the clients go"
