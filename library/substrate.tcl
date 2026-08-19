@@ -494,6 +494,7 @@ proc x-reparent {w parent x y}  { tkwmx::window reparent $w $parent $x $y }
 proc x-resize {w cw ch}         { tkwmx::window resize $w $cw $ch }
 proc x-kill-client {w}          { tkwmx::window kill $w }
 proc x-save-set-add {w}         { tkwmx::window saveset add $w }
+proc x-save-set-remove {w}      { tkwmx::window saveset remove $w }
 proc x-sync {{discard 0}}       { tkwmx::server sync $discard }
 proc x-flush {}                 { tkwmx::server flush }
 proc x-intern {name}            { tkwmx::atom intern $name }
@@ -3331,6 +3332,27 @@ proc unmanage {w {dead 0}} {
                 }
             }
             x-reparent $w $::root $x $y
+            # ...and OUT OF THE SAVE-SET with it. The set is crash
+            # insurance for a client living inside one of our frames;
+            # this one no longer does, and a member left standing is
+            # not harmless. On connection close the server performs a
+            # MapWindow on every UNMAPPED window in the set — "even if
+            # it was not an inferior of a window created by the client"
+            # (X11 protocol, Connection Close), which is exactly a
+            # window we have already handed back to the root.
+            #
+            # So a client that had WITHDRAWN itself was MAPPED by the
+            # server at the next restart, and the fresh instance, seeing
+            # an ordinary viewable child of the root, adopted and framed
+            # it: the owner's runner and configurator, hidden on purpose
+            # and resurrected by every restart (2026-08-19). Nothing in
+            # the log looked wrong, because nothing in the WM had done
+            # it.
+            #
+            # AFTER the reparent, never before: until the client is out
+            # of the frame, the save-set is the only thing standing
+            # between it and a crash of ours.
+            x-save-set-remove $w
             if {!$::releasing} { x-sync 0 }   ;# the sweep syncs once
         }
     }

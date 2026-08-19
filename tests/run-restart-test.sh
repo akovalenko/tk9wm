@@ -2,6 +2,11 @@
 # Regression for restart-in-place: a running WM, told to restart, must
 # release its client, exec itself (same pid, same log fd) and adopt the
 # client back — the client survives with its size and stays viewable.
+#
+# ...and the two windows that must come back the way they were LEFT: a
+# minimized one still minimized (phase 3), a withdrawn one still gone
+# (phase 4). Both are about what the X server does to a save-set on
+# connection close, which is what a restart is.
 . "$(dirname "$0")/common.sh"
 start_xvfb
 
@@ -179,6 +184,61 @@ if grep -q 'withdrew itself' "$HERE/wm-reicon.log"; then
     grep 'withdrew itself' "$HERE/wm-reicon.log"; FAIL=1
 else
     echo "OK: none of our own unmaps was mistaken for a withdrawal"
+fi
+
+# --- phase 4: a WITHDRAWN window stays withdrawn -----------------------
+# The other half of phase 3's question, and the answer nearly went the
+# other way by itself. A client is put in the SAVE-SET when it is
+# managed — crash insurance, so a window living inside one of our frames
+# is handed back to the root rather than dying with it — and the X
+# protocol's connection-close rule performs a MapWindow on every
+# UNMAPPED member of that set, "even if it was not an inferior of a
+# window created by the client". A restart IS a connection close. So a
+# client that had withdrawn itself, long since unmanaged and handed back
+# to the root, was MAPPED by the server at every restart and adopted by
+# the incoming instance as an ordinary viewable window — the owner's
+# runner and configurator, hidden on purpose and back on the screen
+# (2026-08-19). Nothing in the WM's log looked wrong, because nothing in
+# the WM had done it.
+echo "--- phase 4: withdrawn across a restart"
+"$LINUX/whale" "$WMTCL" > "$HERE/wm-hidden.log" 2>&1 &
+WM4=$!
+wait_wm "$HERE/wm-hidden.log" $WM4
+"$LINUX/whale" "$HERE/client-hide.tcl" затворник 40 \
+    > "$HERE/hidden-client.log" 2>&1 &
+CH=$!
+wait_client "$HERE/wm-hidden.log" 'затворник'
+HID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-hidden.log" | head -1)
+wait_for 10 grep -q 'withdrew itself' "$HERE/wm-hidden.log"
+MAP_HID=$(xwininfo -id "$HID" 2>/dev/null | sed -n 's/.*Map State: //p')
+"$LINUX/whale-cli" "$TOOLS/send-restart.tcl" "$DISPLAY"
+sleep 3
+MAP_H2=$(xwininfo -id "$HID" 2>/dev/null | sed -n 's/.*Map State: //p')
+# The client's OWN reading, taken well after the restart — "did anybody
+# map me while I was not looking" is the whole question, and only it can
+# answer it. Waited for rather than slept past: the fixture takes it on
+# its own clock.
+wait_for 15 grep -q '^HIDE: mapped=' "$HERE/hidden-client.log"
+CLIENT_H=$(sed -n 's/^HIDE: mapped=//p' "$HERE/hidden-client.log" | tail -1)
+kill $WM4 $CH 2>/dev/null
+echo "    hidden=$MAP_HID  after restart=$MAP_H2  (the client says mapped=$CLIENT_H)"
+
+if [ "$MAP_HID" = "IsUnMapped" ] && [ "$MAP_H2" = "IsUnMapped" ]; then
+    echo "OK: a window the client put away stayed away across the restart"
+else
+    echo "FAIL: hidden=$MAP_HID, after the restart $MAP_H2 — the save-set\
+ mapped it behind everyone's back"; FAIL=1
+fi
+if [ "$CLIENT_H" = 0 ]; then
+    echo "OK: ...and the client agrees it was never mapped"
+else
+    echo "FAIL: the client says mapped=$CLIENT_H — it is on screen and did\
+ not put itself there"; FAIL=1
+fi
+if grep -q "adopting existing window $HID" "$HERE/wm-hidden.log"; then
+    echo "FAIL: the fresh instance adopted a window nobody was showing"; FAIL=1
+else
+    echo "OK: ...and the fresh instance had nothing to adopt"
 fi
 
 exit $FAIL
