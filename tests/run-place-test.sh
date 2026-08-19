@@ -11,14 +11,32 @@
 #   M (главное)        dialog leader, no position — cascades
 #   D (диалог)         transient with its OWN +150+90 — the claim
 #                      beats the centering
+#
+# ...and the PROGRAM's claim on its own, which is a different word from
+# the user's and gets its own knob (`pposition`, see pposition-of):
+#   S (сомнительный)   PPosition +0+0, default style — DOUBTED, because
+#                      (0,0) is what an unfilled struct says, and the
+#                      window cascades
+#   H (честный)        the same +0+0 under `pposition honor` — believed,
+#                      corner and all
+#   I (слепой)         PPosition +400+300 under `pposition ignore` — not
+#                      read at all: cascaded, and its later move request
+#                      refused
 . "$(dirname "$0")/common.sh"
 start_xvfb
+
+rm -rf "$HERE/place-config"; mkdir -p "$HERE/place-config"
+cat > "$HERE/place-config/tk9wm.tcl" <<'EOF'
+wm-style {filter -title честный} {pposition honor}
+wm-style {filter -title слепой}  {pposition ignore}
+EOF
 
 "$LINUX/whale" "$HERE/client.tcl" "старожил" 200x100+430+300 "#ad7fa8" "" "" 20 &
 CP=$!
 sleep 1                                   # maps wild, no WM yet
 
-"$LINUX/whale" "$WMTCL" > "$HERE/wm-place.log" 2>&1 &
+XDG_CONFIG_HOME="$HERE/place-config" \
+    "$LINUX/whale" "$WMTCL" > "$HERE/wm-place.log" 2>&1 &
 WM=$!
 wait_wm "$HERE/wm-place.log" $WM
 
@@ -32,6 +50,18 @@ wait_client "$HERE/wm-place.log" 'кочевник'
 CD=$!
 sleep 6      # B's move request fires at its own t+4s; the dialog at t+2s
 
+# --- the PROGRAM's claim, three readings of the same +0+0
+"$LINUX/whale" "$HERE/client-pclaim.tcl" сомнительный 240x120+0+0 "#8ae234" 20 &
+CS=$!
+wait_client "$HERE/wm-place.log" 'сомнительный'
+"$LINUX/whale" "$HERE/client-pclaim.tcl" честный 240x120+0+0 "#fce94f" 20 &
+CH=$!
+wait_client "$HERE/wm-place.log" 'честный'
+"$LINUX/whale" "$HERE/client-pclaim.tcl" слепой 240x120+400+300 "#729fcf" 20 +200+150 &
+CI=$!
+wait_client "$HERE/wm-place.log" 'слепой'
+sleep 6      # past the ignored client's own move request at t+4.4s
+
 import -display "$DISPLAY" -window root "$HERE/place-test.png" 2>/dev/null \
     && echo "DRIVER: screenshot -> $HERE/place-test.png"
 
@@ -41,7 +71,9 @@ TOP=$(sed -n 's/^WM: titlebar h=[0-9]* top=\([0-9]*\).*/\1/p' "$HERE/wm-place.lo
 BX=$(xwininfo -id "$BID" | awk '/Absolute upper-left X/ {print $NF}')
 BY=$(xwininfo -id "$BID" | awk '/Absolute upper-left Y/ {print $NF}')
 
-kill $WM $CP $CA $CB $CD 2>/dev/null
+SID=$6; HID=$7; IID=$8
+
+kill $WM $CP $CA $CB $CD $CS $CH $CI 2>/dev/null
 
 echo "--- actors: P=$PID A=$AID B=$BID M=$MID D=$DID (deco top=$TOP)"
 echo "--- placement lines:"
@@ -85,6 +117,28 @@ if frame_at "$DID" "150+90"; then
     echo "OK: the dialog's own +150+90 beat the centering"
 else
     echo "FAIL: dialog not at +150+90"
+fi
+if frame_at "$SID" "0+0"; then
+    echo "FAIL: a program-said (0,0) was believed under the default — every\
+ toolkit stamps that, and the corner would fill up"
+else
+    echo "OK: program-said (0,0) is doubted by default — the window cascaded"
+fi
+if frame_at "$HID" "0+0"; then
+    echo "OK: ...and «pposition honor» takes the program at its word"
+else
+    echo "FAIL: under «pposition honor» the +0+0 claimant is not at +0+0"
+fi
+if frame_at "$IID" "400+300"; then
+    echo "FAIL: «pposition ignore» still read the claim (born at +400+300)"
+else
+    echo "OK: «pposition ignore» never read the claim — the desk placed it"
+fi
+if grep -q "move request from $IID refused — pposition ignore" "$HERE/wm-place.log"; then
+    echo "OK: ...and its later move request was refused for the same reason"
+else
+    echo "FAIL: the ignored client moved itself anyway — the knob holds only\
+ until the client asks twice"
 fi
 if grep -q 'handler error' "$HERE/wm-place.log"; then
     echo "FAIL: handler errors present:"; grep 'handler error' "$HERE/wm-place.log"

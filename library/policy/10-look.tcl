@@ -934,6 +934,12 @@ proc set-title-justify {j} {
 # window in the window list, overriding the client's own _NET_WM_ICON.
 # minimize (iconify|refuse) — this client's answer to an iconify
 # request, overriding the desk-wide set-minimize.
+# pposition (doubt|honor|ignore) — how much of the PROGRAM's own
+# position claim to believe. The user's word (USPosition — xterm
+# -geometry +300+200, `wm geometry`) is not this key's business and is
+# honored under every value; this is only about PPosition, which a
+# toolkit stamps on every window whether it thought about the position
+# or not. See place-frame for the doubt and pposition-of for the rest.
 # decor (full|border|none|hint) — how much frame this client wears;
 # see chrome-of, and hinted-decor for what the window itself asked for
 # (a named step OVERRULES that; `hint` hands the question back to the
@@ -1008,7 +1014,7 @@ proc style-of {w} {
     # window — and the floor below can tell a hint-derived none from a
     # config-spoken one, which no post-merge reading of a concrete
     # value could.
-    set st [dict create increments respect decor hint]
+    set st [dict create increments respect decor hint pposition doubt]
     foreach rule $::style_rules {
         lassign $rule pred settings
         if {[catch {uplevel #0 [list {*}$pred $w]} match]} {

@@ -353,9 +353,40 @@ proc log-claim {w} {
     set ipos [client-initial-position $w]
     set where [expr {[llength $ipos] == 2 \
         ? "+[lindex $ipos 0]+[lindex $ipos 1]" : "(position unread)"}]
+    set say ""
+    if {$kind eq "program"} { set say ", pposition [pposition-of $w]" }
     puts "WM: 0x[format %x $w] claims $where —\
 [expr {$kind eq {user} ? {USPosition} : {PPosition}}],\
- gravity [expr {$grav == 10 ? {Static (the CLIENT's corner)} : $grav}]"
+ gravity [expr {$grav == 10 ? {Static (the CLIENT's corner)} : $grav}]$say"
+}
+# How much of a PROGRAM's own position claim this window's style says to
+# believe. Three readings, and the default is the MEASURED one:
+#
+#   doubt (default) — the claim is honored, EXCEPT the notorious
+#     program-said-(0,0): toolkits stamp PPosition on every window
+#     whether the program chose a position or not, and (0,0) is what a
+#     struct nobody filled in says. Believing it piles every such window
+#     in the top-left corner, which is why no desk believes it.
+#   honor — take the program at its word, corner and all. For the app
+#     that really does mean the origin, and there are some: lazarus-ide
+#     asks for +0+0 for its main bar and means it (the owner,
+#     2026-08-19), and under `doubt` the desk places the bar itself.
+#   ignore — the program's claim is not read at all: the desk places
+#     the window at birth by its own rules, and a move REQUEST carrying
+#     only a program claim is refused. For the app that asks for
+#     somewhere wrong and keeps asking. The user's own word is untouched
+#     by all three — USPosition is not this key's business.
+#
+# An unknown word is one line in the log and the default: a typo in one
+# style rule must not decide where every window of that class is born.
+proc pposition-of {w} {
+    set st [style-of $w]
+    if {![dict exists $st pposition]} { return doubt }
+    set v [dict get $st pposition]
+    if {$v in {doubt honor ignore}} { return $v }
+    puts "WM: pposition «$v» on 0x[format %x $w] is not doubt|honor|ignore —\
+ doubting"
+    return doubt
 }
 proc place-frame {w fw fh} {
     # frames are placed within the WORKAREA: a new window must not be
@@ -370,6 +401,9 @@ proc place-frame {w fw fh} {
     # with the size.
     if {[info exists ::placeof($w)]} { return $::placeof($w) }
     lassign [client-position-hint $w] kind grav
+    # `pposition ignore` erases the PROGRAM's claim before it is read —
+    # the window takes the road of one that never made a claim at all.
+    if {$kind eq "program" && [pposition-of $w] eq "ignore"} { set kind none }
     set ipos [client-initial-position $w]
     if {$kind ne "none" && [llength $ipos] == 2} {
         lassign $ipos X Y
@@ -383,7 +417,9 @@ proc place-frame {w fw fh} {
             lassign [gravity-frame-xy $w $X $Y $grav] X Y
             return [clamp-to-screen $X $Y $fw $fh]
         }
-        if {$X != 0 || $Y != 0} {
+        # ...and the program's, doubted at (0,0) unless the style says
+        # otherwise — see pposition-of for what the doubt is about.
+        if {$X != 0 || $Y != 0 || [pposition-of $w] eq "honor"} {
             lassign [gravity-frame-xy $w $X $Y $grav] X Y
             # the claim names a monitor too: clamp into the workarea
             # of the glass the claimed rect lands on
@@ -732,6 +768,17 @@ proc policy-resize {w cw ch} {
 # must be settled before it fires, hence the update idletasks.
 proc policy-move-request {w x y vmask grav} {
     if {![info exists ::frameof($w)]} return
+    # `pposition ignore` is about the claim, not about the moment it is
+    # made: a window whose program-claim the desk does not read cannot
+    # move itself later either, or the rule would hold only until the
+    # client asked twice. The doubt does NOT extend here — a live
+    # request names a position the program computed just now, which is
+    # a different thing from the zeroes in an unfilled birth struct.
+    if {[lindex [client-position-hint $w] 0] eq "program"
+            && [pposition-of $w] eq "ignore"} {
+        puts "WM: move request from 0x[format %x $w] refused — pposition ignore"
+        return
+    }
     set t $::frameof($w)
     regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> fx fy
     lassign [gravity-frame-xy $w $x $y $grav] x y

@@ -259,6 +259,22 @@
 #                              binds the FREE resize only — maximize
 #                              and %-places fill to the pixel anyway
 #   minimize iconify|refuse    this client's answer, over set-minimize
+#   pposition doubt|honor|ignore
+#                              how much of the PROGRAM's own position
+#                              claim to believe. doubt (the default)
+#                              honors it except the notorious (0,0) —
+#                              a toolkit stamps PPosition on every
+#                              window whether the program chose a
+#                              position or not, and (0,0) is what an
+#                              unfilled struct says; honor takes it at
+#                              its word, corner and all (lazarus-ide
+#                              asks +0+0 for its main bar and means
+#                              it); ignore never reads the claim, so
+#                              the desk places the window and a move
+#                              request on a program claim is refused.
+#                              The USER's word (USPosition) is honored
+#                              under all three — it is not this key's
+#                              business
 #   decor full|border|none     how much frame: border drops the title
 #                              strip, none is nothing at all — mind
 #                              that `none` leaves only the modifier
