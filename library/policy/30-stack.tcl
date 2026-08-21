@@ -1246,20 +1246,29 @@ proc unmaximize-client {w {axes {h v}}} {
     maximize-settle $w
     publish-net-wm-state $w
 }
-# Is this window's maximization PINNED by the config — a forced max
-# place rule? `force` already means "over the client's own claims";
-# a client MESSAGE un-maximizing the window is one more of those, and
-# the live case is emacs: a frame whose fullscreen parameter is nil
-# sends "remove maximized" right after mapping, enforcing its own nil
+# Are these axes of the window's maximization PINNED by the config — a
+# FORCED place rule holding them at the whole workarea? `place {max
+# force}` pins both; `place {50%right force}` holds — and pins — the
+# vertical alone (place-max-axes is the one reading of "holds").
+# `force` already means "over the client's own claims"; a client
+# MESSAGE un-maximizing the window is one more of those, and the live
+# case is emacs: a frame whose fullscreen parameter is nil sends
+# "remove maximized" right after mapping, enforcing its own nil
 # against what the desk just did (the owner's log, 2026-07-31:
 # born 1908 by place {max force}, snapped to 1218 a beat later by
 # that message). The pin binds CLIENTS, not the user: the titlebar
 # button, winops and the hand resize stay the way out.
-proc maximize-pinned {w} {
+proc maximize-pinned {w {axes {h v}}} {
     set st [style-of $w]
     if {![dict exists $st place]} { return 0 }
     lassign [place-force [dict get $st place]] spec forced
-    expr {$forced && [string trim $spec] eq "max"}
+    if {!$forced} { return 0 }
+    # an unreadable rule pins nothing — it also placed nothing
+    if {[catch {place-max-axes $spec} held]} { return 0 }
+    foreach a [max-axes $axes] {
+        if {$a ni $held} { return 0 }
+    }
+    return 1
 }
 # The toggle asks about ITS axes: any of them free means maximize (a
 # tall window's full toggle goes to full, which is what the button

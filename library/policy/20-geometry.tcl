@@ -80,8 +80,12 @@ proc parse-place {spec} {
 # and an xterm placed 50%right pads its sub-cell remainder itself. A
 # sizeless axis carries the client's own size, which is on its own
 # grid already.
-proc place-geometry {w cw ch spec} {
-    lassign [workarea] wax way ww wh
+proc place-geometry {w cw ch spec {wa ""}} {
+    # The workarea to place within is the PRIMARY's by default — birth
+    # deals to the primary (see place-frame) — but a caller re-placing
+    # a LIVE window (As-Usual below) passes the monitor it stands on.
+    if {$wa eq ""} { set wa [workarea] }
+    lassign $wa wax way ww wh
     lassign [chrome-of $w] B top
     lassign [parse-place $spec] hax vax
     lassign $hax hsize halign
@@ -221,19 +225,25 @@ proc policy-initial-size {w cw ch} {
         }
     }
     if {[catch {
-        # `max` is the maximized STATE and not just a size: without a
+        # An axis the rule holds at the WHOLE workarea — `max`, an
+        # explicit 100%, or the fill of an axis no term claims — is the
+        # maximized STATE on that axis and not just a size: a window
+        # born by `place 50%right` stands at full height exactly as
+        # Maximize-V would have stood it, and the desk says so (the
+        # mark, the shield, the published atom — per axis). Without a
         # saved geometry the first "restore" would restore to what the
         # window already is, and the toggle would be a dead key for the
         # rest of the window's life. What gets saved is what the window
         # would have been WITHOUT the style — its own size at the
         # position the ordinary placement would have given it, cascade
         # slot and all.
-        if {[string trim $spec] eq "max"} {
+        set held [place-max-axes $spec]
+        if {[llength $held]} {
             lassign [chrome-of $w] B top
             lassign [place-frame $w [expr {$cw + 2*$B}] \
                                     [expr {$ch + $top + $B}]] X0 Y0
             set ::maxsaved($w) [list $cw $ch $X0 $Y0]
-            set ::maxaxes($w) {h v}
+            set ::maxaxes($w) $held
             publish-net-wm-state $w   ;# born maximized is EWMH state too
         }
         lassign [place-geometry $w $cw $ch $spec] pw ph X Y
@@ -263,6 +273,86 @@ proc place-sizeless {spec} {
         lappend terms [regsub {^[0-9]+%} $term ""]
     }
     return $terms
+}
+# The axes a place spec holds at the WHOLE workarea — `max`, an
+# explicit 100%, or the fill of an axis no term claims. Those axes are
+# the maximized state and not just a size (policy-initial-size above,
+# and every reader of the mark); the spec arrives with `force` already
+# split off, and an unreadable one throws like parse-place does.
+proc place-max-axes {spec} {
+    lassign [parse-place $spec] hax vax
+    set held {}
+    if {[lindex $hax 0] eq "100"} { lappend held h }
+    if {[lindex $vax 0] eq "100"} { lappend held v }
+    return $held
+}
+# Does this window's style say `place` at all — the winops gate for the
+# As-Usual row: a window with no rule has nothing to be re-placed BY,
+# and a row that could only say "no rule" is not shown.
+proc style-place-p {w} { dict exists [style-of $w] place }
+
+# As-Usual: put a live window where its style's place rule says — the
+# way back for a window that has been dragged about or resized since it
+# was born there. The rule is applied WHOLE: no yielding to the
+# client's -geometry claims — those were the words from birth, and the
+# menu pick (or the binding) is the user speaking about THIS window
+# right now, which outranks them the way `force` does. It lands on the
+# workarea of the monitor the window STANDS ON, like maximize: the verb
+# re-places a window where it is, it does not deal it back to the
+# primary. Sizeless axes keep the window's CURRENT size, which is what
+# a sizeless term has always meant.
+#
+# The axes the rule holds at the whole workarea become the maximized
+# state, exactly as at birth — and the way back they record is the
+# geometry this very pick displaced, so a restore undoes the As-Usual.
+# An axis ALREADY held keeps the way back it has (maximize-client's own
+# rule: only a joining axis records), so a second As-Usual cannot
+# overwrite the saved geometry with the placed one.
+proc as-usual-command {w} {
+    if {![info exists ::frameof($w)]} return
+    # Fullscreen owns this window's geometry; refused audibly, the
+    # maximize-guard rule.
+    if {[info exists ::fullscreen($w)]} {
+        puts "WM: as-usual ignored — 0x[format %x $w] is fullscreen"
+        return
+    }
+    set st [style-of $w]
+    if {![dict exists $st place]} {
+        puts "WM: as-usual: 0x[format %x $w] has no place rule"
+        return
+    }
+    lassign [place-force [dict get $st place]] spec -
+    set t $::frameof($w)
+    set cw [$t.slot cget -width]; set ch [$t.slot cget -height]
+    regexp {\+(-?\d+)\+(-?\d+)$} [wm geometry $t] -> X Y
+    if {[catch {
+        set held [place-max-axes $spec]
+        lassign [place-geometry $w $cw $ch $spec [workarea-of-frame $t]] \
+            pw ph nX nY
+    } err]} {
+        puts "WM: as-usual «$spec» on 0x[format %x $w]: $err"
+        return
+    }
+    if {[llength $held]} {
+        if {![info exists ::maxsaved($w)]} {
+            set ::maxsaved($w) [list $cw $ch $X $Y]
+            set ::maxaxes($w) {}
+        }
+        lassign $::maxsaved($w) scw sch sX sY
+        if {"h" in $held && "h" ni $::maxaxes($w)} { set scw $cw; set sX $X }
+        if {"v" in $held && "v" ni $::maxaxes($w)} { set sch $ch; set sY $Y }
+        set ::maxsaved($w) [list $scw $sch $sX $sY]
+        set ::maxaxes($w) $held
+    } else {
+        # the rule holds nothing — a mark left standing would promise a
+        # restore to a geometry the rule just wrote over
+        unset -nocomplain ::maxsaved($w) ::maxaxes($w)
+    }
+    wm geometry $t +$nX+$nY
+    wm-resize-client $w $pw $ph
+    maximize-settle $w
+    publish-net-wm-state $w
+    puts "WM: as-usual 0x[format %x $w] «$spec» -> ${pw}x${ph}+$nX+$nY"
 }
 
 # Size hints applied the style's way: clamp to the declared minimum

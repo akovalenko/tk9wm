@@ -110,6 +110,7 @@ set window_commands {
     Bury         bury-group
     Move         move-keyboard
     Resize       resize-keyboard
+    As-Usual     as-usual-command
     Minimize     policy-minimize-request
     Fade         fade-command
     Unfade       unfade-command
@@ -339,6 +340,7 @@ set winops_actions {
     Bury       b
     Move       m
     Resize     s
+    As-Usual   u
     Minimize   i
     Above      a
     Sticky     y
@@ -356,6 +358,9 @@ proc winops-rows {w} {
         # Resize on a fixed-size window is a refusal at every door
         # (resize-keyboard); a row that could only say no is not shown.
         if {$label eq "Resize" && [client-fixed-size-p $w]} continue
+        # ...and As-Usual re-places by the style's place rule, so a
+        # window whose style has none loses the row the same way.
+        if {$label eq "As-Usual" && ![style-place-p $w]} continue
         lappend rows [dict create label $label key $key command $label \
             marked [command-marked-p $label $w]]
     }

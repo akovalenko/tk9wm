@@ -475,11 +475,21 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   both). A sized term sets size and pull along its axis; a sizeless one
   keeps the window's own size and only pulls. **An axis with no term is
   filled entirely** — which is why `50%right` is the right half at full
-  height. `max` is an alias for the whole workarea and is also a STATE
-  (the maximize button returns the window to the size it asked for, at
-  its cascade place). Percentages are of the workarea and of the FRAME;
-  increments bind placement the way they bind maximize (the slack goes
-  to the un-pulled side); an unreadable term is logged and dropped.
+  height. **An axis the rule holds at the whole workarea** — `max`, an
+  explicit `100%`, or that fill — **is the maximized STATE on that
+  axis**, not just a size: a window born by `50%right` is marked
+  maximized-vertically (the menu bullet, the shield, the published
+  atom, per axis), and the maximize button returns it to the size it
+  asked for, at its cascade place. With `force` those held axes are
+  also **pinned** against a client's own "remove maximized" message —
+  the pin binds clients, not the user. Percentages are of the workarea
+  and of the FRAME; increments bind placement the way they bind
+  maximize (the slack goes to the un-pulled side); an unreadable term
+  is logged and dropped. **`As-Usual`** (winops `u`; a window command
+  like any other) re-places a live window as its rule says — the way
+  back after it has been dragged about — on the monitor it stands on,
+  the rule speaking whole: the pick is the user's word about *this*
+  window, so nothing yields.
 
   Honest move requests from claimants, live (`wm geometry +x+y`
   works). **wink** — the frame blinks red twice when a client stays
@@ -616,7 +626,9 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   entry's hotkey has not taken the letter — and Ctrl+P/Ctrl+N
   unconditionally): **winops** — the window action menu, which is the
   **window commands** below with a hotkey letter apiece rather than a
-  list of its own. **bury** is lower, except the focus
+  list of its own (two rows earn their keep per window: `Resize` is
+  not shown on a fixed-size window, `As-Usual` only where the style
+  says `place`). **bury** is lower, except the focus
   does not stay on the lowered window: it goes to whatever that
   uncovered. The candidates are read TOP-DOWN in the server's stacking
   order, and the first one whose frame genuinely intersects the buried
@@ -758,7 +770,8 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
   compositor's half of the bargain and not ours.
 
   **Window commands** are those actions as a vocabulary — `Minimize`,
-  `Maximize`, `Fullscreen`, `Move`, `Resize`, `Raise`, `Lower`, `Bury`,
+  `Maximize`, `Fullscreen`, `Move`, `Resize`, `As-Usual`, `Raise`,
+  `Lower`, `Bury`,
   `Close`, `Destroy`, plus `Unmaximize` and `Unfullscreen`. `Restart`,
   `Reload` and `Quit` are about the desk rather than a window (the
   lowercase `restart-wm` and `reload-config` remain, being the

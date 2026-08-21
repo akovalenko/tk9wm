@@ -1578,12 +1578,15 @@ proc dispatch-event {ev} {
                                         && $ax in $::maxaxes($A)}]
                         set on [expr {$act == 2 ? !$held : $act == 1}]
                         if {!$on && [llength [info commands maximize-pinned]]
-                                && [maximize-pinned $A]} {
-                            # the config's forced max outranks a client
-                            # message, exactly as it outranks the
-                            # client's -geometry; see maximize-pinned
-                            puts "WM: client asks maximize off\
- (0x[format %x $A]) — pinned by place {max force}, refused"
+                                && [maximize-pinned $A $ax]} {
+                            # the config's forced place outranks a
+                            # client message, exactly as it outranks
+                            # the client's -geometry; see
+                            # maximize-pinned (per axis — a rule that
+                            # holds the vertical alone pins only it)
+                            puts "WM: client asks maximize $ax off\
+ (0x[format %x $A]) — pinned by place {[dict get [style-of $A] place]},\
+ refused"
                             publish-net-wm-state $A   ;# re-state the truth
                             continue
                         }
