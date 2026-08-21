@@ -268,12 +268,19 @@ key-bundle chords {prefix {<Super>t} help {<Super>h}} {
 # that CLOSE things are named separately from the ones that only
 # look.
 #
-# NO parameters, deliberately (the owner, 2026-07-31): a parameter
-# per member is not a family parameter, it is the member list spelled
-# twice — chords' prefix moves a whole tree, these would each move
-# one key. The way to keep two reflexes and drop the rest is decision
-# 4: take the keepers into the custom layer as plain wm-bind and turn
-# the family off.
+# NO per-member parameters, deliberately (the owner, 2026-07-31): a
+# parameter per member is not a family parameter, it is the member
+# list spelled twice — chords' prefix moves a whole tree, these would
+# each move one key. The way to keep two reflexes and drop the rest
+# is decision 4: take the keepers into the custom layer as plain
+# wm-bind and turn the family off. One FAMILY parameter did earn its
+# place (the owner, 2026-08-21): a prefix, empty by default — the
+# bare reflexes as always. Set, it parks the whole family under a
+# leader (sharing the accord tree's own prefix is fine — the keymap
+# is a tree and the grab is the top chord's), and the desk stops
+# grabbing the bare chords globally: an application that wants
+# Alt+Space for itself gets it back, and the reflexes stay reachable
+# as sequences under the prefix.
 # THE DESKS, on their own modifier. A family of its own because it is
 # neither of the other two: not the stumpwm tree (these are one press,
 # not a sequence) and not the Windows reflexes (Windows has no such
@@ -303,11 +310,12 @@ key-bundle desks {mods {<Super>} send {<Super><Shift>}} {
             "send this window to desk $d"
     }
 }
-key-bundle windows {} {
-    bundle-bind {<Alt>Tab} winlist
-    bundle-bind {<Alt>space} winops
-    bundle-bind {<Alt>F4} Close "close the active window"
-    bundle-bind {<Super>d} {Apply-To-Matching always Minimize} \
+key-bundle windows {prefix {}} {
+    set p [dict get $params prefix]
+    bundle-bind [concat $p {<Alt>Tab}] winlist
+    bundle-bind [concat $p {<Alt>space}] winops
+    bundle-bind [concat $p {<Alt>F4}] Close "close the active window"
+    bundle-bind [concat $p {<Super>d}] {Apply-To-Matching always Minimize} \
         "minimize everything"
 }
 

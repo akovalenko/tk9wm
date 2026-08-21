@@ -106,6 +106,18 @@ BUNDLEOFF=$(qk 'wm-keys windows off
 BUNDLEBACK=$(qk 'wm-keys windows
                  list alttab [dict exists $::keymap [join [parse-chord {<Alt>Tab}] ,]] \
                       close [chord-of Close]')
+# ...and the reflexes park under a prefix — the accord tree's own,
+# already moved to Super+x above, to prove the two families share the
+# leader — and come home without taking the tree's subtree with them
+BUNDLEPFX=$(qk 'wm-keys windows -prefix {<Super>x}
+                list topgone [dict exists $::keymap [join [parse-chord {<Alt>space}] ,]] \
+                     under [keymap-origin $::keymap \
+                                [lmap tok {<Super>x <Alt>space} {join [parse-chord $tok] ,}]]')
+BUNDLEHOME=$(qk 'wm-keys windows
+                 list alttab [dict exists $::keymap [join [parse-chord {<Alt>Tab}] ,]] \
+                      left [keymap-origin $::keymap \
+                                [lmap tok {<Super>x <Alt>space} {join [parse-chord $tok] ,}]] \
+                      tree [chord-of winlist-all]')
 
 # A BINDING THAT HOLDS THE DESK says so afterwards — the plan's answer
 # to «forbid a bare exec»: measure instead, because a slow send, a long
@@ -191,7 +203,7 @@ else
 fi
 check_invariants "$HERE/wm-key.log"
 
-echo "--- bundles: {$BUNDLE} {$BUNDLEOFF} {$BUNDLEBACK}"
+echo "--- bundles: {$BUNDLE} {$BUNDLEOFF} {$BUNDLEBACK} {$BUNDLEPFX} {$BUNDLEHOME}"
 case "$BUNDLE" in
     "moved 1 oldgone 0 help Super+slash")
         echo "OK: the accord tree moved with its prefix, help key and all" ;;
@@ -201,6 +213,11 @@ case "$BUNDLEOFF|$BUNDLEBACK" in
     "alttab 0 altf4 0|alttab 1 close Alt+F4")
         echo "OK: the reflex bundle goes off and comes back whole" ;;
     *) echo "FAIL: bundle off/on: $BUNDLEOFF | $BUNDLEBACK" ;;
+esac
+case "$BUNDLEPFX|$BUNDLEHOME" in
+    "topgone 0 under {bundle windows}|alttab 1 left {} tree {Super+x w w}")
+        echo "OK: the reflexes parked under the shared prefix and came home" ;;
+    *) echo "FAIL: bundle prefix: $BUNDLEPFX | $BUNDLEHOME" ;;
 esac
 
 if [ "$HELD" = "{key Super+F9} held" ]; then
