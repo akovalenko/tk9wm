@@ -120,17 +120,36 @@ A_UP=$(stack_pos "$AID" "$HERE/kbmove-stack2.log")
 B_UP=$(stack_pos "$BID" "$HERE/kbmove-stack2.log")
 
 # a client with a REAL increment grid: the resize readout counts the
-# client's own units (an xterm thinks in cells) beside the pixels.
-# Last, so that the victim's numbers above are read before another
-# window takes the focus the winops chord follows.
+# client's own units (an xterm thinks in cells) beside the pixels,
+# and the arrows walk that grid — one cell plain AND with Shift (a
+# grid has nothing finer), the whole number of cells nearest 50 px
+# with Ctrl. The grid used to overwrite the modifiers, pinning every
+# gear to one cell. Last, so that the victim's numbers above are read
+# before another window takes the focus the winops chord follows.
 xterm -T грид -e sleep 30 &
 XT=$!
 sleep 2
+XTID=$(sed -n 's/^WM: managed \(0x[0-9a-f]*\):.*/\1/p' "$HERE/wm-kbmove.log" \
+    | sed -n 3p)
+xterm_w() { xwininfo -id "$XTID" | awk '/Width:/ {print $2}'; }
+W0=$(xterm_w)
 key alt+space
 key s
 import -window root "$HERE/kbmove-cells.png" 2>/dev/null \
     && echo "DRIVER: screenshot (cells readout) -> $HERE/kbmove-cells.png"
-key Escape
+key Right           # one grid cell
+key Return
+W1=$(xterm_w)
+key alt+space
+key s
+key shift+Right     # fine gear: still one cell
+key Return
+W2=$(xterm_w)
+key alt+space
+key s
+key ctrl+Right      # coarse gear: the on-grid stride nearest 50 px
+key Return
+W3=$(xterm_w)
 kill $XT 2>/dev/null
 
 kill $WM $CA 2>/dev/null
@@ -192,6 +211,27 @@ if grep -q 'keyboard resize .* — resize [0-9]*x[0-9]* ([0-9]* x [0-9]*)' \
         | sed 's/^/    /' | tail -1
 else
     echo "FAIL: no cells in the resize readout for the xterm"
+fi
+INC=$((W1 - W0)); FINE=$((W2 - W1)); STRIDE=$((W3 - W2))
+# what the WM computes as Ctrl's stride: round(50/inc) cells, at
+# least one — Tcl's round() is half-away-from-zero, hence +INC/2
+if [ "$INC" -gt 1 ]; then
+    EXP=$(( (50 + INC/2) / INC * INC ))
+    [ "$EXP" -lt "$INC" ] && EXP=$INC
+    echo "OK: a plain arrow walked one grid cell ($INC px)"
+else
+    EXP=50
+    echo "FAIL: a plain arrow grew the xterm by $INC px, want one real cell"
+fi
+if [ "$FINE" = "$INC" ]; then
+    echo "OK: Shift stays one cell on a grid ($FINE px)"
+else
+    echo "FAIL: Shift step is $FINE px on a grid, want one cell ($INC)"
+fi
+if [ "$STRIDE" = "$EXP" ] && [ "$EXP" -gt "$INC" ]; then
+    echo "OK: Ctrl strides the on-grid step nearest 50 px ($STRIDE px)"
+else
+    echo "FAIL: Ctrl stride is $STRIDE px, want $EXP (cell $INC)"
 fi
 if [ -n "$A_LOW" ] && [ -n "$B_LOW" ] && [ "$A_LOW" -lt "$B_LOW" ] \
         && [ "$A_UP" -gt "$B_UP" ]; then

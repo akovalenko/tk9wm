@@ -5,11 +5,13 @@
 # vi's h/j/k/l — step the frame or the client size; Enter and space
 # commit, Escape cancels back to the geometry saved at mode entry.
 #
-# Move steps 10 px, 1 px with Shift, 50 px with Ctrl. Resize steps by
-# the client's declared increment when its style respects increments
-# and the increment is a REAL grid: an increment of 1 — every Tk
-# app's degenerate default — makes any size on-grid, so the plain
-# 10 px step serves better (Shift/Ctrl fine/coarse apply then too).
+# Move steps 10 px, 1 px with Shift, 50 px with Ctrl. Resize walks
+# the client's increment grid when its style respects increments and
+# the increment is a REAL grid: one cell per arrow (Shift included —
+# a grid has nothing finer), and Ctrl strides the whole number of
+# cells nearest the free 50 px, so a fine grid still has a coarse
+# gear. An increment of 1 — every Tk app's degenerate default —
+# makes any size on-grid, so the plain 10/1/50 px steps serve there.
 # Sizes funnel through apply-size-hints and wm-resize-client as
 # everywhere, so the declared minimum binds and the grid holds.
 #
@@ -478,12 +480,23 @@ proc kbmr-key {kind name mods} {
         frame-moveto $w [expr {$fx + $dx*$step}] [expr {$fy + $dy*$step}]
     } else {
         lassign [client-size-hints $w] minw minh incw inch basew baseh
-        set xstep 10; set ystep 10
-        if {$mods & 1} { set xstep 1; set ystep 1 }
-        if {$mods & 4} { set xstep 50; set ystep 50 }
-        if {[dict get [style-of $w] increments] eq "respect"} {
-            if {$incw > 1} { set xstep $incw }
-            if {$inch > 1} { set ystep $inch }
+        if {[dict get [style-of $w] increments] ne "respect"} {
+            set incw 1; set inch 1
+        }
+        set incw [expr {max($incw, 1)}]; set inch [expr {max($inch, 1)}]
+        # A real grid makes the CELL the unit of the resize: the plain
+        # step is one cell, Shift's fine step is one cell too (anything
+        # finer would only be snapped back onto the grid), and Ctrl
+        # strides the whole number of cells nearest the free 50 px.
+        # The grid used to overwrite the modifiers instead, which
+        # pinned a 2x2-grid client to a 2 px crawl in every gear (the
+        # owner, 2026-08-21). No real grid: the free 10/1/50 px.
+        set xstep [expr {$incw > 1 ? $incw : 10}]
+        set ystep [expr {$inch > 1 ? $inch : 10}]
+        if {$mods & 1} { set xstep $incw; set ystep $inch }
+        if {$mods & 4} {
+            set xstep [expr {max($incw, round(50.0/$incw)*$incw)}]
+            set ystep [expr {max($inch, round(50.0/$inch)*$inch)}]
         }
         # The arrow moves THE HANDLE, so what it does to the size
         # depends on which edge that handle owns: an east edge grows the

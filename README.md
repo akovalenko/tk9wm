@@ -1209,8 +1209,9 @@ descriptions: a renamed proc breaks a `rg` and gets noticed.)
 
   **Keyboard move/resize** — a modal mode on that same key router:
   arrows (and hjkl) move the frame or change the size (a 10 px step,
-  Shift = 1 px, Ctrl = 50 px; resize steps by the client's increment
-  when that is a real grid rather than a degenerate 1x1),
+  Shift = 1 px, Ctrl = 50 px; when the client's increment is a real
+  grid rather than a degenerate 1x1, resize walks that grid — one
+  cell per arrow, Ctrl the whole number of cells nearest 50 px),
   Enter/space commits, Esc reverts to the geometry the mode was entered
   at. **The mode is visible:** for its whole duration the frame turns
   amber (a modal grip color on a par with the focus ones) and the
