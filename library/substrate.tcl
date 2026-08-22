@@ -5570,16 +5570,27 @@ proc ::exit {{code 0}} {
 # it, which is what the next wrapper form is supposed to use instead of
 # a patch here.
 #
-# The four forms, measured 2026-07-29 — argv0, and what execv needs:
+# The five forms — argv0, and what execv needs (the first four
+# measured 2026-07-29):
 #   interpreter + script   /path/tk9wm.tcl        native  name it
 #   starkit                /path/wm.kit           tclvfs  name it
 #   starpack               <exe>/main.tcl         tclvfs  do NOT
-#   whale -app             //zipfs:/app/main.tcl  zipfs   do NOT
+#   dedicated whale        //zipfs:/app/main.tcl  zipfs   do NOT
+#   whale battery          //zipfs:/app/apps/…    zipfs   flag route
 # So the question is not which filesystem argv0 is on — a starkit is
 # mounted ON ITS OWN PATH, and answers tclvfs while being exactly the
 # file that has to be named. The question is whether argv0 lives INSIDE
 # the executable's own image: a path there is not something a command
 # line can carry, and the executable alone re-runs it.
+#
+# ...for a DEDICATED image. The fifth form breaks the inference: a
+# bare whale handed a script out of its own image (`whale -app tk9wm`,
+# or the //zipfs: path spelled whole) has a zipfs argv0 too, yet
+# re-run bare it is a tclsh — becoming us again is a FLAG route
+# (`-app tk9wm`) no path inference can discover. The guess cannot
+# tell the two zipfs forms apart from here, so that form's wrapper
+# (whale/main.tcl, both seats) always says ::tk9wm_reexec itself and
+# the guess below never fields it.
 #
 # NORMALIZED, and that is the owner's correction (2026-07-29): argv0 is
 # what the user typed and `info nameofexecutable` is normalized to
@@ -5631,7 +5642,16 @@ proc restart-wm {} {
     # only after dismantling every frame on the desk. Rename the
     # checkout, pull a commit that renames the entry script, and the
     # restart chord became a logout — a real migration, 2026-07-29.
-    foreach f $head {
+    # A wrapper's head may carry FLAGS and app names besides paths
+    # (`whale -app tk9wm`), so only what names a file is checked: the
+    # executable always, then any absolute-path element — a script on
+    # disk, or a //zipfs: path into our own image (zipfs paths read
+    # as absolute, and `file exists` sees into the mounted image).
+    set checks [list [lindex $head 0]]
+    foreach f [lrange $head 1 end] {
+        if {[file pathtype $f] eq "absolute"} { lappend checks $f }
+    }
+    foreach f $checks {
         if {![file exists $f]} {
             puts "WM: restart REFUSED — $f is gone; nothing released,\
                   the desk is untouched"

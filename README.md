@@ -86,9 +86,42 @@ userland (an EL8-era container, glibc 2.28), the same way the whale is:
 the binary's real floor is the glibc symbol versions it links against,
 and the build box sets it.
 
-A whale can also carry tk9wm as a compiled-in battery, static archive
-and scripts both. Then there is nothing to build and nothing to
-install — `package require tk9wm` answers out of the image.
+## In a whale: the battery and the shorthand
+
+A whale can carry tk9wm as a compiled-in battery, static archive and
+scripts both — whalebuild's `recipes/tk9wm.rcp` builds it into the
+default linux whale. Then there is nothing to build, nothing to
+install and, unlike the kit below, nothing to dlopen out of a
+temporary file: the shim is statically IN the executable
+(`load {} Tkwmx`), and `package require tk9wm` answers out of the
+image. Run it:
+
+```sh
+whale -app tk9wm          # the shorthand; `whale -app` lists apps
+```
+
+`-app` routes a bare whale into the image's `apps/` registry;
+`whale/main.tcl` here is what the recipe puts there. It is the
+wrapper that KNOWS (the kit wrapper's rule): it sets
+`::tk9wm_reexec`/`::tk9wm_uiexec` — a battery desk becomes itself
+again through the flag route (`-app tk9wm`), which no path inference
+could discover, and the ui host gets its `vwait` from the same file
+(a whale is not wish-shaped). The applet host is spawned as the same
+whale reading `ui/host.tcl` out of its own attached image; the child
+mounts it at the same `//zipfs:/app` by itself. The same file is also
+a dedicated whale's `main.tcl` (`whalebuild build -app`, or
+`whale -forge pack` with a one-file app dir): there it says the
+starpack answer instead — the executable alone re-runs it.
+
+The recipe is sha-pinned to this repository on GitHub; to build a
+whale from the checkout you are editing instead, override the source
+for one build — a directory means the LIVE tree, uncommitted edits
+included (the sync follows git's manifest, so ignored build
+artifacts stay home):
+
+```sh
+WHALEBUILD_SOURCE_TK9WM=$PWD ./cbuild.sh linux
+```
 
 ## As a kit: one file on a stock tclkit
 
