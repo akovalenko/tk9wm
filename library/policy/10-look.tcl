@@ -811,6 +811,26 @@ proc set-panel-font {args} {
     panel-rebuild-soon
 }
 proc retitle-frames {} {
+    # BEFORE the metrics move: how each frame STOOD against its
+    # workarea — flush at an edge, spanning it, or free — is only
+    # readable while the old chrome still answers (frame-chrome and
+    # maximize-fit both read the standing records). The judgment
+    # itself runs in the second loop below, once the frames wear
+    # their new lengths. Not under a reload's hold: the workarea is
+    # mid-transition then and the release's reflow owns the moving.
+    set stood {}
+    if {!$::wa_hold} {
+        foreach {w t} [array get ::frameof] {
+            if {[info exists ::fullscreen($w)]} continue
+            if {![regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
+                     [wm geometry $t] -> fw fh fx fy]} continue
+            lassign [frame-chrome $t] B top
+            set wa [workarea-at [list $fx $fy $fw $fh]]
+            lassign [maximize-fit $w $wa] mw mh
+            dict set stood $w [list $fx $fy $fw $fh \
+                [expr {$mw + 2*$B}] [expr {$mh + $top + $B}] $wa]
+        }
+    }
     title-metrics
     after idle ui-restyle   ;# the applets are set in this desk's fonts
     panels-build  ;# the strip height follows the font too
@@ -856,10 +876,18 @@ proc retitle-frames {} {
             titlebar-build $t $w $want [title-or-id $w [visible-title $w]]
         }
         frame-layout $t [$t.slot cget -width] [$t.slot cget -height]
-        # The underlay too: a scheme change that moved only the DRAWN
-        # grips leaves the frame's geometry — and so its <Configure> —
-        # untouched, and nothing else would repaint the arms.
-        deco-redraw $t
+        # The COLOUR is re-said, not assumed: titlebar-build paints
+        # every strip it makes in the maker's focus blue, and nothing
+        # here repainted it — so each rebuilt strip came out of a live
+        # knob turn dressed as the active window (the owner,
+        # 2026-08-25). The recolor also repaints the underlay, which a
+        # scheme change that moved only the DRAWN grips still needs —
+        # that frame's geometry, and so its <Configure>, never moved.
+        frame-recolor $t [frame-focus-color $w]
+        # ...and the sticky texture: a rebuilt strip is born with the
+        # state blank, which would quietly take the hatch off every
+        # on-every-desk window right here.
+        frame-sticky-paint $w
         # ...and the WORDS: a reload may have changed the `title`
         # rules alone, and neither branch above repaints the text for
         # a frame whose buttons and scheme stood still.
@@ -885,9 +913,48 @@ proc retitle-frames {} {
         if {!$::wa_hold && ![info exists ::fullscreen($w)]
                 && [regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
                         [wm geometry $t] -> fw fh fx fy]} {
-            lassign [clamp-to-rect [workarea-at [list $fx $fy $fw $fh]] \
-                         $fx $fy $fw $fh] nx ny
-            if {$nx != $fx || $ny != $fy} { wm geometry $t +$nx+$ny }
+            set wa [workarea-at [list $fx $fy $fw $fh]]
+            # An EDGE IS A RELATION, not a coordinate, and the frame's
+            # new length just broke it: a window flush at the panel
+            # came off it whenever a live set-title-air shrank the
+            # strip (the owner, 2026-08-25 — the workarea reflow
+            # already keeps this promise when the GROUND moves, and a
+            # moved chrome owes it the same way). Judged by how the
+            # frame stood before the metrics moved, placed with the
+            # length it wears now: flush re-sticks, spanning re-fits
+            # (the client resized, as maximize would), free windows
+            # fall through to the clamp alone. Only over standing
+            # ground: a knob that also moved the PANEL (a desk font
+            # change) had its reflow run inside panels-build above,
+            # and second-guessing it from a stale workarea would undo
+            # its work — the moved ground is the reflow's, ours is
+            # the moved chrome. A hand on the window outranks both.
+            if {[dict exists $stood $w] && ![geometry-held-p $w]
+                    && $wa eq [lindex [dict get $stood $w] 6]} {
+                lassign [dict get $stood $w] oX oY ofw ofh omfw omfh
+                lassign [frame-chrome $t] B top
+                lassign [maximize-fit $w $wa] mw mh
+                lassign [client-size-hints $w] - - incw inch
+                lassign [rechrome-axis [lindex $wa 0] [lindex $wa 2] \
+                             $oX $ofw $fw $omfw [expr {$mw + 2*$B}] \
+                             [expr {max($incw, 1)}]] nX nfw hx
+                lassign [rechrome-axis [lindex $wa 1] [lindex $wa 3] \
+                             $oY $ofh $fh $omfh [expr {$mh + $top + $B}] \
+                             [expr {max($inch, 1)}]] nY nfh hy
+                lassign [clamp-to-rect $wa $nX $nY $nfw $nfh] nX nY
+                if {$nX != $fx || $nY != $fy} { wm geometry $t +$nX+$nY }
+                if {$nfw != $fw || $nfh != $fh} {
+                    wm-resize-client $w [expr {$nfw - 2*$B}] \
+                        [expr {$nfh - $top - $B}]
+                }
+                if {$nX != $fx || $nY != $fy || $nfw != $fw || $nfh != $fh} {
+                    puts "WM: rechrome 0x[format %x $w] $hx/$hy ->\
+ [expr {$nfw - 2*$B}]x[expr {$nfh - $top - $B}]+$nX+$nY"
+                }
+            } else {
+                lassign [clamp-to-rect $wa $fx $fy $fw $fh] nX nY
+                if {$nX != $fx || $nY != $fy} { wm geometry $t +$nX+$nY }
+            }
         }
         send-synthetic-configure $w
         publish-frame-extents $w   ;# the strip's height just moved

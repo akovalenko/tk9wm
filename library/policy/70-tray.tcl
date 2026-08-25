@@ -590,6 +590,26 @@ proc reflow-axis {o0 o n0 n p s om nm {slack 1}} {
     }
     return [list $p $s stay]
 }
+# The same judgment when the CHROME moved under an UNCHANGED workarea —
+# a live set-title-air or set-border re-deriving every standing frame
+# (retitle-frames' second loop). reflow-axis cannot serve there: it
+# moves a constant-size window over moving ground, whereas here the
+# ground stands and the frame's own length changed under the window.
+# So the edges are judged by the OLD frame (p/s, read before the
+# metrics moved) and placed with the NEW length ns: flush stays flush,
+# short by what it was short by (the increment slack means exactly what
+# it means one proc up, for the same window); spanning re-fits to the
+# new maximized length nm; a window flush at neither edge is left where
+# it stands, for the retitle's clamp to judge.
+proc rechrome-axis {r0 rl p s ns om nm {slack 1}} {
+    if {$p == $r0 && $s == $om} { return [list $r0 $nm span] }
+    if {$p == $r0}              { return [list $r0 $ns near] }
+    set short [expr {$r0 + $rl - ($p + $s)}]
+    if {$short >= 0 && $short < $slack} {
+        return [list [expr {max($r0, $r0 + $rl - $ns - $short)}] $ns far]
+    }
+    return [list $p $ns stay]
+}
 proc reflow-client {w old new} {
     set t $::frameof($w)
     lassign [frame-chrome $t] B top
