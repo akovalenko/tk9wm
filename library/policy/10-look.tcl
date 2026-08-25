@@ -810,26 +810,101 @@ proc set-panel-font {args} {
     wm-font PanelFont {*}$args
     panel-rebuild-soon
 }
+# One frame's chrome transition made real. REC is how the frame STOOD
+# before the metrics moved — {X Y fw fh maxfw maxfh wa}, from the
+# retitle's capture — the frame's current geometry says what it wears
+# now, and rechrome-axis names the deed per axis: flush re-sticks,
+# spanning re-fits (the client resized, as maximize would), free
+# windows get the clamp alone — ours is a growth no client asked for,
+# so the resize path's clamp never sees it (measured: four pixels
+# under the panel after the desk font grew by one). Returns 1 when the
+# frame moved or its client was resized — the deferred (reload) caller
+# owes those windows a settle-and-tell.
+proc rechrome-frame {w t rec} {
+    if {![regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} [wm geometry $t] \
+            -> fw fh fx fy]} { return 0 }
+    lassign $rec oX oY ofw ofh omfw omfh wa
+    lassign [frame-chrome $t] B top
+    lassign [maximize-fit $w $wa] mw mh
+    lassign [client-size-hints $w] - - incw inch
+    lassign [rechrome-axis [lindex $wa 0] [lindex $wa 2] \
+                 $oX $ofw $fw $omfw [expr {$mw + 2*$B}] \
+                 [expr {max($incw, 1)}]] nX nfw hx
+    lassign [rechrome-axis [lindex $wa 1] [lindex $wa 3] \
+                 $oY $ofh $fh $omfh [expr {$mh + $top + $B}] \
+                 [expr {max($inch, 1)}]] nY nfh hy
+    lassign [clamp-to-rect $wa $nX $nY $nfw $nfh] nX nY
+    if {$nX != $fx || $nY != $fy} { wm geometry $t +$nX+$nY }
+    if {$nfw != $fw || $nfh != $fh} {
+        wm-resize-client $w [expr {$nfw - 2*$B}] [expr {$nfh - $top - $B}]
+        # policy-resize's own grew-past clamp answers TODAY's workarea
+        # — under the deferred (reload) call that is already the NEW
+        # ground, while this placement is against the OLD one by
+        # design: the release's reflow owns that transition and must
+        # find the edges where the capture's ground put them. Re-said,
+        # not argued with; live the two agree and this is a no-op.
+        wm geometry $t +$nX+$nY
+    }
+    if {$nX == $fx && $nY == $fy && $nfw == $fw && $nfh == $fh} { return 0 }
+    puts "WM: rechrome 0x[format %x $w] $hx/$hy ->\
+ [expr {$nfw - 2*$B}]x[expr {$nfh - $top - $B}]+$nX+$nY"
+    return 1
+}
+# The capture a reload's hold made the retitle defer (see the head of
+# retitle-frames): judged and placed here, at reload-config's ask —
+# after the strips have rebuilt and the frames wear their new lengths,
+# and BEFORE the hold releases. Placed against the OLD ground on
+# purpose: the release's reflow owns the ground's own transition, and
+# it judges every window from the edges this has just re-glued — the
+# two transitions compose instead of racing (a window flush at the old
+# bottom is put flush there with its new length, which is exactly the
+# rect the reflow's far test expects to find).
+keep rechrome_held {}
+proc rechrome-settle {} {
+    set stood $::rechrome_held
+    set ::rechrome_held {}
+    if {![dict size $stood]} return
+    foreach {w t} [array get ::frameof] {
+        if {![dict exists $stood $w]} continue
+        if {[info exists ::fullscreen($w)] || [geometry-held-p $w]} continue
+        if {[rechrome-frame $w $t [dict get $stood $w]]} {
+            maximize-settle $w   ;# the frame moved even where the size did not
+        }
+    }
+}
 proc retitle-frames {} {
     # BEFORE the metrics move: how each frame STOOD against its
     # workarea — flush at an edge, spanning it, or free — is only
     # readable while the old chrome still answers (frame-chrome and
-    # maximize-fit both read the standing records). The judgment
-    # itself runs in the second loop below, once the frames wear
-    # their new lengths. Not under a reload's hold: the workarea is
-    # mid-transition then and the release's reflow owns the moving.
+    # maximize-fit both read the standing records). Live, the judgment
+    # runs in the second loop below, once the frames wear their new
+    # lengths. Under a reload's hold the LIVE workarea answer is
+    # mid-transition — half the config spoken, or none — so the ground
+    # these frames actually stood on is the last PUBLISHED picture,
+    # and the judgment is STASHED for reload-config's rechrome-settle
+    # rather than taken here from half a truth.
     set stood {}
-    if {!$::wa_hold} {
-        foreach {w t} [array get ::frameof] {
-            if {[info exists ::fullscreen($w)]} continue
-            if {![regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
-                     [wm geometry $t] -> fw fh fx fy]} continue
-            lassign [frame-chrome $t] B top
+    foreach {w t} [array get ::frameof] {
+        if {[info exists ::fullscreen($w)]} continue
+        if {![regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
+                 [wm geometry $t] -> fw fh fx fy]} continue
+        lassign [frame-chrome $t] B top
+        if {$::wa_hold} {
+            if {![dict size $::wa_published]} continue
+            set wa [dict get $::wa_published [workarea-owner \
+                $::wa_published [list $fx $fy $fw $fh]] wa]
+        } else {
             set wa [workarea-at [list $fx $fy $fw $fh]]
-            lassign [maximize-fit $w $wa] mw mh
-            dict set stood $w [list $fx $fy $fw $fh \
-                [expr {$mw + 2*$B}] [expr {$mh + $top + $B}] $wa]
         }
+        lassign [maximize-fit $w $wa] mw mh
+        dict set stood $w [list $fx $fy $fw $fh \
+            [expr {$mw + 2*$B}] [expr {$mh + $top + $B}] $wa]
+    }
+    # ...the FIRST capture wins: a second titles settling under the
+    # same hold would read frames already re-laid, and «before» means
+    # before anything moved.
+    if {$::wa_hold && ![dict size $::rechrome_held]} {
+        set ::rechrome_held $stood
     }
     title-metrics
     after idle ui-restyle   ;# the applets are set in this desk's fonts
@@ -909,7 +984,10 @@ proc retitle-frames {} {
         # jumping first is what broke the corner window's re-stick
         # and moved a column under follow-off (measured, the reflow
         # suite); held, the one transition at release owns ALL the
-        # moving, which is the reflow's whole design.
+        # moving, which is the reflow's whole design. (The chrome's
+        # half is not lost to the hold: the capture above was stashed,
+        # and reload-config settles it right before the release —
+        # rechrome-settle above.)
         if {!$::wa_hold && ![info exists ::fullscreen($w)]
                 && [regexp {^(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$} \
                         [wm geometry $t] -> fw fh fx fy]} {
@@ -931,26 +1009,7 @@ proc retitle-frames {} {
             # the moved chrome. A hand on the window outranks both.
             if {[dict exists $stood $w] && ![geometry-held-p $w]
                     && $wa eq [lindex [dict get $stood $w] 6]} {
-                lassign [dict get $stood $w] oX oY ofw ofh omfw omfh
-                lassign [frame-chrome $t] B top
-                lassign [maximize-fit $w $wa] mw mh
-                lassign [client-size-hints $w] - - incw inch
-                lassign [rechrome-axis [lindex $wa 0] [lindex $wa 2] \
-                             $oX $ofw $fw $omfw [expr {$mw + 2*$B}] \
-                             [expr {max($incw, 1)}]] nX nfw hx
-                lassign [rechrome-axis [lindex $wa 1] [lindex $wa 3] \
-                             $oY $ofh $fh $omfh [expr {$mh + $top + $B}] \
-                             [expr {max($inch, 1)}]] nY nfh hy
-                lassign [clamp-to-rect $wa $nX $nY $nfw $nfh] nX nY
-                if {$nX != $fx || $nY != $fy} { wm geometry $t +$nX+$nY }
-                if {$nfw != $fw || $nfh != $fh} {
-                    wm-resize-client $w [expr {$nfw - 2*$B}] \
-                        [expr {$nfh - $top - $B}]
-                }
-                if {$nX != $fx || $nY != $fy || $nfw != $fw || $nfh != $fh} {
-                    puts "WM: rechrome 0x[format %x $w] $hx/$hy ->\
- [expr {$nfw - 2*$B}]x[expr {$nfh - $top - $B}]+$nX+$nY"
-                }
+                rechrome-frame $w $t [dict get $stood $w]
             } else {
                 lassign [clamp-to-rect $wa $fx $fy $fw $fh] nX nY
                 if {$nX != $fx || $nY != $fy} { wm geometry $t +$nX+$nY }

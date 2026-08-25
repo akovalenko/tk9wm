@@ -170,6 +170,14 @@ proc reload-config {} {
             tray-argb-default
             policy-apply
         }
+        # The chrome transition the titles settler deferred under the
+        # hold (a reload that moved set-title-air or set-border): the
+        # strips have rebuilt, the frames wear their new lengths, and
+        # the hold has not released yet — so the reflow the release
+        # runs judges every window from edges this has already
+        # re-glued. See rechrome-settle for why the order carries the
+        # whole design.
+        rechrome-settle
     }
 }
 

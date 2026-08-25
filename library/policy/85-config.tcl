@@ -63,6 +63,11 @@ proc policy-reset {} {
     # windows against a workarea no config ever declared (measured:
     # the reflow suite's corner window came off its edge).
     array unset ::panel_geo
+    # ...and a chrome capture a FAILED reload may have left stashed:
+    # rechrome-settle consumes it at the end of every whole reload, so
+    # anything still here is stale by definition — applying it a
+    # reload later would move windows by a picture of the wrong past.
+    set ::rechrome_held {}
     # The base and the RELATIONS are the resettable state; the derived
     # fonts are a consequence and are recomputed from them.
     font configure DeskFont {*}$::config_default(DeskFont)
