@@ -298,7 +298,7 @@ proc look-build {name wish} {
  btn=[look $name btnw] border=[look $name border] grips=[look $name gripz]\
  lift=[look $name lift]"
 }
-proc title-metrics {} {
+proc title-metrics {{images 1}} {
     # Rebuilt WHOLE, from the wishes: the desk's numbers become the
     # default scheme, then every declared wm-look on top — so a scheme
     # the new config stopped declaring is GONE, not a ghost record a
@@ -310,7 +310,13 @@ proc title-metrics {} {
              air $::titleair btngap $::btngap font TitleFont]
     look-derive default
     dict for {name wish} $::look_wishes { look-build $name $wish }
-    btn-images
+    # images 0 is policy-reset's: mid-load nothing builds a titlebar
+    # (the holds keep the standing strips as they are, and a reload
+    # dispatches no map), so the DERIVATIONS must answer from defaults
+    # but the photos need not be re-rendered at a size the config is
+    # about to override — the settle after the layers speak renders
+    # them once, against the final metrics.
+    if {$images} { btn-images }
     puts "WM: titlebar h=[look default titleh] top=[look default decotop]\
  btn=[look default btnw] lift=[look default lift]\
  font=[font actual TitleFont -family]/[font actual TitleFont -size]"
@@ -683,12 +689,28 @@ proc look-glyph-font {scheme} { return BtnGlyphFont[look-suffix $scheme] }
 proc btn-images {} {
     dict for {scheme -} $::looks { btn-images-for $scheme }
 }
+# What a scheme's images were last rendered FROM: the cell size, the
+# title font's family, and the catalogue's svg markup. Rendering is a
+# pure function of those three — the glyphs carry their own ink, so
+# not even the theme reaches in — and re-rendering on an unchanged
+# signature only pays the fontconfig walk and the rasterizing again
+# (measured: ~100 ms per settle, twice per reload). Reset on Reread —
+# an unset, not `array set`, which would MERGE into a survivor — so
+# new code always renders once before the cache speaks.
+array unset btn_sig
+array set btn_sig {}
 proc btn-images-for {scheme} {
     # re-creating a photo under the same name updates every user of it;
     # the union box is glyph + 2*3px ipad (the 1px outline draws inside),
     # so this glyph height makes the box exactly btnw square — the full
     # button cell, no inset
     set g [expr {max([look $scheme btnw] - 2 * [look $scheme btnpad], 7)}]
+    set sig [list $g [font actual [look $scheme font] -family] \
+                 $::titlebar_buttons]
+    if {[info exists ::btn_sig($scheme)] && $::btn_sig($scheme) eq $sig} {
+        return
+    }
+    set ::btn_sig($scheme) $sig
     # ...and the TEXT glyphs get a font fitted to the same square the
     # svg renders into: a font asks for its linespace, and a glyph
     # taller than the cell hung below the row — a П-shaped button rank

@@ -72,7 +72,7 @@ proc policy-reset {} {
     # fonts are a consequence and are recomputed from them.
     font configure DeskFont {*}$::config_default(DeskFont)
     fonts-derive
-    title-metrics
+    title-metrics 0   ;# derivations only — see the images arg's comment
     # Caches that a config decides the contents of: per-client style
     # verdicts (the rules are gone) and resolved icons (the path may
     # move under them).
@@ -261,6 +261,17 @@ proc settle-changed {} {
     return ""
 }
 proc settle-all {} {
+    # DISARM THE QUEUED FLUSH FIRST. The load's words asked settle-soon,
+    # so an `after idle settle-pending` stands armed — and a settler
+    # that drains idle callbacks on its way (retitle-frames' update
+    # idletasks) fires it NESTED inside this very pass: the whole
+    # titles settling ran twice per reload, back to back (measured on
+    # the owner's desk, 2026-08-26: the second pass was ~320 ms of a
+    # 1.2 s Reload). This pass runs every settler in order, so whatever
+    # was pending is served here — the flush would only repeat it.
+    after cancel settle-pending
+    set ::settle_scheduled 0
+    array unset ::settle_pending
     foreach name $::settle_order {
         if {![dict exists $::settlers $name]} {
             puts "WM: settle: no such settler «$name»"
