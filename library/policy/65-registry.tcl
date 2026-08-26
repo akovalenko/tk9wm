@@ -747,7 +747,9 @@ proc panels-held {script} {
         uplevel 1 $script
     } finally {
         set ::panels_hold 0
-        panels-build
+        # the ONE build the load amounted to is the desk's own time,
+        # not the chord's (the desk-owned bracket, substrate)
+        desk-owned { panels-build }
     }
 }
 # Every SHOWN button of every panel, as {panel name label settings}

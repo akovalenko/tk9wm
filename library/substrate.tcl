@@ -356,6 +356,32 @@ proc run-script {what script} {
     }} $what $script
 }
 
+# The desk's OWN work, credited. reload-config re-frames every window,
+# rebuilds the strips and the widgets — heavy, inherent, and none of it
+# the fault of the binding that asked: blamed on the chord, the
+# slow-binding warning would fire on every reload forever (the owner,
+# 2026-08-26 — a Reload wore 1.2 s it spent almost entirely on the
+# desk's own rebuild). Whatever runs in this bracket is measured into
+# the account; the key dispatcher zeroes it per dispatch and subtracts
+# it from the hold before the warning judges — so a config whose OWN
+# code is slow (a synchronous exec, a wait without a coroutine) is
+# still named, and a plain Reload never is. Nested brackets do not
+# double-count: the outer span already holds the inner. A parked script
+# resuming into a later dispatch credits that dispatch — under-blame,
+# never invented time.
+keep desk_owned 0
+proc desk-owned {script} {
+    if {[info exists ::desk_owned_in]} { return [uplevel 1 $script] }
+    set ::desk_owned_in 1
+    set t0 [clock milliseconds]
+    try {
+        uplevel 1 $script
+    } finally {
+        unset ::desk_owned_in
+        incr ::desk_owned [expr {[clock milliseconds] - $t0}]
+    }
+}
+
 # Line buffering FIRST, before anything can have something to say. It
 # used to be set where the redirect was armed, which was fine while
 # every message before that point was a fatal one on its way to a
@@ -2262,7 +2288,9 @@ proc workarea-held {script} {
         uplevel 1 $script
     } finally {
         set ::wa_hold 0
-        publish-workarea
+        # the release's one publication — and the reflow it sets off —
+        # is the desk's own time, not the chord's (desk-owned above)
+        desk-owned { publish-workarea }
     }
 }
 proc publish-workarea {} {
@@ -5361,6 +5389,7 @@ proc handle-key {state kc time} {
         set ::key_invoke_mods $mods
         set ::key_invoke_sym [keysym-name $ks]
         set t0 [clock milliseconds]
+        set ::desk_owned 0
         # IN A COROUTINE, so a script that waits on something parks
         # instead of stopping the desk (run-script). The failure still
         # lands in the problem store under this chord's name — the log
@@ -5371,12 +5400,22 @@ proc handle-key {state kc time} {
         run-script "key $said" $payload
         # ...and HOW LONG it took, because a desk that stops answering
         # for three seconds is a defect whoever wrote the binding
-        # cannot see from the inside
+        # cannot see from the inside — MINUS the desk's own share
+        # (desk-owned): the threshold judges the binding's own time,
+        # and the desk's share is said beside the blame, not hidden.
         set held [expr {[clock milliseconds] - $t0}]
-        if {[info exists ::key_hold_warn] && $held >= $::key_hold_warn} {
-            problem-record "key $said" "this binding held the desk for\
- [format %.1f [expr {$held / 1000.0}]] s — nothing else was answered while\
- it ran (a launch wants `Run`, and a wait wants a coroutine)"
+        set owned [expr {min($held, $::desk_owned)}]
+        set blame [expr {$held - $owned}]
+        if {[info exists ::key_hold_warn] && $blame >= $::key_hold_warn} {
+            set msg "this binding held the desk for\
+ [format %.1f [expr {$blame / 1000.0}]] s"
+            if {$owned > 0} {
+                append msg " of its own (the desk's rebuild took\
+ [format %.1f [expr {$owned / 1000.0}]] s more)"
+            }
+            append msg " — nothing else was answered while it ran (a\
+ launch wants `Run`, and a wait wants a coroutine)"
+            problem-record "key $said" $msg
         }
     } else {
         set opened [expr {$::keyseq eq ""}]

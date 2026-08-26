@@ -157,7 +157,11 @@ proc reload-config {} {
     # they are, and the release builds them from the final word.
     workarea-held {
         panels-held {
-            policy-reset
+            # The desk-owned brackets carve the reload's accounting
+            # (see the bracket in substrate): the LAYERS' sourcing is
+            # the config's own time and stays blamed on the chord —
+            # the reset, the settling and the rebuilds are the desk's.
+            desk-owned { policy-reset }
             load-config
             # the floor the layers below leave — the only moment the
             # state without the custom layer actually exists, and so
@@ -168,7 +172,7 @@ proc reload-config {} {
             custom-homes
             custom-effect-judge
             tray-argb-default
-            policy-apply
+            desk-owned { policy-apply }
         }
         # The chrome transition the titles settler deferred under the
         # hold (a reload that moved set-title-air or set-border): the
@@ -177,7 +181,7 @@ proc reload-config {} {
         # runs judges every window from edges this has already
         # re-glued. See rechrome-settle for why the order carries the
         # whole design.
-        rechrome-settle
+        desk-owned { rechrome-settle }
     }
 }
 
