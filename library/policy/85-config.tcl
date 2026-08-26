@@ -19,6 +19,7 @@ set config_vars {
     monitors_override ndesks
     panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
     key_echo key_echo_place key_hold_warn KEY_ECHO_BAD KBMR_BG chord_hold
+    log_stamp log_mute
     last_started
     titlebar_buttons titlebar_gestures fade font_kin look_wishes
     widgets desk_window desk_background desk_background_said widget_gap
