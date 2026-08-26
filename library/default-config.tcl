@@ -201,6 +201,9 @@
 #   set-panel-preset stack       ;# row (default), stack, icons
 #   set-panel-icon-size 32       ;# default 48, the hicolor stock
 #   set-panel-live-colors #8ae234 #5d6e59   ;# the live-match bar and tint
+#   set-panel-toggle on          ;# a press on the focused window's own
+#                                ;# button iconifies it (press again to
+#                                ;# bring it back); off by default
 #
 # Where a bare icon NAME is searched (NAME.png, then NAME.svg, per
 # directory list — see the style section for what an icon value is):
@@ -690,11 +693,14 @@
 # with no live action stands by and surfaces when its action does.
 #
 # A button whose match sees a LIVE window says so (bar + face tint,
-# recolour with set-panel-live-colors); with matches it wears an
-# arrow strip — the whole strip clicks into the filtered window
-# list, most recent first; the body keeps the idempotent fire.
-# CTRL+CLICK anywhere on the button LAUNCHES ANOTHER, match or no
-# match — the same door the chooser's «run another» row opens.
+# recolour with set-panel-live-colors); the button whose window HOLDS
+# THE FOCUS is pressed in — the relief inverts and the face darkens a
+# step, no extra colour. With matches it wears an arrow strip — the
+# whole strip clicks into the filtered window list, most recent
+# first; the body keeps the idempotent fire. CTRL+CLICK anywhere on
+# the button LAUNCHES ANOTHER, match or no match — the same door the
+# chooser's «run another» row opens. Under `set-panel-toggle on` a
+# press on the pressed-in button iconifies its window (§1).
 #
 # The strip's shape knobs are in §1 (side, preset, icon size). While
 # no face resolves to an icon the strip is a thin text-chip row; the

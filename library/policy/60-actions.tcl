@@ -160,6 +160,7 @@ proc set-panel-icon-size {px} {
 }
 keep panel_live_bar  #8ae234  ;# the indicator strip
 keep panel_live_face #5d6e59  ;# the face tint under a live match
+keep panel_toggle 0  ;# 1: a press on the focused window's own button iconifies it
 proc set-panel-live-colors {bar face} {
     set ::panel_live_bar $bar
     set ::panel_live_face $face
@@ -508,6 +509,18 @@ proc action-fire {name {mode auto} {prefer ""}} {
         return
     }
     set hit [lindex $wins 0]
+    # TOGGLE is mru with one more word in it: a press that would only
+    # reach the window the focus already stands on means «put it away»
+    # — the taskbar's own grammar, opted into by set-panel-toggle (the
+    # owner's ask, 2026-08-26). Judged against the LIVING focus, not
+    # the strip's debounced state: the button's look may lag a beat,
+    # the deed must not.
+    if {$mode eq "toggle" && $hit ne "" && $hit == $::focused} {
+        puts "WM: action $name: focused already —\
+ iconifying 0x[format %x $hit]"
+        iconify-client $hit
+        return
+    }
     if {$hit ne ""} {
         action-reach $name $spec $hit
     } elseif {[dict exists $spec launch]} {
@@ -688,8 +701,9 @@ proc action-panels {name} {
 # new mouth. An inline emacs deed must say its frame name — it has no
 # name of its own to lend (the rule a declared action's name covers).
 proc Fire {what {mode auto}} {
-    if {$mode ni {auto mru choose run}} {
-        error "Fire: the mode is auto, mru, choose or run — not «$mode»"
+    if {$mode ni {auto mru choose run toggle}} {
+        error "Fire: the mode is auto, mru, choose, run or toggle —\
+ not «$mode»"
     }
     if {[llength $what] == 1} {
         action-fire $what $mode

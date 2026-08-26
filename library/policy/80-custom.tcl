@@ -459,6 +459,9 @@ knob set-panel-preset {var {} settle {panels} group panel kind {choice row stack
 knob set-panel-icon-size {var {} settle {panels} group panel kind {int 1}
                       get {panel-cfg default icon_size}
                       doc {the button face size when any face is iconic}}
+knob set-panel-toggle {var {panel_toggle} settle {} group panel kind bool
+                      get {expr {$::panel_toggle ? "on" : "off"}}
+                      doc {a press on the focused window's own button iconifies it}}
 knob set-icon-path   {var {icon_path} settle {} group panel kind {list directories} get {set ::icon_path}
                       doc {directories bare icon names are searched in}}
 knob set-chord-hold  {var {chord_hold} settle {keys} group keys kind bool

@@ -798,7 +798,8 @@ proc panel-matches {label settings} {
 # Re-judge every button's match against the living windows and set
 # the persistent states. Kicked (debounced — one manage can cascade
 # a burst of property traffic) from the policy hooks: manage,
-# unmanage, title change; run straight at the end of every rebuild.
+# unmanage, title change, focus move; run straight at the end of
+# every rebuild.
 keep panel_reeval_pending ""
 proc panel-match-kick {} {
     if {![llength [panel-all-buttons]]} return
@@ -812,10 +813,13 @@ proc panel-reeval {} {
         if {$T eq ""} continue
         if {![info exists ::panel_items($name)]
                 || ![dict exists $::panel_items($name) $aname]} continue
-        set n [llength [panel-matches $label $settings]]
+        set wins [panel-matches $label $settings]
+        set n [llength $wins]
         $T item state set [dict get $::panel_items($name) $aname] \
             [list [expr {$n >= 1 ? "live" : "!live"}] \
-                  [expr {$n >= 2 ? "multi" : "!multi"}]]
+                  [expr {$n >= 2 ? "multi" : "!multi"}] \
+                  [expr {$::focused != 0 && $::focused in $wins \
+                         ? "focused" : "!focused"}]]
     }
 }
 # Everything the strip's shape depends on, decided in one place: the
@@ -1167,12 +1171,28 @@ proc panel-build {name idx} {
     $T state define firing   ;# the flash: launching the command
     $T state define live     ;# persistent: the match sees a window
     $T state define multi    ;# persistent: ... more than one
+    $T state define focused  ;# persistent: ... and one holds the focus
     $T column create -tags C0
     if {$vert} { $T column configure C0 -width [expr {$thick - 2}] }
     $T element create eFace rect \
         -fill [list [themed found] found [themed firing] firing \
-                    $::panel_live_face live [themed raised] {}] \
-        -outline [themed rule] -outlinewidth 1
+                    [themed pressed] focused $::panel_live_face live \
+                    [themed raised] {}]
+    # THE RELIEF, in two rects. A raised face is lit from the
+    # north-west and shadowed to the south-east; the pressed face —
+    # the button whose window holds the focus — wears the two the
+    # other way around, and the eye reads the push-in for free. One
+    # rect cannot say it: an outline is one colour at a time and a
+    # bevel is two at once, so each half-frame is its own element,
+    # -open naming the edges it leaves undrawn, and the focused state
+    # swaps their paints in place. Relief and not a fifth colour on
+    # the face: the strip's palette is loaded enough already (the
+    # owner, 2026-08-26). The old flat rule outline went with it —
+    # the bevel IS the button's border now.
+    $T element create eBevHi rect -open es -outlinewidth 1 \
+        -outline [list [themed shade] focused [themed shine] {}]
+    $T element create eBevLo rect -open wn -outlinewidth 1 \
+        -outline [list [themed shine] focused [themed shade] {}]
     $T element create eBIcon image
     $T element create ePRect rect
     $T element create ePTxt text -fill white -lines 1 -font $bfont
@@ -1352,15 +1372,21 @@ proc panel-build {name idx} {
             }
         }
     }
-    # The live furniture rides every style: the indicator bar along
-    # the bottom edge, and — in a zoned panel — the arrow furniture
-    # inside the reserved east strip: a separator line and the glyph,
-    # both drawn only when the arrow is armed (multi). The whole
-    # strip, not the glyph, is the click target — see panel-click.
+    # The live furniture rides every style: the relief pair over the
+    # face's own edges, the indicator bar along the bottom edge, and —
+    # in a zoned panel — the arrow furniture inside the reserved east
+    # strip: a separator line and the glyph, both drawn only when the
+    # arrow is armed (multi). The whole strip, not the glyph, is the
+    # click target — see panel-click.
     foreach s [$T style names] {
-        set els [concat [$T style elements $s] {eLive}]
+        set els [concat [$T style elements $s] {eBevHi eBevLo eLive}]
         if {$zone} { lappend els eSep eArrow }
         $T style elements $s $els
+        # the bevel's box IS the face's box: a union over the face
+        # itself, no padding of its own — wherever a preset puts the
+        # face, the relief is already there
+        $T style layout $s eBevHi -union eFace
+        $T style layout $s eBevLo -union eFace
         if {$vert} {
             # In a column the item's bottom edge is the NEXT button's
             # doorstep, and a full-width bar drawn there reads as that
@@ -1631,8 +1657,10 @@ proc panel-click {name x y {state 0}} {
     # both answers on its face, and the deed's `many` is the word for
     # the keyboard, which has no face to wear them on (the owner,
     # 2026-08-03). Asking for `mru` outright, rather than letting the
-    # press mean «auto», is what keeps that true.
-    action-fire $aname mru
+    # press mean «auto», is what keeps that true. Under the toggle
+    # knob the same press asks `toggle`: mru with one more word about
+    # the window that already holds the focus (see action-fire).
+    action-fire $aname [expr {$::panel_toggle ? "toggle" : "mru"}]
 }
 # The strips' place in the world is their LAYER (LAYER_DOCK), declared
 # once when each is built. This name survives as the sentence the rest

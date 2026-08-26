@@ -1263,6 +1263,12 @@ proc policy-paint-focus {w} {
     foreach {ww tt} [array get ::frameof] {
         frame-recolor $tt [frame-focus-color $ww]
     }
+    # ...and the strips' own focus furniture: the pressed button
+    # follows the focus, through the same debounced re-judging as the
+    # rest of the panel states (65-registry). A park sets no state of
+    # its own — the next honest focus (or the iconify kick that led to
+    # the park) re-judges soon enough.
+    panel-match-kick
     # The top layer belongs to the ACTIVE fullscreen window, so it has
     # to be re-judged whenever the focus moves — and the focus moves
     # without any raise of ours often enough to matter: a window

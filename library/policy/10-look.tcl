@@ -455,6 +455,14 @@ proc look-of {w} {
 # still comfortable on it, because a menu row draws its text in that
 # ink whether it is selected or not.
 #
+# `shine` and `shade` are the two halves of the panel buttons' relief:
+# the lit north-west edge and the shadowed south-east one. RELIEF and
+# not another colour on purpose (the owner, 2026-08-26: the strip's
+# colours are loaded enough already) — a raised button and the pressed
+# one differ by which edge wears which. `pressed` is the pushed-in
+# face itself: the live tint gone a step darker — the same family
+# saying the same thing, a step harder.
+#
 # What ISN'T here: a hierarchy of colours ("this one, only 10% greener"
 # — the owner's next step, deliberately left out). Every role is stated
 # outright, twenty lines a theme, and a table one can read is worth
@@ -468,6 +476,7 @@ keep theme_palette {
         found   #4e9a06   firing  #ce5c00   live    #5d6e59   livebar #8ae234
         bad     #a40000   curb    #888a85
         field   #22272a   link    #8ab4f8   select  #204a87   trough  #3a4144
+        shine   #7d817e   shade   #1a1e20   pressed #4a5748
     }
     light {
         ground  #f2f1ef   raised  #e4e2de   ink     #1c1c1c   dim     #555753
@@ -476,6 +485,7 @@ keep theme_palette {
         found   #4e9a06   firing  #ce5c00   live    #b8d39a   livebar #4e9a06
         bad     #a40000   curb    #2e3436
         field   #ffffff   link    #1a4a8a   select  #a3c4ea   trough  #e4e2de
+        shine   #ffffff   shade   #a29d94   pressed #a2c184
     }
 }
 # The titlebars stay DARK in both themes — the focus blue and a grey

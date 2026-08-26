@@ -17,7 +17,8 @@ set config_vars {
     border gripz titleair btngap OUTLINE titlejust winlist_cycle_opt icon_path
     style_rules minimize maximize workarea_follow panels panel_target
     monitors_override ndesks
-    panel_live_bar panel_live_face drag_mods drag_slop edge_resist root_cursor
+    panel_live_bar panel_live_face panel_toggle drag_mods drag_slop
+    edge_resist root_cursor
     key_echo key_echo_place key_hold_warn KEY_ECHO_BAD KBMR_BG chord_hold
     log_stamp log_mute
     last_started
